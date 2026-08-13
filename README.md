@@ -124,21 +124,6 @@ Utilizado inicialmente para administrar los servicios locales, principalmente Po
 
 ---
 
-## Testing
-
-### Vitest
-
-Utilizado para pruebas del frontend.
-
-### Jest
-
-Utilizado para pruebas del backend.
-
-### Playwright
-
-Utilizado para pruebas End-to-End de la aplicación completa.
-
----
 
 ## Calidad de código
 
@@ -148,31 +133,11 @@ Utilizado para detectar errores y mantener reglas de código consistentes.
 
 ### Prettier
 
-Utilizado para mantener un formato de código uniforme entre todos los integrantes.
-
+Utilizado para mantener un formato de código uniforme entre todos 
 ---
 
 ## CI
 
-### GitHub Actions
-
-Utilizado para automatizar las verificaciones del proyecto.
-
-Cada Pull Request deberá pasar por procesos como:
-
-```text
-Install
-   ↓
-Lint
-   ↓
-Tests
-   ↓
-Build
-```
-
-Una Pull Request que no supere estas verificaciones no deberá integrarse.
-
----
 
 ## Documentación de API
 
@@ -231,7 +196,7 @@ project/
 └── README.md
 ```
 
-La estructura podrá modificarse a medida que el proyecto crezca.
+La estructura se modificara a medida que el proyecto crezca.
 
 ---
 
@@ -291,45 +256,10 @@ Contendrá la integración del desarrollo actual.
 
 Utilizada para desarrollar nuevas funcionalidades.
 
-Ejemplos:
-
-```text
-feature/product-search
-feature/product-comparison
-feature/authentication
-feature/service-search
-```
-
-## `fix/*`
-
-Utilizada para solucionar errores.
-
-Ejemplos:
-
-```text
-fix/product-price
-fix/login-error
-fix/search-filter
-```
-
----
-
 # 💬 Convención de commits
 
-Los commits deberán utilizar una estructura clara.
+Los commits deberán utilizar una estructura clara explicando el motivo de la implementacion.
 
-Ejemplos:
-
-```text
-feat: agregar buscador de productos
-fix: corregir filtro de precio
-refactor: reorganizar ProductService
-test: agregar pruebas de búsqueda
-docs: actualizar documentación
-chore: actualizar dependencias
-```
-
----
 
 # 🔍 Pull Requests
 
@@ -349,7 +279,7 @@ Una Pull Request deberá:
 
 El desarrollador que implementó una funcionalidad **no deberá aprobar su propia Pull Request**.
 
-El código deberá ser revisado por al menos otro integrante.
+El código deberá ser revisado por al menos otros integrante.
 
 ---
 
@@ -372,50 +302,6 @@ Una tarea podrá considerarse terminada cuando:
 
 ---
 
-# 🧪 Testing
-
-El proyecto utilizará diferentes niveles de pruebas.
-
-## Unit Testing
-
-Para comprobar unidades individuales de código.
-
-```text
-Service
-Controller
-Utils
-Components
-```
-
-## Integration Testing
-
-Para comprobar la comunicación entre componentes.
-
-```text
-API
- ↓
-Service
- ↓
-Database
-```
-
-## End-to-End
-
-Para comprobar el funcionamiento completo desde la perspectiva del usuario.
-
-```text
-Browser
-   ↓
-Frontend
-   ↓
-API
-   ↓
-Backend
-   ↓
-Database
-```
-
----
 
 # 🔐 Variables de entorno
 
@@ -461,7 +347,7 @@ Antes de comenzar se deberá contar con:
 
 ---
 
-## Clonar el repositorio
+## Clonar el repositorio (por crear)
 
 ```bash
 git clone <REPOSITORY_URL>
@@ -469,29 +355,6 @@ cd <PROJECT_NAME>
 ```
 
 ---
-
-## Configurar variables de entorno
-
-Crear el archivo:
-
-```bash
-cp .env.example .env
-```
-
-Configurar las variables necesarias.
-
----
-
-## Levantar infraestructura
-
-```bash
-docker compose up -d
-```
-
-Esto levantará los servicios necesarios para el entorno de desarrollo.
-
----
-
 ## Instalar dependencias
 
 Frontend:
@@ -530,47 +393,13 @@ npm run dev
 
 ---
 
-# 📚 Documentación de API
-
-Una vez ejecutado el backend, la documentación de Swagger estará disponible en:
-
-```text
-/api/docs
-```
-
-La URL exacta dependerá de la configuración del entorno.
-
----
 
 # 📋 Gestión del proyecto
 
 La gestión del proyecto se realizará mediante Trello.
+El creacion de funciones y seguir la estructura de carpetas debe d ser documentado
 
-Flujo principal:
 
-```text
-PRODUCT BACKLOG
-       ↓
-NEXT SPRINT
-       ↓
-WORKS
-       ↓
-CODE REVIEW
-       ↓
-TEST
-       ↓
-DONE
-```
-
-También se utilizarán espacios para:
-
-* Sprint Backlog.
-* Fechas de Sprint.
-* Changelog / Dev.
-* Documentación.
-* Tareas bloqueadas.
-
----
 
 # 👥 Equipo
 
@@ -582,35 +411,8 @@ La asignación de tareas se realizará mediante Trello.
 
 ---
 
-# 📈 Escalabilidad
+# 📈 Escalabilidad (por ver)
 
-La arquitectura inicial prioriza la simplicidad y mantenibilidad.
-
-No se incorporarán tecnologías adicionales sin una necesidad técnica concreta.
-
-Inicialmente:
-
-```text
-React
-   ↓
-NestJS
-   ↓
-PostgreSQL
-```
-
-En caso de que el crecimiento del sistema genere nuevas necesidades, podrán evaluarse posteriormente tecnologías como:
-
-```text
-Redis
-Search Engine
-CDN
-Load Balancer
-Microservices
-```
-
-Estas tecnologías no forman parte de la arquitectura inicial.
-
----
 
 # 🚫 Tecnologías excluidas
 
@@ -622,20 +424,6 @@ Java
 ```
 
 No forman parte del stack.
-
-Además, no se utilizarán inicialmente tecnologías como:
-
-```text
-MongoDB
-GraphQL
-Redis
-Elasticsearch / OpenSearch
-Kubernetes
-Microservices
-```
-
-La incorporación de estas tecnologías podrá evaluarse posteriormente si existe una necesidad real.
-
 ---
 
 # 🎯 Estado del proyecto
@@ -658,7 +446,3 @@ Actualmente el proyecto se encuentra en fase de planificación y configuración 
 ```
 
 ---
-
-# 📄 Licencia
-
-La licencia del proyecto será definida posteriormente de acuerdo con los requerimientos académicos y de distribución del proyecto.
