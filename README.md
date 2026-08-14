@@ -68,6 +68,13 @@ Utilizado para mantener tipado estático y mejorar la mantenibilidad del proyect
 
 Utilizado como herramienta de desarrollo y build del frontend debido a su rapidez y configuración sencilla.
 
+
+Instlacion :
+  Primero instalar Node.JS 
+https://nodejs.org/es
+
+  Una ves instalado correr DENTRO DE LA CARPETA FRONTED *(npm install)*,  en caso de que no responda el comando una ves instalado Node , reiniciar equipo y verificar nuevamente con el mismo comando.
+  luego ingresar *(npm run dev)* y aparecerá el link de local host en la terminal para poder abrirlo ingresar *(CTRL + clik izquierdo)*
 ---
 
 ## Backend
