@@ -196,6 +196,10 @@ project/
 └── README.md
 ```
 
+#IMPORTANTE
+DOCS : tendrá que integrar una estructura similar a foonted y backend guardando diferenciado por documentos que poseen la DOCUMENTACION nesesaria apra la comprencion del el PQ y PARA Q de la funcion a realisa y si depende o dependen otras de esta.
+#IMPORTANTE
+
 La estructura se modificara a medida que el proyecto crezca.
 
 ---
