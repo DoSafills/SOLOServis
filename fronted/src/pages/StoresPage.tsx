@@ -1,5 +1,5 @@
 import type { Page } from '../types'
-import { stores, products, formatPrice, getMinPrice } from '../data/mockData'
+import { stores, products } from '../data/mockData'
 import { Badge, Breadcrumb, Rating } from '../components/ui'
 import ProductCard from '../components/ProductCard'
 
