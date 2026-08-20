@@ -7,7 +7,7 @@ interface Props {
   favCount: number
 }
 
-export default function Header({ navigate, currentPage, favCount }: Props) {
+export default function Header({ navigate, favCount }: Props) {
   const [query, setQuery] = useState('')
   const [mobileOpen, setMobileOpen] = useState(false)
 
