@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Page } from '../types'
-import { products, getMinPrice } from '../data/mockData'
+import { products, formatPrice, getMinPrice } from '../data/mockData'
 import ProductCard from '../components/ProductCard'
 import { Breadcrumb, EmptyState, Pagination } from '../components/ui'
 
@@ -49,17 +49,13 @@ export default function SearchResultsPage({ query, navigate, favorites, compareL
   const toggleBrand = (brand: string) => {
     setSelectedBrands((prev) => {
       const next = new Set(prev)
-      if (next.has(brand)) {
-        next.delete(brand)
-      } else {
-        next.add(brand)
-      }
+      next.has(brand) ? next.delete(brand) : next.add(brand)
       return next
     })
     setPage(1)
   }
 
-  const renderFilters = () => (
+  const FiltersContent = () => (
     <div className="space-y-6">
       {/* Category */}
       <div>
@@ -186,7 +182,7 @@ export default function SearchResultsPage({ query, navigate, favorites, compareL
           className="hidden lg:block w-56 shrink-0 rounded-2xl p-5 self-start sticky top-24"
         >
           <h3 className="text-sm font-semibold text-text mb-5">Filtros</h3>
-          {renderFilters()}
+          <FiltersContent />
         </aside>
 
         {/* Mobile filter modal */}
@@ -203,7 +199,7 @@ export default function SearchResultsPage({ query, navigate, favorites, compareL
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
                 </button>
               </div>
-              {renderFilters()}
+              <FiltersContent />
             </div>
           </div>
         )}
