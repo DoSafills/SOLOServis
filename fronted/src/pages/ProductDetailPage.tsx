@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Page } from '../types'
-import { products, formatPrice, getMinPrice } from '../data/mockData'
+import { products, formatPrice } from '../data/mockData'
 import { Badge, Breadcrumb, FavoriteButton, Rating } from '../components/ui'
 import PriceHistory from '../components/PriceHistory'
 

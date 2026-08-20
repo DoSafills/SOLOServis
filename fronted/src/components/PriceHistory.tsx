@@ -17,6 +17,29 @@ interface Props {
   currentOfferPrice?: number
 }
 
+function CustomTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean
+  payload?: Array<{ value: number }>
+  label?: string
+}) {
+  if (active && payload && payload.length) {
+    return (
+      <div
+        style={{ background: '#1A1A1A', border: '1px solid #2A2A2A' }}
+        className="px-3 py-2 rounded-xl"
+      >
+        <p className="text-xs text-muted mb-1">{label}</p>
+        <p className="price text-sm font-semibold text-prime">{formatPrice(payload[0].value)}</p>
+      </div>
+    )
+  }
+  return null
+}
+
 export default function PriceHistory({ history, offerHistory, currentOfferPrice }: Props) {
   const [range, setRange] = useState(90)
   const [mode, setMode] = useState<'price' | 'offer'>('price')
@@ -33,29 +56,6 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
   const minPrice = prices.length ? Math.min(...prices) : 0
   const maxPrice = prices.length ? Math.max(...prices) : 0
   const currentPrice = activeData.length ? activeData[activeData.length - 1].price : 0
-
-  const CustomTooltip = ({
-    active,
-    payload,
-    label,
-  }: {
-    active?: boolean
-    payload?: Array<{ value: number }>
-    label?: string
-  }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div
-          style={{ background: '#1A1A1A', border: '1px solid #2A2A2A' }}
-          className="px-3 py-2 rounded-xl"
-        >
-          <p className="text-xs text-muted mb-1">{label}</p>
-          <p className="price text-sm font-semibold text-prime">{formatPrice(payload[0].value)}</p>
-        </div>
-      )
-    }
-    return null
-  }
 
   return (
     <div style={{ background: '#111111', border: '1px solid #2A2A2A' }} className="rounded-2xl p-6">
