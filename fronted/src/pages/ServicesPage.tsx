@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Page } from '../types'
-import { services } from '../data/mockData'
+import { services, formatPrice } from '../data/mockData'
 import ServiceCard from '../components/ServiceCard'
 import { Breadcrumb, EmptyState } from '../components/ui'
 
@@ -35,11 +35,7 @@ export default function ServicesPage({ query, navigate, favorites, compareList, 
   const toggleCat = (cat: string) => {
     setSelectedCats((prev) => {
       const next = new Set(prev)
-      if (next.has(cat)) {
-        next.delete(cat)
-      } else {
-        next.add(cat)
-      }
+      next.has(cat) ? next.delete(cat) : next.add(cat)
       return next
     })
   }
