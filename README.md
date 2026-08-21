@@ -361,8 +361,8 @@ Antes de comenzar se deberá contar con:
 ## Clonar el repositorio (por crear)
 
 ```bash
-git clone <REPOSITORY_URL>
-cd <PROJECT_NAME>
+git clone <https://github.com/DoSafills/SOLOServis.git>
+cd <SOLOServis>
 ```
 
 ---
