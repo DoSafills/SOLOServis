@@ -27,6 +27,27 @@ La arquitectura estará diseñada para permitir incorporar nuevas categorías y 
 
 El sistema utilizará una arquitectura separada por capas:
 
+| Área                       | Tecnología                  |
+| -------------------------- | --------------------------- |
+| Frontend                   | React                       |
+| Lenguaje Frontend          | TypeScript                  |
+| Build Tool                 | Vite                        |
+| Gestión de consultas       | TanStack Query              |
+| Backend                    | Go                          |
+| Router HTTP                | Chi                         |
+| Base de datos              | PostgreSQL                  |
+| Driver PostgreSQL          | pgx                         |
+| Generación de código SQL   | sqlc                        |
+| Caché                      | Redis                       |
+| Scraping                   | Python                      |
+| Framework de scraping      | Scrapy                      |
+| Automatización web         | Playwright                  |
+| Procesamiento de datos     | Go Workers                  |
+| Almacenamiento RAW inicial | JSONL                       |
+| Contenedores               | Docker                      |
+| Orquestación local         | Docker Compose              |
+| IA/NLP                     | Pendiente de implementación |
+
 ```text
 ┌─────────────────────────────────────┐
 │              FRONTEND               │
@@ -37,7 +58,7 @@ El sistema utilizará una arquitectura separada por capas:
                    ▼
 ┌─────────────────────────────────────┐
 │               BACKEND               │
-│       Node.js + NestJS + TypeScript │
+│  GO- CHi - redis - python- Dockers│
 └──────────────────┬──────────────────┘
                    │
                    │ Prisma
