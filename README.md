@@ -69,12 +69,18 @@ Utilizado para mantener tipado estático y mejorar la mantenibilidad del proyect
 Utilizado como herramienta de desarrollo y build del frontend debido a su rapidez y configuración sencilla.
 
 
-Instlacion :
-  Primero instalar Node.JS 
+Instalación:
+  Primero instalar Node.JS
 https://nodejs.org/es
 
-  Una ves instalado correr DENTRO DE LA CARPETA FRONTED *(npm install)*,  en caso de que no responda el comando una ves instalado Node , reiniciar equipo y verificar nuevamente con el mismo comando.
-  luego ingresar *(npm run dev)* y aparecerá el link de local host en la terminal para poder abrirlo ingresar *(CTRL + clik izquierdo)*
+  Luego instalar pnpm (gestor de paquetes obligatorio del proyecto, no se admite npm ni yarn):
+```bash
+corepack enable
+corepack prepare pnpm@latest --activate
+```
+
+  Una vez instalado, correr DENTRO DE LA CARPETA FRONTEND *(pnpm install)*. Si el comando no responde luego de instalar Node, reiniciar el equipo y verificar nuevamente.
+  Luego ingresar *(pnpm dev)* y aparecerá el link de localhost en la terminal para poder abrirlo (CTRL + click izquierdo).
 ---
 
 ## Backend
@@ -204,7 +210,7 @@ project/
 ```
 
 #IMPORTANTE
-DOCS : tendrá que integrar una estructura similar a foonted y backend guardando diferenciado por documentos que poseen la DOCUMENTACION nesesaria apra la comprencion del el PQ y PARA Q de la funcion a realisa y si depende o dependen otras de esta.
+DOCS : tendrá que integrar una estructura similar a frontend y backend guardando diferenciado por documentos que poseen la DOCUMENTACION nesesaria apra la comprencion del el PQ y PARA Q de la funcion a realisa y si depende o dependen otras de esta.
 #IMPORTANTE
 
 La estructura se modificara a medida que el proyecto crezca.
@@ -352,7 +358,7 @@ Antes de comenzar se deberá contar con:
 
 * Git
 * Node.js
-* npm
+* pnpm (no se admite npm ni yarn — el proyecto lo bloquea explícitamente vía `preinstall`)
 * Docker
 * Docker Compose
 
@@ -372,14 +378,14 @@ Frontend:
 
 ```bash
 cd frontend
-npm install
+pnpm install
 ```
 
 Backend:
 
 ```bash
 cd ../backend
-npm install
+pnpm install
 ```
 
 ---
@@ -388,7 +394,7 @@ npm install
 
 ```bash
 cd backend
-npm run start:dev
+pnpm run start:dev
 ```
 
 ---
@@ -399,7 +405,7 @@ En otra terminal:
 
 ```bash
 cd frontend
-npm run dev
+pnpm run dev
 ```
 
 ---
