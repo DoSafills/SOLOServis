@@ -27,6 +27,27 @@ La arquitectura estará diseñada para permitir incorporar nuevas categorías y 
 
 El sistema utilizará una arquitectura separada por capas:
 
+| Área                       | Tecnología                  |
+| -------------------------- | --------------------------- |
+| Frontend                   | React                       |
+| Lenguaje Frontend          | TypeScript                  |
+| Build Tool                 | Vite                        |
+| Gestión de consultas       | TanStack Query              |
+| Backend                    | Go                          |
+| Router HTTP                | Chi                         |
+| Base de datos              | PostgreSQL                  |
+| Driver PostgreSQL          | pgx                         |
+| Generación de código SQL   | sqlc                        |
+| Caché                      | Redis                       |
+| Scraping                   | Python                      |
+| Framework de scraping      | Scrapy                      |
+| Automatización web         | Playwright                  |
+| Procesamiento de datos     | Go Workers                  |
+| Almacenamiento RAW inicial | JSONL                       |
+| Contenedores               | Docker                      |
+| Orquestación local         | Docker Compose              |
+| IA/NLP                     | Pendiente de implementación |
+
 ```text
 ┌─────────────────────────────────────┐
 │              FRONTEND               │
@@ -37,7 +58,7 @@ El sistema utilizará una arquitectura separada por capas:
                    ▼
 ┌─────────────────────────────────────┐
 │               BACKEND               │
-│       Node.js + NestJS + TypeScript │
+│  GO- CHi - redis - python- Dockers│
 └──────────────────┬──────────────────┘
                    │
                    │ Prisma
@@ -68,6 +89,13 @@ Utilizado para mantener tipado estático y mejorar la mantenibilidad del proyect
 
 Utilizado como herramienta de desarrollo y build del frontend debido a su rapidez y configuración sencilla.
 
+
+Instlacion :
+  Primero instalar Node.JS 
+https://nodejs.org/es
+
+  Una ves instalado correr DENTRO DE LA CARPETA FRONTED *(npm install)*,  en caso de que no responda el comando una ves instalado Node , reiniciar equipo y verificar nuevamente con el mismo comando.
+  luego ingresar *(npm run dev)* y aparecerá el link de local host en la terminal para poder abrirlo ingresar *(CTRL + clik izquierdo)*
 ---
 
 ## Backend
@@ -195,6 +223,10 @@ project/
 ├── .gitignore
 └── README.md
 ```
+
+#IMPORTANTE
+DOCS : tendrá que integrar una estructura similar a foonted y backend guardando diferenciado por documentos que poseen la DOCUMENTACION nesesaria apra la comprencion del el PQ y PARA Q de la funcion a realisa y si depende o dependen otras de esta.
+#IMPORTANTE
 
 La estructura se modificara a medida que el proyecto crezca.
 
