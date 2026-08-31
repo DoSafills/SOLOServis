@@ -1,0 +1,31 @@
+{
+  "name": "soloservis-tooling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Herramientas de git (husky, lint-staged) compartidas por backend y frontend",
+  "license": "UNLICENSED",
+  "type": "module",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11.22.0",
+      "onFail": "download"
+    }
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^17.3.0"
+  },
+  "lint-staged": {
+    "backend/**/*.ts": [
+      "pnpm --dir backend exec prettier --write",
+      "pnpm --dir backend exec eslint --fix"
+    ],
+    "frontend/src/**/*.{ts,tsx}": [
+      "pnpm --dir frontend exec oxfmt"
+    ]
+  },
+  "scripts": {
+    "prepare": "husky"
+  }
+}
