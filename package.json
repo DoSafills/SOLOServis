@@ -22,7 +22,8 @@
       "pnpm --dir backend exec eslint --fix"
     ],
     "frontend/src/**/*.{ts,tsx}": [
-      "pnpm --dir frontend exec oxfmt"
+      "pnpm --dir frontend exec oxfmt",
+      "pnpm --dir frontend exec eslint --fix"
     ]
   },
   "scripts": {
