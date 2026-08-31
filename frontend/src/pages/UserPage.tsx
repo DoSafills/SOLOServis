@@ -13,7 +13,11 @@ type Tab = "profile" | "favorites" | "history" | "watched" | "settings"
 export default function UserPage({ navigate, favorites }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("profile")
 
-  const tabs: { id: Tab label: string icon: React.ReactNode }[] = [
+  const tabs: {
+    id: Tab
+    label: string
+    icon: React.ReactNode
+  }[] = [
     {
       id: "profile",
       label: "Perfil",
