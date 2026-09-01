@@ -27,27 +27,6 @@ La arquitectura estará diseñada para permitir incorporar nuevas categorías y 
 
 El sistema utilizará una arquitectura separada por capas:
 
-| Área                       | Tecnología                  |
-| -------------------------- | --------------------------- |
-| Frontend                   | React                       |
-| Lenguaje Frontend          | TypeScript                  |
-| Build Tool                 | Vite                        |
-| Gestión de consultas       | TanStack Query              |
-| Backend                    | Go                          |
-| Router HTTP                | Chi                         |
-| Base de datos              | PostgreSQL                  |
-| Driver PostgreSQL          | pgx                         |
-| Generación de código SQL   | sqlc                        |
-| Caché                      | Redis                       |
-| Scraping                   | Python                      |
-| Framework de scraping      | Scrapy                      |
-| Automatización web         | Playwright                  |
-| Procesamiento de datos     | Go Workers                  |
-| Almacenamiento RAW inicial | JSONL                       |
-| Contenedores               | Docker                      |
-| Orquestación local         | Docker Compose              |
-| IA/NLP                     | Pendiente de implementación |
-
 ```text
 ┌─────────────────────────────────────┐
 │              FRONTEND               │
@@ -58,7 +37,7 @@ El sistema utilizará una arquitectura separada por capas:
                    ▼
 ┌─────────────────────────────────────┐
 │               BACKEND               │
-│  GO- CHi - redis - python- Dockers│
+│       Node.js + NestJS + TypeScript │
 └──────────────────┬──────────────────┘
                    │
                    │ Prisma
@@ -382,8 +361,8 @@ Antes de comenzar se deberá contar con:
 ## Clonar el repositorio (por crear)
 
 ```bash
-git clone <REPOSITORY_URL>
-cd <PROJECT_NAME>
+git clone <https://github.com/DoSafills/SOLOServis.git>
+cd <SOLOServis>
 ```
 
 ---
