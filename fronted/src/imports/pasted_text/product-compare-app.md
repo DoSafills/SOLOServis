@@ -19,13 +19,13 @@ El objetivo principal de la aplicación es que un usuario pueda:
 
 La interfaz debe priorizar:
 
-* Búsqueda.
-* Comparación.
-* Precio.
-* Disponibilidad.
-* Tienda/proveedor.
-* Características.
-* Facilidad de navegación.
+- Búsqueda.
+- Comparación.
+- Precio.
+- Disponibilidad.
+- Tienda/proveedor.
+- Características.
+- Facilidad de navegación.
 
 ---
 
@@ -33,13 +33,13 @@ La interfaz debe priorizar:
 
 Crear una interfaz:
 
-* Moderna.
-* Minimalista.
-* Profesional.
-* Limpia.
-* Tecnológica.
-* Fácil de utilizar.
-* Orientada a comparación de información.
+- Moderna.
+- Minimalista.
+- Profesional.
+- Limpia.
+- Tecnológica.
+- Fácil de utilizar.
+- Orientada a comparación de información.
 
 Evitar un diseño excesivamente corporativo.
 
@@ -49,22 +49,22 @@ Utilizar una jerarquía visual clara y suficiente espacio en blanco.
 
 La interfaz debe funcionar correctamente en:
 
-* Desktop.
-* Tablet.
-* Mobile.
+- Desktop.
+- Tablet.
+- Mobile.
 
 Usar un sistema de diseño consistente para:
 
-* Colores.
-* Tipografías.
-* Botones.
-* Cards.
-* Inputs.
-* Badges.
-* Tablas.
-* Filtros.
-* Estados.
-* Iconografía.
+- Colores.
+- Tipografías.
+- Botones.
+- Cards.
+- Inputs.
+- Badges.
+- Tablas.
+- Filtros.
+- Estados.
+- Iconografía.
 
 ---
 
@@ -74,12 +74,12 @@ Diseña una página de inicio completa.
 
 La sección superior debe contener:
 
-* Logo de la plataforma.
-* Barra de búsqueda grande.
-* Botón/icono de búsqueda.
-* Navegación.
-* Acceso a favoritos.
-* Acceso a usuario.
+- Logo de la plataforma.
+- Barra de búsqueda grande.
+- Botón/icono de búsqueda.
+- Navegación.
+- Acceso a favoritos.
+- Acceso a usuario.
 
 La barra de búsqueda debe ser el elemento visual más importante de la página.
 
@@ -93,21 +93,21 @@ Ejemplo:
 
 Productos:
 
-* Tecnología
-* Computación
-* Celulares
-* Electrodomésticos
-* Gaming
-* Hogar
+- Tecnología
+- Computación
+- Celulares
+- Electrodomésticos
+- Gaming
+- Hogar
 
 Servicios:
 
-* Internet
-* Telefonía
-* Streaming
-* Seguros
-* Servicios técnicos
-* Educación
+- Internet
+- Telefonía
+- Streaming
+- Seguros
+- Servicios técnicos
+- Educación
 
 ---
 
@@ -155,26 +155,26 @@ Características
 
 Ordenar por:
 
-* Relevancia
-* Precio menor
-* Precio mayor
-* Mejor valoración
+- Relevancia
+- Precio menor
+- Precio mayor
+- Mejor valoración
 
 Mostrar los productos mediante cards.
 
 Cada card debe mostrar:
 
-* Imagen.
-* Nombre.
-* Marca.
-* Características principales.
-* Precio mínimo encontrado.
-* Tienda con el precio mostrado.
-* Cantidad de tiendas disponibles.
-* Estado de disponibilidad.
-* Botón "Comparar".
-* Botón "Ver producto".
-* Icono de favorito.
+- Imagen.
+- Nombre.
+- Marca.
+- Características principales.
+- Precio mínimo encontrado.
+- Tienda con el precio mostrado.
+- Cantidad de tiendas disponibles.
+- Estado de disponibilidad.
+- Botón "Comparar".
+- Botón "Ver producto".
+- Icono de favorito.
 
 Ejemplo:
 
@@ -219,22 +219,22 @@ Mostrar una tabla comparativa.
 
 Columnas:
 
-* Característica.
-* Producto A.
-* Producto B.
-* Producto C.
+- Característica.
+- Producto A.
+- Producto B.
+- Producto C.
 
 Filas:
 
-* Precio.
-* Marca.
-* Modelo.
-* VRAM.
-* Tipo de memoria.
-* Consumo.
-* Dimensiones.
-* Garantía.
-* Valoración.
+- Precio.
+- Marca.
+- Modelo.
+- VRAM.
+- Tipo de memoria.
+- Consumo.
+- Dimensiones.
+- Garantía.
+- Valoración.
 
 Destacar visualmente los valores más favorables cuando corresponda.
 
@@ -250,16 +250,16 @@ Ejemplo:
 
 La página debe contener:
 
-* Imagen principal.
-* Galería de imágenes.
-* Nombre.
-* Marca.
-* Modelo.
-* Valoración.
-* Descripción.
-* Características.
-* Especificaciones técnicas.
-* Precio mínimo actual.
+- Imagen principal.
+- Galería de imágenes.
+- Nombre.
+- Marca.
+- Modelo.
+- Valoración.
+- Descripción.
+- Características.
+- Especificaciones técnicas.
+- Precio mínimo actual.
 
 La sección más importante debe ser:
 
@@ -295,11 +295,11 @@ Tiempo
 
 Permitir seleccionar:
 
-* 7 días.
-* 30 días.
-* 3 meses.
-* 6 meses.
-* 1 año.
+- 7 días.
+- 30 días.
+- 3 meses.
+- 6 meses.
+- 1 año.
 
 Mostrar:
 
@@ -317,13 +317,13 @@ Diseñar una sección donde se pueda visualizar la información de las tiendas.
 
 Cada tienda debe mostrar:
 
-* Logo.
-* Nombre.
-* Valoración.
-* Cantidad de productos.
-* Reputación.
-* Tiempo estimado de despacho.
-* Condiciones generales.
+- Logo.
+- Nombre.
+- Valoración.
+- Cantidad de productos.
+- Reputación.
+- Tiempo estimado de despacho.
+- Condiciones generales.
 
 Crear también una página de tienda:
 
@@ -395,14 +395,14 @@ Proveedor A | Proveedor B | Proveedor C
 
 Características:
 
-* Precio mensual.
-* Velocidad.
-* Permanencia.
-* Instalación.
-* Cobertura.
-* Beneficios.
-* Costo adicional.
-* Condiciones.
+- Precio mensual.
+- Velocidad.
+- Permanencia.
+- Instalación.
+- Cobertura.
+- Beneficios.
+- Costo adicional.
+- Condiciones.
 
 La interfaz debe permitir identificar rápidamente las diferencias.
 
@@ -414,16 +414,16 @@ Crear una página de favoritos.
 
 El usuario podrá guardar:
 
-* Productos.
-* Servicios.
+- Productos.
+- Servicios.
 
 Mostrar:
 
-* Precio actual.
-* Precio anterior.
-* Variación de precio.
-* Tienda/proveedor.
-* Disponibilidad.
+- Precio actual.
+- Precio anterior.
+- Variación de precio.
+- Tienda/proveedor.
+- Disponibilidad.
 
 Agregar una indicación visual cuando el precio disminuya.
 
@@ -439,12 +439,12 @@ Crear una interfaz básica de usuario.
 
 Secciones:
 
-* Perfil.
-* Favoritos.
-* Historial de búsquedas.
-* Productos observados.
-* Servicios observados.
-* Configuración.
+- Perfil.
+- Favoritos.
+- Historial de búsquedas.
+- Productos observados.
+- Servicios observados.
+- Configuración.
 
 No es necesario diseñar todavía funcionalidades avanzadas de usuario.
 
@@ -486,13 +486,13 @@ Menú
 
 Crear un footer completo con:
 
-* Sobre nosotros.
-* Contacto.
-* Ayuda.
-* Preguntas frecuentes.
-* Términos y condiciones.
-* Privacidad.
-* Redes sociales.
+- Sobre nosotros.
+- Contacto.
+- Ayuda.
+- Preguntas frecuentes.
+- Términos y condiciones.
+- Privacidad.
+- Redes sociales.
 
 También incluir:
 
@@ -506,40 +506,40 @@ Crear componentes reutilizables en Figma.
 
 Componentes necesarios:
 
-* Button.
-* Input.
-* SearchBar.
-* ProductCard.
-* ServiceCard.
-* StoreCard.
-* PriceCard.
-* ComparisonTable.
-* Filter.
-* Dropdown.
-* Badge.
-* Rating.
-* Navbar.
-* Footer.
-* Modal.
-* Breadcrumb.
-* Pagination.
-* FavoriteButton.
+- Button.
+- Input.
+- SearchBar.
+- ProductCard.
+- ServiceCard.
+- StoreCard.
+- PriceCard.
+- ComparisonTable.
+- Filter.
+- Dropdown.
+- Badge.
+- Rating.
+- Navbar.
+- Footer.
+- Modal.
+- Breadcrumb.
+- Pagination.
+- FavoriteButton.
 
 Crear variantes cuando corresponda:
 
 Button:
 
-* Primary.
-* Secondary.
-* Outline.
-* Disabled.
+- Primary.
+- Secondary.
+- Outline.
+- Disabled.
 
 Badge:
 
-* Disponible.
-* Agotado.
-* Oferta.
-* Mejor precio.
+- Disponible.
+- Agotado.
+- Oferta.
+- Mejor precio.
 
 ---
 
@@ -561,12 +561,12 @@ Mobile:
 
 En mobile:
 
-* El panel lateral de filtros debe convertirse en un botón/modal.
-* Las tablas deben adaptarse.
-* La navegación debe convertirse en menú.
-* Las cards deben ocupar el ancho disponible.
-* La comparación debe permitir desplazamiento horizontal cuando sea necesario.
-* La barra de búsqueda debe mantenerse fácilmente accesible.
+- El panel lateral de filtros debe convertirse en un botón/modal.
+- Las tablas deben adaptarse.
+- La navegación debe convertirse en menú.
+- Las cards deben ocupar el ancho disponible.
+- La comparación debe permitir desplazamiento horizontal cuando sea necesario.
+- La barra de búsqueda debe mantenerse fácilmente accesible.
 
 ---
 
@@ -603,14 +603,14 @@ La navegación principal debe seguir aproximadamente:
 Inicio
 
 ├── Productos
-│   ├── Categorías
-│   ├── Resultados
-│   └── Producto
+│ ├── Categorías
+│ ├── Resultados
+│ └── Producto
 │
 ├── Servicios
-│   ├── Categorías
-│   ├── Resultados
-│   └── Servicio
+│ ├── Categorías
+│ ├── Resultados
+│ └── Servicio
 │
 ├── Comparador
 │
@@ -628,10 +628,10 @@ La característica más importante del diseño debe ser la comparación.
 
 No priorizar elementos típicos de una tienda online como:
 
-* "Comprar ahora"
-* Carrito.
-* Checkout.
-* Pago.
+- "Comprar ahora"
+- Carrito.
+- Checkout.
+- Pago.
 
 La acción principal debe ser:
 
@@ -651,25 +651,25 @@ Utilizar datos ficticios realistas para las interfaces.
 
 Productos:
 
-* ASUS ROG Strix RTX 4060
-* Lenovo LOQ 15
-* iPhone 15
-* Samsung Galaxy S25
-* Logitech G Pro X Superlight
+- ASUS ROG Strix RTX 4060
+- Lenovo LOQ 15
+- iPhone 15
+- Samsung Galaxy S25
+- Logitech G Pro X Superlight
 
 Tiendas:
 
-* Tienda A
-* Tienda B
-* Tienda C
-* Tienda D
+- Tienda A
+- Tienda B
+- Tienda C
+- Tienda D
 
 Servicios:
 
-* Internet 500 Mbps
-* Internet 600 Mbps
-* Plan móvil 100 GB
-* Streaming Premium
+- Internet 500 Mbps
+- Internet 600 Mbps
+- Plan móvil 100 GB
+- Streaming Premium
 
 Utilizar precios en pesos chilenos (CLP).
 
@@ -704,12 +704,12 @@ La interfaz debe parecer un **producto tecnológico real listo para convertirse 
 
 Priorizar:
 
-* Usabilidad.
-* Jerarquía visual.
-* Comparación de precios.
-* Claridad de información.
-* Escalabilidad del diseño.
-* Consistencia entre páginas.
-* Responsive design.
+- Usabilidad.
+- Jerarquía visual.
+- Comparación de precios.
+- Claridad de información.
+- Escalabilidad del diseño.
+- Consistencia entre páginas.
+- Responsive design.
 
 Crear una identidad visual propia y evitar copiar directamente el diseño de SoloTodo.
