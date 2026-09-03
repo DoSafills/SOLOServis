@@ -1,43 +1,31 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Pool, QueryResultRow } from 'pg';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 @Injectable()
-export class DatabaseService implements OnModuleInit, OnModuleDestroy {
-  private readonly pool: Pool;
+export class DatabaseService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
+  constructor(configService: ConfigService) {
+    const connectionString =
+      configService.get<string>('DATABASE_URL') ??
+      `postgresql://${encodeURIComponent(configService.get<string>('DB_USER') ?? 'postgres')}:${encodeURIComponent(configService.get<string>('DB_PASSWORD') ?? '')}@${configService.get<string>('DB_HOST') ?? 'localhost'}:${configService.get<string>('DB_PORT') ?? '5432'}/${configService.get<string>('DB_NAME') ?? 'soloservis'}?schema=public`;
 
-  constructor(private readonly configService: ConfigService) {
-    this.pool = new Pool({
-      host: this.configService.get<string>('DB_HOST'),
-      port: this.configService.get<number>('DB_PORT'),
-      user: this.configService.get<string>('DB_USER'),
-      password: this.configService.get<string>('DB_PASSWORD'),
-      database: this.configService.get<string>('DB_NAME'),
-    });
+    super({ adapter: new PrismaPg({ connectionString }) });
   }
 
   async onModuleInit(): Promise<void> {
-    await this.checkConnection();
+    await this.$connect();
     console.log('Database connection established');
   }
 
-  async query<T extends QueryResultRow = QueryResultRow>(
-    text: string,
-    params?: unknown[],
-  ): Promise<T[]> {
-    const result = await this.pool.query<T>(text, params);
-    return result.rows;
-  }
-
   async getProducts(limit = 5) {
-    return this.query('SELECT * FROM product LIMIT $1', [limit]);
-  }
-
-  async checkConnection(): Promise<void> {
-    await this.pool.query('SELECT 1');
+    return this.product.findMany({ take: limit });
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
+    await this.$disconnect();
   }
 }
