@@ -9,7 +9,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import type { PricePoint } from "../types";
-import { formatPrice } from "../data/mockData";
+import { formatPrice } from "../Services/api/frontend-src/api";
 
 const ranges = [
   { label: "7d", days: 7 },
@@ -77,11 +77,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               style={
                 mode === "price"
                   ? { background: "#E8001B", color: "white" }
-                  : {
-                      background: "#1A1A1A",
-                      border: "1px solid #2A2A2A",
-                      color: "#64748B",
-                    }
+                  : { background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#64748B" }
               }
               className="px-3 py-1 rounded-lg text-xs font-semibold transition-all"
             >
@@ -93,11 +89,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
                 mode === "offer"
                   ? { background: "#E8001B", color: "white" }
                   : hasOfferHistory
-                    ? {
-                        background: "#1A1A1A",
-                        border: "1px solid #2A2A2A",
-                        color: "#64748B",
-                      }
+                    ? { background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#64748B" }
                     : {
                         background: "#111111",
                         border: "1px solid #1A1A1A",
@@ -120,11 +112,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               style={
                 range === r.days
                   ? { background: "#E8001B", color: "white" }
-                  : {
-                      background: "#1A1A1A",
-                      border: "1px solid #2A2A2A",
-                      color: "#64748B",
-                    }
+                  : { background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#64748B" }
               }
               className="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all"
             >
@@ -152,10 +140,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
       {/* Active offer badge */}
       {mode === "offer" && hasOfferHistory && currentOfferPrice && (
         <div
-          style={{
-            background: "rgba(232,0,27,0.1)",
-            border: "1px solid rgba(232,0,27,0.3)",
-          }}
+          style={{ background: "rgba(232,0,27,0.1)", border: "1px solid rgba(232,0,27,0.3)" }}
           className="rounded-xl px-4 py-2 mb-4 flex items-center gap-3 flex-wrap"
         >
           <span
@@ -180,16 +165,8 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               value: formatPrice(currentPrice),
               color: "text-prime",
             },
-            {
-              label: "Mínimo registrado",
-              value: formatPrice(minPrice),
-              color: "text-success",
-            },
-            {
-              label: "Máximo registrado",
-              value: formatPrice(maxPrice),
-              color: "text-danger",
-            },
+            { label: "Mínimo registrado", value: formatPrice(minPrice), color: "text-success" },
+            { label: "Máximo registrado", value: formatPrice(maxPrice), color: "text-danger" },
           ].map((stat) => (
             <div key={stat.label} style={{ background: "#1A1A1A" }} className="rounded-xl p-3">
               <div className="text-xs text-muted mb-1">{stat.label}</div>
@@ -233,12 +210,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
                 strokeWidth={2}
                 fill="url(#priceGrad)"
                 dot={false}
-                activeDot={{
-                  r: 4,
-                  fill: "#E8001B",
-                  stroke: "#0A0A0A",
-                  strokeWidth: 2,
-                }}
+                activeDot={{ r: 4, fill: "#E8001B", stroke: "#0A0A0A", strokeWidth: 2 }}
               />
             </AreaChart>
           </ResponsiveContainer>
