@@ -1,16 +1,29 @@
 @"
-# Diagramas SOLOServis
+# DiagramasSS
 
-Esta carpeta contiene los diagramas utilizados para representar la arquitectura,
-estructura, comportamiento y funcionamiento del sistema SOLOServis.
+Esta carpeta contiene los diagramas correspondientes al proyecto SOLOServis.
 
-## Organización
+## Contenido
 
-- `arquitectura/` — Diagramas de arquitectura del sistema.
-- `base-datos/` — MER, DER y estructura de base de datos.
-- `flujo/` — Diagramas de flujo y procesos.
-- `uml/` — Diagramas UML.
+Los diagramas del proyecto se organizarán según su propósito:
 
-Los diagramas deberán mantenerse actualizados respecto a la implementación
-actual del proyecto.
+- Arquitectura del sistema.
+- Modelo Entidad-Relación.
+- Diagrama Entidad-Relación.
+- Diagramas UML.
+- Diagramas de flujo.
+- Diagramas de secuencia.
+- Diagramas de componentes.
+- Otros diagramas utilizados en la documentación del proyecto.
+
+Los diagramas deberán mantenerse actualizados respecto de la implementación
+actual del sistema.
+
+## Convenciones
+
+Los archivos deberán utilizar nombres descriptivos y mantener un formato
+consistente.
+
+Cuando un diagrama represente una versión específica de la arquitectura o
+modelo de datos, deberá actualizarse cuando dichos componentes cambien.
 "@ | Set-Content "docs\DiagramasSS\README.md" -Encoding UTF8

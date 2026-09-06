@@ -1,10 +1,4 @@
 import type { Product, Page } from "../types";
-import {
-  formatPrice,
-  getMinPrice,
-  getMinOffer,
-  getAvailableStoreCount,
-} from "../Services/api/frontend-src/api";
 import { Badge, Rating, FavoriteButton } from "./ui";
 
 interface Props {
@@ -24,41 +18,50 @@ export default function ProductCard({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
-  const minPrice = getMinPrice(product);
-  const minOffer = getMinOffer(product);
-  const storeCount = getAvailableStoreCount(product);
 
   return (
+  <div
+    style={{
+      background: "#111111",
+      border: `1px solid ${isComparing ? "#E8001B" : "#2A2A2A"}`,
+    }}
+    className="rounded-2xl overflow-hidden hover:border-prime transition-all duration-300 group flex flex-col"
+  >
+    {/* Image */}
     <div
-      style={{ background: "#111111", border: `1px solid ${isComparing ? "#E8001B" : "#2A2A2A"}` }}
-      className="rounded-2xl overflow-hidden hover:border-prime transition-all duration-300 group flex flex-col"
+      className="relative h-44 bg-surface overflow-hidden cursor-pointer"
+      onClick={() => navigate({ id: "product-detail", productId: product.id })}
     >
-      {/* Image */}
-      <div
-        className="relative h-44 bg-surface overflow-hidden cursor-pointer"
-        onClick={() => navigate({ id: "product-detail", productId: product.id })}
-      >
+      {product.image ? (
         <img
           src={product.image}
           alt={product.name}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-surface/60 to-transparent" />
-        <div className="absolute top-2 left-2 flex gap-1.5">
-          <Badge variant={storeCount > 0 ? "available" : "unavailable"}>
-            {storeCount > 0 ? `${storeCount} tiendas` : "Agotado"}
-          </Badge>
+      ) : (
+        <div className="w-full h-full flex items-center justify-center text-muted text-sm">
+          Sin imagen
         </div>
-        <div className="absolute top-2 right-2">
-          <FavoriteButton
-            active={isFavorite}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleFavorite(product.id);
-            }}
-          />
-        </div>
+      )}
+
+      <div className="absolute inset-0 bg-gradient-to-t from-surface/60 to-transparent" />
+
+      <div className="absolute top-2 left-2 flex gap-1.5">
+        <Badge variant="unavailable">
+          Sin ofertas
+        </Badge>
       </div>
+
+      <div className="absolute top-2 right-2">
+        <FavoriteButton
+          active={isFavorite}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite(product.id);
+          }}
+        />
+      </div>
+    </div>
 
       {/* Content */}
       <div className="p-4 flex flex-col flex-1 gap-2">
@@ -92,11 +95,10 @@ export default function ProductCard({
         <Rating value={product.rating} count={product.reviewCount} />
 
         {/* Price */}
-        <div className="mt-auto pt-2">
-          <div className="text-xs text-muted mb-0.5">Desde</div>
-          <div className="price text-xl font-semibold text-prime">{formatPrice(minPrice)}</div>
-          {minOffer && <div className="text-xs text-muted mt-0.5">en {minOffer.storeName}</div>}
-        </div>
+        <div className="text-xs text-muted mb-0.5">Precio</div>
+<div className="text-sm font-semibold text-muted">
+  No disponible
+</div>
 
         {/* Actions */}
         <div className="flex gap-2 mt-1">
@@ -105,7 +107,11 @@ export default function ProductCard({
             style={
               isComparing
                 ? { background: "#E8001B", color: "#0A0A0A" }
-                : { background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#94A3B8" }
+                : {
+                    background: "#1A1A1A",
+                    border: "1px solid #2A2A2A",
+                    color: "#94A3B8",
+                  }
             }
             className="flex-1 py-1.5 rounded-xl text-xs font-semibold transition-all hover:border-prime hover:text-prime"
           >
