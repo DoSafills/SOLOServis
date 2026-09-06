@@ -1,6 +1,7 @@
-import { useState } from "react";
-import type { Page } from "../../types";
-import { products, services } from "../../data/mockData";
+import { useEffect, useState } from "react";
+import type { Page, Product } from "../../types";
+import { services } from "../../data/mockData";
+import { getProducts, type ApiProduct } from "../../Services/api/products";
 import ProductCard from "../../components/ProductCard";
 import ServiceCard from "../../components/ServiceCard";
 
@@ -39,13 +40,37 @@ export default function HomePage({
 }: Props) {
   const [query, setQuery] = useState("");
 
+  const [products, setProducts] = useState<ApiProduct[]>([]);
+
+useEffect(() => {
+  getProducts().then(setProducts).catch(console.error);
+}, []);
+
+const featuredProducts: Product[] = products.slice(0, 4).map((product) => ({
+  id: product.id,
+  name: product.name,
+  brand: product.brand,
+  model: product.model,
+  category: product.category,
+  subcategory: "",
+  image: "",
+  images: [],
+  description: product.description,
+  rating: product.rating,
+  reviewCount: product.reviewCount,
+  specs: product.model ? { Modelo: product.model } : { Modelo: "" },
+  offers: [],
+  priceHistory: [],
+  offerPriceHistory: [],
+  tags: [],
+}));
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
     navigate({ id: "search-products", query: query.trim() });
   };
 
-  const featuredProducts = products.slice(0, 4);
   const featuredServices = services.slice(0, 4);
 
   return (
