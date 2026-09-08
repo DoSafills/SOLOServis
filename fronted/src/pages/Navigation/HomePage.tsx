@@ -42,28 +42,28 @@ export default function HomePage({
 
   const [products, setProducts] = useState<ApiProduct[]>([]);
 
-useEffect(() => {
-  getProducts().then(setProducts).catch(console.error);
-}, []);
+  useEffect(() => {
+    getProducts().then(setProducts).catch(console.error);
+  }, []);
 
-const featuredProducts: Product[] = products.slice(0, 4).map((product) => ({
-  id: product.id,
-  name: product.name,
-  brand: product.brand,
-  model: product.model,
-  category: product.category,
-  subcategory: "",
-  image: "",
-  images: [],
-  description: product.description,
-  rating: product.rating,
-  reviewCount: product.reviewCount,
-  specs: product.model ? { Modelo: product.model } : { Modelo: "" },
-  offers: [],
-  priceHistory: [],
-  offerPriceHistory: [],
-  tags: [],
-}));
+  const featuredProducts: Product[] = products.slice(0, 4).map((product) => ({
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    model: product.model,
+    category: product.category,
+    subcategory: "",
+    image: "",
+    images: [],
+    description: product.description,
+    rating: product.rating,
+    reviewCount: product.reviewCount,
+    specs: product.model ? { Modelo: product.model } : { Modelo: "" },
+    offers: [],
+    priceHistory: [],
+    offerPriceHistory: [],
+    tags: [],
+  }));
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

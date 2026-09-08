@@ -31,73 +31,72 @@ export default function SearchResultsPage({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const PER_PAGE = 6;
- const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
+  const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
 
-useEffect(() => {
-  getProducts().then(setApiProducts).catch(console.error);
-}, []);
+  useEffect(() => {
+    getProducts().then(setApiProducts).catch(console.error);
+  }, []);
 
-const products: Product[] = apiProducts.map((product) => ({
-  id: product.id,
-  name: product.name,
-  brand: product.brand,
-  model: product.model,
-  category: product.category,
-  subcategory: "",
-  image: "",
-  images: [],
-  description: product.description,
-  rating: product.rating,
-  reviewCount: product.reviewCount,
-  specs: product.model ? { Modelo: product.model } : { Modelo: "" },
-  offers: [],
-  priceHistory: [],
-  offerPriceHistory: [],
-  tags: [],
-}));
+  const products: Product[] = apiProducts.map((product) => ({
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    model: product.model,
+    category: product.category,
+    subcategory: "",
+    image: "",
+    images: [],
+    description: product.description,
+    rating: product.rating,
+    reviewCount: product.reviewCount,
+    specs: product.model ? { Modelo: product.model } : { Modelo: "" },
+    offers: [],
+    priceHistory: [],
+    offerPriceHistory: [],
+    tags: [],
+  }));
 
-const brands = [...new Set(products.map((p) => p.brand))];
+  const brands = [...new Set(products.map((p) => p.brand))];
 
-let filtered = products.filter((p) => {
-  if (
-    query &&
-    !p.name.toLowerCase().includes(query.toLowerCase()) &&
-    !p.brand.toLowerCase().includes(query.toLowerCase()) &&
-    !p.category.toLowerCase().includes(query.toLowerCase())
-  ) {
-    return false;
-  }
-
-  if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
-    return false;
-  }
-
-  return true;
-});
-
-filtered = [...filtered].sort((a, b) => {
-  if (sort === "rating") return b.rating - a.rating;
-  return 0;
-});
-
-const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
-
-const toggleBrand = (brand: string) => {
-  setSelectedBrands((prev) => {
-    const next = new Set(prev);
-
-    if (next.has(brand)) {
-      next.delete(brand);
-    } else {
-      next.add(brand);
+  let filtered = products.filter((p) => {
+    if (
+      query &&
+      !p.name.toLowerCase().includes(query.toLowerCase()) &&
+      !p.brand.toLowerCase().includes(query.toLowerCase()) &&
+      !p.category.toLowerCase().includes(query.toLowerCase())
+    ) {
+      return false;
     }
 
-    return next;
+    if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
+      return false;
+    }
+
+    return true;
   });
 
-  setPage(1);
-};
+  filtered = [...filtered].sort((a, b) => {
+    if (sort === "rating") return b.rating - a.rating;
+    return 0;
+  });
 
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const toggleBrand = (brand: string) => {
+    setSelectedBrands((prev) => {
+      const next = new Set(prev);
+
+      if (next.has(brand)) {
+        next.delete(brand);
+      } else {
+        next.add(brand);
+      }
+
+      return next;
+    });
+
+    setPage(1);
+  };
 
   const renderFilters = () => (
     <div className="space-y-6">
