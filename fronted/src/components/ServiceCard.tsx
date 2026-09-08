@@ -21,7 +21,7 @@ export default function ServiceCard({
 }: Props) {
   return (
     <div
-      style={{ background: "#111111", border: `1px solid ${isComparing ? "#E8001B" : "#2A2A2A"}` }}
+      style={{ background: "#F1F5F9", border: `1px solid ${isComparing ? "#0369A1" : "#CBD5E1"}` }}
       className="rounded-2xl overflow-hidden hover:border-prime transition-all duration-300 group flex flex-col"
     >
       {/* Header band */}
@@ -75,7 +75,7 @@ export default function ServiceCard({
             .map(([k, v]) => (
               <span
                 key={k}
-                style={{ background: "#1A1A1A", color: "#64748B" }}
+                style={{ background: "#E2E8F0", color: "#64748B" }}
                 className="text-xs px-2 py-0.5 rounded-md"
               >
                 {v}
@@ -113,8 +113,8 @@ export default function ServiceCard({
             onClick={() => onToggleCompare(service.id)}
             style={
               isComparing
-                ? { background: "#E8001B", color: "#0A0A0A" }
-                : { background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#94A3B8" }
+                ? { background: "#0369A1", color: "#FFFFFF" }
+                : { background: "#F1F5F9", border: "1px solid #CBD5E1", color: "#64748B" }
             }
             className="flex-1 py-1.5 rounded-xl text-xs font-semibold transition-all hover:border-prime hover:text-prime"
           >
@@ -122,7 +122,7 @@ export default function ServiceCard({
           </button>
           <button
             onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
-            style={{ background: "#E8001B", color: "#0A0A0A" }}
+            style={{ background: "#0369A1", color: "#FFFFFF" }}
             className="flex-1 py-1.5 rounded-xl text-xs font-semibold hover:opacity-90 transition-opacity"
           >
             Ver servicio

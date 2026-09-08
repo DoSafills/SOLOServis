@@ -9,9 +9,9 @@ export function Badge({
 }) {
   const styles = {
     available: {
-      background: "rgba(232,0,27,0.15)",
-      color: "#E8001B",
-      border: "1px solid rgba(232,0,27,0.3)",
+      background: "rgba(3,105,161,0.12)",
+      color: "#0369A1",
+      border: "1px solid rgba(3,105,161,0.3)",
     },
     unavailable: {
       background: "rgba(248,113,113,0.12)",
@@ -23,8 +23,8 @@ export function Badge({
       color: "#FBBF24",
       border: "1px solid rgba(251,191,36,0.25)",
     },
-    best: { background: "#E8001B", color: "#0A0A0A", border: "none" },
-    default: { background: "#1A1A1A", color: "#94A3B8", border: "1px solid #2A2A2A" },
+    best: { background: "#0369A1", color: "#FFFFFF", border: "none" },
+    default: { background: "#E2E8F0", color: "#64748B", border: "1px solid #CBD5E1" },
   };
   return (
     <span
@@ -82,8 +82,8 @@ export function FavoriteButton({
         width="16"
         height="16"
         viewBox="0 0 24 24"
-        fill={active ? "#E8001B" : "none"}
-        stroke={active ? "#E8001B" : "#64748B"}
+        fill={active ? "#0369A1" : "none"}
+        stroke={active ? "#0369A1" : "#64748B"}
         strokeWidth="2"
       >
         <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
@@ -150,7 +150,7 @@ export function EmptyState({
       {action && (
         <button
           onClick={action.onClick}
-          style={{ background: "#E8001B", color: "#0A0A0A" }}
+          style={{ background: "#0369A1", color: "#FFFFFF" }}
           className="mt-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
         >
           {action.label}
@@ -181,8 +181,8 @@ export function Pagination({
           onClick={() => onChange(p)}
           style={
             p === page
-              ? { background: "#E8001B", color: "#0A0A0A" }
-              : { background: "#111111", border: "1px solid #2A2A2A", color: "#94A3B8" }
+              ? { background: "#0369A1", color: "#FFFFFF" }
+              : { background: "#F1F5F9", border: "1px solid #CBD5E1", color: "#64748B" }
           }
           className="w-9 h-9 rounded-lg text-sm font-medium transition-all hover:border-prime hover:text-prime"
         >

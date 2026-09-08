@@ -37,7 +37,7 @@ function CustomTooltip({
   if (active && payload && payload.length) {
     return (
       <div
-        style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
+        style={{ background: "#F1F5F9", border: "1px solid #CBD5E1" }}
         className="px-3 py-2 rounded-xl"
       >
         <p className="text-xs text-muted mb-1">{label}</p>
@@ -66,7 +66,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
   const currentPrice = activeData.length ? activeData[activeData.length - 1].price : 0;
 
   return (
-    <div style={{ background: "#111111", border: "1px solid #2A2A2A" }} className="rounded-2xl p-6">
+    <div style={{ background: "#F1F5F9", border: "1px solid #CBD5E1" }} className="rounded-2xl p-6">
       {/* Header */}
       <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div>
@@ -76,8 +76,8 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               onClick={() => setMode("price")}
               style={
                 mode === "price"
-                  ? { background: "#E8001B", color: "white" }
-                  : { background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#64748B" }
+                  ? { background: "#0369A1", color: "#FFFFFF" }
+                  : { background: "#F1F5F9", border: "1px solid #CBD5E1", color: "#64748B" }
               }
               className="px-3 py-1 rounded-lg text-xs font-semibold transition-all"
             >
@@ -87,13 +87,13 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               onClick={() => setMode("offer")}
               style={
                 mode === "offer"
-                  ? { background: "#E8001B", color: "white" }
+                  ? { background: "#0369A1", color: "#FFFFFF" }
                   : hasOfferHistory
-                    ? { background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#64748B" }
+                    ? { background: "#F1F5F9", border: "1px solid #CBD5E1", color: "#64748B" }
                     : {
-                        background: "#111111",
-                        border: "1px solid #1A1A1A",
-                        color: "#2A2A2A",
+                        background: "#E2E8F0",
+                        border: "1px solid #CBD5E1",
+                        color: "#94A3B8",
                         cursor: "not-allowed",
                       }
               }
@@ -111,8 +111,8 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               onClick={() => setRange(r.days)}
               style={
                 range === r.days
-                  ? { background: "#E8001B", color: "white" }
-                  : { background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#64748B" }
+                  ? { background: "#0369A1", color: "#FFFFFF" }
+                  : { background: "#F1F5F9", border: "1px solid #CBD5E1", color: "#64748B" }
               }
               className="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all"
             >
@@ -125,7 +125,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
       {/* No offer history notice */}
       {mode === "offer" && !hasOfferHistory && (
         <div
-          style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
+          style={{ background: "#E2E8F0", border: "1px solid #CBD5E1" }}
           className="rounded-xl p-8 text-center"
         >
           <div className="text-3xl mb-3">🏷️</div>
@@ -140,11 +140,11 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
       {/* Active offer badge */}
       {mode === "offer" && hasOfferHistory && currentOfferPrice && (
         <div
-          style={{ background: "rgba(232,0,27,0.1)", border: "1px solid rgba(232,0,27,0.3)" }}
+          style={{ background: "rgba(3,105,161,0.1)", border: "1px solid rgba(3,105,161,0.3)" }}
           className="rounded-xl px-4 py-2 mb-4 flex items-center gap-3 flex-wrap"
         >
           <span
-            style={{ background: "#E8001B", color: "white" }}
+            style={{ background: "#0369A1", color: "#FFFFFF" }}
             className="text-xs font-bold px-2 py-0.5 rounded-md"
           >
             OFERTA ACTIVA
@@ -166,9 +166,9 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               color: "text-prime",
             },
             { label: "Mínimo registrado", value: formatPrice(minPrice), color: "text-success" },
-            { label: "Máximo registrado", value: formatPrice(maxPrice), color: "text-danger" },
+            { label: "Máximo registrado", value: formatPrice(maxPrice), color: "text-prime" },
           ].map((stat) => (
-            <div key={stat.label} style={{ background: "#1A1A1A" }} className="rounded-xl p-3">
+            <div key={stat.label} style={{ background: "#E2E8F0", border: "1px solid #CBD5E1" }} className="rounded-xl p-3">
               <div className="text-xs text-muted mb-1">{stat.label}</div>
               <div className={`price text-sm font-semibold ${stat.color}`}>{stat.value}</div>
             </div>
@@ -183,11 +183,11 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
             <AreaChart data={activeData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#E8001B" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#E8001B" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#0369A1" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#0369A1" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#CBD5E1" vertical={false} />
               <XAxis
                 dataKey="date"
                 tick={{ fontSize: 10, fill: "#64748B" }}
@@ -206,11 +206,11 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               <Area
                 type="monotone"
                 dataKey="price"
-                stroke="#E8001B"
+                stroke="#0369A1"
                 strokeWidth={2}
                 fill="url(#priceGrad)"
                 dot={false}
-                activeDot={{ r: 4, fill: "#E8001B", stroke: "#0A0A0A", strokeWidth: 2 }}
+                activeDot={{ r: 4, fill: "#0369A1", stroke: "#F1F5F9", strokeWidth: 2 }}
               />
             </AreaChart>
           </ResponsiveContainer>

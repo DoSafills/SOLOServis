@@ -28,9 +28,9 @@ export default function Header({ navigate, favCount }: Props) {
   return (
     <header
       style={{
-        background: "rgba(8,14,28,0.95)",
+        background: "rgba(241,245,249,0.95)",
         backdropFilter: "blur(12px)",
-        borderBottom: "1px solid #2A2A2A",
+        borderBottom: "1px solid #CBD5E1",
       }}
       className="sticky top-0 z-50"
     >
@@ -45,15 +45,15 @@ export default function Header({ navigate, favCount }: Props) {
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path
                   d="M2 3h12M2 8h8M2 13h10"
-                  stroke="#0A0A0A"
+                  stroke="#0F172A"
                   strokeWidth="2.5"
                   strokeLinecap="round"
                 />
-                <circle cx="13" cy="13" r="2" fill="#0A0A0A" />
+                <circle cx="13" cy="13" r="2" fill="#0F172A" />
               </svg>
             </div>
             <span className="font-bold text-lg tracking-tight text-text hidden sm:block">
-              compare<span className="text-prime">ya</span>
+              <span className="text-prime">SOLO</span><span className="text-text">Servis</span>
             </span>
           </button>
 
@@ -67,7 +67,7 @@ export default function Header({ navigate, favCount }: Props) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Buscar producto o servicio..."
-                style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+                style={{ background: "#F1F5F9", border: "1px solid #CBD5E1" }}
                 className="w-full pl-4 pr-10 py-2 rounded-xl text-sm text-text placeholder-muted focus:outline-none focus:border-prime transition-colors duration-200"
               />
               <button

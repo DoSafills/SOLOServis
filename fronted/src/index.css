@@ -3,20 +3,20 @@
 @import "tailwindcss";
 
 @theme {
-  --color-prime: #e8001b;
-  --color-prime-dark: #c4001a;
-  --color-prime-muted: rgba(232, 0, 27, 0.1);
-  --color-bg: #0a0a0a;
-  --color-surface: #111111;
-  --color-surface-2: #1a1a1a;
-  --color-surface-3: #2a2a2a;
-  --color-bd: #2a2a2a;
-  --color-text: #f1f5f9;
-  --color-muted: #64748b;
-  --color-muted-2: #94a3b8;
-  --color-danger: #f87171;
-  --color-success: #22c55e;
-  --color-warn: #fbbf24;
+  --color-prime: #0369a1;
+  --color-prime-dark: #075985;
+  --color-prime-muted: rgba(3, 105, 161, 0.1);
+  --color-bg: #e2e8f0;
+  --color-surface: #f1f5f9;
+  --color-surface-2: #e2e8f0;
+  --color-surface-3: #cbd5e1;
+  --color-bd: #cbd5e1;
+  --color-text: #0f172a;
+  --color-muted: #64748B;
+  --color-muted-2: #94A3B8;
+  --color-danger: #F87171;
+  --color-success: #22C55E;
+  --color-warn: #FBBF24;
   --font-sans: "Outfit", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 }
@@ -32,8 +32,8 @@ html {
 }
 
 body {
-  background-color: #0a0a0a;
-  color: #f1f5f9;
+  background-color: #e2e8f0;
+  color: #0f172a;
   font-family: "Outfit", sans-serif;
   -webkit-font-smoothing: antialiased;
   margin: 0;
@@ -48,16 +48,16 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2a;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #e8001b;
+  background: #0369a1;
 }
 
 /* Price mono font */
 .price {
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 /* ROG-style left accent bar */
@@ -72,11 +72,11 @@ body {
   left: 0;
   width: 3px;
   height: 100%;
-  background: #e8001b;
+  background: #0369a1;
 }
 
 .prime-glow {
-  box-shadow: 0 0 24px rgba(232, 0, 27, 0.35);
+  box-shadow: 0 0 24px rgba(3, 105, 161, 0.35);
 }
 
 /* Line clamp */
@@ -98,7 +98,7 @@ input[type="range"] {
   appearance: none;
   height: 4px;
   border-radius: 2px;
-  background: #2a2a2a;
+  background: #cbd5e1;
   outline: none;
 }
 input[type="range"]::-webkit-slider-thumb {
@@ -107,6 +107,55 @@ input[type="range"]::-webkit-slider-thumb {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #e8001b;
+  background: #0369a1;
   cursor: pointer;
+}
+
+/* Keep legacy inline styles aligned with the light theme. */
+[style*="#0A0A0A"],
+[style*="#0a0a0a"],
+[style*="rgb(10, 10, 10)"] {
+  color: #0f172a !important;
+  background-color: #e2e8f0 !important;
+}
+
+[style*="#111111"],
+[style*="rgb(17, 17, 17)"] {
+  background-color: #f1f5f9 !important;
+}
+
+[style*="#1A1A1A"],
+[style*="#1a1a1a"],
+[style*="rgb(26, 26, 26)"] {
+  background-color: #f1f5f9 !important;
+}
+
+[style*="#2A2A2A"],
+[style*="#2a2a2a"],
+[style*="rgb(42, 42, 42)"] {
+  border-color: #cbd5e1 !important;
+  background-color: #e2e8f0 !important;
+}
+
+[style*="#E8001B"],
+[style*="#e8001b"],
+[style*="rgb(232, 0, 27)"] {
+  background-color: #0369a1 !important;
+  border-color: #0369a1 !important;
+  color: #ffffff !important;
+}
+
+[style*="rgba(232,0,27"],
+[style*="rgba(232, 0, 27"],
+[style*="rgba(232, 0, 27)"] {
+  background-color: rgba(3, 105, 161, 0.1) !important;
+  border-color: rgba(3, 105, 161, 0.3) !important;
+}
+
+[stroke="#E8001B"],
+[stroke="#e8001b"],
+[fill="#E8001B"],
+[fill="#e8001b"] {
+  stroke: #0369a1 !important;
+  fill: #0369a1 !important;
 }

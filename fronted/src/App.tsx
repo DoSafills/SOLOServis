@@ -135,8 +135,8 @@ export default function App() {
       {compareList.size > 0 && (
         <div
           style={{
-            background: "#111111",
-            borderBottom: "1px solid rgba(232,0,27,0.3)",
+            background: "#F1F5F9",
+            borderBottom: "1px solid rgba(3,105,161,0.3)",
             zIndex: 40,
           }}
           className="sticky top-14 px-4 py-2"
@@ -148,7 +148,7 @@ export default function App() {
                 height="14"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="#E8001B"
+                stroke="#0369A1"
                 strokeWidth="2"
               >
                 <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" />
@@ -166,7 +166,7 @@ export default function App() {
                       productIds: [...compareList],
                     })
                   }
-                  style={{ background: "#E8001B", color: "#0A0A0A" }}
+                  style={{ background: "#0369A1", color: "#FFFFFF" }}
                   className="px-3 py-1 rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity"
                 >
                   Comparar ahora

@@ -6,7 +6,7 @@ interface Props {
 
 export default function Footer({ navigate }: Props) {
   return (
-    <footer style={{ background: "#0A0A0A", borderTop: "1px solid #2A2A2A" }} className="mt-16">
+    <footer style={{ background: "#E2E8F0", borderTop: "1px solid #CBD5E1" }} className="mt-16">
       <div className="max-w-7xl mx-auto px-4 py-12">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
           {/* Brand */}
@@ -27,7 +27,7 @@ export default function Footer({ navigate }: Props) {
                 </svg>
               </div>
               <span className="font-bold text-lg tracking-tight text-text">
-                compare<span className="text-prime">ya</span>
+                <span className="text-prime">SOLO</span><span className="text-text">Servis</span>
               </span>
             </button>
             <p className="text-xs text-muted leading-relaxed">
@@ -99,7 +99,7 @@ export default function Footer({ navigate }: Props) {
           style={{ borderTop: "1px solid #2A2A2A" }}
           className="pt-6 flex flex-col sm:flex-row justify-between items-center gap-3"
         >
-          <p className="text-xs text-muted">© 2025 Compareya. Todos los derechos reservados.</p>
+          <p className="text-xs text-muted">© 2025 SOLOServis. Todos los derechos reservados.</p>
           <p className="text-xs text-muted text-center sm:text-right">
             Los precios pueden variar dependiendo de la tienda o proveedor.
           </p>
