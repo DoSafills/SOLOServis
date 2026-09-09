@@ -11,6 +11,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/offers"
 	"github.com/DoSafills/SOLOServis/backend/internal/pricehistory"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
+	"github.com/DoSafills/SOLOServis/backend/internal/stores"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -72,6 +73,12 @@ func NewRouter(db *pgxpool.Pool) *chi.Mux {
 	priceHistoryHandler := pricehistory.NewHandler(priceHistoryRepository)
 
 	r.Get("/price-history/{offerId}", priceHistoryHandler.ListByOfferID)
+
+	storeRepository := stores.NewRepository(db)
+	storeHandler := stores.NewHandler(storeRepository)
+
+	r.Get("/stores", storeHandler.List)
+	r.Get("/stores/{id}", storeHandler.GetByID)
 
 	return r
 }

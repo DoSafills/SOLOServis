@@ -5,20 +5,21 @@ import (
 )
 
 type ProductOffer struct {
-	ID           int32  `json:"id"`
-	ProductID    int32  `json:"productId"`
-	ProductName  string `json:"productName"`
-	StoreID      int32  `json:"storeId"`
-	StoreName    string `json:"storeName"`
-	Price        string `json:"price"`
-	ListPrice    string `json:"listPrice"`
-	Currency     string `json:"currency"`
-	ShippingCost string `json:"shippingCost"`
-	ShippingFree bool   `json:"shippingFree"`
-	Available    bool   `json:"available"`
-	Stock        *int32 `json:"stock"`
-	Condition    string `json:"condition"`
-	ProductURL   string `json:"productUrl"`
+	ID              int32  `json:"id"`
+	ProductID       int32  `json:"productId"`
+	ProductPublicID string `json:"productPublicId"`
+	ProductName     string `json:"productName"`
+	StoreID         int32  `json:"storeId"`
+	StoreName       string `json:"storeName"`
+	Price           string `json:"price"`
+	ListPrice       string `json:"listPrice"`
+	Currency        string `json:"currency"`
+	ShippingCost    string `json:"shippingCost"`
+	ShippingFree    bool   `json:"shippingFree"`
+	Available       bool   `json:"available"`
+	Stock           *int32 `json:"stock"`
+	Condition       string `json:"condition"`
+	ProductURL      string `json:"productUrl"`
 }
 
 func FromListOffersRow(offer generated.ListOffersRow) ProductOffer {
@@ -58,20 +59,21 @@ func FromListOffersRow(offer generated.ListOffersRow) ProductOffer {
 	}
 
 	return ProductOffer{
-		ID:           offer.ID,
-		ProductID:    offer.ProductID,
-		ProductName:  offer.ProductName,
-		StoreID:      offer.StoreID,
-		StoreName:    offer.StoreName,
-		Price:        price,
-		ListPrice:    listPrice,
-		Currency:     offer.Currency,
-		ShippingCost: shippingCost,
-		ShippingFree: offer.ShippingFree,
-		Available:    offer.Available,
-		Stock:        stock,
-		Condition:    offer.Condition,
-		ProductURL:   productURL,
+		ID:              offer.ID,
+		ProductID:       offer.ProductID,
+		ProductPublicID: offer.ProductPublicID.String(),
+		ProductName:     offer.ProductName,
+		StoreID:         offer.StoreID,
+		StoreName:       offer.StoreName,
+		Price:           price,
+		ListPrice:       listPrice,
+		Currency:        offer.Currency,
+		ShippingCost:    shippingCost,
+		ShippingFree:    offer.ShippingFree,
+		Available:       offer.Available,
+		Stock:           stock,
+		Condition:       offer.Condition,
+		ProductURL:      productURL,
 	}
 }
 
@@ -112,19 +114,20 @@ func FromGetOfferByIDRow(offer generated.GetOfferByIDRow) ProductOffer {
 	}
 
 	return ProductOffer{
-		ID:           offer.ID,
-		ProductID:    offer.ProductID,
-		ProductName:  offer.ProductName,
-		StoreID:      offer.StoreID,
-		StoreName:    offer.StoreName,
-		Price:        price,
-		ListPrice:    listPrice,
-		Currency:     offer.Currency,
-		ShippingCost: shippingCost,
-		ShippingFree: offer.ShippingFree,
-		Available:    offer.Available,
-		Stock:        stock,
-		Condition:    offer.Condition,
-		ProductURL:   productURL,
+		ID:              offer.ID,
+		ProductID:       offer.ProductID,
+		ProductPublicID: offer.ProductPublicID.String(),
+		ProductName:     offer.ProductName,
+		StoreID:         offer.StoreID,
+		StoreName:       offer.StoreName,
+		Price:           price,
+		ListPrice:       listPrice,
+		Currency:        offer.Currency,
+		ShippingCost:    shippingCost,
+		ShippingFree:    offer.ShippingFree,
+		Available:       offer.Available,
+		Stock:           stock,
+		Condition:       offer.Condition,
+		ProductURL:      productURL,
 	}
 }

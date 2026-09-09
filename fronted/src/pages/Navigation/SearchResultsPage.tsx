@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getProducts, type ApiProduct } from "../../Services/api/products";
+import { getCatalogProducts } from "../../Services/api/catalog";
+import { getCategories, type ApiCategory } from "../../Services/api/categories";
+import { getMinOffer } from "../../Services/api/frontend-src/api";
 import ProductCard from "../../components/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/ui";
 
 interface Props {
   query: string;
+  category?: string;
   navigate: (page: Page) => void;
   favorites: Set<string>;
   compareList: Set<string>;
@@ -17,6 +20,7 @@ type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
 
 export default function SearchResultsPage({
   query,
+  category,
   navigate,
   favorites,
   compareList,
@@ -27,60 +31,78 @@ export default function SearchResultsPage({
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
   const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
+  const [selectedCategory, setSelectedCategory] = useState(category ?? "");
   const [availableOnly, setAvailableOnly] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const PER_PAGE = 6;
- const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<ApiCategory[]>([]);
 
-useEffect(() => {
-  getProducts().then(setApiProducts).catch(console.error);
-}, []);
+  useEffect(() => {
+    getCatalogProducts().then(setProducts).catch(console.error);
+    getCategories().then(setCategories).catch(console.error);
+  }, []);
 
-const products: Product[] = apiProducts.map((product) => ({
-  id: product.id,
-  name: product.name,
-  brand: product.brand,
-  model: product.model,
-  category: product.category,
-  subcategory: "",
-  image: "",
-  images: [],
-  description: product.description,
-  rating: product.rating,
-  reviewCount: product.reviewCount,
-  specs: product.model ? { Modelo: product.model } : { Modelo: "" },
-  offers: [],
-  priceHistory: [],
-  offerPriceHistory: [],
-  tags: [],
-}));
+  // La app no remonta la página al navegar entre búsquedas, así que hay que
+  // re-sincronizar cuando llega una categoría nueva desde otra pantalla.
+  useEffect(() => {
+    setSelectedCategory(category ?? "");
+    setPage(1);
+  }, [category]);
 
-const brands = [...new Set(products.map((p) => p.brand))];
+  const leafCategories = categories.filter((c) => c.parentCategoryId !== null);
+  const brands = [...new Set(products.map((p) => p.brand))];
 
-let filtered = products.filter((p) => {
-  if (
-    query &&
-    !p.name.toLowerCase().includes(query.toLowerCase()) &&
-    !p.brand.toLowerCase().includes(query.toLowerCase()) &&
-    !p.category.toLowerCase().includes(query.toLowerCase())
-  ) {
-    return false;
-  }
+  const min = priceMin ? Number(priceMin) : undefined;
+  const max = priceMax ? Number(priceMax) : undefined;
 
-  if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
-    return false;
-  }
+  let filtered = products.filter((p) => {
+    if (
+      query &&
+      !p.name.toLowerCase().includes(query.toLowerCase()) &&
+      !p.brand.toLowerCase().includes(query.toLowerCase()) &&
+      !p.category.toLowerCase().includes(query.toLowerCase())
+    ) {
+      return false;
+    }
 
-  return true;
-});
+    if (selectedCategory && p.category !== selectedCategory) {
+      return false;
+    }
 
-filtered = [...filtered].sort((a, b) => {
-  if (sort === "rating") return b.rating - a.rating;
-  return 0;
-});
+    if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
+      return false;
+    }
 
-const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+    const cheapest = getMinOffer(p);
+
+    if (availableOnly && !cheapest) {
+      return false;
+    }
+
+    if (min !== undefined && (!cheapest || cheapest.price < min)) {
+      return false;
+    }
+
+    if (max !== undefined && (!cheapest || cheapest.price > max)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  filtered = [...filtered].sort((a, b) => {
+    if (sort === "rating") return b.rating - a.rating;
+    if (sort === "price-asc" || sort === "price-desc") {
+      const priceA = getMinOffer(a)?.price ?? Infinity;
+      const priceB = getMinOffer(b)?.price ?? Infinity;
+      return sort === "price-asc" ? priceA - priceB : priceB - priceA;
+    }
+    return 0;
+  });
+
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
 const toggleBrand = (brand: string) => {
   setSelectedBrands((prev) => {
@@ -98,10 +120,35 @@ const toggleBrand = (brand: string) => {
   setPage(1);
 };
 
+const toggleCategory = (name: string) => {
+  setSelectedCategory((prev) => (prev === name ? "" : name));
+  setPage(1);
+};
+
 
   const renderFilters = () => (
     <div className="space-y-6">
       {/* Category */}
+      <div>
+        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
+          Categoría
+        </h4>
+        <div className="space-y-2">
+          {leafCategories.map((cat) => (
+            <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedCategory === cat.name}
+                onChange={() => toggleCategory(cat.name)}
+                className="accent-prime"
+              />
+              <span className="text-sm text-muted-2">{cat.name}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Availability */}
       <div>
         <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
           Disponibilidad
@@ -159,10 +206,11 @@ const toggleBrand = (brand: string) => {
       </div>
 
       {/* Clear */}
-      {(selectedBrands.size > 0 || priceMin || priceMax || availableOnly) && (
+      {(selectedBrands.size > 0 || selectedCategory || priceMin || priceMax || availableOnly) && (
         <button
           onClick={() => {
             setSelectedBrands(new Set());
+            setSelectedCategory("");
             setPriceMin("");
             setPriceMax("");
             setAvailableOnly(false);

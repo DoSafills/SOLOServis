@@ -1,6 +1,9 @@
-import { useState } from "react";
-import type { Page } from "../../types";
-import { products, formatPrice } from "../../data/mockData";
+import { useEffect, useState } from "react";
+import type { Page, PricePoint, StoreOffer } from "../../types";
+import { getProductById, type ApiProductDetail } from "../../Services/api/products";
+import { getPriceHistory } from "../../Services/api/priceHistory";
+import { formatPrice } from "../../Services/api/frontend-src/api";
+import { mapOffer } from "../../Services/api/catalog";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/ui";
 import PriceHistory from "../../components/PriceHistory";
 
@@ -21,22 +24,63 @@ export default function ProductDetailPage({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
-  const product = products.find((p) => p.id === productId);
-  const [selectedImage, setSelectedImage] = useState(0);
+  const [product, setProduct] = useState<ApiProductDetail | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [history, setHistory] = useState<PricePoint[]>([]);
+  const [offerHistory, setOfferHistory] = useState<PricePoint[]>([]);
 
-  if (!product)
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Producto no encontrado.</p>
-      </div>
-    );
+  useEffect(() => {
+    setProduct(null);
+    setNotFound(false);
+    setHistory([]);
+    setOfferHistory([]);
+    getProductById(productId)
+      .then(setProduct)
+      .catch(() => setNotFound(true));
+  }, [productId]);
 
-  const sortedOffers = [...product.offers].sort((a, b) => {
+  const offers: StoreOffer[] = (product?.offers ?? []).map(mapOffer);
+  const sortedOffers = [...offers].sort((a, b) => {
     if (a.available && !b.available) return -1;
     if (!a.available && b.available) return 1;
     return a.price - b.price;
   });
   const cheapestAvailable = sortedOffers.find((o) => o.available);
+
+  useEffect(() => {
+    if (!cheapestAvailable?.id) return;
+    getPriceHistory(cheapestAvailable.id)
+      .then((points) => {
+        const mapped = points.map((p) => ({ date: p.recordedAt.slice(0, 10), price: Number(p.price) }));
+        setHistory(mapped.filter((_, i) => !points[i].isPromotional).reverse());
+        setOfferHistory(mapped.filter((_, i) => points[i].isPromotional).reverse());
+      })
+      .catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cheapestAvailable?.id]);
+
+  if (notFound) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+        <p className="text-muted">Producto no encontrado.</p>
+      </div>
+    );
+  }
+
+  if (!product) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+        <p className="text-muted">Cargando...</p>
+      </div>
+    );
+  }
+
+  const offerPrice =
+    cheapestAvailable?.listPrice && cheapestAvailable.listPrice > cheapestAvailable.price
+      ? cheapestAvailable.price
+      : undefined;
+
+  const specs = product.model ? { Modelo: product.model } : {};
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -49,7 +93,8 @@ export default function ProductDetailPage({
           },
           {
             label: product.category,
-            onClick: () => navigate({ id: "search-products", query: product.category }),
+            onClick: () =>
+              navigate({ id: "search-products", query: "", category: product.category }),
           },
           { label: product.name },
         ]}
@@ -58,31 +103,19 @@ export default function ProductDetailPage({
       {/* Top section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
         {/* Images */}
-        <div>
-          <div
-            style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-            className="rounded-2xl overflow-hidden h-72 mb-3"
-          >
+        <div
+          style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+          className="rounded-2xl overflow-hidden h-72 flex items-center justify-center text-muted text-sm"
+        >
+          {product.images.length > 0 ? (
             <img
-              src={product.images[selectedImage] ?? product.image}
-              alt={product.name}
+              src={product.images[0].url}
+              alt={product.images[0].altText || product.name}
               className="w-full h-full object-cover"
             />
-          </div>
-          <div className="flex gap-2">
-            {product.images.map((img, i) => (
-              <button
-                key={i}
-                onClick={() => setSelectedImage(i)}
-                style={{
-                  border: `2px solid ${i === selectedImage ? "#E8001B" : "#2A2A2A"}`,
-                }}
-                className="w-16 h-16 rounded-xl overflow-hidden transition-all"
-              >
-                <img src={img} alt="" className="w-full h-full object-cover" />
-              </button>
-            ))}
-          </div>
+          ) : (
+            "Sin imagen"
+          )}
         </div>
 
         {/* Info */}
@@ -111,14 +144,12 @@ export default function ProductDetailPage({
               Características principales
             </h3>
             <div className="grid grid-cols-2 gap-2">
-              {Object.entries(product.specs)
-                .slice(0, 6)
-                .map(([k, v]) => (
-                  <div key={k} style={{ background: "#1A1A1A" }} className="rounded-xl px-3 py-2">
-                    <div className="text-xs text-muted">{k}</div>
-                    <div className="text-sm font-semibold text-text">{v}</div>
-                  </div>
-                ))}
+              {Object.entries(specs).map(([k, v]) => (
+                <div key={k} style={{ background: "#1A1A1A" }} className="rounded-xl px-3 py-2">
+                  <div className="text-xs text-muted">{k}</div>
+                  <div className="text-sm font-semibold text-text">{v}</div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -149,7 +180,7 @@ export default function ProductDetailPage({
               </div>
 
               {/* Offer price */}
-              {product.offerPrice ? (
+              {offerPrice && cheapestAvailable.listPrice ? (
                 <div
                   style={{
                     background: "rgba(232,0,27,0.08)",
@@ -167,11 +198,11 @@ export default function ProductDetailPage({
                     Precio oferta
                   </div>
                   <div className="price text-2xl font-bold text-prime">
-                    {formatPrice(product.offerPrice)}
+                    {formatPrice(offerPrice)}
                   </div>
                   <div className="flex items-center gap-3 mt-1 flex-wrap">
                     <span className="text-xs text-muted line-through">
-                      {formatPrice(cheapestAvailable.price)}
+                      {formatPrice(cheapestAvailable.listPrice)}
                     </span>
                     <span
                       style={{
@@ -180,10 +211,10 @@ export default function ProductDetailPage({
                       }}
                       className="text-xs font-bold px-2 py-0.5 rounded-md"
                     >
-                      -{Math.round((1 - product.offerPrice / cheapestAvailable.price) * 100)}% OFF
+                      -{Math.round((1 - offerPrice / cheapestAvailable.listPrice) * 100)}% OFF
                     </span>
                     <span className="text-xs text-muted">
-                      Ahorro: {formatPrice(cheapestAvailable.price - product.offerPrice)}
+                      Ahorro: {formatPrice(cheapestAvailable.listPrice - offerPrice)}
                     </span>
                   </div>
                 </div>
@@ -275,7 +306,7 @@ export default function ProductDetailPage({
             <tbody>
               {sortedOffers.map((offer, i) => (
                 <tr
-                  key={offer.storeId}
+                  key={offer.id ?? offer.storeId}
                   style={{
                     borderBottom: i < sortedOffers.length - 1 ? "1px solid #1A1A1A" : "none",
                   }}
@@ -321,8 +352,10 @@ export default function ProductDetailPage({
                     )}
                   </td>
                   <td className="py-4 text-right">
-                    <button
-                      disabled={!offer.available}
+                    <a
+                      href={offer.available ? offer.url : undefined}
+                      target="_blank"
+                      rel="noreferrer"
                       style={
                         offer.available
                           ? { background: "#E8001B", color: "#0A0A0A" }
@@ -330,12 +363,13 @@ export default function ProductDetailPage({
                               background: "#1A1A1A",
                               color: "#64748B",
                               cursor: "not-allowed",
+                              pointerEvents: "none",
                             }
                       }
-                      className="px-4 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-90"
+                      className="inline-block px-4 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-90"
                     >
                       Ver oferta
-                    </button>
+                    </a>
                   </td>
                 </tr>
               ))}
@@ -345,11 +379,7 @@ export default function ProductDetailPage({
       </section>
 
       {/* Price history */}
-      <PriceHistory
-        history={product.priceHistory}
-        offerHistory={product.offerPriceHistory}
-        currentOfferPrice={product.offerPrice}
-      />
+      <PriceHistory history={history} offerHistory={offerHistory} currentOfferPrice={offerPrice} />
 
       {/* Full specs */}
       <section
@@ -358,7 +388,7 @@ export default function ProductDetailPage({
       >
         <h2 className="text-lg font-bold text-text mb-5">Especificaciones técnicas</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-px" style={{ background: "#1A1A1A" }}>
-          {Object.entries(product.specs).map(([k, v]) => (
+          {Object.entries(specs).map(([k, v]) => (
             <div
               key={k}
               style={{ background: "#111111" }}

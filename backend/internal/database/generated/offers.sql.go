@@ -15,6 +15,7 @@ const getOfferByID = `-- name: GetOfferByID :one
 SELECT
     po.id,
     po.product_id,
+    p.public_id AS product_public_id,
     p.name AS product_name,
     po.store_id,
     s.name AS store_name,
@@ -35,21 +36,22 @@ WHERE po.id = $1
 `
 
 type GetOfferByIDRow struct {
-	ID           int32            `json:"id"`
-	ProductID    int32            `json:"product_id"`
-	ProductName  string           `json:"product_name"`
-	StoreID      int32            `json:"store_id"`
-	StoreName    string           `json:"store_name"`
-	Price        pgtype.Numeric   `json:"price"`
-	ListPrice    pgtype.Numeric   `json:"list_price"`
-	Currency     string           `json:"currency"`
-	ShippingCost pgtype.Numeric   `json:"shipping_cost"`
-	ShippingFree bool             `json:"shipping_free"`
-	Available    bool             `json:"available"`
-	Stock        pgtype.Int4      `json:"stock"`
-	Condition    string           `json:"condition"`
-	ProductUrl   pgtype.Text      `json:"product_url"`
-	LastUpdated  pgtype.Timestamp `json:"last_updated"`
+	ID              int32            `json:"id"`
+	ProductID       int32            `json:"product_id"`
+	ProductPublicID pgtype.UUID      `json:"product_public_id"`
+	ProductName     string           `json:"product_name"`
+	StoreID         int32            `json:"store_id"`
+	StoreName       string           `json:"store_name"`
+	Price           pgtype.Numeric   `json:"price"`
+	ListPrice       pgtype.Numeric   `json:"list_price"`
+	Currency        string           `json:"currency"`
+	ShippingCost    pgtype.Numeric   `json:"shipping_cost"`
+	ShippingFree    bool             `json:"shipping_free"`
+	Available       bool             `json:"available"`
+	Stock           pgtype.Int4      `json:"stock"`
+	Condition       string           `json:"condition"`
+	ProductUrl      pgtype.Text      `json:"product_url"`
+	LastUpdated     pgtype.Timestamp `json:"last_updated"`
 }
 
 func (q *Queries) GetOfferByID(ctx context.Context, id int32) (GetOfferByIDRow, error) {
@@ -58,6 +60,7 @@ func (q *Queries) GetOfferByID(ctx context.Context, id int32) (GetOfferByIDRow, 
 	err := row.Scan(
 		&i.ID,
 		&i.ProductID,
+		&i.ProductPublicID,
 		&i.ProductName,
 		&i.StoreID,
 		&i.StoreName,
@@ -79,6 +82,7 @@ const listOffers = `-- name: ListOffers :many
 SELECT
     po.id,
     po.product_id,
+    p.public_id AS product_public_id,
     p.name AS product_name,
     po.store_id,
     s.name AS store_name,
@@ -99,21 +103,22 @@ ORDER BY po.id
 `
 
 type ListOffersRow struct {
-	ID           int32            `json:"id"`
-	ProductID    int32            `json:"product_id"`
-	ProductName  string           `json:"product_name"`
-	StoreID      int32            `json:"store_id"`
-	StoreName    string           `json:"store_name"`
-	Price        pgtype.Numeric   `json:"price"`
-	ListPrice    pgtype.Numeric   `json:"list_price"`
-	Currency     string           `json:"currency"`
-	ShippingCost pgtype.Numeric   `json:"shipping_cost"`
-	ShippingFree bool             `json:"shipping_free"`
-	Available    bool             `json:"available"`
-	Stock        pgtype.Int4      `json:"stock"`
-	Condition    string           `json:"condition"`
-	ProductUrl   pgtype.Text      `json:"product_url"`
-	LastUpdated  pgtype.Timestamp `json:"last_updated"`
+	ID              int32            `json:"id"`
+	ProductID       int32            `json:"product_id"`
+	ProductPublicID pgtype.UUID      `json:"product_public_id"`
+	ProductName     string           `json:"product_name"`
+	StoreID         int32            `json:"store_id"`
+	StoreName       string           `json:"store_name"`
+	Price           pgtype.Numeric   `json:"price"`
+	ListPrice       pgtype.Numeric   `json:"list_price"`
+	Currency        string           `json:"currency"`
+	ShippingCost    pgtype.Numeric   `json:"shipping_cost"`
+	ShippingFree    bool             `json:"shipping_free"`
+	Available       bool             `json:"available"`
+	Stock           pgtype.Int4      `json:"stock"`
+	Condition       string           `json:"condition"`
+	ProductUrl      pgtype.Text      `json:"product_url"`
+	LastUpdated     pgtype.Timestamp `json:"last_updated"`
 }
 
 func (q *Queries) ListOffers(ctx context.Context) ([]ListOffersRow, error) {
@@ -128,6 +133,7 @@ func (q *Queries) ListOffers(ctx context.Context) ([]ListOffersRow, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProductID,
+			&i.ProductPublicID,
 			&i.ProductName,
 			&i.StoreID,
 			&i.StoreName,

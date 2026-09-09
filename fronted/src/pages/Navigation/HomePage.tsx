@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
 import { services } from "../../data/mockData";
-import { getProducts, type ApiProduct } from "../../Services/api/products";
+import { getCatalogProducts } from "../../Services/api/catalog";
+import { getCategories, type ApiCategory } from "../../Services/api/categories";
 import ProductCard from "../../components/ProductCard";
 import ServiceCard from "../../components/ServiceCard";
 
-const productCategories = [
-  { name: "Tecnología", icon: "⚡", color: "#E8001B" },
-  { name: "Computación", icon: "💻", color: "#818CF8" },
-  { name: "Celulares", icon: "📱", color: "#F472B6" },
-  { name: "Electrodomésticos", icon: "🏠", color: "#FB923C" },
-  { name: "Gaming", icon: "🎮", color: "#A78BFA" },
-  { name: "Hogar", icon: "🛋️", color: "#34D399" },
-];
+const categoryIcons: Record<string, string> = {
+  "Tarjetas de Video": "⚡",
+  Procesadores: "💻",
+  Notebooks: "💻",
+  Monitores: "🖥️",
+  Periféricos: "🖱️",
+};
+const defaultCategoryIcon = "🔧";
 
 const serviceCategories = [
   { name: "Internet", icon: "🌐", color: "#E8001B" },
@@ -40,30 +41,20 @@ export default function HomePage({
 }: Props) {
   const [query, setQuery] = useState("");
 
-  const [products, setProducts] = useState<ApiProduct[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<ApiCategory[]>([]);
 
-useEffect(() => {
-  getProducts().then(setProducts).catch(console.error);
-}, []);
+  useEffect(() => {
+    getCatalogProducts().then(setProducts).catch(console.error);
+    getCategories().then(setCategories).catch(console.error);
+  }, []);
 
-const featuredProducts: Product[] = products.slice(0, 4).map((product) => ({
-  id: product.id,
-  name: product.name,
-  brand: product.brand,
-  model: product.model,
-  category: product.category,
-  subcategory: "",
-  image: "",
-  images: [],
-  description: product.description,
-  rating: product.rating,
-  reviewCount: product.reviewCount,
-  specs: product.model ? { Modelo: product.model } : { Modelo: "" },
-  offers: [],
-  priceHistory: [],
-  offerPriceHistory: [],
-  tags: [],
-}));
+  const productCategories = categories.filter((c) => c.parentCategoryId !== null);
+
+  // Un producto por categoría, para que "destacados" no muestre siempre lo mismo.
+  const featuredProducts: Product[] = productCategories
+    .map((cat) => products.find((p) => p.category === cat.name))
+    .filter((p): p is Product => Boolean(p));
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,12 +183,14 @@ const featuredProducts: Product[] = products.slice(0, 4).map((product) => ({
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
             {productCategories.map((cat) => (
               <button
-                key={cat.name}
-                onClick={() => navigate({ id: "search-products", query: cat.name })}
+                key={cat.id}
+                onClick={() =>
+                  navigate({ id: "search-products", query: "", category: cat.name })
+                }
                 style={{ background: "#111111", border: "1px solid #2A2A2A" }}
                 className="flex flex-col items-center gap-2 p-4 rounded-2xl hover:border-prime hover:bg-prime-muted transition-all duration-200 group"
               >
-                <span className="text-2xl">{cat.icon}</span>
+                <span className="text-2xl">{categoryIcons[cat.name] ?? defaultCategoryIcon}</span>
                 <span className="text-xs font-medium text-muted-2 group-hover:text-prime transition-colors">
                   {cat.name}
                 </span>

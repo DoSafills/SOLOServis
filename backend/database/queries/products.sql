@@ -79,7 +79,7 @@ LEFT JOIN brand b ON b.id = p.brand_id
 JOIN product_category pc ON pc.id = p.category_id
 LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
 WHERE p.active = true
-ORDER BY p.id;
+ORDER BY p.name;
 
 
 -- name: ListProductOffers :many

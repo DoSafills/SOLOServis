@@ -1,6 +1,6 @@
 export type Page =
   | { id: "home" }
-  | { id: "search-products"; query: string }
+  | { id: "search-products"; query: string; category?: string }
   | {
       id: "product-detail";
       productId: string;
@@ -23,9 +23,11 @@ export type Page =
   | { id: "user" };
 
 export interface StoreOffer {
+  id?: number;
   storeId: string;
   storeName: string;
   price: number;
+  listPrice?: number;
   available: boolean;
   shipping: number | null;
   url?: string;

@@ -2,6 +2,7 @@
 SELECT
     po.id,
     po.product_id,
+    p.public_id AS product_public_id,
     p.name AS product_name,
     po.store_id,
     s.name AS store_name,
@@ -25,6 +26,7 @@ ORDER BY po.id;
 SELECT
     po.id,
     po.product_id,
+    p.public_id AS product_public_id,
     p.name AS product_name,
     po.store_id,
     s.name AS store_name,
