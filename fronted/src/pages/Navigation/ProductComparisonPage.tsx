@@ -1,5 +1,7 @@
-import type { Page } from "../../types";
-import { products, formatPrice, getMinPrice } from "../../data/mockData";
+import { useEffect, useState } from "react";
+import type { Page, Product } from "../../types";
+import { getCatalogProducts } from "../../Services/api/catalog";
+import { formatPrice, getMinPrice } from "../../Services/api/frontend-src/api";
 import { Breadcrumb, Badge } from "../../components/ui";
 
 interface Props {
@@ -7,26 +9,16 @@ interface Props {
   navigate: (page: Page) => void;
 }
 
-const specRows = [
-  "VRAM",
-  "Arquitectura",
-  "Núcleos CUDA",
-  "Stream Processors",
-  "Bus de memoria",
-  "TDP",
-  "Garantía",
-  "Conectores",
-  "Procesador",
-  "RAM",
-  "Almacenamiento",
-  "Pantalla",
-  "Sistema operativo",
-];
-
 export default function ProductComparisonPage({ productIds, navigate }: Props) {
+  const [products, setProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    getCatalogProducts().then(setProducts).catch(console.error);
+  }, []);
+
   const selected = productIds
     .map((id) => products.find((p) => p.id === id))
-    .filter(Boolean) as typeof products;
+    .filter((p): p is Product => Boolean(p));
 
   if (selected.length < 2) {
     return (
@@ -46,7 +38,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
   const minPrices = selected.map((p) => getMinPrice(p));
   const lowestPrice = Math.min(...minPrices);
 
-  const allSpecKeys = specRows.filter((key) => selected.some((p) => p.specs[key] !== undefined));
+  const allSpecKeys = Array.from(new Set(selected.flatMap((p) => Object.keys(p.specs))));
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -90,7 +82,20 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                   className="p-4 text-center"
                 >
                   <div className="flex flex-col items-center gap-2">
-                    <img src={p.image} alt={p.name} className="w-20 h-14 object-cover rounded-xl" />
+                    {p.image ? (
+                      <img
+                        src={p.image}
+                        alt={p.name}
+                        className="w-20 h-14 object-cover rounded-xl"
+                      />
+                    ) : (
+                      <div
+                        style={{ background: "#1A1A1A" }}
+                        className="w-20 h-14 rounded-xl flex items-center justify-center text-xs text-muted"
+                      >
+                        Sin imagen
+                      </div>
+                    )}
                     <div>
                       <div className="text-xs text-prime font-semibold">{p.brand}</div>
                       <div className="text-sm font-semibold text-text leading-tight">{p.name}</div>

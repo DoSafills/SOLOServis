@@ -6,7 +6,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/brands"
+	"github.com/DoSafills/SOLOServis/backend/internal/categories"
+	"github.com/DoSafills/SOLOServis/backend/internal/offers"
+	"github.com/DoSafills/SOLOServis/backend/internal/pricehistory"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
+	"github.com/DoSafills/SOLOServis/backend/internal/stores"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -45,6 +50,35 @@ func NewRouter(db *pgxpool.Pool) *chi.Mux {
 
 	r.Get("/products", productHandler.List)
 	r.Get("/products/{publicID}", productHandler.GetByPublicID)
+
+	brandRepository := brands.NewRepository(db)
+	brandHandler := brands.NewHandler(brandRepository)
+
+	r.Get("/brands", brandHandler.List)
+	r.Get("/brands/{id}", brandHandler.GetByID)
+
+	categoryRepository := categories.NewRepository(db)
+	categoryHandler := categories.NewHandler(categoryRepository)
+
+	r.Get("/categories", categoryHandler.List)
+	r.Get("/categories/{id}", categoryHandler.GetByID)
+
+	offerRepository := offers.NewRepository(db)
+	offerHandler := offers.NewHandler(offerRepository)
+
+	r.Get("/product-offers", offerHandler.List)
+	r.Get("/product-offers/{id}", offerHandler.GetByID)
+
+	priceHistoryRepository := pricehistory.NewRepository(db)
+	priceHistoryHandler := pricehistory.NewHandler(priceHistoryRepository)
+
+	r.Get("/price-history/{offerId}", priceHistoryHandler.ListByOfferID)
+
+	storeRepository := stores.NewRepository(db)
+	storeHandler := stores.NewHandler(storeRepository)
+
+	r.Get("/stores", storeHandler.List)
+	r.Get("/stores/{id}", storeHandler.GetByID)
 
 	return r
 }

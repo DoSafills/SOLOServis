@@ -137,6 +137,20 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
         </div>
       )}
 
+      {/* No price history notice */}
+      {mode === "price" && history.length === 0 && (
+        <div
+          style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
+          className="rounded-xl p-8 text-center"
+        >
+          <div className="text-3xl mb-3">📉</div>
+          <p className="text-sm font-semibold text-text mb-1">Sin historial de precios</p>
+          <p className="text-xs text-muted max-w-xs mx-auto">
+            Todavía no hay suficientes registros de precio para este producto.
+          </p>
+        </div>
+      )}
+
       {/* Active offer badge */}
       {mode === "offer" && hasOfferHistory && currentOfferPrice && (
         <div

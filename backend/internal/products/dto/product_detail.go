@@ -24,6 +24,7 @@ type ProductImage struct {
 }
 
 type ProductOffer struct {
+	ID           int32  `json:"id"`
 	StoreID      int32  `json:"storeId"`
 	StoreName    string `json:"storeName"`
 	Price        string `json:"price"`

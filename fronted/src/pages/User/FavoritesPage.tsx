@@ -1,5 +1,8 @@
-import type { Page } from "../../types";
-import { products, services, formatPrice, getMinPrice } from "../../data/mockData";
+import { useEffect, useState } from "react";
+import type { Page, Product } from "../../types";
+import { services } from "../../data/mockData";
+import { getCatalogProducts } from "../../Services/api/catalog";
+import { formatPrice, getMinOffer, getMinPrice } from "../../Services/api/frontend-src/api";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/ui";
 
 interface Props {
@@ -9,6 +12,12 @@ interface Props {
 }
 
 export default function FavoritesPage({ navigate, favorites, onToggleFavorite }: Props) {
+  const [products, setProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    getCatalogProducts().then(setProducts).catch(console.error);
+  }, []);
+
   const favProducts = products.filter((p) => favorites.has(p.id));
   const favServices = services.filter((s) => favorites.has(s.id));
 
@@ -71,9 +80,9 @@ export default function FavoritesPage({ navigate, favorites, onToggleFavorite }:
           <div className="space-y-3">
             {favProducts.map((p) => {
               const minPrice = getMinPrice(p);
-              // Simulate a previous price for demo
-              const prevPrice = Math.round((minPrice * 1.08) / 1000) * 1000;
-              const diff = prevPrice - minPrice;
+              const listPrice = getMinOffer(p)?.listPrice;
+              const prevPrice = listPrice && listPrice > minPrice ? listPrice : undefined;
+              const diff = prevPrice ? prevPrice - minPrice : 0;
               return (
                 <div
                   key={p.id}
@@ -81,14 +90,18 @@ export default function FavoritesPage({ navigate, favorites, onToggleFavorite }:
                   className="rounded-2xl p-4 flex items-center gap-4 hover:border-prime transition-all group"
                 >
                   <div
-                    className="w-20 h-16 rounded-xl overflow-hidden shrink-0 cursor-pointer"
+                    className="w-20 h-16 rounded-xl overflow-hidden shrink-0 cursor-pointer bg-surface flex items-center justify-center text-xs text-muted"
                     onClick={() => navigate({ id: "product-detail", productId: p.id })}
                   >
-                    <img
-                      src={p.image}
-                      alt={p.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
+                    {p.image ? (
+                      <img
+                        src={p.image}
+                        alt={p.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    ) : (
+                      "Sin imagen"
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs text-prime font-semibold">{p.brand}</div>
@@ -119,7 +132,11 @@ export default function FavoritesPage({ navigate, favorites, onToggleFavorite }:
                         Bajó {formatPrice(diff)}
                       </div>
                     )}
-                    <div className="text-xs text-muted line-through">{formatPrice(prevPrice)}</div>
+                    {prevPrice && (
+                      <div className="text-xs text-muted line-through">
+                        {formatPrice(prevPrice)}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-col items-center gap-2 shrink-0">
                     <FavoriteButton active={true} onClick={() => onToggleFavorite(p.id)} />
