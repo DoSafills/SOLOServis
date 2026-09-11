@@ -402,7 +402,15 @@ Actualmente existen las siguientes rutas:
 GET /health
 GET /products
 GET /products/{publicID}
+GET /stores
+GET /stores/{id}
+GET /services
+GET /services/{publicID}
 ```
+
+Las tiendas se consultan por id numérico. Los servicios se consultan por UUID
+público y aceptan el filtro opcional `?category=`. El detalle de un servicio
+incluye sus ofertas y proveedores.
 
 ---
 

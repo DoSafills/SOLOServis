@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
+	"github.com/DoSafills/SOLOServis/backend/internal/services"
+	"github.com/DoSafills/SOLOServis/backend/internal/stores"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -45,6 +47,16 @@ func NewRouter(db *pgxpool.Pool) *chi.Mux {
 
 	r.Get("/products", productHandler.List)
 	r.Get("/products/{publicID}", productHandler.GetByPublicID)
+
+	storeRepository := stores.NewRepository(db)
+	storeHandler := stores.NewHandler(storeRepository)
+	r.Get("/stores", storeHandler.List)
+	r.Get("/stores/{id}", storeHandler.Get)
+
+	serviceRepository := services.NewRepository(db)
+	serviceHandler := services.NewHandler(serviceRepository)
+	r.Get("/services", serviceHandler.List)
+	r.Get("/services/{publicID}", serviceHandler.Get)
 
 	return r
 }
