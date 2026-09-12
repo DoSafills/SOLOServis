@@ -20,14 +20,8 @@ export default function Header({ navigate, favCount }: Props) {
   };
 
   const navLinks = [
-    {
-      label: "Productos",
-      action: () => navigate({ id: "search-products", query: "" }),
-    },
-    {
-      label: "Servicios",
-      action: () => navigate({ id: "search-services", query: "" }),
-    },
+    { label: "Productos", action: () => navigate({ id: "search-products", query: "" }) },
+    { label: "Servicios", action: () => navigate({ id: "search-services", query: "" }) },
     { label: "Tiendas", action: () => navigate({ id: "stores" }) },
   ];
 

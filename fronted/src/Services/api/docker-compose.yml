@@ -1,0 +1,25 @@
+version: "3.9"
+
+# Este compose SOLO levanta la API. La base de datos ya existe en otro
+# contenedor tuyo, así que la API se conecta a ella por red en vez de
+# crear una nueva.
+#
+# IMPORTANTE: ajusta "external.name" abajo por el nombre real de la red
+# donde vive tu contenedor de Postgres. Para averiguarlo:
+#   docker inspect <nombre_o_id_de_tu_contenedor_db> --format '{{json .NetworkSettings.Networks}}'
+
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "4000:4000"
+    networks:
+      - db_network
+
+networks:
+  db_network:
+    external: true
+    name: soloservis-net
