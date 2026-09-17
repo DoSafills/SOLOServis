@@ -12,11 +12,15 @@ type Config struct {
 }
 
 func Load() Config {
+	return LoadForPort("8080")
+}
+
+func LoadForPort(defaultPort string) Config {
 	_ = godotenv.Load(".env")
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = defaultPort
 	}
 
 	databaseURL := os.Getenv("DATABASE_URL")

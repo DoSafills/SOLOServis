@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { services } from "../../data/mockData";
 import { getProducts, type ApiProduct } from "../../Services/api/products";
+import { getServices, toService } from "../../Services/api/services";
 import ProductCard from "../../components/ProductCard";
 import ServiceCard from "../../components/ServiceCard";
 
@@ -41,9 +41,11 @@ export default function HomePage({
   const [query, setQuery] = useState("");
 
   const [products, setProducts] = useState<ApiProduct[]>([]);
+  const [services, setServices] = useState<ReturnType<typeof toService>[]>([]);
 
 useEffect(() => {
   getProducts().then(setProducts).catch(console.error);
+  getServices().then((items) => setServices(items.map(toService))).catch(console.error);
 }, []);
 
 const featuredProducts: Product[] = products.slice(0, 4).map((product) => ({
