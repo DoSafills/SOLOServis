@@ -12,24 +12,33 @@ type Config struct {
 }
 
 func Load() Config {
-	return LoadForPort("8080")
+	_ = godotenv.Load(".env")
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	return Config{
+		Port:        port,
+		DatabaseURL: databaseURL(),
+	}
 }
 
 func LoadForPort(defaultPort string) Config {
 	_ = godotenv.Load(".env")
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = defaultPort
-	}
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		databaseURL = "postgres://postgres:postgres@localhost:5432/soloservis"
-	}
-
 	return Config{
-		Port:        port,
-		DatabaseURL: databaseURL,
+		Port:        defaultPort,
+		DatabaseURL: databaseURL(),
 	}
+}
+
+func databaseURL() string {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		url = "postgres://postgres:postgres@localhost:5432/soloservis"
+	}
+
+	return url
 }

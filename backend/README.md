@@ -294,6 +294,7 @@ Actualmente:
 001_schema.sql
 002_views.sql
 003_seed.sql
+004_store_service_seed.sql
 ```
 
 ## `001_schema.sql`
@@ -348,6 +349,16 @@ Refrigerador LG Side by Side
 ```
 
 También existen tiendas, ofertas, imágenes y reviews utilizadas para comprobar el flujo completo.
+
+## Poblar tiendas y servicios
+
+Para agregar los datos adicionales de tiendas, ofertas, proveedores y servicios:
+
+```powershell
+Get-Content backend/database/migrations/004_store_service_seed.sql | docker exec -i soloservis-db psql -U postgres -d soloservis
+```
+
+El script es repetible: si los registros ya existen, no los duplica.
 
 ---
 
