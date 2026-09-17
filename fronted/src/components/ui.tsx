@@ -1,11 +1,11 @@
-import type { MouseEvent, ReactNode } from "react";
+/* Reusable UI primitives */
 
 export function Badge({
   variant = "default",
   children,
 }: {
   variant?: "available" | "unavailable" | "offer" | "best" | "default";
-  children: ReactNode;
+  children: React.ReactNode;
 }) {
   const styles = {
     available: {
@@ -23,18 +23,9 @@ export function Badge({
       color: "#FBBF24",
       border: "1px solid rgba(251,191,36,0.25)",
     },
-    best: {
-      background: "#E8001B",
-      color: "#0A0A0A",
-      border: "none",
-    },
-    default: {
-      background: "#1A1A1A",
-      color: "#94A3B8",
-      border: "1px solid #2A2A2A",
-    },
+    best: { background: "#E8001B", color: "#0A0A0A", border: "none" },
+    default: { background: "#1A1A1A", color: "#94A3B8", border: "1px solid #2A2A2A" },
   };
-
   return (
     <span
       style={styles[variant]}
@@ -46,6 +37,11 @@ export function Badge({
 }
 
 export function Rating({ value, count }: { value: number; count?: number }) {
+  // La API puede devolver rating/count como string (p. ej. campos DECIMAL
+  // serializados desde el backend), así que forzamos number antes de operar.
+  const safeValue = Number(value) || 0;
+  const safeCount = count !== undefined ? Number(count) || 0 : undefined;
+
   return (
     <div className="flex items-center gap-1.5">
       <div className="flex">
@@ -55,17 +51,15 @@ export function Rating({ value, count }: { value: number; count?: number }) {
             width="12"
             height="12"
             viewBox="0 0 24 24"
-            fill={i <= Math.round(value) ? "#FBBF24" : "#2A2A2A"}
+            fill={i <= Math.round(safeValue) ? "#FBBF24" : "#2A2A2A"}
           >
             <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
           </svg>
         ))}
       </div>
-
-      <span className="text-xs font-semibold text-warn">{value.toFixed(1)}</span>
-
-      {count !== undefined && (
-        <span className="text-xs text-muted">({count.toLocaleString("es-CL")})</span>
+      <span className="text-xs font-semibold text-warn">{safeValue.toFixed(1)}</span>
+      {safeCount !== undefined && (
+        <span className="text-xs text-muted">({safeCount.toLocaleString("es-CL")})</span>
       )}
     </div>
   );
@@ -76,7 +70,7 @@ export function FavoriteButton({
   onClick,
 }: {
   active: boolean;
-  onClick: (e: MouseEvent) => void;
+  onClick: (e: React.MouseEvent) => void;
 }) {
   return (
     <button
@@ -98,20 +92,12 @@ export function FavoriteButton({
   );
 }
 
-export function Breadcrumb({
-  items,
-}: {
-  items: {
-    label: string;
-    onClick?: () => void;
-  }[];
-}) {
+export function Breadcrumb({ items }: { items: { label: string; onClick?: () => void }[] }) {
   return (
     <nav className="flex items-center gap-1.5 text-xs text-muted mb-6 flex-wrap">
       {items.map((item, i) => (
         <span key={i} className="flex items-center gap-1.5">
           {i > 0 && <span className="text-surface-3">/</span>}
-
           {item.onClick ? (
             <button onClick={item.onClick} className="hover:text-prime transition-colors">
               {item.label}
@@ -141,10 +127,7 @@ export function EmptyState({
 }: {
   title: string;
   description: string;
-  action?: {
-    label: string;
-    onClick: () => void;
-  };
+  action?: { label: string; onClick: () => void };
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
@@ -162,11 +145,8 @@ export function EmptyState({
           <path d="M11 8v3M11 14h.01" />
         </svg>
       </div>
-
       <h3 className="text-lg font-semibold text-text">{title}</h3>
-
       <p className="text-sm text-muted max-w-xs">{description}</p>
-
       {action && (
         <button
           onClick={action.onClick}
@@ -192,9 +172,7 @@ export function Pagination({
   onChange: (p: number) => void;
 }) {
   const pages = Math.ceil(total / perPage);
-
   if (pages <= 1) return null;
-
   return (
     <div className="flex items-center justify-center gap-1 mt-8">
       {Array.from({ length: Math.min(pages, 7) }, (_, i) => i + 1).map((p) => (
@@ -204,11 +182,7 @@ export function Pagination({
           style={
             p === page
               ? { background: "#E8001B", color: "#0A0A0A" }
-              : {
-                  background: "#111111",
-                  border: "1px solid #2A2A2A",
-                  color: "#94A3B8",
-                }
+              : { background: "#111111", border: "1px solid #2A2A2A", color: "#94A3B8" }
           }
           className="w-9 h-9 rounded-lg text-sm font-medium transition-all hover:border-prime hover:text-prime"
         >

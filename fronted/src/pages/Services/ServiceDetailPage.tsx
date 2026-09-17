@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import type { Page } from "../../types";
-import { services, formatPrice } from "../../data/mockData";
+import { formatPrice } from "../../data/mockData";
+import { getService, toService } from "../../Services/api/services";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/ui";
 import PriceHistory from "../../components/PriceHistory";
 
@@ -20,7 +22,12 @@ export default function ServiceDetailPage({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
-  const service = services.find((s) => s.id === serviceId);
+  const [service, setService] = useState<ReturnType<typeof toService> | null>(null);
+
+  useEffect(() => {
+    setService(null);
+    getService(serviceId).then((item) => setService(toService(item))).catch(console.error);
+  }, [serviceId]);
 
   if (!service)
     return (

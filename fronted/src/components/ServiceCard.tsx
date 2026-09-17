@@ -1,5 +1,5 @@
 import type { Service, Page } from "../types";
-import { formatPrice } from "../data/mockData";
+import { formatPrice } from "../Services/api/frontend-src/api";
 import { Badge, Rating, FavoriteButton } from "./ui";
 
 interface Props {
@@ -21,10 +21,7 @@ export default function ServiceCard({
 }: Props) {
   return (
     <div
-      style={{
-        background: "#111111",
-        border: `1px solid ${isComparing ? "#E8001B" : "#2A2A2A"}`,
-      }}
+      style={{ background: "#111111", border: `1px solid ${isComparing ? "#E8001B" : "#2A2A2A"}` }}
       className="rounded-2xl overflow-hidden hover:border-prime transition-all duration-300 group flex flex-col"
     >
       {/* Header band */}
@@ -117,11 +114,7 @@ export default function ServiceCard({
             style={
               isComparing
                 ? { background: "#E8001B", color: "#0A0A0A" }
-                : {
-                    background: "#1A1A1A",
-                    border: "1px solid #2A2A2A",
-                    color: "#94A3B8",
-                  }
+                : { background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#94A3B8" }
             }
             className="flex-1 py-1.5 rounded-xl text-xs font-semibold transition-all hover:border-prime hover:text-prime"
           >
