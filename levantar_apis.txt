@@ -1,0 +1,11 @@
+cd C:\Users\cc077\Documents\GitHub\SOLOServis\docker\postgres
+
+docker compose up -d
+
+cd C:\Users\cc077\Documents\GitHub\SOLOServis\backend
+Start-Process powershell -ArgumentList '-NoExit','-Command','cd "C:\Users\cc077\Documents\GitHub\SOLOServis\backend"; go run ./cmd/products-api'
+Start-Process powershell -ArgumentList '-NoExit','-Command','cd "C:\Users\cc077\Documents\GitHub\SOLOServis\backend"; go run ./cmd/stores-api'
+Start-Process powershell -ArgumentList '-NoExit','-Command','cd "C:\Users\cc077\Documents\GitHub\SOLOServis\backend"; go run ./cmd/services-api'
+
+cd C:\Users\cc077\Documents\GitHub\SOLOServis\fronted
+pnpm run dev
