@@ -15,6 +15,104 @@ FROM product
 WHERE id = $1;
 
 
+-- name: ListStores :many
+SELECT
+        s.id,
+        s.name,
+        s.website_url,
+        s.logo_url,
+        s.rating,
+        s.reputation,
+        s.shipping_information,
+        s.general_conditions,
+        COUNT(po.id)::BIGINT AS product_count
+FROM store s
+LEFT JOIN product_offer po ON po.store_id = s.id
+WHERE s.active = TRUE
+GROUP BY s.id
+ORDER BY s.name;
+
+
+-- name: GetStore :one
+SELECT
+        s.id,
+        s.name,
+        s.website_url,
+        s.logo_url,
+        s.rating,
+        s.reputation,
+        s.shipping_information,
+        s.general_conditions,
+        COUNT(po.id)::BIGINT AS product_count
+FROM store s
+LEFT JOIN product_offer po ON po.store_id = s.id
+WHERE s.id = $1
+    AND s.active = TRUE
+GROUP BY s.id;
+
+
+-- name: ListServices :many
+SELECT
+        s.id,
+        s.public_id,
+        s.name,
+        s.description,
+        s.image_url,
+        sc.name AS category_name,
+        COALESCE(srs.derived_average_rating, 0) AS rating,
+        COALESCE(srs.derived_review_count, 0) AS review_count,
+        MIN(so.price) FILTER (WHERE so.available = TRUE) AS starting_price
+FROM service s
+JOIN service_category sc ON sc.id = s.category_id
+LEFT JOIN service_rating_summary srs ON srs.service_id = s.id
+LEFT JOIN service_offer so ON so.service_id = s.id
+WHERE s.active = TRUE
+    AND (@category::text IS NULL OR sc.name = @category)
+GROUP BY s.id, sc.name, srs.derived_average_rating, srs.derived_review_count
+ORDER BY s.name;
+
+
+-- name: GetServiceDetail :one
+SELECT
+        s.id,
+        s.public_id,
+        s.name,
+        s.description,
+        s.image_url,
+        sc.name AS category_name,
+        COALESCE(srs.derived_average_rating, 0) AS rating,
+        COALESCE(srs.derived_review_count, 0) AS review_count
+FROM service s
+JOIN service_category sc ON sc.id = s.category_id
+LEFT JOIN service_rating_summary srs ON srs.service_id = s.id
+WHERE s.public_id = $1
+    AND s.active = TRUE;
+
+
+-- name: ListServiceOffers :many
+SELECT
+        so.id,
+        so.service_id,
+        so.provider_id,
+        p.name AS provider_name,
+        p.logo_url AS provider_logo_url,
+        p.rating AS provider_rating,
+        so.price,
+        so.currency,
+        so.billing_period,
+        so.installation_cost,
+        so.contract_period,
+        so.available,
+        so.coverage_summary,
+        so.additional_costs_summary,
+        so.service_url,
+        so.last_updated
+FROM service_offer so
+JOIN provider p ON p.id = so.provider_id
+WHERE so.service_id = $1
+ORDER BY so.price ASC;
+
+
 -- name: GetProductByPublicID :one
 SELECT
     id,

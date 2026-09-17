@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Page } from "../../types";
-import { products, formatPrice } from "../../data/mockData";
+import { formatPrice } from "../../data/mockData";
+import { getProduct, toProduct } from "../../Services/api/products-client";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/ui";
 import PriceHistory from "../../components/PriceHistory";
 
@@ -21,8 +22,13 @@ export default function ProductDetailPage({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
-  const product = products.find((p) => p.id === productId);
+  const [product, setProduct] = useState<ReturnType<typeof toProduct> | null>(null);
   const [selectedImage, setSelectedImage] = useState(0);
+
+  useEffect(() => {
+    setProduct(null);
+    getProduct(productId).then((item) => setProduct(toProduct(item))).catch(console.error);
+  }, [productId]);
 
   if (!product)
     return (

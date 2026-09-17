@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
+	"github.com/DoSafills/SOLOServis/backend/internal/services"
+	"github.com/DoSafills/SOLOServis/backend/internal/stores"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -19,6 +21,41 @@ type HealthResponse struct {
 
 func NewRouter(db *pgxpool.Pool) *chi.Mux {
 	r := chi.NewRouter()
+	addCORS(r)
+
+	registerHealth(r, db)
+	registerProductRoutes(r, db)
+	registerStoreRoutes(r, db)
+	registerServiceRoutes(r, db)
+
+	return r
+}
+
+func NewProductsRouter(db *pgxpool.Pool) *chi.Mux {
+	r := chi.NewRouter()
+	addCORS(r)
+	registerHealth(r, db)
+	registerProductRoutes(r, db)
+	return r
+}
+
+func NewStoresRouter(db *pgxpool.Pool) *chi.Mux {
+	r := chi.NewRouter()
+	addCORS(r)
+	registerHealth(r, db)
+	registerStoreRoutes(r, db)
+	return r
+}
+
+func NewServicesRouter(db *pgxpool.Pool) *chi.Mux {
+	r := chi.NewRouter()
+	addCORS(r)
+	registerHealth(r, db)
+	registerServiceRoutes(r, db)
+	return r
+}
+
+func addCORS(r *chi.Mux) {
 
 	// CORS
 	r.Use(func(next http.Handler) http.Handler {
@@ -35,18 +72,34 @@ func NewRouter(db *pgxpool.Pool) *chi.Mux {
 			next.ServeHTTP(w, req)
 		})
 	})
+}
 
+func registerHealth(r *chi.Mux, db *pgxpool.Pool) {
 	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
 		healthHandler(w, db)
 	})
+}
 
+func registerProductRoutes(r *chi.Mux, db *pgxpool.Pool) {
 	productRepository := products.NewRepository(db)
 	productHandler := products.NewHandler(productRepository)
 
 	r.Get("/products", productHandler.List)
 	r.Get("/products/{publicID}", productHandler.GetByPublicID)
+}
 
-	return r
+func registerStoreRoutes(r *chi.Mux, db *pgxpool.Pool) {
+	storeRepository := stores.NewRepository(db)
+	storeHandler := stores.NewHandler(storeRepository)
+	r.Get("/stores", storeHandler.List)
+	r.Get("/stores/{id}", storeHandler.Get)
+}
+
+func registerServiceRoutes(r *chi.Mux, db *pgxpool.Pool) {
+	serviceRepository := services.NewRepository(db)
+	serviceHandler := services.NewHandler(serviceRepository)
+	r.Get("/services", serviceHandler.List)
+	r.Get("/services/{publicID}", serviceHandler.Get)
 }
 
 func healthHandler(w http.ResponseWriter, db *pgxpool.Pool) {
