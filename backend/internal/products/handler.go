@@ -84,3 +84,70 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	var request dto.CreateProductRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	product, err := h.repository.Create(r.Context(), request.ToParams())
+	if err != nil {
+		http.Error(w, "failed to create product", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+
+	_ = json.NewEncoder(w).Encode(product)
+}
+
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	publicID := chi.URLParam(r, "publicID")
+
+	var uuid pgtype.UUID
+	if err := uuid.Scan(publicID); err != nil {
+		http.Error(w, "invalid product id", http.StatusBadRequest)
+		return
+	}
+
+	var request dto.UpdateProductRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	product, err := h.repository.UpdateByPublicID(r.Context(), request.ToParams(uuid))
+	if err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	_ = json.NewEncoder(w).Encode(product)
+}
+
+func (h *Handler) Deactivate(w http.ResponseWriter, r *http.Request) {
+	publicID := chi.URLParam(r, "publicID")
+
+	var uuid pgtype.UUID
+	if err := uuid.Scan(publicID); err != nil {
+		http.Error(w, "invalid product id", http.StatusBadRequest)
+		return
+	}
+
+	product, err := h.repository.DeactivateByPublicID(r.Context(), uuid)
+	if err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	_ = json.NewEncoder(w).Encode(product)
+}

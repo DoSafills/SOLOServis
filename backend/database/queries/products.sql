@@ -192,3 +192,48 @@ RETURNING
     active,
     created_at,
     updated_at;
+-- name: UpdateProductByPublicID :one
+UPDATE product
+SET
+    category_id = $2,
+    brand_id = $3,
+    name = $4,
+    model = $5,
+    sku = $6,
+    description = $7,
+    updated_at = now()
+WHERE public_id = $1
+  AND active = true
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at;
+
+
+-- name: DeactivateProductByPublicID :one
+UPDATE product
+SET
+    active = false,
+    updated_at = now()
+WHERE public_id = $1
+  AND active = true
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at;

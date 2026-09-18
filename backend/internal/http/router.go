@@ -44,7 +44,10 @@ func NewRouter(db *pgxpool.Pool) *chi.Mux {
 	productHandler := products.NewHandler(productRepository)
 
 	r.Get("/products", productHandler.List)
-	r.Get("/products/{publicID}", productHandler.GetByPublicID)
+		r.Get("/products/{publicID}", productHandler.GetByPublicID)
+		r.Post("/products", productHandler.Create)
+		r.Put("/products/{publicID}", productHandler.Update)
+		r.Delete("/products/{publicID}", productHandler.Deactivate)
 
 	return r
 }
@@ -71,3 +74,4 @@ func healthHandler(w http.ResponseWriter, db *pgxpool.Pool) {
 		Database: "connected",
 	})
 }
+
