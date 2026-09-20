@@ -5,22 +5,30 @@ import (
 )
 
 type ProductDetail struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Brand       string         `json:"brand"`
-	Model       string         `json:"model"`
-	Category    string         `json:"category"`
-	Description string         `json:"description"`
-	Rating      float64        `json:"rating"`
-	ReviewCount int64          `json:"reviewCount"`
-	Images      []ProductImage `json:"images"`
-	Offers      []ProductOffer `json:"offers"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Brand        string            `json:"brand"`
+	Model        string            `json:"model"`
+	Category     string            `json:"category"`
+	Description  string            `json:"description"`
+	Rating       float64           `json:"rating"`
+	ReviewCount  int64             `json:"reviewCount"`
+	Images       []ProductImage    `json:"images"`
+	Offers       []ProductOffer    `json:"offers"`
+	Specs        map[string]string `json:"specs"`
+	PriceHistory []PricePoint      `json:"priceHistory"`
+	OfferPrice   *float64          `json:"offerPrice,omitempty"`
 }
 
 type ProductImage struct {
 	URL       string `json:"url"`
 	AltText   string `json:"altText"`
 	SortOrder int32  `json:"sortOrder"`
+}
+
+type PricePoint struct {
+	Date  string  `json:"date"`
+	Price float64 `json:"price"`
 }
 
 type ProductOffer struct {
@@ -62,16 +70,18 @@ func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail 
 	}
 
 	return ProductDetail{
-		ID:          product.PublicID.String(),
-		Name:        product.Name,
-		Brand:       brand,
-		Model:       model,
-		Category:    product.CategoryName,
-		Description: description,
-		Rating:      rating,
-		ReviewCount: product.ReviewCount,
-		Images:      []ProductImage{},
-		Offers:      []ProductOffer{},
+		ID:           product.PublicID.String(),
+		Name:         product.Name,
+		Brand:        brand,
+		Model:        model,
+		Category:     product.CategoryName,
+		Description:  description,
+		Rating:       rating,
+		ReviewCount:  product.ReviewCount,
+		Images:       []ProductImage{},
+		Offers:       []ProductOffer{},
+		Specs:        map[string]string{},
+		PriceHistory: []PricePoint{},
 	}
 }
 

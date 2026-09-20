@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
 import { getProducts, type ApiProduct } from "../../Services/api/products";
+import { toProduct } from "../../Services/api/products-client";
 import { getServices, toService } from "../../Services/api/services";
 import ProductCard from "../../components/ProductCard";
 import ServiceCard from "../../components/ServiceCard";
@@ -48,24 +49,7 @@ useEffect(() => {
   getServices().then((items) => setServices(items.map(toService))).catch(console.error);
 }, []);
 
-const featuredProducts: Product[] = products.slice(0, 4).map((product) => ({
-  id: product.id,
-  name: product.name,
-  brand: product.brand,
-  model: product.model,
-  category: product.category,
-  subcategory: "",
-  image: "",
-  images: [],
-  description: product.description,
-  rating: product.rating,
-  reviewCount: product.reviewCount,
-  specs: product.model ? { Modelo: product.model } : { Modelo: "" },
-  offers: [],
-  priceHistory: [],
-  offerPriceHistory: [],
-  tags: [],
-}));
+const featuredProducts: Product[] = products.slice(0, 4).map(toProduct);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

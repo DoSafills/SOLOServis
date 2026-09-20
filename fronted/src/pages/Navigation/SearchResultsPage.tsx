@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
 import { getProducts, type ApiProduct } from "../../Services/api/products";
+import { toProduct } from "../../Services/api/products-client";
 import ProductCard from "../../components/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/ui";
 
@@ -37,6 +38,7 @@ export default function SearchResultsPage({
     getProducts().then(setApiProducts).catch(console.error);
   }, []);
 
+<<<<<<< Updated upstream
   const products: Product[] = apiProducts.map((product) => ({
     id: product.id,
     name: product.name,
@@ -55,6 +57,9 @@ export default function SearchResultsPage({
     offerPriceHistory: [],
     tags: [],
   }));
+=======
+const products: Product[] = apiProducts.map(toProduct);
+>>>>>>> Stashed changes
 
   const brands = [...new Set(products.map((p) => p.brand))];
 

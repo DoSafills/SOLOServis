@@ -9,6 +9,12 @@ export interface ApiProduct {
   description: string;
   rating: number;
   reviewCount: number;
+  images?: Array<{ url: string; altText: string; sortOrder?: number }>;
+  specs?: Record<string, string>;
+  priceHistory?: Array<{ date: string; price: number }>;
+  offerPrice?: number;
+  offerPriceHistory?: Array<{ date: string; price: number }>;
+  tags?: string[];
 }
 
 export async function getProducts(): Promise<ApiProduct[]> {

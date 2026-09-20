@@ -3,6 +3,7 @@ package products
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/products/dto"
 	"github.com/go-chi/chi/v5"
@@ -66,6 +67,18 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	specifications, err := h.repository.ListSpecifications(r.Context(), product.ID)
+	if err != nil {
+		http.Error(w, "failed to load product specifications", http.StatusInternalServerError)
+		return
+	}
+
+	priceHistory, err := h.repository.ListPriceHistory(r.Context(), product.ID)
+	if err != nil {
+		http.Error(w, "failed to load product price history", http.StatusInternalServerError)
+		return
+	}
+
 	result := dto.FromProduct(product)
 
 	result.Images = make([]dto.ProductImage, 0, len(images))
@@ -76,6 +89,26 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 	result.Offers = make([]dto.ProductOffer, 0, len(offers))
 	for _, offer := range offers {
 		result.Offers = append(result.Offers, dto.FromProductOffer(offer))
+	}
+
+	result.Specs = make(map[string]string, len(specifications))
+	for _, specification := range specifications {
+		result.Specs[specification.Name] = specification.Value
+	}
+	result.PriceHistory = make([]dto.PricePoint, 0, len(priceHistory))
+	for _, point := range priceHistory {
+		value, err := point.Price.Float64Value()
+		if err != nil || !value.Valid || !point.RecordedAt.Valid {
+			continue
+		}
+		result.PriceHistory = append(result.PriceHistory, dto.PricePoint{
+			Date:  point.RecordedAt.Time.Format(time.RFC3339),
+			Price: value.Float64,
+		})
+		if point.IsPromotional {
+			promotionalPrice := value.Float64
+			result.OfferPrice = &promotionalPrice
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
