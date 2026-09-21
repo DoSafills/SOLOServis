@@ -15,6 +15,17 @@ export interface ApiProduct {
   offerPrice?: number;
   offerPriceHistory?: Array<{ date: string; price: number }>;
   tags?: string[];
+  offer?: ApiProductOffer;
+}
+
+export interface ApiProductOffer {
+  storeId: number;
+  storeName: string;
+  price: string;
+  shippingCost: string;
+  shippingFree: boolean;
+  available: boolean;
+  productUrl: string;
 }
 
 export async function getProducts(): Promise<ApiProduct[]> {

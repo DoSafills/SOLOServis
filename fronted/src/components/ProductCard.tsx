@@ -18,6 +18,8 @@ export default function ProductCard({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
+  const bestOffer = product.offers.find((offer) => offer.available) ?? product.offers[0];
+
   return (
     <div
       style={{
@@ -46,7 +48,9 @@ export default function ProductCard({
         <div className="absolute inset-0 bg-gradient-to-t from-surface/60 to-transparent" />
 
         <div className="absolute top-2 left-2 flex gap-1.5">
-          <Badge variant="unavailable">Sin ofertas</Badge>
+          <Badge variant={bestOffer?.available ? "available" : "unavailable"}>
+            {bestOffer?.available ? "Disponible" : "Sin ofertas"}
+          </Badge>
         </div>
 
         <div className="absolute top-2 right-2">
@@ -93,7 +97,16 @@ export default function ProductCard({
 
         {/* Price */}
         <div className="text-xs text-muted mb-0.5">Precio</div>
-        <div className="text-sm font-semibold text-muted">No disponible</div>
+        {bestOffer ? (
+          <div>
+            <div className="text-sm font-semibold text-text">
+              ${bestOffer.price.toLocaleString("es-CL")}
+            </div>
+            <div className="text-xs text-muted">En {bestOffer.storeName}</div>
+          </div>
+        ) : (
+          <div className="text-sm font-semibold text-muted">No disponible</div>
+        )}
 
         {/* Actions */}
         <div className="flex gap-2 mt-1">

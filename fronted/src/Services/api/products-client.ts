@@ -1,23 +1,15 @@
 import type { Product } from "../../types";
 import { API_URLS, getJson } from "./config";
-import type { ApiProduct } from "./products";
+import type { ApiProduct, ApiProductOffer } from "./products";
 
 export interface ApiProductDetail extends ApiProduct {
   images: Array<{ url: string; altText: string; sortOrder?: number }>;
-  offers: Array<{
-    storeId: number;
-    storeName: string;
-    price: string;
-    shippingCost: string;
-    shippingFree: boolean;
-    available: boolean;
-    productUrl: string;
-  }>;
+  offers: ApiProductOffer[];
 }
 
 export function toProduct(product: ApiProduct | ApiProductDetail): Product {
-  const detail = "images" in product ? product : undefined;
-  const images = detail?.images.map((image) => image.url) ?? [];
+  const detail = "offers" in product ? product : undefined;
+  const images = (detail?.images ?? product.images ?? []).map((image) => image.url);
   return {
     id: product.id,
     name: product.name,
@@ -31,7 +23,7 @@ export function toProduct(product: ApiProduct | ApiProductDetail): Product {
     rating: product.rating,
     reviewCount: product.reviewCount,
     specs: product.specs ?? (product.model ? { Modelo: product.model } : {}),
-    offers: detail?.offers.map((offer) => ({
+    offers: (detail?.offers ?? (product.offer ? [product.offer] : [])).map((offer) => ({
       storeId: String(offer.storeId),
       storeName: offer.storeName,
       price: Number(offer.price) || 0,

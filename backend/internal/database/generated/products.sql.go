@@ -384,11 +384,33 @@ SELECT
     b.name AS brand_name,
     pc.name AS category_name,
     COALESCE(prs.derived_average_rating, 0) AS rating,
-    COALESCE(prs.derived_review_count, 0) AS review_count
+	COALESCE(prs.derived_review_count, 0) AS review_count,
+	best_offer.store_id AS offer_store_id,
+	best_offer.store_name AS offer_store_name,
+	best_offer.price AS offer_price,
+	best_offer.shipping_cost AS offer_shipping_cost,
+	best_offer.shipping_free AS offer_shipping_free,
+	best_offer.available AS offer_available,
+	best_offer.product_url AS offer_product_url
 FROM product p
 LEFT JOIN brand b ON b.id = p.brand_id
 JOIN product_category pc ON pc.id = p.category_id
 LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
+LEFT JOIN LATERAL (
+	SELECT
+		po.store_id,
+		s.name AS store_name,
+		po.price,
+		po.shipping_cost,
+		po.shipping_free,
+		po.available,
+		po.product_url
+	FROM product_offer po
+	JOIN store s ON s.id = po.store_id
+	WHERE po.product_id = p.id
+	ORDER BY po.available DESC, po.price ASC
+	LIMIT 1
+) best_offer ON true
 WHERE p.active = true
 ORDER BY p.id
 `
@@ -409,6 +431,13 @@ type ListProductsRow struct {
 	CategoryName string           `json:"category_name"`
 	Rating       pgtype.Numeric   `json:"rating"`
 	ReviewCount  int64            `json:"review_count"`
+	OfferStoreID pgtype.Int4      `json:"offer_store_id"`
+	OfferStoreName pgtype.Text    `json:"offer_store_name"`
+	OfferPrice   pgtype.Numeric   `json:"offer_price"`
+	OfferShippingCost pgtype.Numeric `json:"offer_shipping_cost"`
+	OfferShippingFree pgtype.Bool `json:"offer_shipping_free"`
+	OfferAvailable pgtype.Bool    `json:"offer_available"`
+	OfferProductUrl pgtype.Text   `json:"offer_product_url"`
 }
 
 func (q *Queries) ListProducts(ctx context.Context) ([]ListProductsRow, error) {
@@ -436,6 +465,13 @@ func (q *Queries) ListProducts(ctx context.Context) ([]ListProductsRow, error) {
 			&i.CategoryName,
 			&i.Rating,
 			&i.ReviewCount,
+			&i.OfferStoreID,
+			&i.OfferStoreName,
+			&i.OfferPrice,
+			&i.OfferShippingCost,
+			&i.OfferShippingFree,
+			&i.OfferAvailable,
+			&i.OfferProductUrl,
 		); err != nil {
 			return nil, err
 		}

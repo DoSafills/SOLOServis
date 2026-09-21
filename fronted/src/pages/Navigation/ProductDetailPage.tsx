@@ -23,12 +23,49 @@ export default function ProductDetailPage({
   onToggleCompare,
 }: Props) {
   const [product, setProduct] = useState<ReturnType<typeof toProduct> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+
     setProduct(null);
-    getProduct(productId).then((item) => setProduct(toProduct(item))).catch(console.error);
+    setLoading(true);
+    setError(null);
+    setSelectedImage(0);
+
+    getProduct(productId)
+      .then((item) => {
+        if (!cancelled) setProduct(toProduct(item));
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) {
+          setError(reason instanceof Error ? reason.message : "No se pudo cargar el producto");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [productId]);
+
+  if (loading)
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+        <p className="text-muted">Cargando producto...</p>
+      </div>
+    );
+
+  if (error)
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+        <p className="text-warn">{error}</p>
+      </div>
+    );
 
   if (!product)
     return (

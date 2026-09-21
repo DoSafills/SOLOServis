@@ -13,6 +13,7 @@ type ProductListItem struct {
 	Description string  `json:"description"`
 	Rating      float64 `json:"rating"`
 	ReviewCount int64   `json:"reviewCount"`
+	Offer       *ProductOffer `json:"offer,omitempty"`
 }
 
 func FromListProduct(row generated.ListProductsRow) ProductListItem {
@@ -39,6 +40,33 @@ func FromListProduct(row generated.ListProductsRow) ProductListItem {
 		}
 	}
 
+	var offer *ProductOffer
+	if row.OfferStoreID.Valid && row.OfferStoreName.Valid && row.OfferPrice.Valid {
+		price, err := row.OfferPrice.MarshalJSON()
+		if err == nil {
+			shippingCost := ""
+			if row.OfferShippingCost.Valid {
+				value, shippingErr := row.OfferShippingCost.MarshalJSON()
+				if shippingErr == nil {
+					shippingCost = string(value)
+				}
+			}
+			productURL := ""
+			if row.OfferProductUrl.Valid {
+				productURL = row.OfferProductUrl.String
+			}
+			offer = &ProductOffer{
+				StoreID: row.OfferStoreID.Int32,
+				StoreName: row.OfferStoreName.String,
+				Price: string(price),
+				ShippingCost: shippingCost,
+				ShippingFree: row.OfferShippingFree.Valid && row.OfferShippingFree.Bool,
+				Available: row.OfferAvailable.Valid && row.OfferAvailable.Bool,
+				ProductURL: productURL,
+			}
+		}
+	}
+
 	return ProductListItem{
 		ID:          row.PublicID.String(),
 		Name:        row.Name,
@@ -48,5 +76,6 @@ func FromListProduct(row generated.ListProductsRow) ProductListItem {
 		Description: description,
 		Rating:      rating,
 		ReviewCount: row.ReviewCount,
+		Offer: offer,
 	}
 }
