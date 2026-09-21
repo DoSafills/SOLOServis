@@ -1,5 +1,6 @@
-import type { Page } from "../../types";
-import { stores, products } from "../../data/mockData";
+import { useEffect, useState } from "react";
+import type { Page, Store } from "../../types";
+import { getStores, toStore } from "../../Services/api/stores";
 import { Badge, Breadcrumb, Rating } from "../../components/ui";
 import ProductCard from "../../components/ProductCard";
 
@@ -13,6 +14,12 @@ interface Props {
 }
 
 function StoreList({ navigate }: { navigate: (page: Page) => void }) {
+  const [stores, setStores] = useState<Store[]>([]);
+
+  useEffect(() => {
+    getStores().then((items) => setStores(items.map(toStore))).catch(console.error);
+  }, []);
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <Breadcrumb
@@ -86,10 +93,15 @@ function StoreDetail({
   onToggleFavorite,
   onToggleCompare,
 }: Required<Props>) {
-  const store = stores.find((s) => s.id === storeId);
-  if (!store) return null;
+  const [store, setStore] = useState<Store | null>(null);
 
-  const storeProducts = products.filter((p) => p.offers.some((o) => o.storeId === storeId));
+  useEffect(() => {
+    getStores()
+      .then((items) => setStore(items.map(toStore).find((item) => item.id === storeId) ?? null))
+      .catch(console.error);
+  }, [storeId]);
+
+  if (!store) return null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -144,17 +156,7 @@ function StoreDetail({
       {/* Products in store */}
       <h2 className="text-lg font-bold text-text mb-4">Productos disponibles en {store.name}</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {storeProducts.map((p) => (
-          <ProductCard
-            key={p.id}
-            product={p}
-            navigate={navigate}
-            isFavorite={favorites.has(p.id)}
-            isComparing={compareList.has(p.id)}
-            onToggleFavorite={onToggleFavorite}
-            onToggleCompare={onToggleCompare}
-          />
-        ))}
+        <p className="text-sm text-muted">Consulta los productos disponibles desde el catálogo de productos.</p>
       </div>
     </div>
   );

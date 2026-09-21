@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Page } from "../../types";
-import { services } from "../../data/mockData";
+import { getServices, toService } from "../../Services/api/services";
 import ServiceCard from "../../components/ServiceCard";
 import { Breadcrumb, EmptyState } from "../../components/ui";
 
@@ -23,6 +23,11 @@ export default function ServicesPage({
 }: Props) {
   const [sort, setSort] = useState("relevance");
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
+  const [services, setServices] = useState<ReturnType<typeof toService>[]>([]);
+
+  useEffect(() => {
+    getServices().then((items) => setServices(items.map(toService))).catch(console.error);
+  }, []);
 
   const categories = [...new Set(services.map((s) => s.category))];
 

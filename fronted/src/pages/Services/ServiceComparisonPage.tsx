@@ -1,5 +1,7 @@
-import type { Page } from "../../types";
-import { services, formatPrice } from "../../data/mockData";
+import { useEffect, useState } from "react";
+import type { Page, Service } from "../../types";
+import { formatPrice } from "../../data/mockData";
+import { getServices, toService } from "../../Services/api/services";
 import { Breadcrumb, Badge } from "../../components/ui";
 
 interface Props {
@@ -8,9 +10,13 @@ interface Props {
 }
 
 export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
-  const selected = serviceIds
-    .map((id) => services.find((s) => s.id === id))
-    .filter(Boolean) as typeof services;
+  const [selected, setSelected] = useState<Service[]>([]);
+
+  useEffect(() => {
+    getServices()
+      .then((items) => setSelected(items.filter((item) => serviceIds.includes(item.id)).map(toService)))
+      .catch(console.error);
+  }, [serviceIds]);
 
   if (selected.length < 2) {
     return (
@@ -33,7 +39,7 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
   const compareRows: {
     key: string;
     label: string;
-    getValue: (s: (typeof services)[0]) => string;
+    getValue: (s: Service) => string;
     highlight?: (values: string[]) => string | null;
   }[] = [
     {

@@ -1,6 +1,6 @@
-import { useState } from "react";
-import type { Page } from "../../types";
-import { products, getMinPrice } from "../../data/mockData";
+import { useEffect, useState } from "react";
+import type { Page, Product } from "../../types";
+import { getProducts, type ApiProduct } from "../../Services/api/products";
 import ProductCard from "../../components/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/ui";
 
@@ -31,46 +31,73 @@ export default function SearchResultsPage({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const PER_PAGE = 6;
+ const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
 
-  const brands = [...new Set(products.map((p) => p.brand))];
+useEffect(() => {
+  getProducts().then(setApiProducts).catch(console.error);
+}, []);
 
-  let filtered = products.filter((p) => {
-    if (
-      query &&
-      !p.name.toLowerCase().includes(query.toLowerCase()) &&
-      !p.brand.toLowerCase().includes(query.toLowerCase()) &&
-      !p.category.toLowerCase().includes(query.toLowerCase())
-    )
-      return false;
-    const min = getMinPrice(p);
-    if (priceMin && min < Number(priceMin.replace(/\D/g, ""))) return false;
-    if (priceMax && min > Number(priceMax.replace(/\D/g, ""))) return false;
-    if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) return false;
-    if (availableOnly && p.offers.every((o) => !o.available)) return false;
-    return true;
+const products: Product[] = apiProducts.map((product) => ({
+  id: product.id,
+  name: product.name,
+  brand: product.brand,
+  model: product.model,
+  category: product.category,
+  subcategory: "",
+  image: "",
+  images: [],
+  description: product.description,
+  rating: product.rating,
+  reviewCount: product.reviewCount,
+  specs: product.model ? { Modelo: product.model } : { Modelo: "" },
+  offers: [],
+  priceHistory: [],
+  offerPriceHistory: [],
+  tags: [],
+}));
+
+const brands = [...new Set(products.map((p) => p.brand))];
+
+let filtered = products.filter((p) => {
+  if (
+    query &&
+    !p.name.toLowerCase().includes(query.toLowerCase()) &&
+    !p.brand.toLowerCase().includes(query.toLowerCase()) &&
+    !p.category.toLowerCase().includes(query.toLowerCase())
+  ) {
+    return false;
+  }
+
+  if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
+    return false;
+  }
+
+  return true;
+});
+
+filtered = [...filtered].sort((a, b) => {
+  if (sort === "rating") return b.rating - a.rating;
+  return 0;
+});
+
+const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+const toggleBrand = (brand: string) => {
+  setSelectedBrands((prev) => {
+    const next = new Set(prev);
+
+    if (next.has(brand)) {
+      next.delete(brand);
+    } else {
+      next.add(brand);
+    }
+
+    return next;
   });
 
-  filtered = [...filtered].sort((a, b) => {
-    if (sort === "price-asc") return getMinPrice(a) - getMinPrice(b);
-    if (sort === "price-desc") return getMinPrice(b) - getMinPrice(a);
-    if (sort === "rating") return b.rating - a.rating;
-    return 0;
-  });
+  setPage(1);
+};
 
-  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
-
-  const toggleBrand = (brand: string) => {
-    setSelectedBrands((prev) => {
-      const next = new Set(prev);
-      if (next.has(brand)) {
-        next.delete(brand);
-      } else {
-        next.add(brand);
-      }
-      return next;
-    });
-    setPage(1);
-  };
 
   const renderFilters = () => (
     <div className="space-y-6">

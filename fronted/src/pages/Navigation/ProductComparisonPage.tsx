@@ -1,5 +1,8 @@
-import type { Page } from "../../types";
-import { products, formatPrice, getMinPrice } from "../../data/mockData";
+import { useEffect, useState } from "react";
+import type { Page, Product } from "../../types";
+import { formatPrice, getMinPrice } from "../../data/mockData";
+import { getProducts } from "../../Services/api/products";
+import { toProduct } from "../../Services/api/products-client";
 import { Breadcrumb, Badge } from "../../components/ui";
 
 interface Props {
@@ -24,9 +27,13 @@ const specRows = [
 ];
 
 export default function ProductComparisonPage({ productIds, navigate }: Props) {
-  const selected = productIds
-    .map((id) => products.find((p) => p.id === id))
-    .filter(Boolean) as typeof products;
+  const [selected, setSelected] = useState<Product[]>([]);
+
+  useEffect(() => {
+    getProducts()
+      .then((items) => setSelected(items.filter((item) => productIds.includes(item.id)).map(toProduct)))
+      .catch(console.error);
+  }, [productIds]);
 
   if (selected.length < 2) {
     return (
