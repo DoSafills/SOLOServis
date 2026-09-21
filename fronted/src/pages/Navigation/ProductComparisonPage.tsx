@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
 import { formatPrice, getMinPrice } from "../../data/mockData";
-import { getProducts } from "../../Services/api/products";
-import { toProduct } from "../../Services/api/products-client";
+import { getProduct, toProduct } from "../../Services/api/products-client";
 import { Breadcrumb, Badge } from "../../components/ui";
 
 interface Props {
@@ -10,28 +9,13 @@ interface Props {
   navigate: (page: Page) => void;
 }
 
-const specRows = [
-  "VRAM",
-  "Arquitectura",
-  "Núcleos CUDA",
-  "Stream Processors",
-  "Bus de memoria",
-  "TDP",
-  "Garantía",
-  "Conectores",
-  "Procesador",
-  "RAM",
-  "Almacenamiento",
-  "Pantalla",
-  "Sistema operativo",
-];
-
 export default function ProductComparisonPage({ productIds, navigate }: Props) {
   const [selected, setSelected] = useState<Product[]>([]);
 
   useEffect(() => {
-    getProducts()
-      .then((items) => setSelected(items.filter((item) => productIds.includes(item.id)).map(toProduct)))
+    // El listado no trae especificaciones ni ofertas: se pide el detalle de cada producto.
+    Promise.all(productIds.map((id) => getProduct(id)))
+      .then((items) => setSelected(items.map(toProduct)))
       .catch(console.error);
   }, [productIds]);
 
@@ -53,7 +37,8 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
   const minPrices = selected.map((p) => getMinPrice(p));
   const lowestPrice = Math.min(...minPrices);
 
-  const allSpecKeys = specRows.filter((key) => selected.some((p) => p.specs[key] !== undefined));
+  // Filas dinámicas: unión de las especificaciones de los productos seleccionados.
+  const allSpecKeys = [...new Set(selected.flatMap((p) => Object.keys(p.specs)))];
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">

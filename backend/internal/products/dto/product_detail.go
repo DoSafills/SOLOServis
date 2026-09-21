@@ -13,8 +13,17 @@ type ProductDetail struct {
 	Description string         `json:"description"`
 	Rating      float64        `json:"rating"`
 	ReviewCount int64          `json:"reviewCount"`
-	Images      []ProductImage `json:"images"`
-	Offers      []ProductOffer `json:"offers"`
+	Images         []ProductImage         `json:"images"`
+	Offers         []ProductOffer         `json:"offers"`
+	Specifications []ProductSpecification `json:"specifications"`
+}
+
+type ProductSpecification struct {
+	Name       string `json:"name"`
+	Value      string `json:"value"`
+	Unit       string `json:"unit"`
+	DataType   string `json:"dataType"`
+	Comparable bool   `json:"comparable"`
 }
 
 type ProductImage struct {
@@ -70,8 +79,24 @@ func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail 
 		Description: description,
 		Rating:      rating,
 		ReviewCount: product.ReviewCount,
-		Images:      []ProductImage{},
-		Offers:      []ProductOffer{},
+		Images:         []ProductImage{},
+		Offers:         []ProductOffer{},
+		Specifications: []ProductSpecification{},
+	}
+}
+
+func FromProductSpecification(spec generated.ListProductSpecificationsRow) ProductSpecification {
+	var unit string
+	if spec.Unit.Valid {
+		unit = spec.Unit.String
+	}
+
+	return ProductSpecification{
+		Name:       spec.Name,
+		Value:      spec.Value,
+		Unit:       unit,
+		DataType:   spec.DataType,
+		Comparable: spec.Comparable,
 	}
 }
 

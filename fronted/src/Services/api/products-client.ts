@@ -13,6 +13,24 @@ export interface ApiProductDetail extends ApiProduct {
     available: boolean;
     productUrl: string;
   }>;
+  specifications: ApiProductSpecification[];
+}
+
+export interface ApiProductSpecification {
+  name: string;
+  value: string;
+  unit: string;
+  dataType: string;
+  comparable: boolean;
+}
+
+function buildSpecs(model: string, specifications: ApiProductSpecification[]): Record<string, string> {
+  const specs: Record<string, string> = {};
+  if (model) specs.Modelo = model;
+  for (const spec of specifications) {
+    specs[spec.name] = spec.unit ? `${spec.value} ${spec.unit}` : spec.value;
+  }
+  return specs;
 }
 
 export function toProduct(product: ApiProduct | ApiProductDetail): Product {
@@ -30,7 +48,7 @@ export function toProduct(product: ApiProduct | ApiProductDetail): Product {
     description: product.description,
     rating: product.rating,
     reviewCount: product.reviewCount,
-    specs: product.model ? { Modelo: product.model } : {},
+    specs: buildSpecs(product.model, detail?.specifications ?? []),
     offers: detail?.offers.map((offer) => ({
       storeId: String(offer.storeId),
       storeName: offer.storeName,

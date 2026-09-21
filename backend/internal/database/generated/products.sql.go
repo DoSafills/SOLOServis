@@ -294,6 +294,59 @@ func (q *Queries) ListProductImages(ctx context.Context, productID int32) ([]Pro
 	return items, nil
 }
 
+const listProductSpecifications = `-- name: ListProductSpecifications :many
+SELECT
+    pcs.id AS specification_id,
+    pcs.name,
+    pcs.data_type,
+    pcs.unit,
+    pcs.comparable,
+    pcs.display_order,
+    psv.value
+FROM product_specification_value psv
+JOIN product_category_specification pcs ON pcs.id = psv.specification_id
+WHERE psv.product_id = $1
+ORDER BY pcs.display_order ASC, pcs.id ASC
+`
+
+type ListProductSpecificationsRow struct {
+	SpecificationID int32       `json:"specification_id"`
+	Name            string      `json:"name"`
+	DataType        string      `json:"data_type"`
+	Unit            pgtype.Text `json:"unit"`
+	Comparable      bool        `json:"comparable"`
+	DisplayOrder    int32       `json:"display_order"`
+	Value           string      `json:"value"`
+}
+
+func (q *Queries) ListProductSpecifications(ctx context.Context, productID int32) ([]ListProductSpecificationsRow, error) {
+	rows, err := q.db.Query(ctx, listProductSpecifications, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductSpecificationsRow
+	for rows.Next() {
+		var i ListProductSpecificationsRow
+		if err := rows.Scan(
+			&i.SpecificationID,
+			&i.Name,
+			&i.DataType,
+			&i.Unit,
+			&i.Comparable,
+			&i.DisplayOrder,
+			&i.Value,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProductOffers = `-- name: ListProductOffers :many
 SELECT
     po.id,

@@ -66,6 +66,12 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	specifications, err := h.repository.ListSpecifications(r.Context(), product.ID)
+	if err != nil {
+		http.Error(w, "failed to load product specifications", http.StatusInternalServerError)
+		return
+	}
+
 	result := dto.FromProduct(product)
 
 	result.Images = make([]dto.ProductImage, 0, len(images))
@@ -76,6 +82,11 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 	result.Offers = make([]dto.ProductOffer, 0, len(offers))
 	for _, offer := range offers {
 		result.Offers = append(result.Offers, dto.FromProductOffer(offer))
+	}
+
+	result.Specifications = make([]dto.ProductSpecification, 0, len(specifications))
+	for _, spec := range specifications {
+		result.Specifications = append(result.Specifications, dto.FromProductSpecification(spec))
 	}
 
 	w.Header().Set("Content-Type", "application/json")

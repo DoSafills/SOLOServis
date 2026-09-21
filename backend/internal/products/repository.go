@@ -33,6 +33,10 @@ func (r *Repository) ListOffers(ctx context.Context, productID int32) ([]generat
 func (r *Repository) ListImages(ctx context.Context, productID int32) ([]generated.ProductImage, error) {
 	return r.queries.ListProductImages(ctx, productID)
 }
+
+func (r *Repository) ListSpecifications(ctx context.Context, productID int32) ([]generated.ListProductSpecificationsRow, error) {
+	return r.queries.ListProductSpecifications(ctx, productID)
+}
 func (r *Repository) GetDetailByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.GetProductDetailByPublicIDRow, error) {
 	return r.queries.GetProductDetailByPublicID(ctx, publicID)
 }

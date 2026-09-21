@@ -216,6 +216,21 @@ WHERE product_id = $1
 ORDER BY sort_order ASC, id ASC;
 
 
+-- name: ListProductSpecifications :many
+SELECT
+    pcs.id AS specification_id,
+    pcs.name,
+    pcs.data_type,
+    pcs.unit,
+    pcs.comparable,
+    pcs.display_order,
+    psv.value
+FROM product_specification_value psv
+JOIN product_category_specification pcs ON pcs.id = psv.specification_id
+WHERE psv.product_id = $1
+ORDER BY pcs.display_order ASC, pcs.id ASC;
+
+
 -- name: CreateProduct :one
 INSERT INTO product (
     category_id,
