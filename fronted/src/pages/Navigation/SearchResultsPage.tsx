@@ -38,28 +38,7 @@ export default function SearchResultsPage({
     getProducts().then(setApiProducts).catch(console.error);
   }, []);
 
-<<<<<<< Updated upstream
-  const products: Product[] = apiProducts.map((product) => ({
-    id: product.id,
-    name: product.name,
-    brand: product.brand,
-    model: product.model,
-    category: product.category,
-    subcategory: "",
-    image: "",
-    images: [],
-    description: product.description,
-    rating: product.rating,
-    reviewCount: product.reviewCount,
-    specs: product.model ? { Modelo: product.model } : { Modelo: "" },
-    offers: [],
-    priceHistory: [],
-    offerPriceHistory: [],
-    tags: [],
-  }));
-=======
-const products: Product[] = apiProducts.map(toProduct);
->>>>>>> Stashed changes
+  const products: Product[] = apiProducts.map(toProduct);
 
   const brands = [...new Set(products.map((p) => p.brand))];
 

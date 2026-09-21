@@ -1,0 +1,42 @@
+SOLOServis - Datos de demostracion temporales
+==============================================
+
+Ejecutar estos comandos desde la raiz del repositorio:
+C:\Users\ASUS F15\Documents\GitHub\SOLOServis
+
+1. Iniciar PostgreSQL
+---------------------
+ docker compose -f docker/postgres/compose.yml up -d
+
+2. Cargar tiendas, servicios y proveedores
+------------------------------------------
+Nota: 004_store_service_seed.sql es repetible y no duplica sus registros.
+
+Get-Content .\backend\database\migrations\004_store_service_seed.sql |
+  docker exec -i soloservis_postgres psql -U postgres -d soloservis -v ON_ERROR_STOP=1
+
+3. Agregar productos de demostracion
+------------------------------------
+Este comando agrega productos de televisores, lavadoras y celulares, junto con
+marcas, imagenes, especificaciones y ofertas en las tiendas disponibles.
+Son datos opcionales para pruebas y no forman parte de una migracion automatica.
+
+Get-Content .\backend\database\demo\catalogo_demo.sql |
+  docker exec -i soloservis_postgres psql -U postgres -d soloservis -v ON_ERROR_STOP=1
+
+4. Verificar los datos cargados
+-------------------------------
+docker exec soloservis_postgres psql -U postgres -d soloservis -c "SELECT COUNT(*) AS productos FROM product; SELECT COUNT(*) AS tiendas FROM store; SELECT COUNT(*) AS servicios FROM service;"
+
+docker exec soloservis_postgres psql -U postgres -d soloservis -c "SELECT p.name, COUNT(o.id) AS ofertas FROM product p LEFT JOIN product_offer o ON o.product_id = p.id GROUP BY p.id, p.name ORDER BY p.name;"
+
+5. Eliminar los datos de demostracion
+-------------------------------------
+Este comando solo elimina los registros identificados por este ejemplo.
+No usarlo si alguien modifico esos mismos registros para pruebas propias.
+
+docker exec -i soloservis_postgres psql -U postgres -d soloservis -v ON_ERROR_STOP=1 -c "DELETE FROM product WHERE sku IN ('SKU-SONY-TV-001','SKU-SAMS-TV-001','SKU-MABE-LAV-001','SKU-LG-LAV-001','SKU-XIAOMI-CEL-001','SKU-SAMS-CEL-001'); DELETE FROM service WHERE name IN ('Plan Movil 100 GB','Plan Movil 200 GB'); DELETE FROM store WHERE name IN ('Ripley','La Polar'); DELETE FROM provider WHERE name IN ('WOM','Claro'); DELETE FROM service_category WHERE name = 'Telefonia Movil';"
+
+6. Detener PostgreSQL sin borrar datos
+---------------------------------------
+docker compose -f docker/postgres/compose.yml down
