@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import type { Page } from "../../types";
 import { formatPrice } from "../../data/mockData";
-import { getProduct, toProduct } from "../../Services/api/products-client";
+import {
+  getProduct,
+  getProductReviews,
+  toProduct,
+  type ApiProductReview,
+} from "../../Services/api/products-client";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/ui";
 import PriceHistory from "../../components/PriceHistory";
 
@@ -24,10 +29,14 @@ export default function ProductDetailPage({
 }: Props) {
   const [product, setProduct] = useState<ReturnType<typeof toProduct> | null>(null);
   const [selectedImage, setSelectedImage] = useState(0);
+  const [reviews, setReviews] = useState<ApiProductReview[]>([]);
 
   useEffect(() => {
     setProduct(null);
+    setReviews([]);
     getProduct(productId).then((item) => setProduct(toProduct(item))).catch(console.error);
+    // Si fallan las reseñas, la ficha del producto se muestra igual.
+    getProductReviews(productId).then(setReviews).catch(console.error);
   }, [productId]);
 
   if (!product)
@@ -375,6 +384,46 @@ export default function ProductDetailPage({
             </div>
           ))}
         </div>
+      </section>
+
+      {/* Reviews */}
+      <section
+        style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+        className="rounded-2xl p-6 mt-6"
+      >
+        <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
+          <h2 className="text-lg font-bold text-text">Reseñas y calificaciones</h2>
+          <Rating value={product.rating} count={product.reviewCount} />
+        </div>
+        {reviews.length === 0 ? (
+          <p className="text-sm text-muted">Este producto aún no tiene reseñas.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {reviews.map((review, i) => (
+              <article
+                key={`${review.author}-${review.createdAt}-${i}`}
+                style={{ background: "#1A1A1A" }}
+                className="rounded-xl p-4"
+              >
+                <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                  <div className="flex items-center gap-2">
+                    <Rating value={review.rating} />
+                    {review.authorVerified && <Badge variant="available">Usuario verificado</Badge>}
+                  </div>
+                  <span className="text-xs text-muted">
+                    {review.author}
+                    {review.createdAt &&
+                      ` · ${new Date(review.createdAt).toLocaleDateString("es-CL")}`}
+                  </span>
+                </div>
+                {review.title && (
+                  <h3 className="text-sm font-semibold text-text mb-1">{review.title}</h3>
+                )}
+                {review.content && <p className="text-sm text-muted">{review.content}</p>}
+              </article>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );

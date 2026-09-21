@@ -39,6 +39,39 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) ListReviews(w http.ResponseWriter, r *http.Request) {
+	publicID := chi.URLParam(r, "publicID")
+
+	var uuid pgtype.UUID
+	if err := uuid.Scan(publicID); err != nil {
+		http.Error(w, "invalid product id", http.StatusBadRequest)
+		return
+	}
+
+	product, err := h.repository.GetByPublicID(r.Context(), uuid)
+	if err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+
+	rows, err := h.repository.ListReviews(r.Context(), product.ID)
+	if err != nil {
+		http.Error(w, "failed to load product reviews", http.StatusInternalServerError)
+		return
+	}
+
+	reviews := make([]dto.ProductReview, 0, len(rows))
+	for _, row := range rows {
+		reviews = append(reviews, dto.FromProductReview(row))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(reviews); err != nil {
+		return
+	}
+}
+
 func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 	publicID := chi.URLParam(r, "publicID")
 

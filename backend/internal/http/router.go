@@ -86,6 +86,7 @@ func registerProductRoutes(r *chi.Mux, db *pgxpool.Pool) {
 
 	r.Get("/products", productHandler.List)
 	r.Get("/products/{publicID}", productHandler.GetByPublicID)
+	r.Get("/products/{publicID}/reviews", productHandler.ListReviews)
 }
 
 func registerStoreRoutes(r *chi.Mux, db *pgxpool.Pool) {

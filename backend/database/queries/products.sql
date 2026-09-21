@@ -231,6 +231,21 @@ WHERE psv.product_id = $1
 ORDER BY pcs.display_order ASC, pcs.id ASC;
 
 
+-- name: ListProductReviews :many
+SELECT
+    r.id,
+    r.rating,
+    r.title,
+    r.content,
+    r.created_at,
+    u.name AS author_name,
+    u.email_verified AS author_verified
+FROM product_review r
+JOIN user_account u ON u.id = r.user_id
+WHERE r.product_id = $1
+ORDER BY r.created_at DESC, r.id DESC;
+
+
 -- name: CreateProduct :one
 INSERT INTO product (
     category_id,

@@ -34,6 +34,10 @@ func (r *Repository) ListImages(ctx context.Context, productID int32) ([]generat
 	return r.queries.ListProductImages(ctx, productID)
 }
 
+func (r *Repository) ListReviews(ctx context.Context, productID int32) ([]generated.ListProductReviewsRow, error) {
+	return r.queries.ListProductReviews(ctx, productID)
+}
+
 func (r *Repository) ListSpecifications(ctx context.Context, productID int32) ([]generated.ListProductSpecificationsRow, error) {
 	return r.queries.ListProductSpecifications(ctx, productID)
 }

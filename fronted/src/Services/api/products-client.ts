@@ -65,3 +65,16 @@ export function toProduct(product: ApiProduct | ApiProductDetail): Product {
 
 export const getProduct = (id: string) =>
   getJson<ApiProductDetail>(`${API_URLS.products}/products/${id}`);
+
+export interface ApiProductReview {
+  author: string;
+  /** El autor confirmó su email. No indica que haya comprado el producto. */
+  authorVerified: boolean;
+  rating: number;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+export const getProductReviews = (id: string) =>
+  getJson<ApiProductReview[]>(`${API_URLS.products}/products/${id}/reviews`);
