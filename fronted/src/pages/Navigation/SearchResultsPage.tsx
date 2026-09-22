@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
 import { getProducts, type ApiProduct } from "../../Services/api/products";
+import { products as mockProducts } from "../../data/mockData";
 import ProductCard from "../../components/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/ui";
 
@@ -14,6 +15,14 @@ interface Props {
 }
 
 type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
+type ExcludedType = "cpus" | "graphics" | "notebooks" | "computers";
+
+const EXCLUDED_TYPE_LABELS: Record<ExcludedType, string> = {
+  cpus: "CPUs",
+  graphics: "Gráficas",
+  notebooks: "Notebooks",
+  computers: "Computadores",
+};
 
 export default function SearchResultsPage({
   query,
@@ -24,39 +33,70 @@ export default function SearchResultsPage({
   onToggleCompare,
 }: Props) {
   const [sort, setSort] = useState<SortOption>("relevance");
-  const [priceMin, setPriceMin] = useState("");
-  const [priceMax, setPriceMax] = useState("");
+  const [priceMin, setPriceMin] = useState(0);
+  const [priceMax, setPriceMax] = useState(1000000);
   const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
+  const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
+  const [weightMin, setWeightMin] = useState(0);
+  const [weightMax, setWeightMax] = useState(5000);
+  const [excludedTypes, setExcludedTypes] = useState<Set<ExcludedType>>(new Set());
   const [availableOnly, setAvailableOnly] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const PER_PAGE = 6;
- const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
+  const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
 
-useEffect(() => {
-  getProducts().then(setApiProducts).catch(console.error);
-}, []);
+  useEffect(() => {
+    getProducts().then(setApiProducts).catch(console.error);
+  }, []);
 
-const products: Product[] = apiProducts.map((product) => ({
-  id: product.id,
-  name: product.name,
-  brand: product.brand,
-  model: product.model,
-  category: product.category,
-  subcategory: "",
-  image: "",
-  images: [],
-  description: product.description,
-  rating: product.rating,
-  reviewCount: product.reviewCount,
-  specs: product.model ? { Modelo: product.model } : { Modelo: "" },
-  offers: [],
-  priceHistory: [],
-  offerPriceHistory: [],
-  tags: [],
-}));
+  const apiProductItems: Product[] = apiProducts.map((product) => ({
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    model: product.model,
+    category: product.category,
+    subcategory: "",
+    image: "",
+    images: [],
+    description: product.description,
+    rating: product.rating,
+    reviewCount: product.reviewCount,
+    specs: product.model ? { Modelo: product.model } : { Modelo: "" },
+    offers: [],
+    priceHistory: [],
+    offerPriceHistory: [],
+    tags: [],
+  }));
 
-const brands = [...new Set(products.map((p) => p.brand))];
+  const apiProductIds = new Set(apiProductItems.map((product) => product.id));
+  const products: Product[] = [
+    ...apiProductItems,
+    ...mockProducts.filter((product) => !apiProductIds.has(product.id)),
+  ];
+
+  const getProductPrice = (product: Product) =>
+    product.offerPrice ??
+    product.offers.reduce(
+      (lowest, offer) => Math.min(lowest, offer.price),
+      product.offers.length ? Number.POSITIVE_INFINITY : 0,
+    );
+
+  const getProductWeight = (product: Product) => {
+    const weightEntry = Object.entries(product.specs).find(([key]) =>
+      /peso|weight/i.test(key),
+    );
+    const weight = weightEntry?.[1].match(/[\d.]+/)?.[0];
+    return weight ? Number(weight) * (/[kK][gG]/.test(weightEntry[1]) ? 1000 : 1) : 0;
+  };
+
+  const getProductSearchText = (product: Product) =>
+    [product.name, product.category, product.subcategory, ...product.tags]
+      .join(" ")
+      .toLowerCase();
+
+  const brands = [...new Set(products.map((p) => p.brand))].sort();
+  const lines = [...new Set(products.map((p) => p.subcategory).filter(Boolean))].sort();
 
 let filtered = products.filter((p) => {
   if (
@@ -72,10 +112,46 @@ let filtered = products.filter((p) => {
     return false;
   }
 
+  if (selectedLines.size > 0 && !selectedLines.has(p.subcategory)) {
+    return false;
+  }
+
+  const productPrice = getProductPrice(p);
+  if (productPrice < priceMin || productPrice > priceMax) {
+    return false;
+  }
+
+  if (availableOnly && !p.offers.some((offer) => offer.available)) {
+    return false;
+  }
+
+  const productWeight = getProductWeight(p);
+  if (productWeight < weightMin || productWeight > weightMax) {
+    return false;
+  }
+
+  const searchText = getProductSearchText(p);
+  const excludedTerms: Record<ExcludedType, string[]> = {
+    cpus: ["cpu", "procesador", "processor"],
+    graphics: ["gráfica", "grafica", "gpu", "rtx", "radeon", "rx ", "graphics"],
+    notebooks: ["notebook", "laptop"],
+    computers: ["computador", "desktop", "pc de escritorio", "all-in-one"],
+  };
+
+  if (
+    [...excludedTypes].some((type) =>
+      excludedTerms[type].some((term) => searchText.includes(term)),
+    )
+  ) {
+    return false;
+  }
+
   return true;
 });
 
 filtered = [...filtered].sort((a, b) => {
+  if (sort === "price-asc") return getProductPrice(a) - getProductPrice(b);
+  if (sort === "price-desc") return getProductPrice(b) - getProductPrice(a);
   if (sort === "rating") return b.rating - a.rating;
   return 0;
 });
@@ -98,14 +174,32 @@ const toggleBrand = (brand: string) => {
   setPage(1);
 };
 
+  const toggleLine = (line: string) => {
+    setSelectedLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(line)) next.delete(line);
+      else next.add(line);
+      return next;
+    });
+    setPage(1);
+  };
+
+  const toggleExcludedType = (type: ExcludedType) => {
+    setExcludedTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+    setPage(1);
+  };
+
 
   const renderFilters = () => (
     <div className="space-y-6">
       {/* Category */}
       <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
-          Disponibilidad
-        </h4>
+        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">General</h4>
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
@@ -117,26 +211,105 @@ const toggleBrand = (brand: string) => {
         </label>
       </div>
 
+      {/* Lines */}
+      <div>
+        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">Línea</h4>
+        <div className="space-y-2">
+          {lines.map((line) => (
+            <label key={line} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedLines.has(line)}
+                onChange={() => toggleLine(line)}
+                className="accent-prime"
+              />
+              <span className="text-sm text-muted-2">{line}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
       {/* Price */}
       <div>
         <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
           Precio (CLP)
         </h4>
-        <div className="flex gap-2">
-          <input
-            value={priceMin}
-            onChange={(e) => setPriceMin(e.target.value)}
-            placeholder="Mín"
-            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
-            className="w-full px-3 py-2 rounded-xl text-xs text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
-          />
-          <input
-            value={priceMax}
-            onChange={(e) => setPriceMax(e.target.value)}
-            placeholder="Máx"
-            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
-            className="w-full px-3 py-2 rounded-xl text-xs text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
-          />
+        <div className="space-y-3">
+          <label className="block text-xs text-muted-2">
+            Desde ${priceMin.toLocaleString("es-CL")}
+            <input
+              type="range"
+              min="0"
+              max="1000000"
+              step="10000"
+              value={priceMin}
+              onChange={(e) => setPriceMin(Math.min(Number(e.target.value), priceMax))}
+              className="w-full accent-prime"
+            />
+          </label>
+          <label className="block text-xs text-muted-2">
+            Hasta ${priceMax.toLocaleString("es-CL")}
+            <input
+              type="range"
+              min="0"
+              max="1000000"
+              step="10000"
+              value={priceMax}
+              onChange={(e) => setPriceMax(Math.max(Number(e.target.value), priceMin))}
+              className="w-full accent-prime"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Weight */}
+      <div>
+        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">Peso</h4>
+        <div className="space-y-3">
+          <label className="block text-xs text-muted-2">
+            Desde {weightMin.toLocaleString("es-CL")} g
+            <input
+              type="range"
+              min="0"
+              max="5000"
+              step="100"
+              value={weightMin}
+              onChange={(e) => setWeightMin(Math.min(Number(e.target.value), weightMax))}
+              className="w-full accent-prime"
+            />
+          </label>
+          <label className="block text-xs text-muted-2">
+            Hasta {weightMax.toLocaleString("es-CL")} g
+            <input
+              type="range"
+              min="0"
+              max="5000"
+              step="100"
+              value={weightMax}
+              onChange={(e) => setWeightMax(Math.max(Number(e.target.value), weightMin))}
+              className="w-full accent-prime"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Exclusions */}
+      <div>
+        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
+          Excluir productos
+        </h4>
+        <div className="space-y-2">
+          {(Object.keys(EXCLUDED_TYPE_LABELS) as ExcludedType[]).map((type) => (
+            <label key={type} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={excludedTypes.has(type)}
+                onChange={() => toggleExcludedType(type)}
+                className="accent-prime"
+              />
+              <span className="text-sm text-muted-2">{EXCLUDED_TYPE_LABELS[type]}</span>
+            </label>
+          ))}
         </div>
       </div>
 
@@ -159,12 +332,23 @@ const toggleBrand = (brand: string) => {
       </div>
 
       {/* Clear */}
-      {(selectedBrands.size > 0 || priceMin || priceMax || availableOnly) && (
+      {(selectedBrands.size > 0 ||
+        selectedLines.size > 0 ||
+        excludedTypes.size > 0 ||
+        priceMin > 0 ||
+        priceMax < 1000000 ||
+        weightMin > 0 ||
+        weightMax < 5000 ||
+        availableOnly) && (
         <button
           onClick={() => {
             setSelectedBrands(new Set());
-            setPriceMin("");
-            setPriceMax("");
+            setSelectedLines(new Set());
+            setExcludedTypes(new Set());
+            setPriceMin(0);
+            setPriceMax(1000000);
+            setWeightMin(0);
+            setWeightMax(5000);
             setAvailableOnly(false);
           }}
           className="text-xs text-prime hover:text-prime-dark transition-colors"
