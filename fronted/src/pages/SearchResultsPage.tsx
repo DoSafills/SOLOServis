@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import type { Page, Product } from "../types";
 import { getProducts, getMinPrice } from "../Services/api/frontend-src/api";
 import ProductCard from "../components/ProductCard";
@@ -14,8 +14,10 @@ interface Props {
 }
 
 type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
+type PriceRange = { min: number; max: number };
 
 const PER_PAGE = 6;
+const ACCENT = "#E8001B";
 
 /**
  * Filtrado, orden y paginación de productos.
@@ -24,13 +26,27 @@ const PER_PAGE = 6;
  */
 function useProductSearchFilters(products: Product[], query: string, perPage = PER_PAGE) {
   const [sort, setSort] = useState<SortOption>("relevance");
-  const [priceMin, setPriceMin] = useState("");
-  const [priceMax, setPriceMax] = useState("");
   const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
   const [availableOnly, setAvailableOnly] = useState(false);
+  const [priceRange, setPriceRangeState] = useState<PriceRange | null>(null);
   const [page, setPage] = useState(1);
 
   const brands = useMemo(() => [...new Set(products.map((p) => p.brand))], [products]);
+
+  const priceBounds = useMemo<PriceRange>(() => {
+    if (products.length === 0) return { min: 0, max: 0 };
+    const prices = products.map((p) => getMinPrice(p));
+    return { min: Math.min(...prices), max: Math.max(...prices) };
+  }, [products]);
+
+  // Cuando llega el catálogo, el rango de precio arranca en los límites reales.
+  useEffect(() => {
+    if (products.length > 0 && priceRange === null) {
+      setPriceRangeState(priceBounds);
+    }
+  }, [products, priceBounds, priceRange]);
+
+  const activeRange = priceRange ?? priceBounds;
 
   const filtered = useMemo(() => {
     const result = products.filter((p) => {
@@ -43,8 +59,7 @@ function useProductSearchFilters(products: Product[], query: string, perPage = P
         return false;
 
       const min = getMinPrice(p);
-      if (priceMin && min < Number(priceMin.replace(/\D/g, ""))) return false;
-      if (priceMax && min > Number(priceMax.replace(/\D/g, ""))) return false;
+      if (min < activeRange.min || min > activeRange.max) return false;
       if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) return false;
       if (availableOnly && p.offers.every((o) => !o.available)) return false;
       return true;
@@ -56,7 +71,7 @@ function useProductSearchFilters(products: Product[], query: string, perPage = P
       if (sort === "rating") return b.rating - a.rating;
       return 0;
     });
-  }, [products, query, priceMin, priceMax, selectedBrands, availableOnly, sort]);
+  }, [products, query, activeRange, selectedBrands, availableOnly, sort]);
 
   const paginated = useMemo(
     () => filtered.slice((page - 1) * perPage, page * perPage),
@@ -76,23 +91,30 @@ function useProductSearchFilters(products: Product[], query: string, perPage = P
     setPage(1);
   };
 
-  const hasActiveFilters = selectedBrands.size > 0 || priceMin !== "" || priceMax !== "" || availableOnly;
+  const setPriceRange = (range: PriceRange) => {
+    setPriceRangeState(range);
+    setPage(1);
+  };
+
+  const hasActiveFilters =
+    selectedBrands.size > 0 ||
+    availableOnly ||
+    activeRange.min > priceBounds.min ||
+    activeRange.max < priceBounds.max;
 
   const clearFilters = () => {
     setSelectedBrands(new Set());
-    setPriceMin("");
-    setPriceMax("");
     setAvailableOnly(false);
+    setPriceRangeState(priceBounds);
     setPage(1);
   };
 
   return {
     sort,
     setSort,
-    priceMin,
-    setPriceMin,
-    priceMax,
-    setPriceMax,
+    priceBounds,
+    priceRange: activeRange,
+    setPriceRange,
     selectedBrands,
     toggleBrand,
     availableOnly,
@@ -106,6 +128,146 @@ function useProductSearchFilters(products: Product[], query: string, perPage = P
     hasActiveFilters,
     clearFilters,
   };
+}
+
+/** Sección de filtro que se puede colapsar, para mantener el panel limpio. */
+function CollapsibleFilterSection({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="border-b border-[#2A2A2A] pb-4 last:border-b-0 last:pb-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3"
+      >
+        <span>{title}</span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          style={{ transition: "transform 0.15s ease", transform: open ? "rotate(180deg)" : "none" }}
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+/** Slider de rango doble (min/máx) hecho con dos <input type="range"> nativos superpuestos. */
+function PriceRangeSlider({
+  bounds,
+  value,
+  onChange,
+}: {
+  bounds: PriceRange;
+  value: PriceRange;
+  onChange: (range: PriceRange) => void;
+}) {
+  const span = Math.max(bounds.max - bounds.min, 1);
+  const minPercent = ((value.min - bounds.min) / span) * 100;
+  const maxPercent = ((value.max - bounds.min) / span) * 100;
+  const sliderMax = bounds.max > bounds.min ? bounds.max : bounds.min + 1;
+
+  const handleMinChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const next = Math.min(Number(e.target.value), value.max - 1);
+    onChange({ min: next, max: value.max });
+  };
+
+  const handleMaxChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const next = Math.max(Number(e.target.value), value.min + 1);
+    onChange({ min: value.min, max: next });
+  };
+
+  return (
+    <div className="pt-1">
+      <div className="flex justify-between text-xs text-muted-2 mb-4">
+        <span>${value.min.toLocaleString("es-CL")}</span>
+        <span>${value.max.toLocaleString("es-CL")}</span>
+      </div>
+
+      <div className="relative h-4">
+        <div
+          className="absolute top-1/2 left-0 right-0 h-1 rounded-full -translate-y-1/2"
+          style={{ background: "#2A2A2A" }}
+        />
+        <div
+          className="absolute top-1/2 h-1 rounded-full -translate-y-1/2"
+          style={{ background: ACCENT, left: `${minPercent}%`, right: `${100 - maxPercent}%` }}
+        />
+        <input
+          aria-label="Precio mínimo"
+          className="price-slider-thumb absolute top-1/2 left-0 w-full -translate-y-1/2"
+          max={sliderMax}
+          min={bounds.min}
+          onChange={handleMinChange}
+          type="range"
+          value={value.min}
+        />
+        <input
+          aria-label="Precio máximo"
+          className="price-slider-thumb absolute top-1/2 left-0 w-full -translate-y-1/2"
+          max={sliderMax}
+          min={bounds.min}
+          onChange={handleMaxChange}
+          type="range"
+          value={value.max}
+        />
+      </div>
+
+      <style>{`
+        .price-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          background: transparent;
+          pointer-events: none;
+          margin: 0;
+        }
+        .price-slider-thumb::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          pointer-events: auto;
+          width: 16px;
+          height: 16px;
+          border-radius: 9999px;
+          background: ${ACCENT};
+          border: 2px solid #0A0A0A;
+          cursor: pointer;
+        }
+        .price-slider-thumb::-moz-range-thumb {
+          pointer-events: auto;
+          width: 16px;
+          height: 16px;
+          border-radius: 9999px;
+          background: ${ACCENT};
+          border: 2px solid #0A0A0A;
+          cursor: pointer;
+        }
+        .price-slider-thumb::-webkit-slider-runnable-track {
+          -webkit-appearance: none;
+          background: transparent;
+          height: 4px;
+        }
+        .price-slider-thumb::-moz-range-track {
+          background: transparent;
+          height: 4px;
+        }
+      `}</style>
+    </div>
+  );
 }
 
 export default function SearchResultsPage({
@@ -151,10 +313,9 @@ export default function SearchResultsPage({
   const {
     sort,
     setSort,
-    priceMin,
-    setPriceMin,
-    priceMax,
-    setPriceMax,
+    priceBounds,
+    priceRange,
+    setPriceRange,
     selectedBrands,
     toggleBrand,
     availableOnly,
@@ -170,12 +331,8 @@ export default function SearchResultsPage({
   } = useProductSearchFilters(products, query);
 
   const renderFilters = () => (
-    <div className="space-y-6">
-      {/* Availability */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
-          Disponibilidad
-        </h4>
+    <div>
+      <CollapsibleFilterSection title="Disponibilidad">
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
@@ -185,34 +342,17 @@ export default function SearchResultsPage({
           />
           <span className="text-sm text-muted-2">Solo disponibles</span>
         </label>
-      </div>
+      </CollapsibleFilterSection>
 
-      {/* Price */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
-          Precio (CLP)
-        </h4>
-        <div className="flex gap-2">
-          <input
-            value={priceMin}
-            onChange={(e) => setPriceMin(e.target.value)}
-            placeholder="Mín"
-            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
-            className="w-full px-3 py-2 rounded-xl text-xs text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
-          />
-          <input
-            value={priceMax}
-            onChange={(e) => setPriceMax(e.target.value)}
-            placeholder="Máx"
-            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
-            className="w-full px-3 py-2 rounded-xl text-xs text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
-          />
-        </div>
-      </div>
+      <div className="h-4" />
 
-      {/* Brands */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">Marca</h4>
+      <CollapsibleFilterSection title="Precio (CLP)">
+        <PriceRangeSlider bounds={priceBounds} value={priceRange} onChange={setPriceRange} />
+      </CollapsibleFilterSection>
+
+      <div className="h-4" />
+
+      <CollapsibleFilterSection title="Marca">
         <div className="space-y-2">
           {brands.map((brand) => (
             <label key={brand} className="flex items-center gap-2 cursor-pointer">
@@ -226,13 +366,12 @@ export default function SearchResultsPage({
             </label>
           ))}
         </div>
-      </div>
+      </CollapsibleFilterSection>
 
-      {/* Clear */}
       {hasActiveFilters && (
         <button
           onClick={clearFilters}
-          className="text-xs text-prime hover:text-prime-dark transition-colors"
+          className="mt-5 text-xs text-prime hover:text-prime-dark transition-colors"
         >
           Limpiar filtros
         </button>
@@ -305,7 +444,7 @@ export default function SearchResultsPage({
           {compareList.size >= 2 && (
             <button
               onClick={() => navigate({ id: "product-comparison", productIds: [...compareList] })}
-              style={{ background: "#E8001B", color: "#0A0A0A" }}
+              style={{ background: ACCENT, color: "#0A0A0A" }}
               className="px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
             >
               Comparar {compareList.size} productos
