@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Page, Product } from "../types";
 import { getProducts, getMinPrice } from "../Services/api/frontend-src/api";
 import ProductCard from "../components/ProductCard";
@@ -15,6 +15,99 @@ interface Props {
 
 type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
 
+const PER_PAGE = 6;
+
+/**
+ * Filtrado, orden y paginación de productos.
+ * Vive en el mismo archivo pero separado del render: solo depende de
+ * `products` (no importa de dónde vengan) y de `query`.
+ */
+function useProductSearchFilters(products: Product[], query: string, perPage = PER_PAGE) {
+  const [sort, setSort] = useState<SortOption>("relevance");
+  const [priceMin, setPriceMin] = useState("");
+  const [priceMax, setPriceMax] = useState("");
+  const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
+  const [availableOnly, setAvailableOnly] = useState(false);
+  const [page, setPage] = useState(1);
+
+  const brands = useMemo(() => [...new Set(products.map((p) => p.brand))], [products]);
+
+  const filtered = useMemo(() => {
+    const result = products.filter((p) => {
+      if (
+        query &&
+        !p.name.toLowerCase().includes(query.toLowerCase()) &&
+        !p.brand.toLowerCase().includes(query.toLowerCase()) &&
+        !p.category.toLowerCase().includes(query.toLowerCase())
+      )
+        return false;
+
+      const min = getMinPrice(p);
+      if (priceMin && min < Number(priceMin.replace(/\D/g, ""))) return false;
+      if (priceMax && min > Number(priceMax.replace(/\D/g, ""))) return false;
+      if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) return false;
+      if (availableOnly && p.offers.every((o) => !o.available)) return false;
+      return true;
+    });
+
+    return [...result].sort((a, b) => {
+      if (sort === "price-asc") return getMinPrice(a) - getMinPrice(b);
+      if (sort === "price-desc") return getMinPrice(b) - getMinPrice(a);
+      if (sort === "rating") return b.rating - a.rating;
+      return 0;
+    });
+  }, [products, query, priceMin, priceMax, selectedBrands, availableOnly, sort]);
+
+  const paginated = useMemo(
+    () => filtered.slice((page - 1) * perPage, page * perPage),
+    [filtered, page, perPage],
+  );
+
+  const toggleBrand = (brand: string) => {
+    setSelectedBrands((prev) => {
+      const next = new Set(prev);
+      if (next.has(brand)) {
+        next.delete(brand);
+      } else {
+        next.add(brand);
+      }
+      return next;
+    });
+    setPage(1);
+  };
+
+  const hasActiveFilters = selectedBrands.size > 0 || priceMin !== "" || priceMax !== "" || availableOnly;
+
+  const clearFilters = () => {
+    setSelectedBrands(new Set());
+    setPriceMin("");
+    setPriceMax("");
+    setAvailableOnly(false);
+    setPage(1);
+  };
+
+  return {
+    sort,
+    setSort,
+    priceMin,
+    setPriceMin,
+    priceMax,
+    setPriceMax,
+    selectedBrands,
+    toggleBrand,
+    availableOnly,
+    setAvailableOnly,
+    page,
+    setPage,
+    perPage,
+    brands,
+    filtered,
+    paginated,
+    hasActiveFilters,
+    clearFilters,
+  };
+}
+
 export default function SearchResultsPage({
   query,
   navigate,
@@ -26,19 +119,10 @@ export default function SearchResultsPage({
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [sort, setSort] = useState<SortOption>("relevance");
-  const [priceMin, setPriceMin] = useState("");
-  const [priceMax, setPriceMax] = useState("");
-  const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
-  const [availableOnly, setAvailableOnly] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [page, setPage] = useState(1);
-  const PER_PAGE = 6;
 
   // Trae el catálogo completo: los filtros de precio/marca/disponibilidad y el
-  // listado de marcas se calculan en el cliente sobre todo el catálogo, igual
-  // que en la versión con datos mock.
+  // listado de marcas se calculan en el cliente sobre todo el catálogo.
   useEffect(() => {
     let cancelled = false;
 
@@ -64,49 +148,30 @@ export default function SearchResultsPage({
     };
   }, []);
 
-  const brands = [...new Set(products.map((p) => p.brand))];
-
-  let filtered = products.filter((p) => {
-    if (
-      query &&
-      !p.name.toLowerCase().includes(query.toLowerCase()) &&
-      !p.brand.toLowerCase().includes(query.toLowerCase()) &&
-      !p.category.toLowerCase().includes(query.toLowerCase())
-    )
-      return false;
-    const min = getMinPrice(p);
-    if (priceMin && min < Number(priceMin.replace(/\D/g, ""))) return false;
-    if (priceMax && min > Number(priceMax.replace(/\D/g, ""))) return false;
-    if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) return false;
-    if (availableOnly && p.offers.every((o) => !o.available)) return false;
-    return true;
-  });
-
-  filtered = [...filtered].sort((a, b) => {
-    if (sort === "price-asc") return getMinPrice(a) - getMinPrice(b);
-    if (sort === "price-desc") return getMinPrice(b) - getMinPrice(a);
-    if (sort === "rating") return b.rating - a.rating;
-    return 0;
-  });
-
-  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
-
-  const toggleBrand = (brand: string) => {
-    setSelectedBrands((prev) => {
-      const next = new Set(prev);
-      if (next.has(brand)) {
-        next.delete(brand);
-      } else {
-        next.add(brand);
-      }
-      return next;
-    });
-    setPage(1);
-  };
+  const {
+    sort,
+    setSort,
+    priceMin,
+    setPriceMin,
+    priceMax,
+    setPriceMax,
+    selectedBrands,
+    toggleBrand,
+    availableOnly,
+    setAvailableOnly,
+    page,
+    setPage,
+    perPage,
+    brands,
+    filtered,
+    paginated,
+    hasActiveFilters,
+    clearFilters,
+  } = useProductSearchFilters(products, query);
 
   const renderFilters = () => (
     <div className="space-y-6">
-      {/* Category */}
+      {/* Availability */}
       <div>
         <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
           Disponibilidad
@@ -164,14 +229,9 @@ export default function SearchResultsPage({
       </div>
 
       {/* Clear */}
-      {(selectedBrands.size > 0 || priceMin || priceMax || availableOnly) && (
+      {hasActiveFilters && (
         <button
-          onClick={() => {
-            setSelectedBrands(new Set());
-            setPriceMin("");
-            setPriceMax("");
-            setAvailableOnly(false);
-          }}
+          onClick={clearFilters}
           className="text-xs text-prime hover:text-prime-dark transition-colors"
         >
           Limpiar filtros
@@ -332,12 +392,7 @@ export default function SearchResultsPage({
                   />
                 ))}
               </div>
-              <Pagination
-                page={page}
-                total={filtered.length}
-                perPage={PER_PAGE}
-                onChange={setPage}
-              />
+              <Pagination page={page} total={filtered.length} perPage={perPage} onChange={setPage} />
             </>
           )}
         </div>
