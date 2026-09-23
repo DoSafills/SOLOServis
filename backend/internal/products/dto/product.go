@@ -2,6 +2,7 @@ package dto
 
 import (
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ProductListItem struct {
@@ -9,10 +10,21 @@ type ProductListItem struct {
 	Name        string  `json:"name"`
 	Brand       string  `json:"brand"`
 	Model       string  `json:"model"`
+	CategoryID  int32   `json:"categoryId"`
 	Category    string  `json:"category"`
+	Subcategory string  `json:"subcategory"`
 	Description string  `json:"description"`
 	Rating      float64 `json:"rating"`
 	ReviewCount int64   `json:"reviewCount"`
+}
+
+// splitCategory devuelve (categoría, subcategoría). Si la categoría del producto
+// tiene padre, el padre es la categoría y la del producto es la subcategoría.
+func splitCategory(categoryName string, parentName pgtype.Text) (string, string) {
+	if parentName.Valid && parentName.String != "" {
+		return parentName.String, categoryName
+	}
+	return categoryName, ""
 }
 
 func FromListProduct(row generated.ListProductsRow) ProductListItem {
@@ -39,14 +51,35 @@ func FromListProduct(row generated.ListProductsRow) ProductListItem {
 		}
 	}
 
+	category, subcategory := splitCategory(row.CategoryName, row.ParentCategoryName)
+
 	return ProductListItem{
 		ID:          row.PublicID.String(),
 		Name:        row.Name,
 		Brand:       brand,
 		Model:       model,
-		Category:    row.CategoryName,
+		CategoryID:  row.CategoryID,
+		Category:    category,
+		Subcategory: subcategory,
 		Description: description,
 		Rating:      rating,
 		ReviewCount: row.ReviewCount,
 	}
+}
+
+// FromListProductByCategory mapea la fila del listado filtrado por categoría,
+// que tiene las mismas columnas que ListProducts.
+func FromListProductByCategory(row generated.ListProductsByCategoryRow) ProductListItem {
+	return FromListProduct(generated.ListProductsRow{
+		PublicID:           row.PublicID,
+		Name:               row.Name,
+		Model:              row.Model,
+		Description:        row.Description,
+		BrandName:          row.BrandName,
+		CategoryID:         row.CategoryID,
+		CategoryName:       row.CategoryName,
+		ParentCategoryName: row.ParentCategoryName,
+		Rating:             row.Rating,
+		ReviewCount:        row.ReviewCount,
+	})
 }

@@ -66,6 +66,19 @@ export default function ProductDetailPage({
             label: product.category,
             onClick: () => navigate({ id: "search-products", query: product.category }),
           },
+          ...(product.subcategory
+            ? [
+                {
+                  label: product.subcategory,
+                  onClick: () =>
+                    navigate({
+                      id: "search-products",
+                      query: "",
+                      categoryId: product.categoryId,
+                    }),
+                },
+              ]
+            : []),
           { label: product.name },
         ]}
       />
@@ -106,6 +119,7 @@ export default function ProductDetailPage({
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-bold text-prime uppercase tracking-widest">
                 {product.brand} · {product.category}
+                {product.subcategory ? ` · ${product.subcategory}` : ""}
               </span>
               <FavoriteButton active={isFavorite} onClick={() => onToggleFavorite(product.id)} />
             </div>

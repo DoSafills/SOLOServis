@@ -203,31 +203,34 @@ SELECT
     p.updated_at,
     b.name AS brand_name,
     pc.name AS category_name,
+    parent.name AS parent_category_name,
     COALESCE(prs.derived_average_rating, 0) AS rating,
     COALESCE(prs.derived_review_count, 0) AS review_count
 FROM product p
 LEFT JOIN brand b ON b.id = p.brand_id
 JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
 LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
 WHERE p.public_id = $1
 `
 
 type GetProductDetailByPublicIDRow struct {
-	ID           int32            `json:"id"`
-	PublicID     pgtype.UUID      `json:"public_id"`
-	CategoryID   int32            `json:"category_id"`
-	BrandID      pgtype.Int4      `json:"brand_id"`
-	Name         string           `json:"name"`
-	Model        pgtype.Text      `json:"model"`
-	Sku          pgtype.Text      `json:"sku"`
-	Description  pgtype.Text      `json:"description"`
-	Active       bool             `json:"active"`
-	CreatedAt    pgtype.Timestamp `json:"created_at"`
-	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
-	BrandName    pgtype.Text      `json:"brand_name"`
-	CategoryName string           `json:"category_name"`
-	Rating       pgtype.Numeric   `json:"rating"`
-	ReviewCount  int64            `json:"review_count"`
+	ID                 int32            `json:"id"`
+	PublicID           pgtype.UUID      `json:"public_id"`
+	CategoryID         int32            `json:"category_id"`
+	BrandID            pgtype.Int4      `json:"brand_id"`
+	Name               string           `json:"name"`
+	Model              pgtype.Text      `json:"model"`
+	Sku                pgtype.Text      `json:"sku"`
+	Description        pgtype.Text      `json:"description"`
+	Active             bool             `json:"active"`
+	CreatedAt          pgtype.Timestamp `json:"created_at"`
+	UpdatedAt          pgtype.Timestamp `json:"updated_at"`
+	BrandName          pgtype.Text      `json:"brand_name"`
+	CategoryName       string           `json:"category_name"`
+	ParentCategoryName pgtype.Text      `json:"parent_category_name"`
+	Rating             pgtype.Numeric   `json:"rating"`
+	ReviewCount        int64            `json:"review_count"`
 }
 
 func (q *Queries) GetProductDetailByPublicID(ctx context.Context, publicID pgtype.UUID) (GetProductDetailByPublicIDRow, error) {
@@ -247,10 +250,54 @@ func (q *Queries) GetProductDetailByPublicID(ctx context.Context, publicID pgtyp
 		&i.UpdatedAt,
 		&i.BrandName,
 		&i.CategoryName,
+		&i.ParentCategoryName,
 		&i.Rating,
 		&i.ReviewCount,
 	)
 	return i, err
+}
+
+const listProductCategories = `-- name: ListProductCategories :many
+SELECT
+    c.id,
+    c.parent_category_id,
+    c.name,
+    c.description
+FROM product_category c
+WHERE c.active = true
+ORDER BY c.parent_category_id NULLS FIRST, c.name
+`
+
+type ListProductCategoriesRow struct {
+	ID               int32       `json:"id"`
+	ParentCategoryID pgtype.Int4 `json:"parent_category_id"`
+	Name             string      `json:"name"`
+	Description      pgtype.Text `json:"description"`
+}
+
+func (q *Queries) ListProductCategories(ctx context.Context) ([]ListProductCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, listProductCategories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductCategoriesRow
+	for rows.Next() {
+		var i ListProductCategoriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ParentCategoryID,
+			&i.Name,
+			&i.Description,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listProductImages = `-- name: ListProductImages :many
@@ -489,32 +536,35 @@ SELECT
     p.updated_at,
     b.name AS brand_name,
     pc.name AS category_name,
+    parent.name AS parent_category_name,
     COALESCE(prs.derived_average_rating, 0) AS rating,
     COALESCE(prs.derived_review_count, 0) AS review_count
 FROM product p
 LEFT JOIN brand b ON b.id = p.brand_id
 JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
 LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
 WHERE p.active = true
 ORDER BY p.id
 `
 
 type ListProductsRow struct {
-	ID           int32            `json:"id"`
-	PublicID     pgtype.UUID      `json:"public_id"`
-	CategoryID   int32            `json:"category_id"`
-	BrandID      pgtype.Int4      `json:"brand_id"`
-	Name         string           `json:"name"`
-	Model        pgtype.Text      `json:"model"`
-	Sku          pgtype.Text      `json:"sku"`
-	Description  pgtype.Text      `json:"description"`
-	Active       bool             `json:"active"`
-	CreatedAt    pgtype.Timestamp `json:"created_at"`
-	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
-	BrandName    pgtype.Text      `json:"brand_name"`
-	CategoryName string           `json:"category_name"`
-	Rating       pgtype.Numeric   `json:"rating"`
-	ReviewCount  int64            `json:"review_count"`
+	ID                 int32            `json:"id"`
+	PublicID           pgtype.UUID      `json:"public_id"`
+	CategoryID         int32            `json:"category_id"`
+	BrandID            pgtype.Int4      `json:"brand_id"`
+	Name               string           `json:"name"`
+	Model              pgtype.Text      `json:"model"`
+	Sku                pgtype.Text      `json:"sku"`
+	Description        pgtype.Text      `json:"description"`
+	Active             bool             `json:"active"`
+	CreatedAt          pgtype.Timestamp `json:"created_at"`
+	UpdatedAt          pgtype.Timestamp `json:"updated_at"`
+	BrandName          pgtype.Text      `json:"brand_name"`
+	CategoryName       string           `json:"category_name"`
+	ParentCategoryName pgtype.Text      `json:"parent_category_name"`
+	Rating             pgtype.Numeric   `json:"rating"`
+	ReviewCount        int64            `json:"review_count"`
 }
 
 func (q *Queries) ListProducts(ctx context.Context) ([]ListProductsRow, error) {
@@ -540,6 +590,102 @@ func (q *Queries) ListProducts(ctx context.Context) ([]ListProductsRow, error) {
 			&i.UpdatedAt,
 			&i.BrandName,
 			&i.CategoryName,
+			&i.ParentCategoryName,
+			&i.Rating,
+			&i.ReviewCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProductsByCategory = `-- name: ListProductsByCategory :many
+WITH RECURSIVE subtree AS (
+    SELECT c.id
+    FROM product_category c
+    WHERE c.id = $1::int
+      AND c.active = true
+    UNION ALL
+    SELECT child.id
+    FROM product_category child
+    JOIN subtree s ON child.parent_category_id = s.id
+    WHERE child.active = true
+)
+SELECT
+    p.id,
+    p.public_id,
+    p.category_id,
+    p.brand_id,
+    p.name,
+    p.model,
+    p.sku,
+    p.description,
+    p.active,
+    p.created_at,
+    p.updated_at,
+    b.name AS brand_name,
+    pc.name AS category_name,
+    parent.name AS parent_category_name,
+    COALESCE(prs.derived_average_rating, 0) AS rating,
+    COALESCE(prs.derived_review_count, 0) AS review_count
+FROM product p
+LEFT JOIN brand b ON b.id = p.brand_id
+JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
+LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
+WHERE p.active = true
+  AND p.category_id IN (SELECT id FROM subtree)
+ORDER BY p.id
+`
+
+type ListProductsByCategoryRow struct {
+	ID                 int32            `json:"id"`
+	PublicID           pgtype.UUID      `json:"public_id"`
+	CategoryID         int32            `json:"category_id"`
+	BrandID            pgtype.Int4      `json:"brand_id"`
+	Name               string           `json:"name"`
+	Model              pgtype.Text      `json:"model"`
+	Sku                pgtype.Text      `json:"sku"`
+	Description        pgtype.Text      `json:"description"`
+	Active             bool             `json:"active"`
+	CreatedAt          pgtype.Timestamp `json:"created_at"`
+	UpdatedAt          pgtype.Timestamp `json:"updated_at"`
+	BrandName          pgtype.Text      `json:"brand_name"`
+	CategoryName       string           `json:"category_name"`
+	ParentCategoryName pgtype.Text      `json:"parent_category_name"`
+	Rating             pgtype.Numeric   `json:"rating"`
+	ReviewCount        int64            `json:"review_count"`
+}
+
+func (q *Queries) ListProductsByCategory(ctx context.Context, categoryID int32) ([]ListProductsByCategoryRow, error) {
+	rows, err := q.db.Query(ctx, listProductsByCategory, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductsByCategoryRow
+	for rows.Next() {
+		var i ListProductsByCategoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.CategoryID,
+			&i.BrandID,
+			&i.Name,
+			&i.Model,
+			&i.Sku,
+			&i.Description,
+			&i.Active,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.BrandName,
+			&i.CategoryName,
+			&i.ParentCategoryName,
 			&i.Rating,
 			&i.ReviewCount,
 		); err != nil {

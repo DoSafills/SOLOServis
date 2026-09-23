@@ -2,7 +2,9 @@ package products
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/products/dto"
 	"github.com/go-chi/chi/v5"
@@ -20,21 +22,78 @@ func NewHandler(repository *Repository) *Handler {
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.repository.List(r.Context())
+	products, err := h.listProducts(r)
 	if err != nil {
+		if errors.Is(err, errInvalidCategory) {
+			http.Error(w, "invalid category id", http.StatusBadRequest)
+			return
+		}
+
 		http.Error(w, "failed to list products", http.StatusInternalServerError)
 		return
-	}
-
-	products := make([]dto.ProductListItem, 0, len(rows))
-
-	for _, row := range rows {
-		products = append(products, dto.FromListProduct(row))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(products); err != nil {
+		return
+	}
+}
+
+var errInvalidCategory = errors.New("invalid category id")
+
+// listProducts devuelve el catálogo completo o, si viene ?category=<id>,
+// los productos de esa categoría y de todas sus subcategorías.
+func (h *Handler) listProducts(r *http.Request) ([]dto.ProductListItem, error) {
+	category := r.URL.Query().Get("category")
+
+	if category == "" {
+		rows, err := h.repository.List(r.Context())
+		if err != nil {
+			return nil, err
+		}
+
+		products := make([]dto.ProductListItem, 0, len(rows))
+		for _, row := range rows {
+			products = append(products, dto.FromListProduct(row))
+		}
+
+		return products, nil
+	}
+
+	categoryID, err := strconv.ParseInt(category, 10, 32)
+	if err != nil || categoryID <= 0 {
+		return nil, errInvalidCategory
+	}
+
+	rows, err := h.repository.ListByCategory(r.Context(), int32(categoryID))
+	if err != nil {
+		return nil, err
+	}
+
+	products := make([]dto.ProductListItem, 0, len(rows))
+	for _, row := range rows {
+		products = append(products, dto.FromListProductByCategory(row))
+	}
+
+	return products, nil
+}
+
+func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.repository.ListCategories(r.Context())
+	if err != nil {
+		http.Error(w, "failed to list categories", http.StatusInternalServerError)
+		return
+	}
+
+	categories := make([]dto.ProductCategory, 0, len(rows))
+	for _, row := range rows {
+		categories = append(categories, dto.FromProductCategory(row))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(categories); err != nil {
 		return
 	}
 }

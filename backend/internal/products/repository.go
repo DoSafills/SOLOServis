@@ -22,6 +22,14 @@ func (r *Repository) List(ctx context.Context) ([]generated.ListProductsRow, err
 	return r.queries.ListProducts(ctx)
 }
 
+func (r *Repository) ListByCategory(ctx context.Context, categoryID int32) ([]generated.ListProductsByCategoryRow, error) {
+	return r.queries.ListProductsByCategory(ctx, categoryID)
+}
+
+func (r *Repository) ListCategories(ctx context.Context) ([]generated.ListProductCategoriesRow, error) {
+	return r.queries.ListProductCategories(ctx)
+}
+
 func (r *Repository) GetByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.Product, error) {
 	return r.queries.GetProductByPublicID(ctx, publicID)
 }

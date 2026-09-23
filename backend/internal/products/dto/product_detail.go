@@ -9,7 +9,9 @@ type ProductDetail struct {
 	Name        string         `json:"name"`
 	Brand       string         `json:"brand"`
 	Model       string         `json:"model"`
+	CategoryID  int32          `json:"categoryId"`
 	Category    string         `json:"category"`
+	Subcategory string         `json:"subcategory"`
 	Description string         `json:"description"`
 	Rating      float64        `json:"rating"`
 	ReviewCount int64          `json:"reviewCount"`
@@ -70,12 +72,16 @@ func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail 
 		}
 	}
 
+	category, subcategory := splitCategory(product.CategoryName, product.ParentCategoryName)
+
 	return ProductDetail{
 		ID:          product.PublicID.String(),
 		Name:        product.Name,
 		Brand:       brand,
 		Model:       model,
-		Category:    product.CategoryName,
+		CategoryID:  product.CategoryID,
+		Category:    category,
+		Subcategory: subcategory,
 		Description: description,
 		Rating:      rating,
 		ReviewCount: product.ReviewCount,

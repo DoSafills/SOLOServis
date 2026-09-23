@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getProducts, type ApiProduct } from "../../Services/api/products";
+import {
+  getCategories,
+  getProducts,
+  type ApiProduct,
+  type ApiProductCategory,
+} from "../../Services/api/products";
 import ProductCard from "../../components/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/ui";
 
 interface Props {
   query: string;
+  categoryId?: number;
   navigate: (page: Page) => void;
   favorites: Set<string>;
   compareList: Set<string>;
@@ -17,6 +23,7 @@ type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
 
 export default function SearchResultsPage({
   query,
+  categoryId,
   navigate,
   favorites,
   compareList,
@@ -32,10 +39,29 @@ export default function SearchResultsPage({
   const [page, setPage] = useState(1);
   const PER_PAGE = 6;
  const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
+const [categories, setCategories] = useState<ApiProductCategory[]>([]);
+// null = todas las categorías. El backend incluye las subcategorías del id elegido.
+const [selectedCategory, setSelectedCategory] = useState<number | null>(categoryId ?? null);
 
 useEffect(() => {
-  getProducts().then(setApiProducts).catch(console.error);
+  setSelectedCategory(categoryId ?? null);
+}, [categoryId]);
+
+useEffect(() => {
+  getCategories().then(setCategories).catch(console.error);
 }, []);
+
+useEffect(() => {
+  setPage(1);
+  getProducts(selectedCategory ?? undefined)
+    .then(setApiProducts)
+    .catch(console.error);
+}, [selectedCategory]);
+
+const rootCategories = categories.filter((cat) => cat.parentId === null);
+const subcategoriesOf = (parentId: number) =>
+  categories.filter((cat) => cat.parentId === parentId);
+const selectedCategoryName = categories.find((cat) => cat.id === selectedCategory)?.name ?? "";
 
 const products: Product[] = apiProducts.map((product) => ({
   id: product.id,
@@ -43,7 +69,7 @@ const products: Product[] = apiProducts.map((product) => ({
   brand: product.brand,
   model: product.model,
   category: product.category,
-  subcategory: "",
+  subcategory: product.subcategory,
   image: "",
   images: [],
   description: product.description,
@@ -101,7 +127,50 @@ const toggleBrand = (brand: string) => {
 
   const renderFilters = () => (
     <div className="space-y-6">
-      {/* Category */}
+      {/* Categorías */}
+      <div>
+        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
+          Categoría
+        </h4>
+        <div className="space-y-1">
+          <button
+            onClick={() => setSelectedCategory(null)}
+            className={`block text-left text-sm transition-colors ${
+              selectedCategory === null ? "text-prime font-semibold" : "text-muted-2 hover:text-prime"
+            }`}
+          >
+            Todas
+          </button>
+          {rootCategories.map((cat) => (
+            <div key={cat.id} className="space-y-1">
+              <button
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`block text-left text-sm transition-colors ${
+                  selectedCategory === cat.id
+                    ? "text-prime font-semibold"
+                    : "text-muted-2 hover:text-prime"
+                }`}
+              >
+                {cat.name}
+              </button>
+              {subcategoriesOf(cat.id).map((sub) => (
+                <button
+                  key={sub.id}
+                  onClick={() => setSelectedCategory(sub.id)}
+                  className={`block text-left text-xs pl-3 transition-colors ${
+                    selectedCategory === sub.id
+                      ? "text-prime font-semibold"
+                      : "text-muted hover:text-prime"
+                  }`}
+                >
+                  {sub.name}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div>
         <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
           Disponibilidad
@@ -159,13 +228,14 @@ const toggleBrand = (brand: string) => {
       </div>
 
       {/* Clear */}
-      {(selectedBrands.size > 0 || priceMin || priceMax || availableOnly) && (
+      {(selectedBrands.size > 0 || priceMin || priceMax || availableOnly || selectedCategory) && (
         <button
           onClick={() => {
             setSelectedBrands(new Set());
             setPriceMin("");
             setPriceMax("");
             setAvailableOnly(false);
+            setSelectedCategory(null);
           }}
           className="text-xs text-prime hover:text-prime-dark transition-colors"
         >
@@ -181,6 +251,7 @@ const toggleBrand = (brand: string) => {
         items={[
           { label: "Inicio", onClick: () => navigate({ id: "home" }) },
           { label: "Productos" },
+          ...(selectedCategoryName ? [{ label: selectedCategoryName }] : []),
           ...(query ? [{ label: `"${query}"` }] : []),
         ]}
       />
@@ -188,7 +259,9 @@ const toggleBrand = (brand: string) => {
       <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text">
-            {query ? `Resultados para "${query}"` : "Todos los productos"}
+            {query
+              ? `Resultados para "${query}"`
+              : selectedCategoryName || "Todos los productos"}
           </h1>
           <p className="text-sm text-muted mt-1">{filtered.length} productos encontrados</p>
         </div>

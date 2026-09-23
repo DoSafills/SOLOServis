@@ -1,6 +1,6 @@
 export type Page =
   | { id: "home" }
-  | { id: "search-products"; query: string }
+  | { id: "search-products"; query: string; categoryId?: number }
   | {
       id: "product-detail";
       productId: string;
@@ -41,6 +41,8 @@ export interface Product {
   name: string;
   brand: string;
   model: string;
+  /** Id de la categoría del producto en el backend (la subcategoría si la tiene) */
+  categoryId?: number;
   category: string;
   subcategory: string;
   image: string;

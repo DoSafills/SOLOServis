@@ -62,7 +62,9 @@ export default function App() {
       case "home":
         return <HomePage {...sharedProps} />;
       case "search-products":
-        return <SearchResultsPage {...sharedProps} query={page.query} />;
+        return (
+          <SearchResultsPage {...sharedProps} query={page.query} categoryId={page.categoryId} />
+        );
       case "product-detail":
         return (
           <ProductDetailPage

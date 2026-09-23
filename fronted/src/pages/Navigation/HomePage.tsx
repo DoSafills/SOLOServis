@@ -1,18 +1,14 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getProducts, type ApiProduct } from "../../Services/api/products";
+import {
+  getCategories,
+  getProducts,
+  type ApiProduct,
+  type ApiProductCategory,
+} from "../../Services/api/products";
 import { getServices, toService } from "../../Services/api/services";
 import ProductCard from "../../components/ProductCard";
 import ServiceCard from "../../components/ServiceCard";
-
-const productCategories = [
-  { name: "Tecnología", icon: "⚡", color: "#E8001B" },
-  { name: "Computación", icon: "💻", color: "#818CF8" },
-  { name: "Celulares", icon: "📱", color: "#F472B6" },
-  { name: "Electrodomésticos", icon: "🏠", color: "#FB923C" },
-  { name: "Gaming", icon: "🎮", color: "#A78BFA" },
-  { name: "Hogar", icon: "🛋️", color: "#34D399" },
-];
 
 const serviceCategories = [
   { name: "Internet", icon: "🌐", color: "#E8001B" },
@@ -42,11 +38,19 @@ export default function HomePage({
 
   const [products, setProducts] = useState<ApiProduct[]>([]);
   const [services, setServices] = useState<ReturnType<typeof toService>[]>([]);
+  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
 
 useEffect(() => {
   getProducts().then(setProducts).catch(console.error);
   getServices().then((items) => setServices(items.map(toService))).catch(console.error);
+  getCategories().then(setCategories).catch(console.error);
 }, []);
+
+// Las categorías raíz (sin padre) son las que se muestran en la portada;
+// debajo de cada una se listan sus subcategorías.
+const rootCategories = categories.filter((cat) => cat.parentId === null);
+const subcategoriesOf = (parentId: number) =>
+  categories.filter((cat) => cat.parentId === parentId);
 
 const featuredProducts: Product[] = products.slice(0, 4).map((product) => ({
   id: product.id,
@@ -54,7 +58,7 @@ const featuredProducts: Product[] = products.slice(0, 4).map((product) => ({
   brand: product.brand,
   model: product.model,
   category: product.category,
-  subcategory: "",
+  subcategory: product.subcategory,
   image: "",
   images: [],
   description: product.description,
@@ -192,16 +196,22 @@ const featuredProducts: Product[] = products.slice(0, 4).map((product) => ({
             </div>
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-            {productCategories.map((cat) => (
+            {rootCategories.map((cat) => (
               <button
-                key={cat.name}
-                onClick={() => navigate({ id: "search-products", query: cat.name })}
+                key={cat.id}
+                onClick={() =>
+                  navigate({ id: "search-products", query: "", categoryId: cat.id })
+                }
                 style={{ background: "#111111", border: "1px solid #2A2A2A" }}
                 className="flex flex-col items-center gap-2 p-4 rounded-2xl hover:border-prime hover:bg-prime-muted transition-all duration-200 group"
               >
-                <span className="text-2xl">{cat.icon}</span>
-                <span className="text-xs font-medium text-muted-2 group-hover:text-prime transition-colors">
+                <span className="text-xs font-semibold text-muted-2 group-hover:text-prime transition-colors">
                   {cat.name}
+                </span>
+                <span className="text-[10px] text-muted">
+                  {subcategoriesOf(cat.id)
+                    .map((sub) => sub.name)
+                    .join(" · ") || "Sin subcategorías"}
                 </span>
               </button>
             ))}
