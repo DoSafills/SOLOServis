@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Page, Product } from "../../types";
 import { getProducts, type ApiProduct } from "../../Services/api/products";
 import { products as mockProducts } from "../../data/mockData";
@@ -23,6 +23,46 @@ const EXCLUDED_TYPE_LABELS: Record<ExcludedType, string> = {
   notebooks: "Notebooks",
   computers: "Computadores",
 };
+
+function CollapsibleFilterSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <section className="border-b border-[#2A2A2A] pb-4 last:border-b-0 last:pb-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="w-full flex items-center justify-between text-left text-xs font-semibold text-muted-2 uppercase tracking-widest"
+      >
+        <span>{title}</span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          style={{
+            transition: "transform 0.15s ease",
+            transform: open ? "rotate(180deg)" : "none",
+          }}
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open && <div className="mt-3">{children}</div>}
+    </section>
+  );
+}
 
 export default function SearchResultsPage({
   query,
@@ -196,10 +236,8 @@ const toggleBrand = (brand: string) => {
 
 
   const renderFilters = () => (
-    <div className="space-y-6">
-      {/* Category */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">General</h4>
+    <div className="space-y-4">
+      <CollapsibleFilterSection title="General" defaultOpen>
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
@@ -209,11 +247,9 @@ const toggleBrand = (brand: string) => {
           />
           <span className="text-sm text-muted-2">Solo disponibles</span>
         </label>
-      </div>
+      </CollapsibleFilterSection>
 
-      {/* Lines */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">Línea</h4>
+      <CollapsibleFilterSection title="Línea">
         <div className="space-y-2">
           {lines.map((line) => (
             <label key={line} className="flex items-center gap-2 cursor-pointer">
@@ -227,13 +263,9 @@ const toggleBrand = (brand: string) => {
             </label>
           ))}
         </div>
-      </div>
+      </CollapsibleFilterSection>
 
-      {/* Price */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
-          Precio (CLP)
-        </h4>
+      <CollapsibleFilterSection title="Precio (CLP)">
         <div className="space-y-3">
           <label className="block text-xs text-muted-2">
             Desde ${priceMin.toLocaleString("es-CL")}
@@ -260,11 +292,9 @@ const toggleBrand = (brand: string) => {
             />
           </label>
         </div>
-      </div>
+      </CollapsibleFilterSection>
 
-      {/* Weight */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">Peso</h4>
+      <CollapsibleFilterSection title="Peso">
         <div className="space-y-3">
           <label className="block text-xs text-muted-2">
             Desde {weightMin.toLocaleString("es-CL")} g
@@ -291,13 +321,9 @@ const toggleBrand = (brand: string) => {
             />
           </label>
         </div>
-      </div>
+      </CollapsibleFilterSection>
 
-      {/* Exclusions */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
-          Excluir productos
-        </h4>
+      <CollapsibleFilterSection title="Excluir productos">
         <div className="space-y-2">
           {(Object.keys(EXCLUDED_TYPE_LABELS) as ExcludedType[]).map((type) => (
             <label key={type} className="flex items-center gap-2 cursor-pointer">
@@ -311,11 +337,9 @@ const toggleBrand = (brand: string) => {
             </label>
           ))}
         </div>
-      </div>
+      </CollapsibleFilterSection>
 
-      {/* Brands */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">Marca</h4>
+      <CollapsibleFilterSection title="Marca">
         <div className="space-y-2">
           {brands.map((brand) => (
             <label key={brand} className="flex items-center gap-2 cursor-pointer">
@@ -329,7 +353,7 @@ const toggleBrand = (brand: string) => {
             </label>
           ))}
         </div>
-      </div>
+      </CollapsibleFilterSection>
 
       {/* Clear */}
       {(selectedBrands.size > 0 ||
