@@ -1,6 +1,7 @@
-import { useState } from "react";
-import type { Page } from "../../types";
-import { products, formatPrice } from "../../data/mockData";
+import { useEffect, useState } from "react";
+import type { Page, Product } from "../../types";
+import { getProductById } from "../../Services/api/products";
+import { formatPrice } from "../../Services/api/frontend-src/api";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/ui";
 import PriceHistory from "../../components/PriceHistory";
 
@@ -21,8 +22,37 @@ export default function ProductDetailPage({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
-  const product = products.find((p) => p.id === productId);
+  const [product, setProduct] = useState<Product | null>(null);
+  const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setSelectedImage(0);
+
+    getProductById(productId)
+      .then((result) => {
+        if (!cancelled) setProduct(result);
+      })
+      .catch(() => {
+        if (!cancelled) setProduct(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+
+  if (loading)
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+        <p className="text-muted">Cargando producto...</p>
+      </div>
+    );
 
   if (!product)
     return (

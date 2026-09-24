@@ -10,8 +10,9 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "lint": "eslint .",
+    "type-check": "tsc --noEmit",
     "audit": "pnpm audit",
-    "check": "pnpm format:check && pnpm lint && pnpm build && pnpm audit"
+    "check": "pnpm format:check && pnpm type-check && pnpm lint && pnpm build && pnpm audit"
   },
   "dependencies": {
     "react": "^19.0.0",

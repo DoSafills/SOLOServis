@@ -44,6 +44,7 @@ func NewRouter(db *pgxpool.Pool) *chi.Mux {
 	productHandler := products.NewHandler(productRepository)
 
 	r.Get("/products", productHandler.List)
+	r.Post("/products", productHandler.Create)
 	r.Get("/products/{publicID}", productHandler.GetByPublicID)
 
 	return r

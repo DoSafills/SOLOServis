@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getProducts, type ApiProduct } from "../../Services/api/products";
+import { getProducts, toProduct } from "../../Services/api/products";
 import ProductCard from "../../components/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/ui";
 
@@ -31,30 +31,11 @@ export default function SearchResultsPage({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const PER_PAGE = 6;
- const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
+ const [products, setProducts] = useState<Product[]>([]);
 
 useEffect(() => {
-  getProducts().then(setApiProducts).catch(console.error);
+  getProducts().then((result) => setProducts(result.map(toProduct))).catch(console.error);
 }, []);
-
-const products: Product[] = apiProducts.map((product) => ({
-  id: product.id,
-  name: product.name,
-  brand: product.brand,
-  model: product.model,
-  category: product.category,
-  subcategory: "",
-  image: "",
-  images: [],
-  description: product.description,
-  rating: product.rating,
-  reviewCount: product.reviewCount,
-  specs: product.model ? { Modelo: product.model } : { Modelo: "" },
-  offers: [],
-  priceHistory: [],
-  offerPriceHistory: [],
-  tags: [],
-}));
 
 const brands = [...new Set(products.map((p) => p.brand))];
 

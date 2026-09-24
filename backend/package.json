@@ -1,0 +1,17 @@
+{
+  "name": "soloservis-prisma-tooling",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "prisma:studio": "prisma studio"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.0"
+  },
+  "packageManager": "pnpm@11.24.0"
+}
