@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
-import type { Page, Product } from "../types";
-import { getProducts, getMinPrice } from "../Services/api/frontend-src/api";
-import ProductCard from "../components/ProductCard";
-import { Breadcrumb, EmptyState, Pagination } from "../components/ui";
+import { useEffect, useState, type ReactNode } from "react";
+import type { Page, Product } from "../../types";
+import { getProducts, type ApiProduct } from "../../Services/api/products";
+import { products as mockProducts } from "../../data/mockData";
+import ProductCard from "../../components/ProductCard";
+import { Breadcrumb, EmptyState, Pagination } from "../../components/ui";
 
 interface Props {
   query: string;
@@ -14,126 +15,18 @@ interface Props {
 }
 
 type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
-type PriceRange = { min: number; max: number };
+type ProductType = "cpus" | "graphics" | "notebooks" | "computers";
 
-const PER_PAGE = 6;
-const ACCENT = "#E8001B";
+const PRODUCT_TYPE_LABELS: Record<ProductType, string> = {
+  cpus: "CPUs",
+  graphics: "Gráficas",
+  notebooks: "Notebooks",
+  computers: "Computadores",
+};
 
-/**
- * Filtrado, orden y paginación de productos.
- * Vive en el mismo archivo pero separado del render: solo depende de
- * `products` (no importa de dónde vengan) y de `query`.
- */
-function useProductSearchFilters(products: Product[], query: string, perPage = PER_PAGE) {
-  const [sort, setSort] = useState<SortOption>("relevance");
-  const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
-  const [availableOnly, setAvailableOnly] = useState(false);
-  const [priceRange, setPriceRangeState] = useState<PriceRange | null>(null);
-  const [page, setPage] = useState(1);
-
-  const brands = useMemo(() => [...new Set(products.map((p) => p.brand))], [products]);
-
-  const priceBounds = useMemo<PriceRange>(() => {
-    if (products.length === 0) return { min: 0, max: 0 };
-    const prices = products.map((p) => getMinPrice(p));
-    return { min: Math.min(...prices), max: Math.max(...prices) };
-  }, [products]);
-
-  // Cuando llega el catálogo, el rango de precio arranca en los límites reales.
-  useEffect(() => {
-    if (products.length > 0 && priceRange === null) {
-      setPriceRangeState(priceBounds);
-    }
-  }, [products, priceBounds, priceRange]);
-
-  const activeRange = priceRange ?? priceBounds;
-
-  const filtered = useMemo(() => {
-    const result = products.filter((p) => {
-      if (
-        query &&
-        !p.name.toLowerCase().includes(query.toLowerCase()) &&
-        !p.brand.toLowerCase().includes(query.toLowerCase()) &&
-        !p.category.toLowerCase().includes(query.toLowerCase())
-      )
-        return false;
-
-      const min = getMinPrice(p);
-      if (min < activeRange.min || min > activeRange.max) return false;
-      if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) return false;
-      if (availableOnly && p.offers.every((o) => !o.available)) return false;
-      return true;
-    });
-
-    return [...result].sort((a, b) => {
-      if (sort === "price-asc") return getMinPrice(a) - getMinPrice(b);
-      if (sort === "price-desc") return getMinPrice(b) - getMinPrice(a);
-      if (sort === "rating") return b.rating - a.rating;
-      return 0;
-    });
-  }, [products, query, activeRange, selectedBrands, availableOnly, sort]);
-
-  const paginated = useMemo(
-    () => filtered.slice((page - 1) * perPage, page * perPage),
-    [filtered, page, perPage],
-  );
-
-  const toggleBrand = (brand: string) => {
-    setSelectedBrands((prev) => {
-      const next = new Set(prev);
-      if (next.has(brand)) {
-        next.delete(brand);
-      } else {
-        next.add(brand);
-      }
-      return next;
-    });
-    setPage(1);
-  };
-
-  const setPriceRange = (range: PriceRange) => {
-    setPriceRangeState(range);
-    setPage(1);
-  };
-
-  const hasActiveFilters =
-    selectedBrands.size > 0 ||
-    availableOnly ||
-    activeRange.min > priceBounds.min ||
-    activeRange.max < priceBounds.max;
-
-  const clearFilters = () => {
-    setSelectedBrands(new Set());
-    setAvailableOnly(false);
-    setPriceRangeState(priceBounds);
-    setPage(1);
-  };
-
-  return {
-    sort,
-    setSort,
-    priceBounds,
-    priceRange: activeRange,
-    setPriceRange,
-    selectedBrands,
-    toggleBrand,
-    availableOnly,
-    setAvailableOnly,
-    page,
-    setPage,
-    perPage,
-    brands,
-    filtered,
-    paginated,
-    hasActiveFilters,
-    clearFilters,
-  };
-}
-
-/** Sección de filtro que se puede colapsar, para mantener el panel limpio. */
 function CollapsibleFilterSection({
   title,
-  defaultOpen = true,
+  defaultOpen = false,
   children,
 }: {
   title: string;
@@ -143,130 +36,31 @@ function CollapsibleFilterSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="border-b border-[#2A2A2A] pb-4 last:border-b-0 last:pb-0">
+    <section className="border-b border-[#2A2A2A] pb-4 last:border-b-0 last:pb-0">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="w-full flex items-center justify-between text-left text-xs font-semibold text-muted-2 uppercase tracking-widest"
       >
         <span>{title}</span>
         <svg
-          width="12"
-          height="12"
+          width="14"
+          height="14"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
-          style={{ transition: "transform 0.15s ease", transform: open ? "rotate(180deg)" : "none" }}
+          style={{
+            transition: "transform 0.15s ease",
+            transform: open ? "rotate(180deg)" : "none",
+          }}
         >
           <path d="m6 9 6 6 6-6" />
         </svg>
       </button>
-      {open && children}
-    </div>
-  );
-}
-
-/** Slider de rango doble (min/máx) hecho con dos <input type="range"> nativos superpuestos. */
-function PriceRangeSlider({
-  bounds,
-  value,
-  onChange,
-}: {
-  bounds: PriceRange;
-  value: PriceRange;
-  onChange: (range: PriceRange) => void;
-}) {
-  const span = Math.max(bounds.max - bounds.min, 1);
-  const minPercent = ((value.min - bounds.min) / span) * 100;
-  const maxPercent = ((value.max - bounds.min) / span) * 100;
-  const sliderMax = bounds.max > bounds.min ? bounds.max : bounds.min + 1;
-
-  const handleMinChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const next = Math.min(Number(e.target.value), value.max - 1);
-    onChange({ min: next, max: value.max });
-  };
-
-  const handleMaxChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const next = Math.max(Number(e.target.value), value.min + 1);
-    onChange({ min: value.min, max: next });
-  };
-
-  return (
-    <div className="pt-1">
-      <div className="flex justify-between text-xs text-muted-2 mb-4">
-        <span>${value.min.toLocaleString("es-CL")}</span>
-        <span>${value.max.toLocaleString("es-CL")}</span>
-      </div>
-
-      <div className="relative h-4">
-        <div
-          className="absolute top-1/2 left-0 right-0 h-1 rounded-full -translate-y-1/2"
-          style={{ background: "#2A2A2A" }}
-        />
-        <div
-          className="absolute top-1/2 h-1 rounded-full -translate-y-1/2"
-          style={{ background: ACCENT, left: `${minPercent}%`, right: `${100 - maxPercent}%` }}
-        />
-        <input
-          aria-label="Precio mínimo"
-          className="price-slider-thumb absolute top-1/2 left-0 w-full -translate-y-1/2"
-          max={sliderMax}
-          min={bounds.min}
-          onChange={handleMinChange}
-          type="range"
-          value={value.min}
-        />
-        <input
-          aria-label="Precio máximo"
-          className="price-slider-thumb absolute top-1/2 left-0 w-full -translate-y-1/2"
-          max={sliderMax}
-          min={bounds.min}
-          onChange={handleMaxChange}
-          type="range"
-          value={value.max}
-        />
-      </div>
-
-      <style>{`
-        .price-slider-thumb {
-          -webkit-appearance: none;
-          appearance: none;
-          background: transparent;
-          pointer-events: none;
-          margin: 0;
-        }
-        .price-slider-thumb::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          appearance: none;
-          pointer-events: auto;
-          width: 16px;
-          height: 16px;
-          border-radius: 9999px;
-          background: ${ACCENT};
-          border: 2px solid #0A0A0A;
-          cursor: pointer;
-        }
-        .price-slider-thumb::-moz-range-thumb {
-          pointer-events: auto;
-          width: 16px;
-          height: 16px;
-          border-radius: 9999px;
-          background: ${ACCENT};
-          border: 2px solid #0A0A0A;
-          cursor: pointer;
-        }
-        .price-slider-thumb::-webkit-slider-runnable-track {
-          -webkit-appearance: none;
-          background: transparent;
-          height: 4px;
-        }
-        .price-slider-thumb::-moz-range-track {
-          background: transparent;
-          height: 4px;
-        }
-      `}</style>
-    </div>
+      {open && <div className="mt-3">{children}</div>}
+    </section>
   );
 }
 
@@ -278,105 +72,441 @@ export default function SearchResultsPage({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortOption>("relevance");
+  const [priceMin, setPriceMin] = useState(0);
+  const [priceMax, setPriceMax] = useState(40000000);
+  const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
+  const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
+  const [weightMin, setWeightMin] = useState(0);
+  const [weightMax, setWeightMax] = useState(50);
+  const [selectedTypes, setSelectedTypes] = useState<Set<ProductType>>(new Set());
+  const [selectedRam, setSelectedRam] = useState<Set<string>>(new Set());
+  const [selectedStorage, setSelectedStorage] = useState<Set<string>>(new Set());
+  const [minRating, setMinRating] = useState(0);
+  const [availableOnly, setAvailableOnly] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 6;
+  const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
 
-  // Trae el catálogo completo: los filtros de precio/marca/disponibilidad y el
-  // listado de marcas se calculan en el cliente sobre todo el catálogo.
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadProducts() {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await getProducts();
-        if (cancelled) return;
-        setProducts(result);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Error al cargar los productos");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadProducts();
-
-    return () => {
-      cancelled = true;
-    };
+    getProducts().then(setApiProducts).catch(console.error);
   }, []);
 
-  const {
-    sort,
-    setSort,
-    priceBounds,
-    priceRange,
-    setPriceRange,
-    selectedBrands,
-    toggleBrand,
-    availableOnly,
-    setAvailableOnly,
-    page,
-    setPage,
-    perPage,
-    brands,
-    filtered,
-    paginated,
-    hasActiveFilters,
-    clearFilters,
-  } = useProductSearchFilters(products, query);
+  const apiProductItems: Product[] = apiProducts.map((product) => ({
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    model: product.model,
+    category: product.category,
+    subcategory: "",
+    image: "",
+    images: [],
+    description: product.description,
+    rating: product.rating,
+    reviewCount: product.reviewCount,
+    specs: product.model ? { Modelo: product.model } : { Modelo: "" },
+    offers: [],
+    priceHistory: [],
+    offerPriceHistory: [],
+    tags: [],
+  }));
+
+  const apiProductIds = new Set(apiProductItems.map((product) => product.id));
+  const products: Product[] = [
+    ...apiProductItems,
+    ...mockProducts.filter((product) => !apiProductIds.has(product.id)),
+  ];
+
+  const getProductPrice = (product: Product) =>
+    product.offerPrice ??
+    product.offers.reduce(
+      (lowest, offer) => Math.min(lowest, offer.price),
+      product.offers.length ? Number.POSITIVE_INFINITY : 0,
+    );
+
+  const getProductWeight = (product: Product) => {
+    const weightEntry = Object.entries(product.specs).find(([key]) =>
+      /peso|weight/i.test(key),
+    );
+    const weight = weightEntry?.[1].match(/[\d.]+/)?.[0];
+    // Siempre se normaliza a kg. Si la unidad detectada es gramos, se divide por 1000.
+    return weight ? Number(weight) * (/[kK][gG]/.test(weightEntry[1]) ? 1 : 0.001) : 0;
+  };
+
+  const getSpecValue = (product: Product, keyPattern: RegExp) => {
+    const entry = Object.entries(product.specs).find(([key]) => keyPattern.test(key));
+    return entry?.[1]?.trim();
+  };
+
+  const RAM_KEY = /ram|memoria/i;
+  const STORAGE_KEY = /almacenamiento|storage|disco/i;
+
+  const getProductSearchText = (product: Product) =>
+    [product.name, product.category, product.subcategory, ...product.tags]
+      .join(" ")
+      .toLowerCase();
+
+  const brands = [...new Set(products.map((p) => p.brand))].sort();
+  const lines = [...new Set(products.map((p) => p.subcategory).filter(Boolean))].sort();
+  const ramOptions = [
+    ...new Set(products.map((p) => getSpecValue(p, RAM_KEY)).filter((v): v is string => Boolean(v))),
+  ].sort();
+  const storageOptions = [
+    ...new Set(
+      products.map((p) => getSpecValue(p, STORAGE_KEY)).filter((v): v is string => Boolean(v)),
+    ),
+  ].sort();
+
+let filtered = products.filter((p) => {
+  if (
+    query &&
+    !p.name.toLowerCase().includes(query.toLowerCase()) &&
+    !p.brand.toLowerCase().includes(query.toLowerCase()) &&
+    !p.category.toLowerCase().includes(query.toLowerCase())
+  ) {
+    return false;
+  }
+
+  if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
+    return false;
+  }
+
+  if (selectedLines.size > 0 && !selectedLines.has(p.subcategory)) {
+    return false;
+  }
+
+  const productPrice = getProductPrice(p);
+  if (productPrice < priceMin || productPrice > priceMax) {
+    return false;
+  }
+
+  if (availableOnly && !p.offers.some((offer) => offer.available)) {
+    return false;
+  }
+
+  const productWeight = getProductWeight(p);
+  if (productWeight < weightMin || productWeight > weightMax) {
+    return false;
+  }
+
+  if (selectedRam.size > 0 && !selectedRam.has(getSpecValue(p, RAM_KEY) ?? "")) {
+    return false;
+  }
+
+  if (selectedStorage.size > 0 && !selectedStorage.has(getSpecValue(p, STORAGE_KEY) ?? "")) {
+    return false;
+  }
+
+  if (minRating > 0 && p.rating < minRating) {
+    return false;
+  }
+
+  const searchText = getProductSearchText(p);
+  const typeTerms: Record<ProductType, string[]> = {
+    cpus: ["cpu", "procesador", "processor"],
+    graphics: ["gráfica", "grafica", "gpu", "rtx", "radeon", "rx ", "graphics"],
+    notebooks: ["notebook", "laptop"],
+    computers: ["computador", "desktop", "pc de escritorio", "all-in-one"],
+  };
+
+  if (
+    selectedTypes.size > 0 &&
+    ![...selectedTypes].some((type) =>
+      typeTerms[type].some((term) => searchText.includes(term)),
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+});
+
+filtered = [...filtered].sort((a, b) => {
+  if (sort === "price-asc") return getProductPrice(a) - getProductPrice(b);
+  if (sort === "price-desc") return getProductPrice(b) - getProductPrice(a);
+  if (sort === "rating") return b.rating - a.rating;
+  return 0;
+});
+
+const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+const toggleBrand = (brand: string) => {
+  setSelectedBrands((prev) => {
+    const next = new Set(prev);
+
+    if (next.has(brand)) {
+      next.delete(brand);
+    } else {
+      next.add(brand);
+    }
+
+    return next;
+  });
+
+  setPage(1);
+};
+
+  const toggleLine = (line: string) => {
+    setSelectedLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(line)) next.delete(line);
+      else next.add(line);
+      return next;
+    });
+    setPage(1);
+  };
+
+  const toggleProductType = (type: ProductType) => {
+    setSelectedTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+    setPage(1);
+  };
+
+  const toggleRam = (value: string) => {
+    setSelectedRam((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+    setPage(1);
+  };
+
+  const toggleStorage = (value: string) => {
+    setSelectedStorage((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+    setPage(1);
+  };
+
+
+  const RATING_OPTIONS = [4, 3, 2, 1];
 
   const renderFilters = () => (
-    <div>
-      <CollapsibleFilterSection title="Disponibilidad">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={availableOnly}
-            onChange={(e) => setAvailableOnly(e.target.checked)}
-            className="accent-prime"
-          />
-          <span className="text-sm text-muted-2">Solo disponibles</span>
-        </label>
-      </CollapsibleFilterSection>
+    <CollapsibleFilterSection title="Filtros">
+      <div className="space-y-4">
+        <CollapsibleFilterSection title="General" defaultOpen>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={availableOnly}
+              onChange={(e) => setAvailableOnly(e.target.checked)}
+              className="accent-prime"
+            />
+            <span className="text-sm text-muted-2">Solo disponibles</span>
+          </label>
+        </CollapsibleFilterSection>
 
-      <div className="h-4" />
+        <CollapsibleFilterSection title="Línea">
+          <div className="space-y-2">
+            {lines.map((line) => (
+              <label key={line} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedLines.has(line)}
+                  onChange={() => toggleLine(line)}
+                  className="accent-prime"
+                />
+                <span className="text-sm text-muted-2">{line}</span>
+              </label>
+            ))}
+          </div>
+        </CollapsibleFilterSection>
 
-      <CollapsibleFilterSection title="Precio (CLP)">
-        <PriceRangeSlider bounds={priceBounds} value={priceRange} onChange={setPriceRange} />
-      </CollapsibleFilterSection>
-
-      <div className="h-4" />
-
-      <CollapsibleFilterSection title="Marca">
-        <div className="space-y-2">
-          {brands.map((brand) => (
-            <label key={brand} className="flex items-center gap-2 cursor-pointer">
+        <CollapsibleFilterSection title="Precio (CLP)">
+          <div className="space-y-3">
+            <label className="block text-xs text-muted-2">
+              Desde ${priceMin.toLocaleString("es-CL")}
               <input
-                type="checkbox"
-                checked={selectedBrands.has(brand)}
-                onChange={() => toggleBrand(brand)}
+                type="range"
+                min="0"
+                max="40000000"
+                step="100000"
+                value={priceMin}
+                onChange={(e) => setPriceMin(Math.min(Number(e.target.value), priceMax))}
+                className="w-full accent-prime"
+              />
+            </label>
+            <label className="block text-xs text-muted-2">
+              Hasta ${priceMax.toLocaleString("es-CL")}
+              <input
+                type="range"
+                min="0"
+                max="40000000"
+                step="100000"
+                value={priceMax}
+                onChange={(e) => setPriceMax(Math.max(Number(e.target.value), priceMin))}
+                className="w-full accent-prime"
+              />
+            </label>
+          </div>
+        </CollapsibleFilterSection>
+
+        <CollapsibleFilterSection title="Peso (kg)">
+          <div className="space-y-3">
+            <label className="block text-xs text-muted-2">
+              Desde {weightMin.toLocaleString("es-CL")} kg
+              <input
+                type="range"
+                min="0"
+                max="50"
+                step="0.5"
+                value={weightMin}
+                onChange={(e) => setWeightMin(Math.min(Number(e.target.value), weightMax))}
+                className="w-full accent-prime"
+              />
+            </label>
+            <label className="block text-xs text-muted-2">
+              Hasta {weightMax.toLocaleString("es-CL")} kg
+              <input
+                type="range"
+                min="0"
+                max="50"
+                step="0.5"
+                value={weightMax}
+                onChange={(e) => setWeightMax(Math.max(Number(e.target.value), weightMin))}
+                className="w-full accent-prime"
+              />
+            </label>
+          </div>
+        </CollapsibleFilterSection>
+
+        <CollapsibleFilterSection title="Tipo de producto">
+          <div className="space-y-2">
+            {(Object.keys(PRODUCT_TYPE_LABELS) as ProductType[]).map((type) => (
+              <label key={type} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedTypes.has(type)}
+                  onChange={() => toggleProductType(type)}
+                  className="accent-prime"
+                />
+                <span className="text-sm text-muted-2">{PRODUCT_TYPE_LABELS[type]}</span>
+              </label>
+            ))}
+          </div>
+        </CollapsibleFilterSection>
+
+        <CollapsibleFilterSection title="Marca">
+          <div className="space-y-2">
+            {brands.map((brand) => (
+              <label key={brand} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedBrands.has(brand)}
+                  onChange={() => toggleBrand(brand)}
+                  className="accent-prime"
+                />
+                <span className="text-sm text-muted-2">{brand}</span>
+              </label>
+            ))}
+          </div>
+        </CollapsibleFilterSection>
+
+        {ramOptions.length > 0 && (
+          <CollapsibleFilterSection title="RAM">
+            <div className="space-y-2">
+              {ramOptions.map((value) => (
+                <label key={value} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedRam.has(value)}
+                    onChange={() => toggleRam(value)}
+                    className="accent-prime"
+                  />
+                  <span className="text-sm text-muted-2">{value}</span>
+                </label>
+              ))}
+            </div>
+          </CollapsibleFilterSection>
+        )}
+
+        {storageOptions.length > 0 && (
+          <CollapsibleFilterSection title="Almacenamiento">
+            <div className="space-y-2">
+              {storageOptions.map((value) => (
+                <label key={value} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedStorage.has(value)}
+                    onChange={() => toggleStorage(value)}
+                    className="accent-prime"
+                  />
+                  <span className="text-sm text-muted-2">{value}</span>
+                </label>
+              ))}
+            </div>
+          </CollapsibleFilterSection>
+        )}
+
+        <CollapsibleFilterSection title="Valoración">
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="minRating"
+                checked={minRating === 0}
+                onChange={() => setMinRating(0)}
                 className="accent-prime"
               />
-              <span className="text-sm text-muted-2">{brand}</span>
+              <span className="text-sm text-muted-2">Todas</span>
             </label>
-          ))}
-        </div>
-      </CollapsibleFilterSection>
+            {RATING_OPTIONS.map((stars) => (
+              <label key={stars} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="minRating"
+                  checked={minRating === stars}
+                  onChange={() => setMinRating(stars)}
+                  className="accent-prime"
+                />
+                <span className="text-sm text-muted-2">{stars}★ o más</span>
+              </label>
+            ))}
+          </div>
+        </CollapsibleFilterSection>
 
-      {hasActiveFilters && (
-        <button
-          onClick={clearFilters}
-          className="mt-5 text-xs text-prime hover:text-prime-dark transition-colors"
-        >
-          Limpiar filtros
-        </button>
-      )}
-    </div>
+        {/* Clear */}
+        {(selectedBrands.size > 0 ||
+          selectedLines.size > 0 ||
+          selectedTypes.size > 0 ||
+          selectedRam.size > 0 ||
+          selectedStorage.size > 0 ||
+          minRating > 0 ||
+          priceMin > 0 ||
+          priceMax < 40000000 ||
+          weightMin > 0 ||
+          weightMax < 50 ||
+          availableOnly) && (
+          <button
+            onClick={() => {
+              setSelectedBrands(new Set());
+              setSelectedLines(new Set());
+              setSelectedTypes(new Set());
+              setSelectedRam(new Set());
+              setSelectedStorage(new Set());
+              setMinRating(0);
+              setPriceMin(0);
+              setPriceMax(40000000);
+              setWeightMin(0);
+              setWeightMax(50);
+              setAvailableOnly(false);
+            }}
+            className="text-xs text-prime hover:text-prime-dark transition-colors"
+          >
+            Limpiar filtros
+          </button>
+        )}
+      </div>
+    </CollapsibleFilterSection>
   );
 
   return (
@@ -394,9 +524,7 @@ export default function SearchResultsPage({
           <h1 className="text-2xl font-bold text-text">
             {query ? `Resultados para "${query}"` : "Todos los productos"}
           </h1>
-          <p className="text-sm text-muted mt-1">
-            {loading ? "Cargando…" : `${filtered.length} productos encontrados`}
-          </p>
+          <p className="text-sm text-muted mt-1">{filtered.length} productos encontrados</p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -431,7 +559,11 @@ export default function SearchResultsPage({
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortOption)}
-            style={{ background: "#111111", border: "1px solid #2A2A2A", color: "#94A3B8" }}
+            style={{
+              background: "#111111",
+              border: "1px solid #2A2A2A",
+              color: "#94A3B8",
+            }}
             className="px-3 py-2 rounded-xl text-sm focus:outline-none focus:border-prime transition-colors"
           >
             <option value="relevance">Relevancia</option>
@@ -443,8 +575,13 @@ export default function SearchResultsPage({
           {/* Compare button */}
           {compareList.size >= 2 && (
             <button
-              onClick={() => navigate({ id: "product-comparison", productIds: [...compareList] })}
-              style={{ background: ACCENT, color: "#0A0A0A" }}
+              onClick={() =>
+                navigate({
+                  id: "product-comparison",
+                  productIds: [...compareList],
+                })
+              }
+              style={{ background: "#E8001B", color: "#0A0A0A" }}
               className="px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
             >
               Comparar {compareList.size} productos
@@ -459,7 +596,6 @@ export default function SearchResultsPage({
           style={{ background: "#111111", border: "1px solid #2A2A2A" }}
           className="hidden lg:block w-56 shrink-0 rounded-2xl p-5 self-start sticky top-24"
         >
-          <h3 className="text-sm font-semibold text-text mb-5">Filtros</h3>
           {renderFilters()}
         </aside>
 
@@ -474,8 +610,7 @@ export default function SearchResultsPage({
               style={{ background: "#111111", borderLeft: "1px solid #2A2A2A" }}
               className="absolute right-0 top-0 bottom-0 w-72 p-6 overflow-y-auto"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-sm font-semibold text-text">Filtros</h3>
+              <div className="flex items-center justify-end mb-4">
                 <button
                   onClick={() => setFiltersOpen(false)}
                   className="text-muted hover:text-text transition-colors"
@@ -500,21 +635,14 @@ export default function SearchResultsPage({
 
         {/* Results */}
         <div className="flex-1 min-w-0">
-          {error ? (
-            <EmptyState
-              title="No pudimos cargar los productos"
-              description={error}
-              action={{ label: "Volver al inicio", onClick: () => navigate({ id: "home" }) }}
-            />
-          ) : loading ? (
-            <div className="text-center py-20">
-              <p className="text-muted">Cargando productos…</p>
-            </div>
-          ) : paginated.length === 0 ? (
+          {paginated.length === 0 ? (
             <EmptyState
               title="No encontramos resultados"
               description={`No hay productos que coincidan con "${query}". Intenta con otros términos o elimina algunos filtros.`}
-              action={{ label: "Modificar búsqueda", onClick: () => navigate({ id: "home" }) }}
+              action={{
+                label: "Modificar búsqueda",
+                onClick: () => navigate({ id: "home" }),
+              }}
             />
           ) : (
             <>
@@ -531,7 +659,12 @@ export default function SearchResultsPage({
                   />
                 ))}
               </div>
-              <Pagination page={page} total={filtered.length} perPage={perPage} onChange={setPage} />
+              <Pagination
+                page={page}
+                total={filtered.length}
+                perPage={PER_PAGE}
+                onChange={setPage}
+              />
             </>
           )}
         </div>
