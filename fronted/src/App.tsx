@@ -11,17 +11,33 @@ import ServiceDetailPage from "./pages/Services/ServiceDetailPage";
 import ServiceComparisonPage from "./pages/Services/ServiceComparisonPage";
 import StoresPage from "./pages/Navigation/StoresPage";
 import FavoritesPage from "./pages/User/FavoritesPage";
+import CartPage from "./pages/User/CartPage";
 import UserPage from "./pages/User/UserPage";
+import type { CartItem, Product } from "./types";
 
 export default function App() {
   const [page, setPage] = useState<Page>({ id: "home" });
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [compareList, setCompareList] = useState<Set<string>>(new Set());
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    const stored = localStorage.getItem("soloservis-cart");
+    if (!stored) return [];
+
+    try {
+      return JSON.parse(stored) as CartItem[];
+    } catch {
+      return [];
+    }
+  });
 
   // Scroll to top on navigation
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [page]);
+
+  useEffect(() => {
+    localStorage.setItem("soloservis-cart", JSON.stringify(cart));
+  }, [cart]);
 
   const navigate = (next: Page) => setPage(next);
 
@@ -49,12 +65,56 @@ export default function App() {
     });
   };
 
+  const addToCart = (product: Product) => {
+    const offerPrice =
+      product.offers.find((offer) => offer.available)?.price ??
+      product.offers[0]?.price ??
+      product.offerPrice ??
+      0;
+
+    setCart((prev) => {
+      const existing = prev.find((item) => item.id === product.id);
+      if (existing) {
+        return prev.map((item) =>
+          item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item,
+        );
+      }
+
+      return [
+        ...prev,
+        {
+          id: product.id,
+          name: product.name,
+          brand: product.brand,
+          image: product.image,
+          price: offerPrice,
+          quantity: 1,
+        },
+      ];
+    });
+  };
+
+  const updateCartItem = (id: string, quantity: number) => {
+    setCart((prev) =>
+      prev
+        .map((item) => (item.id === id ? { ...item, quantity: Math.max(quantity, 0) } : item))
+        .filter((item) => item.quantity > 0),
+    );
+  };
+
+  const removeFromCart = (id: string) => {
+    setCart((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+
   const sharedProps = {
     navigate,
     favorites,
     compareList,
     onToggleFavorite: toggleFavorite,
     onToggleCompare: toggleCompare,
+    onAddToCart: addToCart,
   };
 
   const renderPage = () => {
@@ -72,6 +132,7 @@ export default function App() {
             isComparing={compareList.has(page.productId)}
             onToggleFavorite={toggleFavorite}
             onToggleCompare={toggleCompare}
+            onAddToCart={addToCart}
           />
         );
       case "product-comparison":
@@ -99,6 +160,7 @@ export default function App() {
             compareList={compareList}
             onToggleFavorite={toggleFavorite}
             onToggleCompare={toggleCompare}
+            onAddToCart={addToCart}
           />
         );
       case "store-detail":
@@ -110,6 +172,7 @@ export default function App() {
             compareList={compareList}
             onToggleFavorite={toggleFavorite}
             onToggleCompare={toggleCompare}
+            onAddToCart={addToCart}
           />
         );
       case "favorites":
@@ -118,6 +181,15 @@ export default function App() {
             navigate={navigate}
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
+          />
+        );
+      case "cart":
+        return (
+          <CartPage
+            navigate={navigate}
+            cart={cart}
+            onRemoveFromCart={removeFromCart}
+            onUpdateCartItem={updateCartItem}
           />
         );
       case "user":
@@ -129,7 +201,7 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <Header navigate={navigate} currentPage={page} favCount={favorites.size} />
+      <Header navigate={navigate} currentPage={page} favCount={favorites.size} cartCount={cartCount} />
 
       {/* Compare bar */}
       {compareList.size > 0 && (

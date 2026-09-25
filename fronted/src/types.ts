@@ -20,7 +20,17 @@ export type Page =
   | {
       id: "favorites";
     }
+  | { id: "cart" }
   | { id: "user" };
+
+export interface CartItem {
+  id: string;
+  name: string;
+  brand: string;
+  image: string;
+  price: number;
+  quantity: number;
+}
 
 export interface StoreOffer {
   storeId: string;

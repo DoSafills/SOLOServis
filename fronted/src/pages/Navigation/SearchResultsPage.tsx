@@ -11,6 +11,7 @@ interface Props {
   compareList: Set<string>;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string) => void;
+  onAddToCart: (product: Product) => void;
 }
 
 type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
@@ -22,46 +23,95 @@ export default function SearchResultsPage({
   compareList,
   onToggleFavorite,
   onToggleCompare,
+  onAddToCart,
 }: Props) {
   const [sort, setSort] = useState<SortOption>("relevance");
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
   const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
   const [availableOnly, setAvailableOnly] = useState(false);
+  const [minRating, setMinRating] = useState<number>(0);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const PER_PAGE = 6;
- const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
 
-useEffect(() => {
-  getProducts().then((result) => setProducts(result.map(toProduct))).catch(console.error);
-}, []);
+  const getProductPrice = (product: Product) => {
+    const prices = product.offers
+      .map((offer) => offer.price)
+      .filter((price) => Number.isFinite(price) && price > 0);
 
-const brands = [...new Set(products.map((p) => p.brand))];
+    if (prices.length > 0) return Math.min(...prices);
+    if (typeof product.offerPrice === "number" && product.offerPrice > 0) return product.offerPrice;
+    return 0;
+  };
 
-let filtered = products.filter((p) => {
-  if (
-    query &&
-    !p.name.toLowerCase().includes(query.toLowerCase()) &&
-    !p.brand.toLowerCase().includes(query.toLowerCase()) &&
-    !p.category.toLowerCase().includes(query.toLowerCase())
-  ) {
-    return false;
-  }
+  useEffect(() => {
+    getProducts().then((result) => setProducts(result.map(toProduct))).catch(console.error);
+  }, []);
 
-  if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
-    return false;
-  }
+  useEffect(() => {
+    setPage(1);
+  }, [sort, priceMin, priceMax, selectedBrands, availableOnly, minRating]);
 
-  return true;
-});
+  const brands = [...new Set(products.map((p) => p.brand))];
 
-filtered = [...filtered].sort((a, b) => {
-  if (sort === "rating") return b.rating - a.rating;
-  return 0;
-});
+  const priceMinValue = Number(priceMin);
+  const priceMaxValue = Number(priceMax);
 
-const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  let filtered = products.filter((p) => {
+    if (
+      query &&
+      !p.name.toLowerCase().includes(query.toLowerCase()) &&
+      !p.brand.toLowerCase().includes(query.toLowerCase()) &&
+      !p.category.toLowerCase().includes(query.toLowerCase())
+    ) {
+      return false;
+    }
+
+    if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
+      return false;
+    }
+
+    const productPrice = getProductPrice(p);
+
+    if (Number.isFinite(priceMinValue) && priceMinValue > 0 && productPrice < priceMinValue) {
+      return false;
+    }
+
+    if (Number.isFinite(priceMaxValue) && priceMaxValue > 0 && productPrice > priceMaxValue) {
+      return false;
+    }
+
+    if (minRating > 0 && p.rating < minRating) {
+      return false;
+    }
+
+    if (availableOnly && !p.offers.some((offer) => offer.available)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  filtered = [...filtered].sort((a, b) => {
+    const priceA = getProductPrice(a);
+    const priceB = getProductPrice(b);
+
+    switch (sort) {
+      case "price-asc":
+        return priceA - priceB;
+      case "price-desc":
+        return priceB - priceA;
+      case "rating":
+        return b.rating - a.rating || b.reviewCount - a.reviewCount;
+      case "relevance":
+      default:
+        return b.rating - a.rating || priceA - priceB;
+    }
+  });
+
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
 const toggleBrand = (brand: string) => {
   setSelectedBrands((prev) => {
@@ -105,20 +155,42 @@ const toggleBrand = (brand: string) => {
         </h4>
         <div className="flex gap-2">
           <input
+            type="number"
+            min="0"
             value={priceMin}
             onChange={(e) => setPriceMin(e.target.value)}
             placeholder="Mín"
-            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
-            className="w-full px-3 py-2 rounded-xl text-xs text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
+            style={{ background: "#F8FAFC", border: "1px solid #CBD5E1", color: "#0F172A" }}
+            className="w-full px-3 py-2 rounded-xl text-xs placeholder:text-slate-500 focus:outline-none focus:border-prime transition-colors"
           />
           <input
+            type="number"
+            min="0"
             value={priceMax}
             onChange={(e) => setPriceMax(e.target.value)}
             placeholder="Máx"
-            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
-            className="w-full px-3 py-2 rounded-xl text-xs text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
+            style={{ background: "#F8FAFC", border: "1px solid #CBD5E1", color: "#0F172A" }}
+            className="w-full px-3 py-2 rounded-xl text-xs placeholder:text-slate-500 focus:outline-none focus:border-prime transition-colors"
           />
         </div>
+      </div>
+
+      {/* Rating */}
+      <div>
+        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
+          Valoración mínima
+        </h4>
+        <select
+          value={minRating}
+          onChange={(e) => setMinRating(Number(e.target.value))}
+          style={{ background: "#F8FAFC", border: "1px solid #CBD5E1", color: "#0F172A" }}
+          className="w-full px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-prime transition-colors"
+        >
+          <option value={0}>Cualquier valoración</option>
+          <option value={3}>3.0 o más</option>
+          <option value={4}>4.0 o más</option>
+          <option value={4.5}>4.5 o más</option>
+        </select>
       </div>
 
       {/* Brands */}
@@ -140,13 +212,14 @@ const toggleBrand = (brand: string) => {
       </div>
 
       {/* Clear */}
-      {(selectedBrands.size > 0 || priceMin || priceMax || availableOnly) && (
+      {(selectedBrands.size > 0 || priceMin || priceMax || availableOnly || minRating > 0) && (
         <button
           onClick={() => {
             setSelectedBrands(new Set());
             setPriceMin("");
             setPriceMax("");
             setAvailableOnly(false);
+            setMinRating(0);
           }}
           className="text-xs text-prime hover:text-prime-dark transition-colors"
         >
@@ -305,6 +378,7 @@ const toggleBrand = (brand: string) => {
                     isComparing={compareList.has(p.id)}
                     onToggleFavorite={onToggleFavorite}
                     onToggleCompare={onToggleCompare}
+                    onAddToCart={onAddToCart}
                   />
                 ))}
               </div>

@@ -1,4 +1,4 @@
-import type { Page } from "../../types";
+import type { Page, Product } from "../../types";
 import { stores, products } from "../../data/mockData";
 import { Badge, Breadcrumb, Rating } from "../../components/ui";
 import ProductCard from "../../components/ProductCard";
@@ -9,6 +9,7 @@ interface Props {
   compareList: Set<string>;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string) => void;
+  onAddToCart: (product: Product) => void;
   storeId?: string;
 }
 
@@ -85,6 +86,7 @@ function StoreDetail({
   compareList,
   onToggleFavorite,
   onToggleCompare,
+  onAddToCart,
 }: Required<Props>) {
   const store = stores.find((s) => s.id === storeId);
   if (!store) return null;
@@ -153,6 +155,7 @@ function StoreDetail({
             isComparing={compareList.has(p.id)}
             onToggleFavorite={onToggleFavorite}
             onToggleCompare={onToggleCompare}
+            onAddToCart={onAddToCart}
           />
         ))}
       </div>
@@ -170,6 +173,7 @@ export default function StoresPage(props: Props) {
         compareList={props.compareList}
         onToggleFavorite={props.onToggleFavorite}
         onToggleCompare={props.onToggleCompare}
+        onAddToCart={props.onAddToCart}
       />
     );
   }

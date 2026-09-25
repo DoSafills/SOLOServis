@@ -1,5 +1,6 @@
-import type { Page } from "../../types";
-import { products, formatPrice, getMinPrice } from "../../data/mockData";
+import { useEffect, useState } from "react";
+import type { Page, Product } from "../../types";
+import { getProducts, toProduct } from "../../Services/api/products";
 import { Breadcrumb, Badge } from "../../components/ui";
 
 interface Props {
@@ -24,9 +25,61 @@ const specRows = [
 ];
 
 export default function ProductComparisonPage({ productIds, navigate }: Props) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getProducts()
+      .then((result) => {
+        if (!cancelled) setProducts(result.map(toProduct));
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const selected = productIds
     .map((id) => products.find((p) => p.id === id))
-    .filter(Boolean) as typeof products;
+    .filter((product): product is Product => product !== undefined);
+
+  const getMinPrice = (product: Product) => {
+    const prices = product.offers
+      .filter((offer) => offer.available && offer.price > 0)
+      .map((offer) => offer.price);
+
+    return prices.length > 0 ? Math.min(...prices) : product.offerPrice ?? 0;
+  };
+
+  const formatPrice = (price: number) => `$${price.toLocaleString("es-CL")}`;
+
+  if (loading) {
+    return <div className="max-w-7xl mx-auto px-4 py-20 text-center text-muted">Cargando productos...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+        <p className="text-muted mb-4">No se pudieron cargar los productos para comparar.</p>
+        <button
+          onClick={() => navigate({ id: "search-products", query: "" })}
+          style={{ background: "#E8001B", color: "#0A0A0A" }}
+          className="px-5 py-2 rounded-xl text-sm font-semibold"
+        >
+          Volver a productos
+        </button>
+      </div>
+    );
+  }
 
   if (selected.length < 2) {
     return (

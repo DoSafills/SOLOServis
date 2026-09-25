@@ -29,6 +29,7 @@ interface Props {
   compareList: Set<string>;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string) => void;
+  onAddToCart: (product: Product) => void;
 }
 
 export default function HomePage({
@@ -37,6 +38,7 @@ export default function HomePage({
   compareList,
   onToggleFavorite,
   onToggleCompare,
+  onAddToCart,
 }: Props) {
   const [query, setQuery] = useState("");
 
@@ -213,6 +215,7 @@ const featuredProducts = products.slice(0, 4);
                 isComparing={compareList.has(p.id)}
                 onToggleFavorite={onToggleFavorite}
                 onToggleCompare={onToggleCompare}
+                onAddToCart={onAddToCart}
               />
             ))}
           </div>

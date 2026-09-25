@@ -12,6 +12,7 @@ interface Props {
   isComparing: boolean;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string) => void;
+  onAddToCart: (product: Product) => void;
 }
 
 export default function ProductDetailPage({
@@ -21,6 +22,7 @@ export default function ProductDetailPage({
   isComparing,
   onToggleFavorite,
   onToggleCompare,
+  onAddToCart,
 }: Props) {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -256,6 +258,13 @@ export default function ProductDetailPage({
           )}
 
           <div className="flex gap-3">
+            <button
+              onClick={() => onAddToCart(product)}
+              style={{ background: "#E8001B", color: "#0A0A0A" }}
+              className="flex-1 py-3 rounded-2xl text-sm font-semibold transition-all hover:opacity-90"
+            >
+              Añadir a la cesta
+            </button>
             <button
               onClick={() => onToggleCompare(product.id)}
               style={

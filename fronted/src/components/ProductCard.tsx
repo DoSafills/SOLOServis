@@ -8,6 +8,7 @@ interface Props {
   isComparing: boolean;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string) => void;
+  onAddToCart: (product: Product) => void;
 }
 
 export default function ProductCard({
@@ -17,7 +18,13 @@ export default function ProductCard({
   isComparing,
   onToggleFavorite,
   onToggleCompare,
+  onAddToCart,
 }: Props) {
+
+  const bestPrice = product.offers.length
+    ? Math.min(...product.offers.map((offer) => offer.price))
+    : product.offerPrice ?? 0;
+  const hasPrice = bestPrice > 0;
 
   return (
   <div
@@ -47,8 +54,8 @@ export default function ProductCard({
       <div className="absolute inset-0 bg-gradient-to-t from-surface/60 to-transparent" />
 
       <div className="absolute top-2 left-2 flex gap-1.5">
-        <Badge variant="unavailable">
-          Sin ofertas
+        <Badge variant={hasPrice ? "available" : "unavailable"}>
+          {hasPrice ? "Disponible" : "Sin ofertas"}
         </Badge>
       </div>
 
@@ -96,9 +103,9 @@ export default function ProductCard({
 
         {/* Price */}
         <div className="text-xs text-muted mb-0.5">Precio</div>
-<div className="text-sm font-semibold text-muted">
-  No disponible
-</div>
+        <div className="text-lg font-bold text-prime">
+          {hasPrice ? `$${bestPrice.toLocaleString("es-CL")}` : "Consultar"}
+        </div>
 
         {/* Actions */}
         <div className="flex gap-2 mt-1">
@@ -118,13 +125,20 @@ export default function ProductCard({
             {isComparing ? "✓ Comparando" : "Comparar"}
           </button>
           <button
-            onClick={() => navigate({ id: "product-detail", productId: product.id })}
-            style={{ background: "#0369A1", color: "#FFFFFF" }}
+            onClick={() => onAddToCart(product)}
+            style={{ background: "#E8001B", color: "#0A0A0A" }}
             className="flex-1 py-1.5 rounded-xl text-xs font-semibold hover:opacity-90 transition-opacity"
           >
-            Ver producto
+            Añadir
           </button>
         </div>
+        <button
+          onClick={() => navigate({ id: "product-detail", productId: product.id })}
+          style={{ background: "#0369A1", color: "#FFFFFF" }}
+          className="w-full py-1.5 rounded-xl text-xs font-semibold hover:opacity-90 transition-opacity"
+        >
+          Ver producto
+        </button>
       </div>
     </div>
   );
