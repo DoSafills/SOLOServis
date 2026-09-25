@@ -1,9 +1,17 @@
+/*para aquel que le toque seguir este desarrollo en la pagina de resultados
+con sus propios filtros esta pagina se debe trabajar mas a fondo cuando las paginas esten separadas de forma individual
+ya que por como se esta trabajando con todas las paginas superponiendose estos filtros se deberan trabajar mas a futuro
+con la separacion de paginas para de esta forma no tener tanto cuello de botella y sobrecarga
+al momento de buscar elementos*/
+
+
+
 import { useEffect, useState, type ReactNode } from "react";
-import type { Page, Product } from "../../types";
-import { getProducts, type ApiProduct } from "../../Services/api/products";
-import { products as mockProducts } from "../../data/mockData";
-import ProductCard from "../../components/ProductCard";
-import { Breadcrumb, EmptyState, Pagination } from "../../components/ui";
+import type { Page, Product } from "../types";
+import { getProducts, type ApiProduct } from "../Services/api/products";
+import { products as mockProducts } from "../data/mockData";
+import ProductCard from "../components/ProductCard";
+import { Breadcrumb, EmptyState, Pagination } from "../components/ui";
 
 interface Props {
   query: string;
