@@ -45,6 +45,54 @@ const genOfferHistory = (
   });
 };
 
+interface MockProductInput {
+  id: string;
+  name: string;
+  brand: string;
+  model: string;
+  category: string;
+  subcategory: string;
+  description: string;
+  image: string;
+  price: number;
+  specs: Record<string, string>;
+  tags: string[];
+}
+
+const createMockProduct = (input: MockProductInput): Product => ({
+  id: input.id,
+  name: input.name,
+  brand: input.brand,
+  model: input.model,
+  category: input.category,
+  subcategory: input.subcategory,
+  image: input.image,
+  images: [input.image],
+  description: input.description,
+  rating: 4.5,
+  reviewCount: 240,
+  specs: input.specs,
+  offers: [
+    {
+      storeId: "techzone",
+      storeName: "TechZone",
+      price: input.price,
+      available: true,
+      shipping: 0,
+    },
+    {
+      storeId: "megapc",
+      storeName: "MegaPC",
+      price: Math.round((input.price * 1.03) / 1000) * 1000,
+      available: true,
+      shipping: 3990,
+    },
+  ],
+  priceHistory: genHistory(input.price, 365),
+  offerPriceHistory: genOfferHistory(input.price),
+  tags: input.tags,
+});
+
 export const stores: Store[] = [
   {
     id: "techzone",
@@ -432,6 +480,149 @@ export const products: Product[] = [
     offerPriceHistory: [],
     tags: ["Samsung", "Android", "Smartphone", "5G"],
   },
+  createMockProduct({
+    id: "ryzen-7-7800x3d",
+    name: "AMD Ryzen 7 7800X3D",
+    brand: "AMD",
+    model: "100-100000910WOF",
+    category: "Computación",
+    subcategory: "Procesadores",
+    description: "Procesador AM5 de 8 núcleos con 3D V-Cache para equipos gaming de alto rendimiento.",
+    image: "https://images.unsplash.com/photo-1591799264318-7e6ef8ddb7ea?w=600&h=400&fit=crop&auto=format",
+    price: 459990,
+    specs: {
+      Socket: "AM5",
+      Núcleos: "8",
+      Hilos: "16",
+      "Frecuencia base": "4.2 GHz",
+      "Frecuencia máxima": "5.0 GHz",
+      TDP: "120 W",
+      Caché: "104 MB",
+    },
+    tags: ["CPU", "Procesador", "Ryzen", "Gaming"],
+  }),
+  createMockProduct({
+    id: "core-i5-14600k",
+    name: "Intel Core i5-14600K",
+    brand: "Intel",
+    model: "BX8071514600K",
+    category: "Computación",
+    subcategory: "Procesadores",
+    description: "Procesador desbloqueado de 14 núcleos para gaming y creación de contenido.",
+    image: "https://images.unsplash.com/photo-1591799264318-7e6ef8ddb7ea?w=600&h=400&fit=crop&auto=format",
+    price: 329990,
+    specs: {
+      Socket: "LGA1700",
+      Núcleos: "14",
+      Hilos: "20",
+      "Frecuencia base": "3.5 GHz",
+      "Frecuencia máxima": "5.3 GHz",
+      TDP: "125 W",
+      Caché: "24 MB",
+    },
+    tags: ["CPU", "Procesador", "Intel", "Gaming"],
+  }),
+  createMockProduct({
+    id: "rtx-4070-super",
+    name: "Gigabyte GeForce RTX 4070 SUPER 12GB",
+    brand: "Gigabyte",
+    model: "GV-N407SWF3OC-12GD",
+    category: "Tecnología",
+    subcategory: "Tarjetas gráficas",
+    description: "Tarjeta gráfica RTX 4070 SUPER con 12GB GDDR6X y refrigeración Windforce.",
+    image: "https://images.unsplash.com/photo-1587202372616-b43abea06c2a?w=600&h=400&fit=crop&auto=format",
+    price: 799990,
+    specs: {
+      VRAM: "12GB GDDR6X",
+      Arquitectura: "Ada Lovelace",
+      "Núcleos CUDA": "7168",
+      "Bus de memoria": "192-bit",
+      TDP: "220 W",
+    },
+    tags: ["NVIDIA", "GPU", "Gráfica", "RTX", "Gaming"],
+  }),
+  createMockProduct({
+    id: "asus-tuf-a15",
+    name: "ASUS TUF Gaming A15 FA507",
+    brand: "ASUS",
+    model: "FA507NV",
+    category: "Computación",
+    subcategory: "Notebooks",
+    description: "Notebook gaming con Ryzen 7, RTX 4060, 32GB de RAM y pantalla de 144Hz.",
+    image: "https://images.unsplash.com/photo-1525547719571-a2d4ac8945e2?w=600&h=400&fit=crop&auto=format",
+    price: 1199990,
+    specs: {
+      Procesador: "AMD Ryzen 7 7735HS",
+      GPU: "NVIDIA RTX 4060 8GB",
+      RAM: "32GB DDR5 5600MHz",
+      Almacenamiento: "1TB SSD NVMe",
+      Pantalla: '15.6" IPS 144Hz FHD',
+      Batería: "90Wh",
+      Peso: "2.2 kg",
+    },
+    tags: ["ASUS", "Notebook", "Laptop", "Gaming", "AMD"],
+  }),
+  createMockProduct({
+    id: "pc-gaming-codex-r2",
+    name: "MSI Codex R2 Gaming Desktop",
+    brand: "MSI",
+    model: "Codex R2 B14NUC5",
+    category: "Computación",
+    subcategory: "Computadores de escritorio",
+    description: "Computador de escritorio gaming con Core i7, RTX 4060 Ti y 32GB DDR5.",
+    image: "https://images.unsplash.com/photo-1587202372775-e229f172b9d7?w=600&h=400&fit=crop&auto=format",
+    price: 1399990,
+    specs: {
+      Procesador: "Intel Core i7-14700F",
+      GPU: "NVIDIA RTX 4060 Ti 8GB",
+      RAM: "32GB DDR5 5600MHz",
+      Almacenamiento: "1TB SSD NVMe",
+      Placa: "Intel B760",
+      Fuente: "650W 80+ Bronze",
+    },
+    tags: ["MSI", "Computador", "Desktop", "PC Gaming"],
+  }),
+  createMockProduct({
+    id: "pc-gaming-ryzen-5",
+    name: "PC Gaming Ryzen 5 RTX 4060",
+    brand: "Arma tu PC",
+    model: "AG-R5600-4060",
+    category: "Computación",
+    subcategory: "Computadores de escritorio",
+    description: "PC de escritorio con Ryzen 5, RTX 4060, 16GB DDR4 y SSD de 1TB.",
+    image: "https://images.unsplash.com/photo-1587202372775-e229f172b9d7?w=600&h=400&fit=crop&auto=format",
+    price: 899990,
+    specs: {
+      Procesador: "AMD Ryzen 5 5600",
+      GPU: "NVIDIA RTX 4060 8GB",
+      RAM: "16GB DDR4 3200MHz",
+      Almacenamiento: "1TB SSD NVMe",
+      Placa: "AMD B550",
+      Fuente: "650W 80+ Bronze",
+    },
+    tags: ["Computador", "Desktop", "PC de escritorio", "AMD", "Gaming"],
+  }),
+  createMockProduct({
+    id: "xiaomi-14t-pro",
+    name: "Xiaomi 14T Pro 512GB",
+    brand: "Xiaomi",
+    model: "14T Pro",
+    category: "Celulares",
+    subcategory: "Smartphones",
+    description: "Smartphone con Dimensity 9300+, 12GB de RAM y pantalla AMOLED de 144Hz.",
+    image: "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=600&h=400&fit=crop&auto=format",
+    price: 699990,
+    specs: {
+      Procesador: "MediaTek Dimensity 9300+",
+      Almacenamiento: "512GB",
+      RAM: "12GB",
+      Pantalla: '6.67" AMOLED 144Hz',
+      "Cámara principal": "50 MP f/1.6",
+      Batería: "5000 mAh",
+      "Sistema operativo": "Android 14",
+    },
+    tags: ["Xiaomi", "Smartphone", "Celular", "Android", "5G"],
+  }),
 ];
 
 export const services: Service[] = [

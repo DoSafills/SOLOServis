@@ -6,9 +6,12 @@ export interface ApiProduct {
   brand: string;
   model: string;
   category: string;
+  subcategory?: string;
   description: string;
   rating: number;
   reviewCount: number;
+  specs?: Record<string, string>;
+  tags?: string[];
 }
 
 export async function getProducts(): Promise<ApiProduct[]> {

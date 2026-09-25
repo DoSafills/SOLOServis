@@ -1,4 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import type { Page, Product } from "../../types";
 import { getProducts, type ApiProduct } from "../../Services/api/products";
 import { products as mockProducts } from "../../data/mockData";
@@ -15,13 +19,78 @@ interface Props {
 }
 
 type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
-type ExcludedType = "cpus" | "graphics" | "notebooks" | "computers";
+type ProductType = "cpus" | "graphics" | "notebooks" | "computers" | "smartphones";
+type FilterFacet = string;
+interface AdvancedFilterDefinition {
+  id: string;
+  title: string;
+  keyPattern: RegExp;
+}
 
-const EXCLUDED_TYPE_LABELS: Record<ExcludedType, string> = {
+const PRICE_LIMIT = 40000000;
+const PROCESSOR_KEY = /procesador|processor|cpu/i;
+const RAM_KEY = /ram|memoria/i;
+const STORAGE_KEY = /almacenamiento|storage|disco/i;
+const GRAPHICS_KEY = /gpu|gráfica|graphics|video/i;
+const DISPLAY_KEY = /pantalla|display|screen/i;
+const BATTERY_KEY = /batería|battery/i;
+const CAMERA_KEY = /cámara|camera/i;
+
+const PRODUCT_TYPE_LABELS: Record<ProductType, string> = {
   cpus: "CPUs",
   graphics: "Gráficas",
   notebooks: "Notebooks",
   computers: "Computadores",
+  smartphones: "Smartphones",
+};
+
+const PRODUCT_TYPE_TERMS: Record<ProductType, string[]> = {
+  cpus: ["cpu", "procesador", "procesadores", "processor"],
+  graphics: ["gráfica", "grafica", "gpu", "rtx", "radeon", "rx ", "graphics"],
+  notebooks: ["notebook", "laptop"],
+  computers: ["computador", "computadora", "computadores", "desktop", "pc de escritorio", "all-in-one", "torre"],
+  smartphones: ["smartphone", "celular", "teléfono", "telefono", "móvil", "movil"],
+};
+
+const ADVANCED_FILTERS: Record<ProductType, AdvancedFilterDefinition[]> = {
+  cpus: [
+    { id: "socket", title: "Socket", keyPattern: /socket/i },
+    { id: "cores", title: "Núcleos", keyPattern: /núcleos|cores/i },
+    { id: "threads", title: "Hilos", keyPattern: /hilos|threads/i },
+    { id: "frequency", title: "Frecuencia", keyPattern: /frecuencia|clock/i },
+    { id: "tdp", title: "Consumo (TDP)", keyPattern: /tdp|consumo/i },
+  ],
+  graphics: [
+    { id: "vram", title: "VRAM", keyPattern: /vram/i },
+    {
+      id: "gpu-cores",
+      title: "Núcleos de procesamiento",
+      keyPattern: /núcleos cuda|cuda cores|stream processors/i,
+    },
+    { id: "memory-bus", title: "Bus de memoria", keyPattern: /bus de memoria/i },
+  ],
+  notebooks: [
+    { id: "processor", title: "Procesador", keyPattern: PROCESSOR_KEY },
+    { id: "ram", title: "RAM", keyPattern: RAM_KEY },
+    { id: "storage", title: "Almacenamiento", keyPattern: STORAGE_KEY },
+    { id: "graphics", title: "Gráficos", keyPattern: GRAPHICS_KEY },
+    { id: "display", title: "Pantalla", keyPattern: DISPLAY_KEY },
+    { id: "battery", title: "Batería", keyPattern: BATTERY_KEY },
+  ],
+  computers: [
+    { id: "processor", title: "Procesador", keyPattern: PROCESSOR_KEY },
+    { id: "ram", title: "RAM", keyPattern: RAM_KEY },
+    { id: "storage", title: "Almacenamiento", keyPattern: STORAGE_KEY },
+    { id: "graphics", title: "Gráficos", keyPattern: GRAPHICS_KEY },
+  ],
+  smartphones: [
+    { id: "processor", title: "Procesador", keyPattern: PROCESSOR_KEY },
+    { id: "ram", title: "RAM", keyPattern: RAM_KEY },
+    { id: "storage", title: "Almacenamiento", keyPattern: STORAGE_KEY },
+    { id: "display", title: "Pantalla", keyPattern: DISPLAY_KEY },
+    { id: "camera", title: "Cámara", keyPattern: CAMERA_KEY },
+    { id: "battery", title: "Batería", keyPattern: BATTERY_KEY },
+  ],
 };
 
 function CollapsibleFilterSection({
@@ -64,6 +133,67 @@ function CollapsibleFilterSection({
   );
 }
 
+function SearchableAdvancedFilter({
+  title,
+  count,
+  options,
+  selectedValues,
+  getOptionCount,
+  onToggle,
+}: {
+  title: string;
+  count: number;
+  options: string[];
+  selectedValues: Set<string>;
+  getOptionCount: (option: string) => number;
+  onToggle: (option: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const visibleOptions = options.filter((option) =>
+    option.toLowerCase().includes(search.trim().toLowerCase()),
+  );
+
+  return (
+    <CollapsibleFilterSection title={`${title} (${count})`} defaultOpen>
+      <div className="space-y-2">
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={`Buscar ${title.toLowerCase()}...`}
+          aria-label={`Buscar ${title.toLowerCase()}`}
+          disabled={options.length === 0}
+          className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-text placeholder:text-muted-2 focus:border-prime focus:outline-none disabled:opacity-50"
+        />
+        {visibleOptions.length === 0 ? (
+          <p className="text-xs text-muted-2">
+            {options.length === 0
+              ? "No hay especificaciones disponibles para esta categoría."
+              : "No hay coincidencias."}
+          </p>
+        ) : (
+          <div className="max-h-40 space-y-2 overflow-y-auto">
+            {visibleOptions.map((option) => (
+              <label key={option} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedValues.has(option)}
+                  onChange={() => onToggle(option)}
+                  className="accent-prime"
+                />
+                <span className="flex flex-1 items-center justify-between gap-2 break-words text-sm text-muted-2">
+                  <span>{option}</span>
+                  <span className="shrink-0 text-xs">{getOptionCount(option)}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+    </CollapsibleFilterSection>
+  );
+}
+
 export default function SearchResultsPage({
   query,
   navigate,
@@ -74,13 +204,14 @@ export default function SearchResultsPage({
 }: Props) {
   const [sort, setSort] = useState<SortOption>("relevance");
   const [priceMin, setPriceMin] = useState(0);
-  const [priceMax, setPriceMax] = useState(1000000);
+  const [priceMax, setPriceMax] = useState(PRICE_LIMIT);
   const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
-  const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
   const [weightMin, setWeightMin] = useState(0);
-  const [weightMax, setWeightMax] = useState(5000);
-  const [excludedTypes, setExcludedTypes] = useState<Set<ExcludedType>>(new Set());
+  const [weightMax, setWeightMax] = useState(50);
+  const [selectedTypes, setSelectedTypes] = useState<Set<ProductType>>(new Set());
+  const [selectedAdvancedFilters, setSelectedAdvancedFilters] = useState<Record<string, Set<string>>>({});
   const [availableOnly, setAvailableOnly] = useState(false);
+  const [filterPanelExpanded, setFilterPanelExpanded] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const PER_PAGE = 6;
@@ -96,17 +227,17 @@ export default function SearchResultsPage({
     brand: product.brand,
     model: product.model,
     category: product.category,
-    subcategory: "",
+    subcategory: product.subcategory ?? "",
     image: "",
     images: [],
     description: product.description,
     rating: product.rating,
     reviewCount: product.reviewCount,
-    specs: product.model ? { Modelo: product.model } : { Modelo: "" },
+    specs: product.specs ?? (product.model ? { Modelo: product.model } : {}),
     offers: [],
     priceHistory: [],
     offerPriceHistory: [],
-    tags: [],
+    tags: product.tags ?? [],
   }));
 
   const apiProductIds = new Set(apiProductItems.map((product) => product.id));
@@ -122,12 +253,18 @@ export default function SearchResultsPage({
       product.offers.length ? Number.POSITIVE_INFINITY : 0,
     );
 
+  const getSpecValue = (product: Product, keyPattern: RegExp) =>
+    Object.entries(product.specs).find(([key]) => keyPattern.test(key))?.[1]?.trim();
+
   const getProductWeight = (product: Product) => {
     const weightEntry = Object.entries(product.specs).find(([key]) =>
       /peso|weight/i.test(key),
     );
-    const weight = weightEntry?.[1].match(/[\d.]+/)?.[0];
-    return weight ? Number(weight) * (/[kK][gG]/.test(weightEntry[1]) ? 1000 : 1) : 0;
+    const weight = weightEntry?.[1].match(/(\d+(?:[.,]\d+)?)\s*(kg|g)?/i);
+    if (!weight) return null;
+
+    const value = Number(weight[1].replace(",", "."));
+    return weight[2]?.toLowerCase() === "g" ? value / 1000 : value;
   };
 
   const getProductSearchText = (product: Product) =>
@@ -135,68 +272,132 @@ export default function SearchResultsPage({
       .join(" ")
       .toLowerCase();
 
-  const brands = [...new Set(products.map((p) => p.brand))].sort();
-  const lines = [...new Set(products.map((p) => p.subcategory).filter(Boolean))].sort();
-
-let filtered = products.filter((p) => {
-  if (
-    query &&
-    !p.name.toLowerCase().includes(query.toLowerCase()) &&
-    !p.brand.toLowerCase().includes(query.toLowerCase()) &&
-    !p.category.toLowerCase().includes(query.toLowerCase())
-  ) {
-    return false;
-  }
-
-  if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
-    return false;
-  }
-
-  if (selectedLines.size > 0 && !selectedLines.has(p.subcategory)) {
-    return false;
-  }
-
-  const productPrice = getProductPrice(p);
-  if (productPrice < priceMin || productPrice > priceMax) {
-    return false;
-  }
-
-  if (availableOnly && !p.offers.some((offer) => offer.available)) {
-    return false;
-  }
-
-  const productWeight = getProductWeight(p);
-  if (productWeight < weightMin || productWeight > weightMax) {
-    return false;
-  }
-
-  const searchText = getProductSearchText(p);
-  const excludedTerms: Record<ExcludedType, string[]> = {
-    cpus: ["cpu", "procesador", "processor"],
-    graphics: ["gráfica", "grafica", "gpu", "rtx", "radeon", "rx ", "graphics"],
-    notebooks: ["notebook", "laptop"],
-    computers: ["computador", "desktop", "pc de escritorio", "all-in-one"],
+  const matchesProductType = (product: Product, type: ProductType) => {
+    const searchText = getProductSearchText(product);
+    return PRODUCT_TYPE_TERMS[type].some((term) => searchText.includes(term));
   };
 
-  if (
-    [...excludedTypes].some((type) =>
-      excludedTerms[type].some((term) => searchText.includes(term)),
-    )
-  ) {
-    return false;
-  }
+  const brands = [...new Set(products.map((p) => p.brand))].sort();
+  const getAdvancedOptions = (type: ProductType, keyPattern: RegExp) =>
+    [
+      ...new Set(
+        products
+          .filter((product) => matchesProductType(product, type))
+          .map((product) => getSpecValue(product, keyPattern))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ].sort();
 
-  return true;
-});
+  const matchesProduct = (product: Product, excludedFacet?: FilterFacet) => {
+    if (
+      query &&
+      !product.name.toLowerCase().includes(query.toLowerCase()) &&
+      !product.brand.toLowerCase().includes(query.toLowerCase()) &&
+      !product.category.toLowerCase().includes(query.toLowerCase())
+    ) {
+      return false;
+    }
 
-filtered = [...filtered].sort((a, b) => {
-  if (sort === "price-asc") return getProductPrice(a) - getProductPrice(b);
-  if (sort === "price-desc") return getProductPrice(b) - getProductPrice(a);
-  if (sort === "rating") return b.rating - a.rating;
-  return 0;
-});
+    if (
+      excludedFacet !== "brand" &&
+      selectedBrands.size > 0 &&
+      !selectedBrands.has(product.brand)
+    ) {
+      return false;
+    }
 
-const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+    const productPrice = getProductPrice(product);
+    if (
+      excludedFacet !== "price" &&
+      (productPrice < priceMin || productPrice > priceMax)
+    ) {
+      return false;
+    }
+
+    if (
+      excludedFacet !== "availability" &&
+      availableOnly &&
+      !product.offers.some((offer) => offer.available)
+    ) {
+      return false;
+    }
+
+    const productWeight = getProductWeight(product);
+    if (
+      excludedFacet !== "weight" &&
+      (productWeight === null
+        ? weightMin > 0 || weightMax < 50
+        : productWeight < weightMin || productWeight > weightMax)
+    ) {
+      return false;
+    }
+
+    if (excludedFacet !== "type" && selectedTypes.size > 0) {
+      const matchesSelectedType = [...selectedTypes].some((type) => {
+        if (!matchesProductType(product, type)) return false;
+
+        return ADVANCED_FILTERS[type].every((definition) => {
+          const selectedValues = selectedAdvancedFilters[`${type}:${definition.id}`];
+          return (
+            !selectedValues?.size ||
+            excludedFacet === `${type}:${definition.id}` ||
+            selectedValues.has(getSpecValue(product, definition.keyPattern) ?? "")
+          );
+        });
+      });
+
+      if (!matchesSelectedType) return false;
+    }
+
+    return true;
+  };
+
+  const countForFacet = (
+    facet: FilterFacet,
+    matchesOption: (product: Product) => boolean = () => true,
+  ) => products.filter((product) => matchesProduct(product, facet) && matchesOption(product)).length;
+
+  const brandCounts = new Map(
+    brands.map((brand) => [brand, countForFacet("brand", (product) => product.brand === brand)]),
+  );
+  const typeCounts = Object.fromEntries(
+    (Object.keys(PRODUCT_TYPE_LABELS) as ProductType[]).map((type) => [
+      type,
+      countForFacet("type", (product) => {
+        const searchText = getProductSearchText(product);
+        return PRODUCT_TYPE_TERMS[type].some((term) => searchText.includes(term));
+      }),
+    ]),
+  ) as Record<ProductType, number>;
+  const productTypeCount = countForFacet("type", (product) => {
+    const searchText = getProductSearchText(product);
+    return Object.values(PRODUCT_TYPE_TERMS).some((terms) =>
+      terms.some((term) => searchText.includes(term)),
+    );
+  });
+  const priceCount = countForFacet("price");
+  const weightCount = countForFacet("weight");
+  const availableCount = countForFacet("availability", (product) =>
+    product.offers.some((offer) => offer.available),
+  );
+
+  const selectedFilterCount =
+    selectedBrands.size +
+    selectedTypes.size +
+    Object.values(selectedAdvancedFilters).reduce((total, values) => total + values.size, 0) +
+    Number(availableOnly) +
+    Number(priceMin > 0 || priceMax < PRICE_LIMIT) +
+    Number(weightMin > 0 || weightMax < 50);
+
+  const filtered = products.filter((product) => matchesProduct(product));
+  filtered.sort((a, b) => {
+    if (sort === "price-asc") return getProductPrice(a) - getProductPrice(b);
+    if (sort === "price-desc") return getProductPrice(b) - getProductPrice(a);
+    if (sort === "rating") return b.rating - a.rating;
+    return 0;
+  });
+
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
 const toggleBrand = (brand: string) => {
   setSelectedBrands((prev) => {
@@ -214,18 +415,15 @@ const toggleBrand = (brand: string) => {
   setPage(1);
 };
 
-  const toggleLine = (line: string) => {
-    setSelectedLines((prev) => {
-      const next = new Set(prev);
-      if (next.has(line)) next.delete(line);
-      else next.add(line);
-      return next;
-    });
-    setPage(1);
-  };
-
-  const toggleExcludedType = (type: ExcludedType) => {
-    setExcludedTypes((prev) => {
+  const toggleProductType = (type: ProductType) => {
+    if (selectedTypes.has(type)) {
+      setSelectedAdvancedFilters((previous) =>
+        Object.fromEntries(
+          Object.entries(previous).filter(([filterId]) => !filterId.startsWith(`${type}:`)),
+        ),
+      );
+    }
+    setSelectedTypes((prev) => {
       const next = new Set(prev);
       if (next.has(type)) next.delete(type);
       else next.add(type);
@@ -234,45 +432,60 @@ const toggleBrand = (brand: string) => {
     setPage(1);
   };
 
+  const toggleAdvancedFilter = (type: ProductType, definition: AdvancedFilterDefinition, value: string) => {
+    const filterId = `${type}:${definition.id}`;
+    setSelectedAdvancedFilters((previous) => {
+      const values = new Set(previous[filterId] ?? []);
+      if (values.has(value)) values.delete(value);
+      else values.add(value);
+      return { ...previous, [filterId]: values };
+    });
+    setPage(1);
+  };
+
+  const renderAdvancedFilters = (type: ProductType) => (
+    <CollapsibleFilterSection key={type} title={`${PRODUCT_TYPE_LABELS[type]}: filtros avanzados`} defaultOpen>
+      <div className="space-y-4">
+        {ADVANCED_FILTERS[type].map((definition) => {
+          const options = getAdvancedOptions(type, definition.keyPattern);
+          const filterId = `${type}:${definition.id}`;
+          const selectedValues = selectedAdvancedFilters[filterId] ?? new Set<string>();
+          const getCount = (option?: string) =>
+            products.filter(
+              (product) =>
+                matchesProduct(product, filterId) &&
+                matchesProductType(product, type) &&
+                (option === undefined ||
+                  getSpecValue(product, definition.keyPattern) === option),
+            ).length;
+
+          return (
+            <SearchableAdvancedFilter
+              key={definition.id}
+              title={definition.title}
+              count={getCount()}
+              options={options}
+              selectedValues={selectedValues}
+              getOptionCount={(option) => getCount(option)}
+              onToggle={(option) => toggleAdvancedFilter(type, definition, option)}
+            />
+          );
+        })}
+      </div>
+    </CollapsibleFilterSection>
+  );
+
 
   const renderFilters = () => (
     <div className="space-y-4">
-      <CollapsibleFilterSection title="General" defaultOpen>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={availableOnly}
-            onChange={(e) => setAvailableOnly(e.target.checked)}
-            className="accent-prime"
-          />
-          <span className="text-sm text-muted-2">Solo disponibles</span>
-        </label>
-      </CollapsibleFilterSection>
-
-      <CollapsibleFilterSection title="Línea">
-        <div className="space-y-2">
-          {lines.map((line) => (
-            <label key={line} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={selectedLines.has(line)}
-                onChange={() => toggleLine(line)}
-                className="accent-prime"
-              />
-              <span className="text-sm text-muted-2">{line}</span>
-            </label>
-          ))}
-        </div>
-      </CollapsibleFilterSection>
-
-      <CollapsibleFilterSection title="Precio (CLP)">
+      <CollapsibleFilterSection title={`Precio (CLP) (${priceCount})`}>
         <div className="space-y-3">
           <label className="block text-xs text-muted-2">
             Desde ${priceMin.toLocaleString("es-CL")}
             <input
               type="range"
               min="0"
-              max="1000000"
+              max={PRICE_LIMIT}
               step="10000"
               value={priceMin}
               onChange={(e) => setPriceMin(Math.min(Number(e.target.value), priceMax))}
@@ -284,7 +497,7 @@ const toggleBrand = (brand: string) => {
             <input
               type="range"
               min="0"
-              max="1000000"
+              max={PRICE_LIMIT}
               step="10000"
               value={priceMax}
               onChange={(e) => setPriceMax(Math.max(Number(e.target.value), priceMin))}
@@ -294,27 +507,27 @@ const toggleBrand = (brand: string) => {
         </div>
       </CollapsibleFilterSection>
 
-      <CollapsibleFilterSection title="Peso">
+      <CollapsibleFilterSection title={`Peso (kg) (${weightCount})`}>
         <div className="space-y-3">
           <label className="block text-xs text-muted-2">
-            Desde {weightMin.toLocaleString("es-CL")} g
+            Desde {weightMin.toLocaleString("es-CL")} kg
             <input
               type="range"
               min="0"
-              max="5000"
-              step="100"
+              max="50"
+              step="0.5"
               value={weightMin}
               onChange={(e) => setWeightMin(Math.min(Number(e.target.value), weightMax))}
               className="w-full accent-prime"
             />
           </label>
           <label className="block text-xs text-muted-2">
-            Hasta {weightMax.toLocaleString("es-CL")} g
+            Hasta {weightMax.toLocaleString("es-CL")} kg
             <input
               type="range"
               min="0"
-              max="5000"
-              step="100"
+              max="50"
+              step="0.5"
               value={weightMax}
               onChange={(e) => setWeightMax(Math.max(Number(e.target.value), weightMin))}
               className="w-full accent-prime"
@@ -323,23 +536,45 @@ const toggleBrand = (brand: string) => {
         </div>
       </CollapsibleFilterSection>
 
-      <CollapsibleFilterSection title="Excluir productos">
-        <div className="space-y-2">
-          {(Object.keys(EXCLUDED_TYPE_LABELS) as ExcludedType[]).map((type) => (
-            <label key={type} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={excludedTypes.has(type)}
-                onChange={() => toggleExcludedType(type)}
-                className="accent-prime"
-              />
-              <span className="text-sm text-muted-2">{EXCLUDED_TYPE_LABELS[type]}</span>
-            </label>
-          ))}
+      <CollapsibleFilterSection title={`General (${availableCount})`} defaultOpen>
+        <div className="space-y-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={availableOnly}
+              onChange={(e) => setAvailableOnly(e.target.checked)}
+              className="accent-prime"
+            />
+            <span className="flex flex-1 items-center justify-between text-sm text-muted-2">
+              Solo disponibles
+              <span className="text-xs">{availableCount}</span>
+            </span>
+          </label>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-2">
+              Tipo de producto ({productTypeCount})
+            </p>
+            {(Object.keys(PRODUCT_TYPE_LABELS) as ProductType[]).map((type) => (
+              <label key={type} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedTypes.has(type)}
+                  onChange={() => toggleProductType(type)}
+                  className="accent-prime"
+                />
+                <span className="flex flex-1 items-center justify-between text-sm text-muted-2">
+                  {PRODUCT_TYPE_LABELS[type]}
+                  <span className="text-xs">{typeCounts[type]}</span>
+                </span>
+              </label>
+            ))}
+          </div>
         </div>
       </CollapsibleFilterSection>
 
-      <CollapsibleFilterSection title="Marca">
+      {[...selectedTypes].map((type) => renderAdvancedFilters(type))}
+
+      <CollapsibleFilterSection title={`Marca (${countForFacet("brand")})`}>
         <div className="space-y-2">
           {brands.map((brand) => (
             <label key={brand} className="flex items-center gap-2 cursor-pointer">
@@ -349,7 +584,10 @@ const toggleBrand = (brand: string) => {
                 onChange={() => toggleBrand(brand)}
                 className="accent-prime"
               />
-              <span className="text-sm text-muted-2">{brand}</span>
+              <span className="flex flex-1 items-center justify-between text-sm text-muted-2">
+                {brand}
+                <span className="text-xs">{brandCounts.get(brand) ?? 0}</span>
+              </span>
             </label>
           ))}
         </div>
@@ -357,22 +595,22 @@ const toggleBrand = (brand: string) => {
 
       {/* Clear */}
       {(selectedBrands.size > 0 ||
-        selectedLines.size > 0 ||
-        excludedTypes.size > 0 ||
+        selectedTypes.size > 0 ||
+        Object.values(selectedAdvancedFilters).some((values) => values.size > 0) ||
         priceMin > 0 ||
-        priceMax < 1000000 ||
+        priceMax < PRICE_LIMIT ||
         weightMin > 0 ||
-        weightMax < 5000 ||
+        weightMax < 50 ||
         availableOnly) && (
         <button
           onClick={() => {
             setSelectedBrands(new Set());
-            setSelectedLines(new Set());
-            setExcludedTypes(new Set());
+            setSelectedTypes(new Set());
+            setSelectedAdvancedFilters({});
             setPriceMin(0);
-            setPriceMax(1000000);
+            setPriceMax(PRICE_LIMIT);
             setWeightMin(0);
-            setWeightMax(5000);
+            setWeightMax(50);
             setAvailableOnly(false);
           }}
           className="text-xs text-prime hover:text-prime-dark transition-colors"
@@ -427,6 +665,9 @@ const toggleBrand = (brand: string) => {
               <line x1="16" y1="16" x2="16" y2="12" />
             </svg>
             Filtros
+            <span className="rounded-full bg-[#2A2A2A] px-2 py-0.5 text-xs text-muted-2">
+              {selectedFilterCount}
+            </span>
           </button>
 
           {/* Sort */}
@@ -470,8 +711,34 @@ const toggleBrand = (brand: string) => {
           style={{ background: "#111111", border: "1px solid #2A2A2A" }}
           className="hidden lg:block w-56 shrink-0 rounded-2xl p-5 self-start sticky top-24"
         >
-          <h3 className="text-sm font-semibold text-text mb-5">Filtros</h3>
-          {renderFilters()}
+          <button
+            type="button"
+            aria-expanded={filterPanelExpanded}
+            onClick={() => setFilterPanelExpanded((current) => !current)}
+            className="w-full flex items-center justify-between text-left text-sm font-semibold text-text"
+          >
+            <span className="flex items-center gap-2">
+              Filtros
+              <span className="rounded-full bg-[#2A2A2A] px-2 py-0.5 text-xs text-muted-2">
+                {selectedFilterCount}
+              </span>
+            </span>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              style={{
+                transition: "transform 0.15s ease",
+                transform: filterPanelExpanded ? "rotate(180deg)" : "none",
+              }}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+          {filterPanelExpanded && <div className="mt-5">{renderFilters()}</div>}
         </aside>
 
         {/* Mobile filter modal */}
@@ -486,7 +753,33 @@ const toggleBrand = (brand: string) => {
               className="absolute right-0 top-0 bottom-0 w-72 p-6 overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-sm font-semibold text-text">Filtros</h3>
+                <button
+                  type="button"
+                  aria-expanded={filterPanelExpanded}
+                  onClick={() => setFilterPanelExpanded((current) => !current)}
+                  className="flex items-center gap-2 text-sm font-semibold text-text"
+                >
+                  <span className="flex items-center gap-2">
+                    Filtros
+                    <span className="rounded-full bg-[#2A2A2A] px-2 py-0.5 text-xs text-muted-2">
+                      {selectedFilterCount}
+                    </span>
+                  </span>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    style={{
+                      transition: "transform 0.15s ease",
+                      transform: filterPanelExpanded ? "rotate(180deg)" : "none",
+                    }}
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
                 <button
                   onClick={() => setFiltersOpen(false)}
                   className="text-muted hover:text-text transition-colors"
@@ -504,7 +797,7 @@ const toggleBrand = (brand: string) => {
                   </svg>
                 </button>
               </div>
-              {renderFilters()}
+              {filterPanelExpanded && renderFilters()}
             </div>
           </div>
         )}
