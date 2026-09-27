@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
 import { getProductById } from "../../services/api/products";
-import { formatPrice } from "../../Services/utils/productUtils";
+import { formatPrice } from "../../services/utils/productUtils";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 
@@ -419,4 +419,5 @@ export default function ProductDetailPage({
     </div>
   );
 }
+
 

@@ -1,5 +1,5 @@
 ﻿import type { Service, Page } from "../../types";
-import { formatPrice } from "../../Services/utils/productUtils";
+import { formatPrice } from "../../services/utils/productUtils";
 import { Badge, Rating, FavoriteButton } from "../common/ui";
 
 interface Props {
@@ -132,3 +132,4 @@ export default function ServiceCard({
     </div>
   );
 }
+

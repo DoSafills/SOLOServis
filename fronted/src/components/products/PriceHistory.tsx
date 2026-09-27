@@ -9,7 +9,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import type { PricePoint } from "../../types";
-import { formatPrice } from "../../Services/utils/productUtils";
+import { formatPrice } from "../../services/utils/productUtils";
 
 const ranges = [
   { label: "7d", days: 7 },
@@ -223,3 +223,4 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
     </div>
   );
 }
+
