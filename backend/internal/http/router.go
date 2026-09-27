@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
+	"github.com/DoSafills/SOLOServis/backend/internal/services"
+	"github.com/DoSafills/SOLOServis/backend/internal/stores"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,14 +19,13 @@ type HealthResponse struct {
 	Database string `json:"database"`
 }
 
-func NewRouter(db *pgxpool.Pool) *chi.Mux {
+func NewRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	r := chi.NewRouter()
 
-	// CORS
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "http://localhost:8443")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Origin", frontendURL)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
 			if req.Method == http.MethodOptions {
@@ -44,10 +45,21 @@ func NewRouter(db *pgxpool.Pool) *chi.Mux {
 	productHandler := products.NewHandler(productRepository)
 
 	r.Get("/products", productHandler.List)
-		r.Get("/products/{publicID}", productHandler.GetByPublicID)
-		r.Post("/products", productHandler.Create)
-		r.Put("/products/{publicID}", productHandler.Update)
-		r.Delete("/products/{publicID}", productHandler.Deactivate)
+	r.Get("/products/{publicID}", productHandler.GetByPublicID)
+	r.Post("/products", productHandler.Create)
+	r.Put("/products/{publicID}", productHandler.Update)
+	r.Delete("/products/{publicID}", productHandler.Deactivate)
+
+	serviceRepository := services.NewRepository(db)
+	serviceHandler := services.NewHandler(serviceRepository)
+
+	r.Get("/services", serviceHandler.List)
+	r.Get("/services/{publicID}", serviceHandler.GetByPublicID)
+
+	storeRepository := stores.NewRepository(db)
+	storeHandler := stores.NewHandler(storeRepository)
+
+	r.Get("/stores", storeHandler.List)
 
 	return r
 }
@@ -74,4 +86,3 @@ func healthHandler(w http.ResponseWriter, db *pgxpool.Pool) {
 		Database: "connected",
 	})
 }
-

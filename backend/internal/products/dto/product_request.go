@@ -12,6 +12,7 @@ type CreateProductRequest struct {
 	Model       string `json:"model"`
 	SKU         string `json:"sku"`
 	Description string `json:"description"`
+	ImageURL    string `json:"imageUrl"`
 }
 
 type UpdateProductRequest struct {

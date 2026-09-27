@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Port        string
 	DatabaseURL string
+	FrontendURL string
 }
 
 func Load() Config {
@@ -24,8 +25,14 @@ func Load() Config {
 		databaseURL = "postgres://postgres:postgres@localhost:5432/soloservis"
 	}
 
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:5173"
+	}
+
 	return Config{
 		Port:        port,
 		DatabaseURL: databaseURL,
+		FrontendURL: frontendURL,
 	}
 }

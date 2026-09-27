@@ -1,6 +1,6 @@
-import type { Page } from "../../types";
+﻿import type { Page } from "../../types";
 import { services, formatPrice } from "../../data/mockData";
-import { Breadcrumb, Badge } from "../../components/ui";
+import { Breadcrumb, Badge } from "../../components/common/ui";
 
 interface Props {
   serviceIds: string[];
@@ -43,7 +43,7 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
     },
     {
       key: "installation",
-      label: "Instalación",
+      label: "Instalaci├│n",
       getValue: (s) =>
         s.installationCost === 0
           ? "Gratis"
@@ -58,8 +58,8 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
     },
     {
       key: "rating",
-      label: "Valoración",
-      getValue: (s) => `★ ${s.rating.toFixed(1)} (${s.reviewCount.toLocaleString("es-CL")})`,
+      label: "Valoraci├│n",
+      getValue: (s) => `Ôÿà ${s.rating.toFixed(1)} (${s.reviewCount.toLocaleString("es-CL")})`,
     },
     {
       key: "coverage",
@@ -79,11 +79,11 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
             label: "Servicios",
             onClick: () => navigate({ id: "search-services", query: "" }),
           },
-          { label: "Comparación" },
+          { label: "Comparaci├│n" },
         ]}
       />
 
-      <h1 className="text-2xl font-bold text-text mb-2">Comparación de servicios</h1>
+      <h1 className="text-2xl font-bold text-text mb-2">Comparaci├│n de servicios</h1>
       <p className="text-sm text-muted mb-8">Comparando {selected.length} servicios</p>
 
       <div className="overflow-x-auto">
@@ -98,7 +98,7 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
                 }}
                 className="text-left text-xs font-semibold text-muted-2 uppercase tracking-widest p-4 w-40"
               >
-                Característica
+                Caracter├¡stica
               </th>
               {selected.map((s) => (
                 <th
@@ -204,7 +204,7 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
                     className="p-4 text-center"
                   >
                     <span className="text-sm text-text">
-                      {s.specs[key] ?? <span className="text-muted">—</span>}
+                      {s.specs[key] ?? <span className="text-muted">ÔÇö</span>}
                     </span>
                   </td>
                 ))}

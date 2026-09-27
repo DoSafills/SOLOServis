@@ -1,6 +1,6 @@
-import type { Page } from "../../types";
+﻿import type { Page } from "../../types";
 import { products, services, formatPrice, getMinPrice } from "../../data/mockData";
-import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/ui";
+import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 
 interface Props {
   navigate: (page: Page) => void;
@@ -34,7 +34,7 @@ export default function FavoritesPage({ navigate, favorites, onToggleFavorite }:
               <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
             </svg>
           </div>
-          <h3 className="text-lg font-semibold text-text">No tienes favoritos aún</h3>
+          <h3 className="text-lg font-semibold text-text">No tienes favoritos a├║n</h3>
           <p className="text-sm text-muted max-w-xs">
             Guarda productos y servicios para seguir sus precios y recibir alertas de bajadas.
           </p>
@@ -116,7 +116,7 @@ export default function FavoritesPage({ navigate, favorites, onToggleFavorite }:
                         >
                           <path d="m18 15-6-6-6 6" />
                         </svg>
-                        Bajó {formatPrice(diff)}
+                        Baj├│ {formatPrice(diff)}
                       </div>
                     )}
                     <div className="text-xs text-muted line-through">{formatPrice(prevPrice)}</div>
@@ -179,7 +179,7 @@ export default function FavoritesPage({ navigate, favorites, onToggleFavorite }:
                     </div>
                     {diff > 0 && (
                       <div className="flex items-center gap-1 text-xs text-success font-semibold justify-end">
-                        ↓ Bajó {formatPrice(diff)}
+                        Ôåô Baj├│ {formatPrice(diff)}
                       </div>
                     )}
                   </div>

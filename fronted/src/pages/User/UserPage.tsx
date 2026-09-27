@@ -1,7 +1,7 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import type { Page } from "../../types";
 import { products, formatPrice, getMinPrice } from "../../data/mockData";
-import { Breadcrumb, Badge } from "../../components/ui";
+import { Breadcrumb, Badge } from "../../components/common/ui";
 
 interface Props {
   navigate: (page: Page) => void;
@@ -82,7 +82,7 @@ export default function UserPage({ navigate, favorites }: Props) {
     },
     {
       id: "settings",
-      label: "Configuración",
+      label: "Configuraci├│n",
       icon: (
         <svg
           width="14"
@@ -135,7 +135,7 @@ export default function UserPage({ navigate, favorites }: Props) {
               JG
             </div>
             <div className="text-center">
-              <div className="text-sm font-bold text-text">Juan González</div>
+              <div className="text-sm font-bold text-text">Juan Gonz├ílez</div>
               <div className="text-xs text-muted">juan@email.cl</div>
             </div>
             <Badge variant="best">Pro</Badge>
@@ -176,13 +176,13 @@ export default function UserPage({ navigate, favorites }: Props) {
               style={{ background: "#111111", border: "1px solid #2A2A2A" }}
               className="rounded-2xl p-6"
             >
-              <h2 className="text-lg font-bold text-text mb-6">Información de perfil</h2>
+              <h2 className="text-lg font-bold text-text mb-6">Informaci├│n de perfil</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[
                   { label: "Nombre", value: "Juan", placeholder: "Tu nombre" },
                   {
                     label: "Apellido",
-                    value: "González",
+                    value: "Gonz├ílez",
                     placeholder: "Tu apellido",
                   },
                   {
@@ -191,7 +191,7 @@ export default function UserPage({ navigate, favorites }: Props) {
                     placeholder: "tu@email.cl",
                   },
                   {
-                    label: "Teléfono",
+                    label: "Tel├®fono",
                     value: "+56 9 1234 5678",
                     placeholder: "+56 9 xxxx xxxx",
                   },
@@ -228,7 +228,7 @@ export default function UserPage({ navigate, favorites }: Props) {
             >
               <h2 className="text-lg font-bold text-text mb-4">Mis favoritos</h2>
               {favorites.size === 0 ? (
-                <p className="text-sm text-muted">No tienes favoritos aún.</p>
+                <p className="text-sm text-muted">No tienes favoritos a├║n.</p>
               ) : (
                 <p className="text-sm text-muted">{favorites.size} items guardados.</p>
               )}
@@ -241,7 +241,7 @@ export default function UserPage({ navigate, favorites }: Props) {
                 }}
                 className="mt-4 px-4 py-2 rounded-xl text-sm hover:border-prime hover:text-prime transition-all"
               >
-                Ver todos los favoritos →
+                Ver todos los favoritos ÔåÆ
               </button>
             </div>
           )}
@@ -251,7 +251,7 @@ export default function UserPage({ navigate, favorites }: Props) {
               style={{ background: "#111111", border: "1px solid #2A2A2A" }}
               className="rounded-2xl p-6"
             >
-              <h2 className="text-lg font-bold text-text mb-4">Historial de búsquedas</h2>
+              <h2 className="text-lg font-bold text-text mb-4">Historial de b├║squedas</h2>
               <div className="space-y-2">
                 {searchHistory.map((q, i) => (
                   <div
@@ -277,7 +277,7 @@ export default function UserPage({ navigate, favorites }: Props) {
                       onClick={() => navigate({ id: "search-products", query: q })}
                       className="text-xs text-prime hover:text-prime-dark transition-colors"
                     >
-                      Buscar →
+                      Buscar ÔåÆ
                     </button>
                   </div>
                 ))}
@@ -318,7 +318,7 @@ export default function UserPage({ navigate, favorites }: Props) {
               style={{ background: "#111111", border: "1px solid #2A2A2A" }}
               className="rounded-2xl p-6"
             >
-              <h2 className="text-lg font-bold text-text mb-6">Configuración</h2>
+              <h2 className="text-lg font-bold text-text mb-6">Configuraci├│n</h2>
               <div className="space-y-4">
                 {[
                   {

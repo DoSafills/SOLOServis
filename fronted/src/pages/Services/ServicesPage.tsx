@@ -1,8 +1,8 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import type { Page } from "../../types";
 import { services } from "../../data/mockData";
-import ServiceCard from "../../components/ServiceCard";
-import { Breadcrumb, EmptyState } from "../../components/ui";
+import ServiceCard from "../../components/services/ServiceCard";
+import { Breadcrumb, EmptyState } from "../../components/common/ui";
 
 interface Props {
   query: string;
@@ -88,7 +88,7 @@ export default function ServicesPage({
             <option value="relevance">Relevancia</option>
             <option value="price-asc">Precio: menor a mayor</option>
             <option value="price-desc">Precio: mayor a menor</option>
-            <option value="rating">Mejor valoración</option>
+            <option value="rating">Mejor valoraci├│n</option>
           </select>
           {compareList.size >= 2 && (
             <button
@@ -113,7 +113,7 @@ export default function ServicesPage({
           style={{ background: "#111111", border: "1px solid #2A2A2A" }}
           className="hidden lg:block w-52 shrink-0 rounded-2xl p-5 self-start sticky top-24"
         >
-          <h3 className="text-sm font-semibold text-text mb-4">Categorías</h3>
+          <h3 className="text-sm font-semibold text-text mb-4">Categor├¡as</h3>
           <div className="space-y-2">
             {categories.map((cat) => (
               <label key={cat} className="flex items-center gap-2 cursor-pointer">
@@ -134,7 +134,7 @@ export default function ServicesPage({
           {filtered.length === 0 ? (
             <EmptyState
               title="No encontramos servicios"
-              description="No hay servicios que coincidan con tu búsqueda."
+              description="No hay servicios que coincidan con tu b├║squeda."
               action={{
                 label: "Ver todos los servicios",
                 onClick: () => navigate({ id: "search-services", query: "" }),

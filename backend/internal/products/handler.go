@@ -3,6 +3,8 @@ package products
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/products/dto"
 	"github.com/go-chi/chi/v5"
@@ -19,6 +21,45 @@ func NewHandler(repository *Repository) *Handler {
 	}
 }
 
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	var request dto.CreateProductRequest
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(&request); err != nil {
+		http.Error(w, "invalid product payload", http.StatusBadRequest)
+		return
+	}
+
+	request.Name = strings.TrimSpace(request.Name)
+	request.ImageURL = strings.TrimSpace(request.ImageURL)
+
+	if request.CategoryID <= 0 || request.Name == "" || !isHTTPURL(request.ImageURL) {
+		http.Error(w, "categoryId, name and a valid http(s) imageUrl are required", http.StatusBadRequest)
+		return
+	}
+
+	product, err := h.repository.Create(r.Context(), request)
+	if err != nil {
+		http.Error(w, "failed to create product", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+
+	_ = json.NewEncoder(w).Encode(product)
+}
+
+func isHTTPURL(value string) bool {
+	parsed, err := url.ParseRequestURI(value)
+
+	return err == nil &&
+		(parsed.Scheme == "http" || parsed.Scheme == "https") &&
+		parsed.Host != ""
+}
+
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.repository.List(r.Context())
 	if err != nil {
@@ -29,7 +70,29 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	products := make([]dto.ProductListItem, 0, len(rows))
 
 	for _, row := range rows {
-		products = append(products, dto.FromListProduct(row))
+		product := dto.FromListProduct(row)
+
+		images, err := h.repository.ListImages(r.Context(), row.ID)
+		if err != nil {
+			http.Error(w, "failed to load product images", http.StatusInternalServerError)
+			return
+		}
+
+		for _, image := range images {
+			product.Images = append(product.Images, dto.FromProductImage(image))
+		}
+
+		offers, err := h.repository.ListOffers(r.Context(), row.ID)
+		if err != nil {
+			http.Error(w, "failed to load product offers", http.StatusInternalServerError)
+			return
+		}
+
+		for _, offer := range offers {
+			product.Offers = append(product.Offers, dto.FromProductOffer(offer))
+		}
+
+		products = append(products, product)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -43,6 +106,7 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 	publicID := chi.URLParam(r, "publicID")
 
 	var uuid pgtype.UUID
+
 	if err := uuid.Scan(publicID); err != nil {
 		http.Error(w, "invalid product id", http.StatusBadRequest)
 		return
@@ -56,13 +120,25 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 
 	images, err := h.repository.ListImages(r.Context(), product.ID)
 	if err != nil {
-		http.Error(w, "failed to load products images", http.StatusInternalServerError)
+		http.Error(w, "failed to load product images", http.StatusInternalServerError)
 		return
 	}
 
 	offers, err := h.repository.ListOffers(r.Context(), product.ID)
 	if err != nil {
 		http.Error(w, "failed to load product offers", http.StatusInternalServerError)
+		return
+	}
+
+	specifications, err := h.repository.ListSpecifications(r.Context(), product.ID)
+	if err != nil {
+		http.Error(w, "failed to load product specifications", http.StatusInternalServerError)
+		return
+	}
+
+	priceHistory, err := h.repository.ListPriceHistory(r.Context(), product.ID)
+	if err != nil {
+		http.Error(w, "failed to load product price history", http.StatusInternalServerError)
 		return
 	}
 
@@ -78,6 +154,40 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 		result.Offers = append(result.Offers, dto.FromProductOffer(offer))
 	}
 
+	result.Specs = make(map[string]string, len(specifications))
+	for _, specification := range specifications {
+		result.Specs[specification.Name] = specification.Value
+	}
+
+	result.PriceHistory = make([]dto.PricePoint, 0, len(priceHistory))
+	result.OfferPriceHistory = make([]dto.PricePoint, 0)
+
+	for _, point := range priceHistory {
+		price := ""
+		if point.Price.Valid {
+			value, err := point.Price.MarshalJSON()
+			if err == nil {
+				price = string(value)
+			}
+		}
+
+		date := ""
+		if point.RecordedAt.Valid {
+			date = point.RecordedAt.Time.Format("2006-01-02")
+		}
+
+		pricePoint := dto.PricePoint{
+			Date:  date,
+			Price: price,
+		}
+
+		result.PriceHistory = append(result.PriceHistory, pricePoint)
+
+		if point.IsPromotional {
+			result.OfferPriceHistory = append(result.OfferPriceHistory, pricePoint)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(result); err != nil {
@@ -85,30 +195,11 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	var request dto.CreateProductRequest
-
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	product, err := h.repository.Create(r.Context(), request.ToParams())
-	if err != nil {
-		http.Error(w, "failed to create product", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-
-	_ = json.NewEncoder(w).Encode(product)
-}
-
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	publicID := chi.URLParam(r, "publicID")
 
 	var uuid pgtype.UUID
+
 	if err := uuid.Scan(publicID); err != nil {
 		http.Error(w, "invalid product id", http.StatusBadRequest)
 		return
@@ -116,12 +207,18 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 
 	var request dto.UpdateProductRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(&request); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	product, err := h.repository.UpdateByPublicID(r.Context(), request.ToParams(uuid))
+	product, err := h.repository.UpdateByPublicID(
+		r.Context(),
+		request.ToParams(uuid),
+	)
 	if err != nil {
 		http.Error(w, "product not found", http.StatusNotFound)
 		return
@@ -136,12 +233,16 @@ func (h *Handler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	publicID := chi.URLParam(r, "publicID")
 
 	var uuid pgtype.UUID
+
 	if err := uuid.Scan(publicID); err != nil {
 		http.Error(w, "invalid product id", http.StatusBadRequest)
 		return
 	}
 
-	product, err := h.repository.DeactivateByPublicID(r.Context(), uuid)
+	product, err := h.repository.DeactivateByPublicID(
+		r.Context(),
+		uuid,
+	)
 	if err != nil {
 		http.Error(w, "product not found", http.StatusNotFound)
 		return

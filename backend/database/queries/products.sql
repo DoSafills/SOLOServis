@@ -237,3 +237,25 @@ RETURNING
     active,
     created_at,
     updated_at;
+
+-- name: ListProductSpecifications :many
+SELECT
+    pcs.name,
+    psv.value
+FROM product_specification_value psv
+JOIN product_category_specification pcs
+    ON pcs.id = psv.specification_id
+WHERE psv.product_id = $1
+ORDER BY pcs.display_order ASC, pcs.id ASC;
+
+
+-- name: ListProductPriceHistory :many
+SELECT
+    pph.recorded_at,
+    pph.price,
+    pph.is_promotional
+FROM product_price_history pph
+JOIN product_offer po
+    ON po.id = pph.product_offer_id
+WHERE po.product_id = $1
+ORDER BY pph.recorded_at ASC, pph.id ASC;

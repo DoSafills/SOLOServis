@@ -408,6 +408,80 @@ func (q *Queries) ListProductOffers(ctx context.Context, productID int32) ([]Lis
 	return items, nil
 }
 
+const listProductPriceHistory = `-- name: ListProductPriceHistory :many
+SELECT
+    pph.recorded_at,
+    pph.price,
+    pph.is_promotional
+FROM product_price_history pph
+JOIN product_offer po
+    ON po.id = pph.product_offer_id
+WHERE po.product_id = $1
+ORDER BY pph.recorded_at ASC, pph.id ASC
+`
+
+type ListProductPriceHistoryRow struct {
+	RecordedAt    pgtype.Timestamp `json:"recorded_at"`
+	Price         pgtype.Numeric   `json:"price"`
+	IsPromotional bool             `json:"is_promotional"`
+}
+
+func (q *Queries) ListProductPriceHistory(ctx context.Context, productID int32) ([]ListProductPriceHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listProductPriceHistory, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductPriceHistoryRow
+	for rows.Next() {
+		var i ListProductPriceHistoryRow
+		if err := rows.Scan(&i.RecordedAt, &i.Price, &i.IsPromotional); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProductSpecifications = `-- name: ListProductSpecifications :many
+SELECT
+    pcs.name,
+    psv.value
+FROM product_specification_value psv
+JOIN product_category_specification pcs
+    ON pcs.id = psv.specification_id
+WHERE psv.product_id = $1
+ORDER BY pcs.display_order ASC, pcs.id ASC
+`
+
+type ListProductSpecificationsRow struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+func (q *Queries) ListProductSpecifications(ctx context.Context, productID int32) ([]ListProductSpecificationsRow, error) {
+	rows, err := q.db.Query(ctx, listProductSpecifications, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductSpecificationsRow
+	for rows.Next() {
+		var i ListProductSpecificationsRow
+		if err := rows.Scan(&i.Name, &i.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProducts = `-- name: ListProducts :many
 SELECT
     p.id,

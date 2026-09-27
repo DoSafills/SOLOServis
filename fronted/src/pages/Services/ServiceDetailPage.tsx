@@ -1,7 +1,7 @@
-import type { Page } from "../../types";
+﻿import type { Page } from "../../types";
 import { services, formatPrice } from "../../data/mockData";
-import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/ui";
-import PriceHistory from "../../components/PriceHistory";
+import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
+import PriceHistory from "../../components/products/PriceHistory";
 
 interface Props {
   serviceId: string;
@@ -60,7 +60,7 @@ export default function ServiceDetailPage({
           <div className="flex items-start justify-between">
             <div>
               <Badge variant="available">
-                {service.category} · {service.subcategory}
+                {service.category} ┬À {service.subcategory}
               </Badge>
               <h1 className="text-2xl font-bold text-text mt-2 leading-snug">{service.name}</h1>
               <div className="text-sm font-semibold text-prime mt-1">{service.provider}</div>
@@ -79,7 +79,7 @@ export default function ServiceDetailPage({
             className="rounded-2xl p-4"
           >
             <h3 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
-              Características
+              Caracter├¡sticas
             </h3>
             <div className="grid grid-cols-2 gap-2">
               {Object.entries(service.specs).map(([k, v]) => (
@@ -106,7 +106,7 @@ export default function ServiceDetailPage({
             </div>
             <div className="flex gap-4 mt-2 text-xs text-muted">
               <span>
-                Instalación:{" "}
+                Instalaci├│n:{" "}
                 {service.installationCost === 0
                   ? "Gratis"
                   : service.installationCost
@@ -133,7 +133,7 @@ export default function ServiceDetailPage({
             }
             className="py-3 rounded-2xl text-sm font-semibold transition-all hover:border-prime hover:text-prime"
           >
-            {isComparing ? "✓ Agregado al comparador" : "Agregar al comparador"}
+            {isComparing ? "Ô£ô Agregado al comparador" : "Agregar al comparador"}
           </button>
         </div>
       </div>
