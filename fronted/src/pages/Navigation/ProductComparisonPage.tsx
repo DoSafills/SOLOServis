@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { formatPrice, getMinPrice } from "../../data/mockData";
-import { getProducts } from "../../Services/api/products";
-import { toProduct } from "../../Services/api/products-client";
+import { formatPrice } from "../../data/mockData";
+import { getProduct, toProduct } from "../../Services/api/products-client";
 import { Breadcrumb, Badge } from "../../components/ui";
 
 interface Props {
@@ -10,7 +9,13 @@ interface Props {
   navigate: (page: Page) => void;
 }
 
+type ComparisonState =
+  | { productIdKey: string; status: "loading" }
+  | { productIdKey: string; status: "success"; products: Product[] }
+  | { productIdKey: string; status: "error" };
+
 const specRows = [
+  "Modelo",
   "VRAM",
   "Arquitectura",
   "Núcleos CUDA",
@@ -27,13 +32,61 @@ const specRows = [
 ];
 
 export default function ProductComparisonPage({ productIds, navigate }: Props) {
-  const [selected, setSelected] = useState<Product[]>([]);
+  const productIdKey = productIds.join(",");
+  const [comparison, setComparison] = useState<ComparisonState>({
+    productIdKey,
+    status: "loading",
+  });
 
   useEffect(() => {
-    getProducts()
-      .then((items) => setSelected(items.filter((item) => productIds.includes(item.id)).map(toProduct)))
-      .catch(console.error);
-  }, [productIds]);
+    let cancelled = false;
+    const ids = [...new Set(productIdKey.split(",").filter(Boolean))];
+
+    Promise.all(ids.map((id) => getProduct(id)))
+      .then((items) => {
+        if (!cancelled) {
+          setComparison({
+            productIdKey,
+            status: "success",
+            products: items.map(toProduct),
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setComparison({ productIdKey, status: "error" });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [productIdKey]);
+
+  if (comparison.productIdKey !== productIdKey || comparison.status === "loading") {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center" role="status">
+        <p className="text-muted">Cargando productos para comparar...</p>
+      </div>
+    );
+  }
+
+  if (comparison.status === "error") {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center" role="alert">
+        <p className="text-muted mb-4">
+          No fue posible obtener los productos. Comprueba la conexión con la API e inténtalo de nuevo.
+        </p>
+        <button
+          onClick={() => navigate({ id: "search-products", query: "" })}
+          style={{ background: "#E8001B", color: "#0A0A0A" }}
+          className="px-5 py-2 rounded-xl text-sm font-semibold"
+        >
+          Volver a productos
+        </button>
+      </div>
+    );
+  }
+
+  const selected = comparison.products;
 
   if (selected.length < 2) {
     return (
@@ -50,8 +103,14 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
     );
   }
 
-  const minPrices = selected.map((p) => getMinPrice(p));
-  const lowestPrice = Math.min(...minPrices);
+  const minPrices = selected.map((product) => {
+    const availablePrices = product.offers
+      .filter((offer) => offer.available)
+      .map((offer) => offer.price);
+    return availablePrices.length ? Math.min(...availablePrices) : null;
+  });
+  const availableMinPrices = minPrices.filter((price): price is number => price !== null);
+  const lowestPrice = availableMinPrices.length ? Math.min(...availableMinPrices) : null;
 
   const allSpecKeys = specRows.filter((key) => selected.some((p) => p.specs[key] !== undefined));
 
@@ -142,12 +201,16 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 >
                   <div
                     className={`price text-lg font-bold ${
-                      minPrices[i] === lowestPrice ? "text-prime" : "text-text"
+                      minPrices[i] !== null && minPrices[i] === lowestPrice
+                        ? "text-prime"
+                        : "text-text"
                     }`}
                   >
-                    {formatPrice(minPrices[i])}
+                    {minPrices[i] === null ? "Sin ofertas" : formatPrice(minPrices[i])}
                   </div>
-                  {minPrices[i] === lowestPrice && <Badge variant="best">Mejor precio</Badge>}
+                  {minPrices[i] !== null && minPrices[i] === lowestPrice && (
+                    <Badge variant="best">Mejor precio</Badge>
+                  )}
                 </td>
               ))}
             </tr>
