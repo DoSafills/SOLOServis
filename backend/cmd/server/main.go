@@ -29,7 +29,7 @@ func main() {
 
 	log.Println("PostgreSQL connection established")
 
-	router := apphttp.NewRouter(db)
+	router := apphttp.NewRouter(db, cfg.FrontendURL)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.Port,

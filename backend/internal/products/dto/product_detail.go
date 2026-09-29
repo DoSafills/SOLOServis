@@ -5,16 +5,24 @@ import (
 )
 
 type ProductDetail struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Brand       string         `json:"brand"`
-	Model       string         `json:"model"`
-	Category    string         `json:"category"`
-	Description string         `json:"description"`
-	Rating      float64        `json:"rating"`
-	ReviewCount int64          `json:"reviewCount"`
-	Images      []ProductImage `json:"images"`
-	Offers      []ProductOffer `json:"offers"`
+	ID                string            `json:"id"`
+	Name              string            `json:"name"`
+	Brand             string            `json:"brand"`
+	Model             string            `json:"model"`
+	Category          string            `json:"category"`
+	Description       string            `json:"description"`
+	Rating            float64           `json:"rating"`
+	ReviewCount       int64             `json:"reviewCount"`
+	Specs             map[string]string `json:"specs"`
+	Images            []ProductImage    `json:"images"`
+	Offers            []ProductOffer    `json:"offers"`
+	PriceHistory      []PricePoint      `json:"priceHistory"`
+	OfferPriceHistory []PricePoint      `json:"offerPriceHistory"`
+}
+
+type PricePoint struct {
+	Date  string `json:"date"`
+	Price string `json:"price"`
 }
 
 type ProductImage struct {
@@ -62,16 +70,19 @@ func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail 
 	}
 
 	return ProductDetail{
-		ID:          product.PublicID.String(),
-		Name:        product.Name,
-		Brand:       brand,
-		Model:       model,
-		Category:    product.CategoryName,
-		Description: description,
-		Rating:      rating,
-		ReviewCount: product.ReviewCount,
-		Images:      []ProductImage{},
-		Offers:      []ProductOffer{},
+		ID:                product.PublicID.String(),
+		Name:              product.Name,
+		Brand:             brand,
+		Model:             model,
+		Category:          product.CategoryName,
+		Description:       description,
+		Rating:            rating,
+		ReviewCount:       product.ReviewCount,
+		Specs:             make(map[string]string),
+		Images:            []ProductImage{},
+		Offers:            []ProductOffer{},
+		PriceHistory:      []PricePoint{},
+		OfferPriceHistory: []PricePoint{},
 	}
 }
 

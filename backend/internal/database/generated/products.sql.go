@@ -116,6 +116,46 @@ func (q *Queries) DeactivateProduct(ctx context.Context, id int32) (Product, err
 	return i, err
 }
 
+const deactivateProductByPublicID = `-- name: DeactivateProductByPublicID :one
+UPDATE product
+SET
+    active = false,
+    updated_at = now()
+WHERE public_id = $1
+  AND active = true
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at
+`
+
+func (q *Queries) DeactivateProductByPublicID(ctx context.Context, publicID pgtype.UUID) (Product, error) {
+	row := q.db.QueryRow(ctx, deactivateProductByPublicID, publicID)
+	var i Product
+	err := row.Scan(
+		&i.ID,
+		&i.PublicID,
+		&i.CategoryID,
+		&i.BrandID,
+		&i.Name,
+		&i.Model,
+		&i.Sku,
+		&i.Description,
+		&i.Active,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getProductByID = `-- name: GetProductByID :one
 SELECT
     id,
@@ -368,6 +408,80 @@ func (q *Queries) ListProductOffers(ctx context.Context, productID int32) ([]Lis
 	return items, nil
 }
 
+const listProductPriceHistory = `-- name: ListProductPriceHistory :many
+SELECT
+    pph.recorded_at,
+    pph.price,
+    pph.is_promotional
+FROM product_price_history pph
+JOIN product_offer po
+    ON po.id = pph.product_offer_id
+WHERE po.product_id = $1
+ORDER BY pph.recorded_at ASC, pph.id ASC
+`
+
+type ListProductPriceHistoryRow struct {
+	RecordedAt    pgtype.Timestamp `json:"recorded_at"`
+	Price         pgtype.Numeric   `json:"price"`
+	IsPromotional bool             `json:"is_promotional"`
+}
+
+func (q *Queries) ListProductPriceHistory(ctx context.Context, productID int32) ([]ListProductPriceHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listProductPriceHistory, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductPriceHistoryRow
+	for rows.Next() {
+		var i ListProductPriceHistoryRow
+		if err := rows.Scan(&i.RecordedAt, &i.Price, &i.IsPromotional); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProductSpecifications = `-- name: ListProductSpecifications :many
+SELECT
+    pcs.name,
+    psv.value
+FROM product_specification_value psv
+JOIN product_category_specification pcs
+    ON pcs.id = psv.specification_id
+WHERE psv.product_id = $1
+ORDER BY pcs.display_order ASC, pcs.id ASC
+`
+
+type ListProductSpecificationsRow struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+func (q *Queries) ListProductSpecifications(ctx context.Context, productID int32) ([]ListProductSpecificationsRow, error) {
+	rows, err := q.db.Query(ctx, listProductSpecifications, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductSpecificationsRow
+	for rows.Next() {
+		var i ListProductSpecificationsRow
+		if err := rows.Scan(&i.Name, &i.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProducts = `-- name: ListProducts :many
 SELECT
     p.id,
@@ -485,6 +599,69 @@ type UpdateProductParams struct {
 func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (Product, error) {
 	row := q.db.QueryRow(ctx, updateProduct,
 		arg.ID,
+		arg.CategoryID,
+		arg.BrandID,
+		arg.Name,
+		arg.Model,
+		arg.Sku,
+		arg.Description,
+	)
+	var i Product
+	err := row.Scan(
+		&i.ID,
+		&i.PublicID,
+		&i.CategoryID,
+		&i.BrandID,
+		&i.Name,
+		&i.Model,
+		&i.Sku,
+		&i.Description,
+		&i.Active,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateProductByPublicID = `-- name: UpdateProductByPublicID :one
+UPDATE product
+SET
+    category_id = $2,
+    brand_id = $3,
+    name = $4,
+    model = $5,
+    sku = $6,
+    description = $7,
+    updated_at = now()
+WHERE public_id = $1
+  AND active = true
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at
+`
+
+type UpdateProductByPublicIDParams struct {
+	PublicID    pgtype.UUID `json:"public_id"`
+	CategoryID  int32       `json:"category_id"`
+	BrandID     pgtype.Int4 `json:"brand_id"`
+	Name        string      `json:"name"`
+	Model       pgtype.Text `json:"model"`
+	Sku         pgtype.Text `json:"sku"`
+	Description pgtype.Text `json:"description"`
+}
+
+func (q *Queries) UpdateProductByPublicID(ctx context.Context, arg UpdateProductByPublicIDParams) (Product, error) {
+	row := q.db.QueryRow(ctx, updateProductByPublicID,
+		arg.PublicID,
 		arg.CategoryID,
 		arg.BrandID,
 		arg.Name,
