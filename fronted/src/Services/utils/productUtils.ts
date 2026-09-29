@@ -1,4 +1,4 @@
-import type { Product } from "../types";
+import type { Product } from "../../types";
 
 export const formatPrice = (price: number): string => `$${price.toLocaleString("es-CL")}`;
 
@@ -18,3 +18,4 @@ export const getMinOffer = (product: Product) => {
 
 export const getAvailableStoreCount = (product: Product): number =>
   product.offers.filter((offer) => offer.available).length;
+

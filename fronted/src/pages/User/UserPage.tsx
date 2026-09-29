@@ -1,6 +1,7 @@
-﻿import { useState } from "react";
-import type { Page } from "../../types";
-import { products, formatPrice, getMinPrice } from "../../data/mockData";
+﻿import { useEffect, useState } from "react";
+import type { Page, Product } from "../../types";
+import { getProducts } from "../../services/api/api";
+import { formatPrice, getMinPrice } from "../../services/utils/productUtils";
 import { Breadcrumb, Badge } from "../../components/common/ui";
 
 interface Props {
@@ -12,19 +13,18 @@ type Tab = "profile" | "favorites" | "history" | "watched" | "settings";
 
 export default function UserPage({ navigate, favorites }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("profile");
+  const [products, setProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    getProducts().then(setProducts).catch(console.error);
+  }, []);
+
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     {
       id: "profile",
       label: "Perfil",
       icon: (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
           <circle cx="12" cy="7" r="4" />
         </svg>
@@ -34,14 +34,7 @@ export default function UserPage({ navigate, favorites }: Props) {
       id: "favorites",
       label: "Favoritos",
       icon: (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
         </svg>
       ),
@@ -50,14 +43,7 @@ export default function UserPage({ navigate, favorites }: Props) {
       id: "history",
       label: "Historial",
       icon: (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="10" />
           <polyline points="12 6 12 12 16 14" />
         </svg>
@@ -67,14 +53,7 @@ export default function UserPage({ navigate, favorites }: Props) {
       id: "watched",
       label: "Observados",
       icon: (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
           <circle cx="12" cy="12" r="3" />
         </svg>
@@ -82,16 +61,9 @@ export default function UserPage({ navigate, favorites }: Props) {
     },
     {
       id: "settings",
-      label: "Configuraci├│n",
+      label: "Configuración",
       icon: (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
@@ -106,6 +78,7 @@ export default function UserPage({ navigate, favorites }: Props) {
     "Internet hogar 500 Mbps",
     "Samsung Galaxy S25",
   ];
+
   const watched = products.slice(0, 3);
 
   return (
@@ -118,9 +91,7 @@ export default function UserPage({ navigate, favorites }: Props) {
       />
 
       <div className="flex gap-6 flex-col lg:flex-row">
-        {/* Sidebar */}
         <aside className="lg:w-56 shrink-0">
-          {/* Avatar */}
           <div
             style={{ background: "#111111", border: "1px solid #2A2A2A" }}
             className="rounded-2xl p-5 mb-4 flex flex-col items-center gap-3"
@@ -134,14 +105,15 @@ export default function UserPage({ navigate, favorites }: Props) {
             >
               JG
             </div>
+
             <div className="text-center">
-              <div className="text-sm font-bold text-text">Juan Gonz├ílez</div>
+              <div className="text-sm font-bold text-text">Juan González</div>
               <div className="text-xs text-muted">juan@email.cl</div>
             </div>
+
             <Badge variant="best">Pro</Badge>
           </div>
 
-          {/* Nav */}
           <nav
             style={{ background: "#111111", border: "1px solid #2A2A2A" }}
             className="rounded-2xl p-2"
@@ -159,6 +131,7 @@ export default function UserPage({ navigate, favorites }: Props) {
               >
                 {tab.icon}
                 {tab.label}
+
                 {tab.id === "favorites" && favorites.size > 0 && (
                   <span className="ml-auto text-xs bg-prime text-bg font-bold rounded-full w-5 h-5 flex items-center justify-center">
                     {favorites.size}
@@ -169,20 +142,22 @@ export default function UserPage({ navigate, favorites }: Props) {
           </nav>
         </aside>
 
-        {/* Content */}
         <div className="flex-1 min-w-0">
           {activeTab === "profile" && (
             <div
               style={{ background: "#111111", border: "1px solid #2A2A2A" }}
               className="rounded-2xl p-6"
             >
-              <h2 className="text-lg font-bold text-text mb-6">Informaci├│n de perfil</h2>
+              <h2 className="text-lg font-bold text-text mb-6">
+                Información de perfil
+              </h2>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[
                   { label: "Nombre", value: "Juan", placeholder: "Tu nombre" },
                   {
                     label: "Apellido",
-                    value: "Gonz├ílez",
+                    value: "González",
                     placeholder: "Tu apellido",
                   },
                   {
@@ -191,7 +166,7 @@ export default function UserPage({ navigate, favorites }: Props) {
                     placeholder: "tu@email.cl",
                   },
                   {
-                    label: "Tel├®fono",
+                    label: "Teléfono",
                     value: "+56 9 1234 5678",
                     placeholder: "+56 9 xxxx xxxx",
                   },
@@ -200,6 +175,7 @@ export default function UserPage({ navigate, favorites }: Props) {
                     <label className="text-xs font-semibold text-muted-2 uppercase tracking-wide mb-2 block">
                       {field.label}
                     </label>
+
                     <input
                       defaultValue={field.value}
                       placeholder={field.placeholder}
@@ -212,6 +188,7 @@ export default function UserPage({ navigate, favorites }: Props) {
                   </div>
                 ))}
               </div>
+
               <button
                 style={{ background: "#E8001B", color: "#0A0A0A" }}
                 className="mt-6 px-5 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
@@ -226,12 +203,18 @@ export default function UserPage({ navigate, favorites }: Props) {
               style={{ background: "#111111", border: "1px solid #2A2A2A" }}
               className="rounded-2xl p-6"
             >
-              <h2 className="text-lg font-bold text-text mb-4">Mis favoritos</h2>
+              <h2 className="text-lg font-bold text-text mb-4">
+                Mis favoritos
+              </h2>
+
               {favorites.size === 0 ? (
-                <p className="text-sm text-muted">No tienes favoritos a├║n.</p>
+                <p className="text-sm text-muted">No tienes favoritos aún.</p>
               ) : (
-                <p className="text-sm text-muted">{favorites.size} items guardados.</p>
+                <p className="text-sm text-muted">
+                  {favorites.size} items guardados.
+                </p>
               )}
+
               <button
                 onClick={() => navigate({ id: "favorites" })}
                 style={{
@@ -241,7 +224,7 @@ export default function UserPage({ navigate, favorites }: Props) {
                 }}
                 className="mt-4 px-4 py-2 rounded-xl text-sm hover:border-prime hover:text-prime transition-all"
               >
-                Ver todos los favoritos ÔåÆ
+                Ver todos los favoritos →
               </button>
             </div>
           )}
@@ -251,11 +234,14 @@ export default function UserPage({ navigate, favorites }: Props) {
               style={{ background: "#111111", border: "1px solid #2A2A2A" }}
               className="rounded-2xl p-6"
             >
-              <h2 className="text-lg font-bold text-text mb-4">Historial de b├║squedas</h2>
+              <h2 className="text-lg font-bold text-text mb-4">
+                Historial de búsquedas
+              </h2>
+
               <div className="space-y-2">
-                {searchHistory.map((q, i) => (
+                {searchHistory.map((query, index) => (
                   <div
-                    key={i}
+                    key={index}
                     style={{ background: "#1A1A1A" }}
                     className="flex items-center justify-between px-4 py-3 rounded-xl"
                   >
@@ -271,13 +257,20 @@ export default function UserPage({ navigate, favorites }: Props) {
                         <circle cx="11" cy="11" r="8" />
                         <path d="m21 21-4.35-4.35" />
                       </svg>
-                      <span className="text-sm text-text">{q}</span>
+
+                      <span className="text-sm text-text">{query}</span>
                     </div>
+
                     <button
-                      onClick={() => navigate({ id: "search-products", query: q })}
+                      onClick={() =>
+                        navigate({
+                          id: "search-products",
+                          query,
+                        })
+                      }
                       className="text-xs text-prime hover:text-prime-dark transition-colors"
                     >
-                      Buscar ÔåÆ
+                      Buscar →
                     </button>
                   </div>
                 ))}
@@ -290,22 +283,40 @@ export default function UserPage({ navigate, favorites }: Props) {
               style={{ background: "#111111", border: "1px solid #2A2A2A" }}
               className="rounded-2xl p-6"
             >
-              <h2 className="text-lg font-bold text-text mb-4">Productos observados</h2>
+              <h2 className="text-lg font-bold text-text mb-4">
+                Productos observados
+              </h2>
+
               <div className="space-y-3">
-                {watched.map((p) => (
+                {watched.map((product) => (
                   <div
-                    key={p.id}
+                    key={product.id}
                     style={{ background: "#1A1A1A" }}
                     className="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-surface-3 transition-colors"
-                    onClick={() => navigate({ id: "product-detail", productId: p.id })}
+                    onClick={() =>
+                      navigate({
+                        id: "product-detail",
+                        productId: product.id,
+                      })
+                    }
                   >
-                    <img src={p.image} alt={p.name} className="w-14 h-10 rounded-lg object-cover" />
+                    <img
+                      src={product.image}
+                      alt={product.name}
+                      className="w-14 h-10 rounded-lg object-cover"
+                    />
+
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs text-prime">{p.brand}</div>
-                      <div className="text-sm font-semibold text-text truncate">{p.name}</div>
+                      <div className="text-xs text-prime">
+                        {product.brand}
+                      </div>
+                      <div className="text-sm font-semibold text-text truncate">
+                        {product.name}
+                      </div>
                     </div>
+
                     <div className="price text-sm font-bold text-prime shrink-0">
-                      {formatPrice(getMinPrice(p))}
+                      {formatPrice(getMinPrice(product))}
                     </div>
                   </div>
                 ))}
@@ -318,7 +329,10 @@ export default function UserPage({ navigate, favorites }: Props) {
               style={{ background: "#111111", border: "1px solid #2A2A2A" }}
               className="rounded-2xl p-6"
             >
-              <h2 className="text-lg font-bold text-text mb-6">Configuraci├│n</h2>
+              <h2 className="text-lg font-bold text-text mb-6">
+                Configuración
+              </h2>
+
               <div className="space-y-4">
                 {[
                   {
@@ -333,9 +347,9 @@ export default function UserPage({ navigate, favorites }: Props) {
                     label: "Resumen semanal",
                     desc: "Email con las mejores ofertas de la semana",
                   },
-                ].map((setting, i) => (
+                ].map((setting, index) => (
                   <div
-                    key={i}
+                    key={index}
                     style={{
                       background: "#1A1A1A",
                       border: "1px solid #2A2A2A",
@@ -343,17 +357,24 @@ export default function UserPage({ navigate, favorites }: Props) {
                     className="flex items-center justify-between p-4 rounded-xl"
                   >
                     <div>
-                      <div className="text-sm font-semibold text-text">{setting.label}</div>
-                      <div className="text-xs text-muted mt-0.5">{setting.desc}</div>
+                      <div className="text-sm font-semibold text-text">
+                        {setting.label}
+                      </div>
+                      <div className="text-xs text-muted mt-0.5">
+                        {setting.desc}
+                      </div>
                     </div>
+
                     <div
-                      style={{ background: i === 0 ? "#E8001B" : "#2A2A2A" }}
+                      style={{
+                        background: index === 0 ? "#E8001B" : "#2A2A2A",
+                      }}
                       className="w-10 h-5 rounded-full relative cursor-pointer transition-colors"
                     >
                       <div
                         style={{
                           background: "white",
-                          left: i === 0 ? "20px" : "2px",
+                          left: index === 0 ? "20px" : "2px",
                         }}
                         className="absolute top-0.5 w-4 h-4 rounded-full transition-all"
                       />

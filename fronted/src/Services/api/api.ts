@@ -1,4 +1,4 @@
-﻿import type { Product, Service, Store } from "../../types";
+import type { Product, Service, Store } from "../../types";
 import { getProducts as fetchProducts, toProduct } from "./products";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
@@ -13,8 +13,7 @@ async function fetchJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-// ==================== PRODUCTOS ====================
-
+//PRODUCTOS 
 export async function getProducts(): Promise<Product[]> {
   const products = await fetchProducts();
   return products.map(toProduct);
@@ -34,7 +33,7 @@ export async function getProductById(id: string): Promise<Product | null> {
   return toProduct(await response.json());
 }
 
-// ==================== SERVICIOS ====================
+//SERVICIOS 
 
 export async function getServices(params?: { category?: string }): Promise<Service[]> {
   const query = new URLSearchParams(
@@ -58,22 +57,10 @@ export async function getServiceById(id: string): Promise<Service | null> {
   return response.json() as Promise<Service>;
 }
 
-// ==================== TIENDAS ====================
+//TIENDAS 
 
 export async function getStores(): Promise<Store[]> {
   return fetchJson<Store[]>("/stores");
 }
 
-// ==================== HELPERS ====================
-
-export const formatPrice = (price: number): string => `$${price.toLocaleString("es-CL")}`;
-
-export const getMinPrice = (product: Product): number =>
-  Math.min(...product.offers.filter((offer) => offer.available).map((offer) => offer.price));
-
-export const getMinOffer = (product: Product) =>
-  product.offers.filter((offer) => offer.available).sort((a, b) => a.price - b.price)[0];
-
-export const getAvailableStoreCount = (product: Product): number =>
-  product.offers.filter((offer) => offer.available).length;
 

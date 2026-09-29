@@ -89,18 +89,18 @@ INSERT INTO service_type (name) VALUES
 ('consultorÃ­a');
 
 INSERT INTO service_category (service_type_id, parent_category_id, name, description) VALUES
-(2, NULL, 'Internet y TelefonÃ­a', 'Servicios de conectividad para el hogar');
+(2, NULL, 'Internet y Telefonía', 'Servicios de conectividad para el hogar');
 
 INSERT INTO service_category (service_type_id, parent_category_id, name, description) VALUES
-(2, 1, 'Internet Fibra Ã“ptica', 'Planes de internet por fibra');
+(2, 1, 'Internet Fibra Óptica', 'Planes de internet por fibra');
 
 INSERT INTO service_category_specification (category_id, name, data_type, unit, required, comparable, display_order) VALUES
 (2, 'Velocidad de bajada', 'number', 'Mbps', TRUE, TRUE, 1),
 (2, 'Velocidad de subida', 'number', 'Mbps', TRUE, TRUE, 2);
 
 INSERT INTO service (category_id, name, description, image_url) VALUES
-(2, 'Plan Fibra 400 Megas', 'Plan hogar de internet por fibra Ã³ptica simÃ©trica', 'https://cdn.example.com/services/1/main.jpg'),
-(2, 'Plan Fibra 600 Megas', 'Plan hogar de internet por fibra Ã³ptica simÃ©trica', 'https://cdn.example.com/services/2/main.jpg');
+(2, 'Plan Fibra 400 Megas', 'Plan hogar de internet por fibra óptica simétrica', 'https://cdn.example.com/services/1/main.jpg'),
+(2, 'Plan Fibra 600 Megas', 'Plan hogar de internet por fibra óptica simétrica', 'https://cdn.example.com/services/2/main.jpg');
 
 INSERT INTO service_specification_value (service_id, specification_id, value) VALUES
 (1, 1, '400'),
@@ -167,11 +167,11 @@ INSERT INTO search_query (user_id, raw_query, search_type) VALUES
 INSERT INTO search_query_filter (search_query_id, filter_name, filter_value) VALUES
 (1, 'category', 'Refrigeradores'),
 (1, 'max_price', '600000'),
-(2, 'category', 'Internet Fibra Ã“ptica');
+(2, 'category', 'Internet Fibra Óptica');
 
 INSERT INTO ai_query_process (search_query_id, intent, entity_type, structured_json, response_time_ms, success) VALUES
 (1, 'buscar_producto', 'product', '{"category": "Refrigeradores", "max_price": 600000}', 120, TRUE),
-(2, 'buscar_servicio', 'service', '{"category": "Internet Fibra Ã“ptica"}', 95, TRUE);
+(2, 'buscar_servicio', 'service', '{"category": "Internet Fibra Óptica"}', 95, TRUE);
 
 -- =====================================================================
 -- SCRAPING
@@ -192,6 +192,8 @@ INSERT INTO scrape_run (scraper_config_id, started_at, finished_at, records_foun
 INSERT INTO scraped_data (scrape_run_id, external_id, external_url, entity_type, raw_data) VALUES
 (1, 'FAL-12345', 'https://falabella.com/producto/12345', 'product', '{"name": "Refrigerador Samsung", "price": 549990}'),
 (2, 'MOV-PLAN-400', 'https://movistar.cl/planes/fibra-400', 'service', '{"name": "Plan Fibra 400", "price": 24990}');
+
+
 
 
 

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
 import { getProductById } from "../../services/api/products";
 import { formatPrice } from "../../services/utils/productUtils";
@@ -12,6 +12,7 @@ interface Props {
   isComparing: boolean;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string) => void;
+  onAddToCart: (product: Product) => void;
 }
 
 export default function ProductDetailPage({
@@ -21,6 +22,7 @@ export default function ProductDetailPage({
   isComparing,
   onToggleFavorite,
   onToggleCompare,
+  onAddToCart,
 }: Props) {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -124,7 +126,7 @@ export default function ProductDetailPage({
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-bold text-prime uppercase tracking-widest">
-                {product.brand} ï¿½ {product.category}
+                {product.brand} � {product.category}
               </span>
               <FavoriteButton active={isFavorite} onClick={() => onToggleFavorite(product.id)} />
             </div>
@@ -143,7 +145,7 @@ export default function ProductDetailPage({
             className="rounded-2xl p-4"
           >
             <h3 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
-              Caracterï¿½sticas principales
+              Caracter�sticas principales
             </h3>
 
             <div className="grid grid-cols-2 gap-2">
@@ -173,13 +175,13 @@ export default function ProductDetailPage({
                 </div>
 
                 <div className="text-xs text-muted mt-1">
-                  Mejor precio en {cheapestAvailable.storeName} ï¿½ Envï¿½o:
+                  Mejor precio en {cheapestAvailable.storeName} � Env�o:
                   {cheapestAvailable.shipping === 0 ? (
                     <span className="text-success">Gratis</span>
                   ) : cheapestAvailable.shipping ? (
                     formatPrice(cheapestAvailable.shipping)
                   ) : (
-                    "ï¿½"
+                    "�"
                   )}
                 </div>
               </div>
@@ -267,6 +269,16 @@ export default function ProductDetailPage({
           )}
 
           <div className="flex gap-3">
+            {cheapestAvailable && (
+              <button
+                onClick={() => onAddToCart(product)}
+                style={{ background: "#E8001B", color: "#0A0A0A" }}
+                className="flex-1 py-3 rounded-2xl text-sm font-semibold transition-opacity hover:opacity-90"
+              >
+                Agregar a la cesta
+              </button>
+            )}
+
             <button
               onClick={() => onToggleCompare(product.id)}
               style={
@@ -306,10 +318,10 @@ export default function ProductDetailPage({
                   Disponibilidad
                 </th>
                 <th className="text-center text-xs font-semibold text-muted-2 uppercase tracking-widest pb-3">
-                  Envï¿½o
+                  Env�o
                 </th>
                 <th className="text-right text-xs font-semibold text-muted-2 uppercase tracking-widest pb-3">
-                  Acciï¿½n
+                  Acci�n
                 </th>
               </tr>
             </thead>
@@ -359,7 +371,7 @@ export default function ProductDetailPage({
 
                   <td className="py-4 text-center text-sm text-muted">
                     {offer.shipping === null ? (
-                      "ï¿½"
+                      "�"
                     ) : offer.shipping === 0 ? (
                       <span className="text-success font-medium">Gratis</span>
                     ) : (
@@ -401,7 +413,7 @@ export default function ProductDetailPage({
         style={{ background: "#111111", border: "1px solid #2A2A2A" }}
         className="rounded-2xl p-6 mt-6"
       >
-        <h2 className="text-lg font-semibold text-text">Especificaciones tï¿½cnicas</h2>
+        <h2 className="text-lg font-semibold text-text">Especificaciones t�cnicas</h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-px" style={{ background: "#1A1A1A" }}>
           {Object.entries(product.specs).map(([k, v]) => (
@@ -419,5 +431,7 @@ export default function ProductDetailPage({
     </div>
   );
 }
+
+
 
 

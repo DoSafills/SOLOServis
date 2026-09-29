@@ -1,6 +1,7 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Page, Product } from "../types";
-import { getProductById, formatPrice, getMinPrice } from "../../services/api/api";
+import { getProductById } from "../../services/api/api";
+import { formatPrice, getMinPrice } from "../../services/utils/productUtils";
 import { Breadcrumb, Badge } from "../../components/common/ui";
 
 interface Props {
@@ -11,11 +12,11 @@ interface Props {
 const specRows = [
   "VRAM",
   "Arquitectura",
-  "N├║cleos CUDA",
+  "N+Â¦cleos CUDA",
   "Stream Processors",
   "Bus de memoria",
   "TDP",
-  "Garant├¡a",
+  "Garant+Â¡a",
   "Conectores",
   "Procesador",
   "RAM",
@@ -64,7 +65,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando productosÔÇª</p>
+        <p className="text-muted">Cargando productosÃ”Ã‡Âª</p>
       </div>
     );
   }
@@ -110,11 +111,11 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
         items={[
           { label: "Inicio", onClick: () => navigate({ id: "home" }) },
           { label: "Productos", onClick: () => navigate({ id: "search-products", query: "" }) },
-          { label: "Comparaci├│n" },
+          { label: "Comparaci+Â¦n" },
         ]}
       />
 
-      <h1 className="text-2xl font-bold text-text mb-2">Comparaci├│n de productos</h1>
+      <h1 className="text-2xl font-bold text-text mb-2">Comparaci+Â¦n de productos</h1>
       <p className="text-sm text-muted mb-8">Comparando {selected.length} productos</p>
 
       <div className="overflow-x-auto">
@@ -130,7 +131,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 }}
                 className="text-left text-xs font-semibold text-muted-2 uppercase tracking-widest p-4 w-40"
               >
-                Caracter├¡stica
+                Caracter+Â¡stica
               </th>
               {selected.map((p) => (
                 <th
@@ -172,7 +173,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 style={{ borderBottom: "1px solid #1A1A1A", borderRight: "1px solid #2A2A2A" }}
                 className="p-4 text-xs font-semibold text-muted-2 uppercase tracking-wide"
               >
-                Precio m├¡nimo
+                Precio m+Â¡nimo
               </td>
               {selected.map((p, i) => (
                 <td
@@ -196,7 +197,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 style={{ borderBottom: "1px solid #1A1A1A", borderRight: "1px solid #2A2A2A" }}
                 className="p-4 text-xs font-semibold text-muted-2 uppercase tracking-wide"
               >
-                Valoraci├│n
+                Valoraci+Â¦n
               </td>
               {selected.map((p) => {
                 const best = Math.max(...selected.map((s) => s.rating));
@@ -209,7 +210,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                     <span
                       className={`text-sm font-bold ${p.rating === best ? "text-warn" : "text-text"}`}
                     >
-                      Ôÿà {p.rating.toFixed(1)}
+                      Ã”Ã¿Ã  {p.rating.toFixed(1)}
                     </span>
                     <div className="text-xs text-muted">
                       ({p.reviewCount.toLocaleString("es-CL")})
@@ -235,7 +236,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                     className="p-4 text-center"
                   >
                     <span className="text-sm text-text">
-                      {p.specs[key] ?? <span className="text-muted">ÔÇö</span>}
+                      {p.specs[key] ?? <span className="text-muted">Ã”Ã‡Ã¶</span>}
                     </span>
                   </td>
                 ))}
@@ -268,5 +269,6 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
     </div>
   );
 }
+
 
 
