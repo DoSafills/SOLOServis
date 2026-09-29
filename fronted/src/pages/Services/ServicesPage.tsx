@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServices } from "../../services/api/api";
 import ServiceCard from "../../components/services/ServiceCard";

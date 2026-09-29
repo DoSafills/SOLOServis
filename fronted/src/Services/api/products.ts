@@ -1,4 +1,4 @@
-﻿import type { Product, PricePoint } from "../../types";
+import type { Product, PricePoint } from "../../types";
 
 interface ApiImage {
   url: string;
