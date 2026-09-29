@@ -4,15 +4,23 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 )
 
+type CreatedProduct struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	ImageURL string `json:"imageUrl"`
+}
+
 type ProductListItem struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Brand       string  `json:"brand"`
-	Model       string  `json:"model"`
-	Category    string  `json:"category"`
-	Description string  `json:"description"`
-	Rating      float64 `json:"rating"`
-	ReviewCount int64   `json:"reviewCount"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Brand       string         `json:"brand"`
+	Model       string         `json:"model"`
+	Category    string         `json:"category"`
+	Description string         `json:"description"`
+	Rating      float64        `json:"rating"`
+	ReviewCount int64          `json:"reviewCount"`
+	Images      []ProductImage `json:"images"`
+	Offers      []ProductOffer `json:"offers"`
 }
 
 func FromListProduct(row generated.ListProductsRow) ProductListItem {
@@ -48,5 +56,7 @@ func FromListProduct(row generated.ListProductsRow) ProductListItem {
 		Description: description,
 		Rating:      rating,
 		ReviewCount: row.ReviewCount,
+		Images:      []ProductImage{},
+		Offers:      []ProductOffer{},
 	}
 }

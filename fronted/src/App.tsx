@@ -1,22 +1,56 @@
 import { useState, useEffect } from "react";
-import type { Page } from "./types";
-import Header from "./components/Header";
-import Footer from "./components/Footer";
-import HomePage from "./pages/Navigation/HomePage";
-import SearchResultsPage from "./pages/Navigation/SearchResultsPage";
-import ProductDetailPage from "./pages/Navigation/ProductDetailPage";
-import ProductComparisonPage from "./pages/Navigation/ProductComparisonPage";
-import ServicesPage from "./pages/Services/ServicesPage";
-import ServiceDetailPage from "./pages/Services/ServiceDetailPage";
-import ServiceComparisonPage from "./pages/Services/ServiceComparisonPage";
-import StoresPage from "./pages/Navigation/StoresPage";
-import FavoritesPage from "./pages/User/FavoritesPage";
-import UserPage from "./pages/User/UserPage";
+import type { CartItem, Page, Product } from "./types";
+import Header from "./components/common/Header";
+import Footer from "./components/common/Footer";
+import HomePage from "./pages/home/HomePage";
+import SearchResultsPage from "./pages/search/SearchResultsPage";
+import ProductDetailPage from "./pages/products/ProductDetailPage";
+import ProductComparisonPage from "./pages/products/ProductComparisonPage";
+import ServicesPage from "./pages/services/ServicesPage";
+import ServiceDetailPage from "./pages/services/ServiceDetailPage";
+import ServiceComparisonPage from "./pages/services/ServiceComparisonPage";
+import StoresPage from "./pages/stores/StoresPage";
+import FavoritesPage from "./pages/user/FavoritesPage";
+import UserPage from "./pages/user/UserPage";
 
 export default function App() {
   const [page, setPage] = useState<Page>({ id: "home" });
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [compareList, setCompareList] = useState<Set<string>>(new Set());
+  const [cart, setCart] = useState<CartItem[]>([]);
+
+  const addToCart = (product: Product) => {
+    setCart((prev) => {
+      const existing = prev.find((item) => item.product.id === product.id);
+
+      if (existing) {
+        return prev.map((item) =>
+          item.product.id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item,
+        );
+      }
+
+      return [...prev, { product, quantity: 1 }];
+    });
+  };
+
+  const updateCartQuantity = (productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      setCart((prev) => prev.filter((item) => item.product.id !== productId));
+      return;
+    }
+
+    setCart((prev) =>
+      prev.map((item) =>
+        item.product.id === productId ? { ...item, quantity } : item,
+      ),
+    );
+  };
+
+  const removeFromCart = (productId: string) => {
+    setCart((prev) => prev.filter((item) => item.product.id !== productId));
+  };
 
   // Scroll to top on navigation
   useEffect(() => {
@@ -72,6 +106,7 @@ export default function App() {
             isComparing={compareList.has(page.productId)}
             onToggleFavorite={toggleFavorite}
             onToggleCompare={toggleCompare}
+            onAddToCart={addToCart}
           />
         );
       case "product-comparison":
@@ -189,3 +224,6 @@ export default function App() {
     </div>
   );
 }
+
+
+
