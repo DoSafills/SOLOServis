@@ -3,7 +3,24 @@ import type { Product } from "../types";
 import { getProducts, toProduct, type ApiProduct } from "../services/api/products";
 
 export type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
-export type ProductType = "cpus" | "graphics" | "notebooks" | "computers" | "smartphones";
+export type ProductType =
+  | "cpus"
+  | "graphics"
+  | "notebooks"
+  | "computers"
+  | "smartphones"
+  | "refrigeration"
+  | "laundry"
+  | "cooking"
+  | "climate"
+  | "smallAppliances";
+export type MacroCategory =
+  | "tecnologia"
+  | "computacion"
+  | "celulares"
+  | "electrodomesticos"
+  | "gaming"
+  | "hogar";
 
 interface AdvancedFilterDefinition {
   id: string;
@@ -35,6 +52,22 @@ export interface ProductTypeFilterView {
   onToggle: () => void;
 }
 
+export interface MacroCategoryFilterView {
+  category: MacroCategory;
+  label: string;
+  count: number;
+  selected: boolean;
+  onToggle: () => void;
+}
+
+export interface RatingFilterView {
+  min: number;
+  label: string;
+  count: number;
+  selected: boolean;
+  onToggle: () => void;
+}
+
 export interface BrandFilterView {
   brand: string;
   count: number;
@@ -44,6 +77,8 @@ export interface BrandFilterView {
 
 const PER_PAGE = 6;
 const PRICE_LIMIT = 40000000;
+const WEIGHT_LIMIT = 150; // kg; los electrodomésticos grandes superan los 50 kg
+const RATING_OPTIONS = [4, 3, 2];
 const PROCESSOR_KEY = /procesador|processor|cpu/i;
 const RAM_KEY = /ram|memoria/i;
 const STORAGE_KEY = /almacenamiento|storage|disco/i;
@@ -52,12 +87,34 @@ const DISPLAY_KEY = /pantalla|display|screen/i;
 const BATTERY_KEY = /batería|battery/i;
 const CAMERA_KEY = /cámara|camera/i;
 
+// Claves de specs para electrodomésticos
+const CAPACITY_KEY = /capacidad|capacity/i;
+const BTU_KEY = /btu|capacidad|capacity/i;
+const POWER_KEY = /potencia|watt|power|consumo/i;
+const ENERGY_EFFICIENCY_KEY = /eficiencia|clase energ|etiqueta energ|energy (class|efficiency|rating)/i;
+const APPLIANCE_TECH_KEY = /tecnolog|inverter|no ?frost|inducci|wi-?fi|smart|conectividad/i;
+const INSTALLATION_KEY = /instalaci|montaje|empotr/i;
+const HEIGHT_KEY = /^alto|altura|height/i;
+const WIDTH_KEY = /ancho|width/i;
+const DEPTH_KEY = /fondo|profundidad|depth/i;
+const COLOR_KEY = /color|acabado|finish/i;
+const WARRANTY_KEY = /garant[ií]a|warranty/i;
+const NOISE_KEY = /ruido|noise|decibel|\bdb\b/i;
+const ENERGY_SOURCE_KEY = /fuente|tipo de energ|combustible/i;
+const VOLTAGE_KEY = /voltaje|tensi[oó]n|voltage/i;
+const AVAILABILITY_KEY = /disponibilidad|stock|retiro|env[ií]o|availability/i;
+
 const PRODUCT_TYPE_LABELS: Record<ProductType, string> = {
   cpus: "CPUs",
   graphics: "Gráficas",
   notebooks: "Notebooks",
   computers: "Computadores",
   smartphones: "Smartphones",
+  refrigeration: "Refrigeración",
+  laundry: "Lavado",
+  cooking: "Cocina",
+  climate: "Climatización",
+  smallAppliances: "Pequeños electrodomésticos",
 };
 
 const PRODUCT_TYPE_TERMS: Record<ProductType, string[]> = {
@@ -66,7 +123,81 @@ const PRODUCT_TYPE_TERMS: Record<ProductType, string[]> = {
   notebooks: ["notebook", "laptop"],
   computers: ["computador", "computadora", "computadores", "desktop", "pc de escritorio", "all-in-one", "torre"],
   smartphones: ["smartphone", "celular", "teléfono", "telefono", "móvil", "movil"],
+  refrigeration: ["refrigerador", "refrigeradora", "refri", "nevera", "frigobar", "freezer", "congelador", "frigorífico", "frigorifico"],
+  laundry: ["lavadora", "secadora", "lavasecadora", "lavavajillas", "lavaplatos"],
+  cooking: ["horno", "microondas", "encimera", "cocina a gas", "cocina eléctrica", "cocina electrica", "cocina de inducción", "cocina de induccion", "campana", "extractor"],
+  climate: ["aire acondicionado", "climatizador", "calefactor", "estufa", "ventilador", "deshumidificador", "split", "purificador de aire"],
+  smallAppliances: ["licuadora", "cafetera", "batidora", "tostadora", "hervidor", "freidora", "aspiradora", "plancha", "sandwichera", "exprimidor", "procesadora", "multicooker", "robot de cocina"],
 };
+
+const MACRO_CATEGORY_DEFINITIONS: Array<{
+  id: MacroCategory;
+  label: string;
+  pattern: RegExp;
+}> = [
+  {
+    id: "tecnologia",
+    label: "Tecnología",
+    pattern:
+      /tecnolog[ií]a|technology|electr[oó]nic|electronic|digital|tablet|smart\s?watch|wearable|aud[ií]fono|headphone|monitor|router|impresora|c[aá]mara|proyector|celular|smartphone|notebook|laptop|computador|desktop|procesador|gr[aá]fica|gpu|consola|gaming|gamer|videojuego|playstation|xbox|nintendo/i,
+  },
+  {
+    id: "computacion",
+    label: "Computación",
+    pattern:
+      /computaci[oó]n|computador|computadora|desktop|notebook|laptop|pc\b|procesador|processor|cpu|tarjeta gr[aá]fica|gpu|motherboard|placa madre/i,
+  },
+  {
+    id: "celulares",
+    label: "Celulares",
+    pattern: /celular|smartphone|tel[eé]fono m[oó]vil|m[oó]vil|iphone|android/i,
+  },
+  {
+    id: "electrodomesticos",
+    label: "Electrodomésticos",
+    pattern:
+      /electrodom[eé]stic|refrigerador|\brefri\b|nevera|frigobar|lavadora|secadora|lavasecadora|microondas|horno|encimera|campana|aspiradora|cafetera|licuadora|batidora|tostadora|hervidor|freidora|plancha|lavavajillas|freezer|congelador|aire acondicionado|climatizador|calefactor|ventilador|deshumidificador/i,
+  },
+  {
+    id: "gaming",
+    label: "Gaming",
+    pattern: /gaming|gamer|consola|videojuego|playstation|xbox|nintendo|joystick|gamepad/i,
+  },
+  {
+    id: "hogar",
+    label: "Hogar",
+    pattern:
+      /hogar|home|mueble|decoraci[oó]n|decoraci|cocina|dormitorio|living|cama|silla|mesa|sof[aá]|l[aá]mpara|iluminaci[oó]n|textil|vajilla|menaje|jard[ií]n/i,
+  },
+];
+
+const MACRO_CATEGORY_PRODUCT_TYPES: Record<MacroCategory, ProductType[]> = {
+  tecnologia: ["cpus", "graphics", "notebooks", "computers", "smartphones"],
+  computacion: ["cpus", "graphics", "notebooks", "computers"],
+  celulares: ["smartphones"],
+  electrodomesticos: ["refrigeration", "laundry", "cooking", "climate", "smallAppliances"],
+  gaming: ["graphics"],
+  hogar: [],
+};
+
+// Filtros técnicos, físicos y de servicio compartidos por todos los electrodomésticos.
+// Solo cambia la definición de capacidad (litros, kg, BTU) según el tipo.
+const applianceFilters = (capacity: AdvancedFilterDefinition): AdvancedFilterDefinition[] => [
+  capacity,
+  { id: "power", title: "Potencia / consumo", keyPattern: POWER_KEY },
+  { id: "energy-efficiency", title: "Eficiencia energética", keyPattern: ENERGY_EFFICIENCY_KEY },
+  { id: "technology", title: "Tecnología", keyPattern: APPLIANCE_TECH_KEY },
+  { id: "installation", title: "Tipo de instalación", keyPattern: INSTALLATION_KEY },
+  { id: "height", title: "Alto", keyPattern: HEIGHT_KEY },
+  { id: "width", title: "Ancho", keyPattern: WIDTH_KEY },
+  { id: "depth", title: "Fondo", keyPattern: DEPTH_KEY },
+  { id: "color", title: "Color y acabado", keyPattern: COLOR_KEY },
+  { id: "warranty", title: "Garantía", keyPattern: WARRANTY_KEY },
+  { id: "noise", title: "Nivel de ruido (dB)", keyPattern: NOISE_KEY },
+  { id: "energy-source", title: "Fuente de energía", keyPattern: ENERGY_SOURCE_KEY },
+  { id: "voltage", title: "Voltaje", keyPattern: VOLTAGE_KEY },
+  { id: "availability", title: "Disponibilidad", keyPattern: AVAILABILITY_KEY },
+];
 
 const ADVANCED_FILTERS: Record<ProductType, AdvancedFilterDefinition[]> = {
   cpus: [
@@ -103,6 +234,11 @@ const ADVANCED_FILTERS: Record<ProductType, AdvancedFilterDefinition[]> = {
     { id: "camera", title: "Cámara", keyPattern: CAMERA_KEY },
     { id: "battery", title: "Batería", keyPattern: BATTERY_KEY },
   ],
+  refrigeration: applianceFilters({ id: "capacity", title: "Capacidad (litros)", keyPattern: CAPACITY_KEY }),
+  laundry: applianceFilters({ id: "capacity", title: "Capacidad (kg)", keyPattern: CAPACITY_KEY }),
+  cooking: applianceFilters({ id: "capacity", title: "Capacidad (litros)", keyPattern: CAPACITY_KEY }),
+  climate: applianceFilters({ id: "capacity", title: "Capacidad (BTU)", keyPattern: BTU_KEY }),
+  smallAppliances: applianceFilters({ id: "capacity", title: "Capacidad", keyPattern: CAPACITY_KEY }),
 };
 
 export function useSearchResults(query: string) {
@@ -112,10 +248,12 @@ export function useSearchResults(query: string) {
   const [priceMax, setPriceMax] = useState(PRICE_LIMIT);
   const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
   const [weightMin, setWeightMin] = useState(0);
-  const [weightMax, setWeightMax] = useState(50);
+  const [weightMax, setWeightMax] = useState(WEIGHT_LIMIT);
+  const [minRating, setMinRating] = useState(0);
+  const [onlyDiscount, setOnlyDiscount] = useState(false);
   const [selectedTypes, setSelectedTypes] = useState<Set<ProductType>>(new Set());
+  const [selectedMacroCategories, setSelectedMacroCategories] = useState<Set<MacroCategory>>(new Set());
   const [selectedAdvancedFilters, setSelectedAdvancedFilters] = useState<Record<string, Set<string>>>({});
-  const [availableOnly, setAvailableOnly] = useState(false);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -143,6 +281,9 @@ export function useSearchResults(query: string) {
       (lowest, offer) => Math.min(lowest, offer.price),
       product.offers.length ? Number.POSITIVE_INFINITY : 0,
     );
+  const hasDiscount = (product: Product) =>
+    product.offerPrice != null &&
+    (product.offers.length === 0 || product.offers.some((offer) => offer.price > product.offerPrice!));
   const getSpecValue = (product: Product, keyPattern: RegExp) =>
     Object.entries(product.specs).find(([key]) => keyPattern.test(key))?.[1]?.trim();
   const getProductWeight = (product: Product) => {
@@ -153,9 +294,15 @@ export function useSearchResults(query: string) {
     return weight[2]?.toLowerCase() === "g" ? value / 1000 : value;
   };
   const getProductSearchText = (product: Product) =>
-    [product.name, product.category, product.subcategory, ...product.tags].join(" ").toLowerCase();
+    [product.name, product.category, product.subcategory, product.description, ...product.tags]
+      .join(" ")
+      .toLowerCase();
   const matchesProductType = (product: Product, type: ProductType) =>
     PRODUCT_TYPE_TERMS[type].some((term) => getProductSearchText(product).includes(term));
+  const matchesMacroCategory = (product: Product, category: MacroCategory) => {
+    const definition = MACRO_CATEGORY_DEFINITIONS.find((item) => item.id === category);
+    return definition?.pattern.test(getProductSearchText(product)) ?? false;
+  };
   const getAdvancedOptions = (type: ProductType, keyPattern: RegExp) =>
     [...new Set(
       products
@@ -165,6 +312,9 @@ export function useSearchResults(query: string) {
     )].sort();
 
   const brands = [...new Set(products.map((product) => product.brand))].sort();
+  const visibleProductTypes = [...new Set(
+    [...selectedMacroCategories].flatMap((category) => MACRO_CATEGORY_PRODUCT_TYPES[category]),
+  )];
 
   const matchesProduct = (product: Product, excludedFacet?: string) => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -175,15 +325,22 @@ export function useSearchResults(query: string) {
       !product.category.toLowerCase().includes(normalizedQuery)
     ) return false;
     if (excludedFacet !== "brand" && selectedBrands.size && !selectedBrands.has(product.brand)) return false;
+    if (
+      excludedFacet !== "macro-category" &&
+      selectedMacroCategories.size > 0 &&
+      ![...selectedMacroCategories].some((category) => matchesMacroCategory(product, category))
+    ) return false;
+
+    if (excludedFacet !== "rating" && minRating > 0 && product.rating < minRating) return false;
+    if (excludedFacet !== "discount" && onlyDiscount && !hasDiscount(product)) return false;
 
     const price = getProductPrice(product);
     if (excludedFacet !== "price" && (price < priceMin || price > priceMax)) return false;
-    if (excludedFacet !== "availability" && availableOnly && !product.offers.some((offer) => offer.available)) return false;
 
     const weight = getProductWeight(product);
     if (
       excludedFacet !== "weight" &&
-      (weight === null ? weightMin > 0 || weightMax < 50 : weight < weightMin || weight > weightMax)
+      (weight === null ? weightMin > 0 || weightMax < WEIGHT_LIMIT : weight < weightMin || weight > weightMax)
     ) return false;
 
     if (excludedFacet !== "type" && selectedTypes.size > 0) {
@@ -209,22 +366,37 @@ export function useSearchResults(query: string) {
     ]),
   ) as Record<ProductType, number>;
   const productTypeCount = countForFacet("type", (product) =>
-    (Object.keys(PRODUCT_TYPE_LABELS) as ProductType[]).some((type) => matchesProductType(product, type)),
+    visibleProductTypes.some((type) => matchesProductType(product, type)),
   );
+  const macroCategoryCount = countForFacet("macro-category", (product) =>
+    MACRO_CATEGORY_DEFINITIONS.some(({ id }) => matchesMacroCategory(product, id)),
+  );
+  const macroCategoryFilters: MacroCategoryFilterView[] = MACRO_CATEGORY_DEFINITIONS.map(({ id, label }) => ({
+    category: id,
+    label,
+    count: countForFacet("macro-category", (product) => matchesMacroCategory(product, id)),
+    selected: selectedMacroCategories.has(id),
+    onToggle: () => toggleMacroCategory(id),
+  }));
   const brandCounts = new Map(
     brands.map((brand) => [brand, countForFacet("brand", (product) => product.brand === brand)]),
   );
   const brandCount = countForFacet("brand");
   const priceCount = countForFacet("price");
   const weightCount = countForFacet("weight");
-  const availableCount = countForFacet("availability", (product) =>
-    product.offers.some((offer) => offer.available),
-  );
+  const discountCount = countForFacet("discount", hasDiscount);
+  const ratingFilters: RatingFilterView[] = RATING_OPTIONS.map((min) => ({
+    min,
+    label: `${min} estrellas o más`,
+    count: countForFacet("rating", (product) => product.rating >= min),
+    selected: minRating === min,
+    onToggle: () => toggleRating(min),
+  }));
   const selectedFilterCount =
-    selectedBrands.size + selectedTypes.size +
+    Number(minRating > 0) + Number(onlyDiscount) + selectedBrands.size + selectedTypes.size + selectedMacroCategories.size +
     Object.values(selectedAdvancedFilters).reduce((total, values) => total + values.size, 0) +
-    Number(availableOnly) + Number(priceMin > 0 || priceMax < PRICE_LIMIT) +
-    Number(weightMin > 0 || weightMax < 50);
+    Number(priceMin > 0 || priceMax < PRICE_LIMIT) +
+    Number(weightMin > 0 || weightMax < WEIGHT_LIMIT);
 
   const filtered = products.filter((product) => matchesProduct(product));
   filtered.sort((a, b) => {
@@ -244,6 +416,14 @@ export function useSearchResults(query: string) {
     });
     setPage(1);
   };
+  const toggleRating = (min: number) => {
+    setMinRating((previous) => (previous === min ? 0 : min));
+    setPage(1);
+  };
+  const toggleDiscount = () => {
+    setOnlyDiscount((previous) => !previous);
+    setPage(1);
+  };
   const toggleProductType = (type: ProductType) => {
     if (selectedTypes.has(type)) {
       setSelectedAdvancedFilters((previous) =>
@@ -256,6 +436,25 @@ export function useSearchResults(query: string) {
       else next.add(type);
       return next;
     });
+    setPage(1);
+  };
+  const toggleMacroCategory = (category: MacroCategory) => {
+    const nextCategories = new Set(selectedMacroCategories);
+    if (nextCategories.has(category)) nextCategories.delete(category);
+    else nextCategories.add(category);
+
+    const availableTypes = new Set(
+      [...nextCategories].flatMap((selectedCategory) => MACRO_CATEGORY_PRODUCT_TYPES[selectedCategory]),
+    );
+    const nextTypes = new Set([...selectedTypes].filter((type) => availableTypes.has(type)));
+
+    setSelectedMacroCategories(nextCategories);
+    setSelectedTypes(nextTypes);
+    setSelectedAdvancedFilters((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([key]) => nextTypes.has(key.split(":")[0] as ProductType)),
+      ),
+    );
     setPage(1);
   };
   const toggleAdvancedFilter = (type: ProductType, id: string, value: string) => {
@@ -284,12 +483,9 @@ export function useSearchResults(query: string) {
     setWeightMax(Math.max(value, weightMin));
     setPage(1);
   };
-  const updateAvailability = (value: boolean) => {
-    setAvailableOnly(value);
-    setPage(1);
-  };
-
-  const advancedFilterGroups: AdvancedFilterGroupView[] = [...selectedTypes].map((type) => ({
+  const advancedFilterGroups: AdvancedFilterGroupView[] = [...selectedTypes]
+    .filter((type) => visibleProductTypes.includes(type))
+    .map((type) => ({
     type,
     title: PRODUCT_TYPE_LABELS[type],
     filters: ADVANCED_FILTERS[type].map((definition) => {
@@ -309,23 +505,25 @@ export function useSearchResults(query: string) {
         onToggle: (option: string) => toggleAdvancedFilter(type, definition.id, option),
       };
     }),
-  }));
+    }));
 
   const clearFilters = () => {
     setSelectedBrands(new Set());
     setSelectedTypes(new Set());
+    setSelectedMacroCategories(new Set());
     setSelectedAdvancedFilters({});
+    setMinRating(0);
+    setOnlyDiscount(false);
     setPriceMin(0);
     setPriceMax(PRICE_LIMIT);
     setWeightMin(0);
-    setWeightMax(50);
-    setAvailableOnly(false);
+    setWeightMax(WEIGHT_LIMIT);
     setPage(1);
   };
   const shouldShowClearFilters =
-    selectedBrands.size > 0 || selectedTypes.size > 0 ||
+    minRating > 0 || onlyDiscount || selectedBrands.size > 0 || selectedTypes.size > 0 || selectedMacroCategories.size > 0 ||
     Object.values(selectedAdvancedFilters).some((values) => values.size > 0) ||
-    priceMin > 0 || priceMax < PRICE_LIMIT || weightMin > 0 || weightMax < 50 || availableOnly;
+    priceMin > 0 || priceMax < PRICE_LIMIT || weightMin > 0 || weightMax < WEIGHT_LIMIT;
 
   const brandFilters: BrandFilterView[] = brands.map((brand) => ({
     brand,
@@ -333,7 +531,7 @@ export function useSearchResults(query: string) {
     selected: selectedBrands.has(brand),
     onToggle: () => toggleBrand(brand),
   }));
-  const typeFilters: ProductTypeFilterView[] = (Object.keys(PRODUCT_TYPE_LABELS) as ProductType[]).map((type) => ({
+  const typeFilters: ProductTypeFilterView[] = visibleProductTypes.map((type) => ({
     type,
     label: PRODUCT_TYPE_LABELS[type],
     count: typeCounts[type],
@@ -353,14 +551,19 @@ export function useSearchResults(query: string) {
     weightMin,
     weightMax,
     weightCount,
+    weightLimit: WEIGHT_LIMIT,
+    minRating,
+    ratingFilters,
+    onlyDiscount,
+    discountCount,
+    toggleDiscount,
     updateWeightMin,
     updateWeightMax,
-    availableOnly,
-    availableCount,
-    updateAvailability,
     selectedFilterCount,
     productTypeCount,
     typeFilters,
+    macroCategoryCount,
+    macroCategoryFilters,
     advancedFilterGroups,
     brandCount,
     brandFilters,

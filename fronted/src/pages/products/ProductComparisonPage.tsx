@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Page, Product } from "../types";
+import type { Page, Product } from "../../types";
 import { getProductById } from "../../services/api/api";
 import { formatPrice, getMinPrice } from "../../services/utils/productUtils";
 import { Breadcrumb, Badge } from "../../components/common/ui";

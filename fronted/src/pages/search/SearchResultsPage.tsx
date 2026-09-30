@@ -1,6 +1,6 @@
 ﻿import { useState, type ReactNode } from "react";
 import type { Page } from "../../types";
-import { useSearchResults, type SortOption, type ProductType } from "../../hooks/useSearchResults";
+import { useSearchResults, type SortOption } from "../../hooks/useSearchResults";
 import ProductCard from "../../components/products/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
 
@@ -60,8 +60,10 @@ function SearchableAdvancedFilter({
   selectedValues,
   getOptionCount,
   onToggle,
+  defaultOpen = true,
 }: {
   title: string;
+  defaultOpen?: boolean;
   count: number;
   options: string[];
   selectedValues: Set<string>;
@@ -74,7 +76,7 @@ function SearchableAdvancedFilter({
   );
 
   return (
-    <CollapsibleFilterSection title={`${title} (${count})`} defaultOpen>
+    <CollapsibleFilterSection title={`${title} (${count})`} defaultOpen={defaultOpen}>
       <div className="space-y-2">
         <input
           type="search"
@@ -137,14 +139,19 @@ export default function SearchResultsPage({
     weightMin,
     weightMax,
     weightCount,
+    weightLimit,
+    ratingFilters,
+    minRating,
+    onlyDiscount,
+    discountCount,
+    toggleDiscount,
     updateWeightMin,
     updateWeightMax,
-    availableOnly,
-    availableCount,
-    updateAvailability,
     selectedFilterCount,
     productTypeCount,
     typeFilters,
+    macroCategoryCount,
+    macroCategoryFilters,
     advancedFilterGroups,
     brandCount,
     brandFilters,
@@ -188,6 +195,43 @@ export default function SearchResultsPage({
         </div>
       </CollapsibleFilterSection>
 
+      <CollapsibleFilterSection title="Ofertas y valoración">
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={onlyDiscount}
+              onChange={toggleDiscount}
+              className="accent-prime"
+            />
+            <span className="flex flex-1 items-center justify-between text-sm text-muted-2">
+              Con descuento
+              <span className="text-xs">{discountCount}</span>
+            </span>
+          </label>
+          {ratingFilters.map((ratingFilter) => (
+            <label key={ratingFilter.min} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={ratingFilter.selected}
+                onChange={ratingFilter.onToggle}
+                aria-label={ratingFilter.label}
+                className="accent-prime"
+              />
+              <span className="flex flex-1 items-center justify-between text-sm text-muted-2">
+                <span>
+                  <span aria-hidden="true" className="text-prime">
+                    {"★".repeat(ratingFilter.min)}
+                  </span>{" "}
+                  y más
+                </span>
+                <span className="text-xs">{ratingFilter.count}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </CollapsibleFilterSection>
+
       <CollapsibleFilterSection title={`Peso (kg) (${weightCount})`}>
         <div className="space-y-3">
           <label className="block text-xs text-muted-2">
@@ -195,7 +239,7 @@ export default function SearchResultsPage({
             <input
               type="range"
               min="0"
-              max="50"
+              max={weightLimit}
               step="0.5"
               value={weightMin}
               onChange={(event) => updateWeightMin(Number(event.target.value))}
@@ -207,7 +251,7 @@ export default function SearchResultsPage({
             <input
               type="range"
               min="0"
-              max="50"
+              max={weightLimit}
               step="0.5"
               value={weightMax}
               onChange={(event) => updateWeightMax(Number(event.target.value))}
@@ -217,25 +261,28 @@ export default function SearchResultsPage({
         </div>
       </CollapsibleFilterSection>
 
-      <CollapsibleFilterSection title={`General (${availableCount})`} defaultOpen>
-        <div className="space-y-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={availableOnly}
-              onChange={(event) => updateAvailability(event.target.checked)}
-              className="accent-prime"
-            />
-            <span className="flex flex-1 items-center justify-between text-sm text-muted-2">
-              Solo disponibles
-              <span className="text-xs">{availableCount}</span>
-            </span>
-          </label>
+      <CollapsibleFilterSection title={`Categoría de productos (${macroCategoryCount})`} defaultOpen>
+        <div className="space-y-2">
+          {macroCategoryFilters.map((categoryFilter) => (
+            <label key={categoryFilter.category} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={categoryFilter.selected}
+                onChange={categoryFilter.onToggle}
+                className="accent-prime"
+              />
+              <span className="flex flex-1 items-center justify-between text-sm text-muted-2">
+                {categoryFilter.label}
+                <span className="text-xs">{categoryFilter.count}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </CollapsibleFilterSection>
 
+      {typeFilters.length > 0 && (
+        <CollapsibleFilterSection title={`Tipo de producto (${productTypeCount})`}>
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-2">
-              Tipo de producto ({productTypeCount})
-            </p>
             {typeFilters.map((typeFilter) => (
               <label key={typeFilter.type} className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -251,8 +298,8 @@ export default function SearchResultsPage({
               </label>
             ))}
           </div>
-        </div>
-      </CollapsibleFilterSection>
+        </CollapsibleFilterSection>
+      )}
 
       {advancedFilterGroups.map((group) => (
         <CollapsibleFilterSection
@@ -261,9 +308,15 @@ export default function SearchResultsPage({
           defaultOpen
         >
           <div className="space-y-4">
-            {group.filters.map((filter) => (
+            {group.filters
+              .filter(
+                (filter) =>
+                  group.filters.length <= 6 || filter.options.length > 0 || filter.selectedValues.size > 0,
+              )
+              .map((filter) => (
               <SearchableAdvancedFilter
                 key={filter.id}
+                defaultOpen={group.filters.length <= 6}
                 title={filter.title}
                 count={filter.count}
                 options={filter.options}
