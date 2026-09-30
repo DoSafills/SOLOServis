@@ -1,6 +1,6 @@
-﻿import { useEffect, useState } from "react";
-import type { Page, Product } from "../../types";
-import { getProducts, toProduct } from "../../services/api/products";
+﻿import { useState, type ReactNode } from "react";
+import type { Page } from "../../types";
+import { useSearchResults, type SortOption, type ProductType } from "../../hooks/useSearchResults";
 import ProductCard from "../../components/products/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
 
@@ -13,7 +13,106 @@ interface Props {
   onToggleCompare: (id: string) => void;
 }
 
-type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
+function CollapsibleFilterSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <section className="border-b border-[#2A2A2A] pb-4 last:border-b-0 last:pb-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="w-full flex items-center justify-between text-left text-xs font-semibold text-muted-2 uppercase tracking-widest"
+      >
+        <span>{title}</span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          style={{
+            transition: "transform 0.15s ease",
+            transform: open ? "rotate(180deg)" : "none",
+          }}
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open && <div className="mt-3">{children}</div>}
+    </section>
+  );
+}
+
+function SearchableAdvancedFilter({
+  title,
+  count,
+  options,
+  selectedValues,
+  getOptionCount,
+  onToggle,
+}: {
+  title: string;
+  count: number;
+  options: string[];
+  selectedValues: Set<string>;
+  getOptionCount: (option: string) => number;
+  onToggle: (option: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const visibleOptions = options.filter((option) =>
+    option.toLowerCase().includes(search.trim().toLowerCase()),
+  );
+
+  return (
+    <CollapsibleFilterSection title={`${title} (${count})`} defaultOpen>
+      <div className="space-y-2">
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={`Buscar ${title.toLowerCase()}...`}
+          aria-label={`Buscar ${title.toLowerCase()}`}
+          disabled={options.length === 0}
+          className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-text placeholder:text-muted-2 focus:border-prime focus:outline-none disabled:opacity-50"
+        />
+        {visibleOptions.length === 0 ? (
+          <p className="text-xs text-muted-2">
+            {options.length === 0
+              ? "No hay especificaciones disponibles para esta categoría."
+              : "No hay coincidencias."}
+          </p>
+        ) : (
+          <div className="max-h-40 space-y-2 overflow-y-auto">
+            {visibleOptions.map((option) => (
+              <label key={option} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedValues.has(option)}
+                  onChange={() => onToggle(option)}
+                  className="accent-prime"
+                />
+                <span className="flex flex-1 items-center justify-between gap-2 break-words text-sm text-muted-2">
+                  <span>{option}</span>
+                  <span className="shrink-0 text-xs">{getOptionCount(option)}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+    </CollapsibleFilterSection>
+  );
+}
 
 export default function SearchResultsPage({
   query,
@@ -23,132 +122,183 @@ export default function SearchResultsPage({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
-  const [sort, setSort] = useState<SortOption>("relevance");
-  const [priceMin, setPriceMin] = useState("");
-  const [priceMax, setPriceMax] = useState("");
-  const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
-  const [availableOnly, setAvailableOnly] = useState(false);
+  const [filterPanelExpanded, setFilterPanelExpanded] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [page, setPage] = useState(1);
-  const PER_PAGE = 6;
-  const [products, setProducts] = useState<Product[]>([]);
 
-  useEffect(() => {
-    getProducts()
-      .then((result) => setProducts(result.map(toProduct)))
-      .catch(console.error);
-  }, []);
-
-  const brands = [...new Set(products.map((p) => p.brand))];
-
-  let filtered = products.filter((p) => {
-    if (
-      query &&
-      !p.name.toLowerCase().includes(query.toLowerCase()) &&
-      !p.brand.toLowerCase().includes(query.toLowerCase()) &&
-      !p.category.toLowerCase().includes(query.toLowerCase())
-    ) {
-      return false;
-    }
-
-    if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
-      return false;
-    }
-
-    return true;
-  });
-
-  filtered = [...filtered].sort((a, b) => {
-    if (sort === "rating") return b.rating - a.rating;
-    return 0;
-  });
-
-  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
-
-  const toggleBrand = (brand: string) => {
-    setSelectedBrands((prev) => {
-      const next = new Set(prev);
-
-      if (next.has(brand)) {
-        next.delete(brand);
-      } else {
-        next.add(brand);
-      }
-
-      return next;
-    });
-
-    setPage(1);
-  };
+  const {
+    sort,
+    setSort,
+    priceMin,
+    priceMax,
+    priceCount,
+    priceLimit,
+    updatePriceMin,
+    updatePriceMax,
+    weightMin,
+    weightMax,
+    weightCount,
+    updateWeightMin,
+    updateWeightMax,
+    availableOnly,
+    availableCount,
+    updateAvailability,
+    selectedFilterCount,
+    productTypeCount,
+    typeFilters,
+    advancedFilterGroups,
+    brandCount,
+    brandFilters,
+    shouldShowClearFilters,
+    clearFilters,
+    filtered,
+    paginated,
+    page,
+    setPage,
+    perPage,
+  } = useSearchResults(query);
 
   const renderFilters = () => (
-    <div className="space-y-6">
-      {/* Category */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
-          Disponibilidad
-        </h4>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={availableOnly}
-            onChange={(e) => setAvailableOnly(e.target.checked)}
-            className="accent-prime"
-          />
-          <span className="text-sm text-muted-2">Solo disponibles</span>
-        </label>
-      </div>
-
-      {/* Price */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
-          Precio (CLP)
-        </h4>
-        <div className="flex gap-2">
-          <input
-            value={priceMin}
-            onChange={(e) => setPriceMin(e.target.value)}
-            placeholder="Mín"
-            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
-            className="w-full px-3 py-2 rounded-xl text-xs text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
-          />
-          <input
-            value={priceMax}
-            onChange={(e) => setPriceMax(e.target.value)}
-            placeholder="Máx"
-            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
-            className="w-full px-3 py-2 rounded-xl text-xs text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
-          />
+    <div className="space-y-4">
+      <CollapsibleFilterSection title={`Precio (CLP) (${priceCount})`}>
+        <div className="space-y-3">
+          <label className="block text-xs text-muted-2">
+            Desde ${priceMin.toLocaleString("es-CL")}
+            <input
+              type="range"
+              min="0"
+              max={priceLimit}
+              step="10000"
+              value={priceMin}
+              onChange={(event) => updatePriceMin(Number(event.target.value))}
+              className="w-full accent-prime"
+            />
+          </label>
+          <label className="block text-xs text-muted-2">
+            Hasta ${priceMax.toLocaleString("es-CL")}
+            <input
+              type="range"
+              min="0"
+              max={priceLimit}
+              step="10000"
+              value={priceMax}
+              onChange={(event) => updatePriceMax(Number(event.target.value))}
+              className="w-full accent-prime"
+            />
+          </label>
         </div>
-      </div>
+      </CollapsibleFilterSection>
 
-      {/* Brands */}
-      <div>
-        <h4 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">Marca</h4>
+      <CollapsibleFilterSection title={`Peso (kg) (${weightCount})`}>
+        <div className="space-y-3">
+          <label className="block text-xs text-muted-2">
+            Desde {weightMin.toLocaleString("es-CL")} kg
+            <input
+              type="range"
+              min="0"
+              max="50"
+              step="0.5"
+              value={weightMin}
+              onChange={(event) => updateWeightMin(Number(event.target.value))}
+              className="w-full accent-prime"
+            />
+          </label>
+          <label className="block text-xs text-muted-2">
+            Hasta {weightMax.toLocaleString("es-CL")} kg
+            <input
+              type="range"
+              min="0"
+              max="50"
+              step="0.5"
+              value={weightMax}
+              onChange={(event) => updateWeightMax(Number(event.target.value))}
+              className="w-full accent-prime"
+            />
+          </label>
+        </div>
+      </CollapsibleFilterSection>
+
+      <CollapsibleFilterSection title={`General (${availableCount})`} defaultOpen>
+        <div className="space-y-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={availableOnly}
+              onChange={(event) => updateAvailability(event.target.checked)}
+              className="accent-prime"
+            />
+            <span className="flex flex-1 items-center justify-between text-sm text-muted-2">
+              Solo disponibles
+              <span className="text-xs">{availableCount}</span>
+            </span>
+          </label>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-2">
+              Tipo de producto ({productTypeCount})
+            </p>
+            {typeFilters.map((typeFilter) => (
+              <label key={typeFilter.type} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={typeFilter.selected}
+                  onChange={typeFilter.onToggle}
+                  className="accent-prime"
+                />
+                <span className="flex flex-1 items-center justify-between text-sm text-muted-2">
+                  {typeFilter.label}
+                  <span className="text-xs">{typeFilter.count}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </CollapsibleFilterSection>
+
+      {advancedFilterGroups.map((group) => (
+        <CollapsibleFilterSection
+          key={group.type}
+          title={`${group.title}: filtros avanzados`}
+          defaultOpen
+        >
+          <div className="space-y-4">
+            {group.filters.map((filter) => (
+              <SearchableAdvancedFilter
+                key={filter.id}
+                title={filter.title}
+                count={filter.count}
+                options={filter.options}
+                selectedValues={filter.selectedValues}
+                getOptionCount={filter.getOptionCount}
+                onToggle={filter.onToggle}
+              />
+            ))}
+          </div>
+        </CollapsibleFilterSection>
+      ))}
+
+      <CollapsibleFilterSection title={`Marca (${brandCount})`}>
         <div className="space-y-2">
-          {brands.map((brand) => (
-            <label key={brand} className="flex items-center gap-2 cursor-pointer">
+          {brandFilters.map((brandFilter) => (
+            <label key={brandFilter.brand} className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
-                checked={selectedBrands.has(brand)}
-                onChange={() => toggleBrand(brand)}
+                checked={brandFilter.selected}
+                onChange={brandFilter.onToggle}
                 className="accent-prime"
               />
-              <span className="text-sm text-muted-2">{brand}</span>
+              <span className="flex flex-1 items-center justify-between text-sm text-muted-2">
+                {brandFilter.brand}
+                <span className="text-xs">{brandFilter.count}</span>
+              </span>
             </label>
           ))}
         </div>
-      </div>
+      </CollapsibleFilterSection>
 
-      {/* Clear */}
-      {(selectedBrands.size > 0 || priceMin || priceMax || availableOnly) && (
+      {shouldShowClearFilters && (
         <button
-          onClick={() => {
-            setSelectedBrands(new Set());
-            setPriceMin("");
-            setPriceMax("");
-            setAvailableOnly(false);
-          }}
+          type="button"
+          onClick={clearFilters}
           className="text-xs text-prime hover:text-prime-dark transition-colors"
         >
           Limpiar filtros
@@ -176,8 +326,8 @@ export default function SearchResultsPage({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Mobile filter button */}
           <button
+            type="button"
             onClick={() => setFiltersOpen(true)}
             style={{ background: "#111111", border: "1px solid #2A2A2A" }}
             className="lg:hidden flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-muted-2 hover:border-prime hover:text-prime transition-all"
@@ -201,12 +351,14 @@ export default function SearchResultsPage({
               <line x1="16" y1="16" x2="16" y2="12" />
             </svg>
             Filtros
+            <span className="rounded-full bg-[#2A2A2A] px-2 py-0.5 text-xs text-muted-2">
+              {selectedFilterCount}
+            </span>
           </button>
 
-          {/* Sort */}
           <select
             value={sort}
-            onChange={(e) => setSort(e.target.value as SortOption)}
+            onChange={(event) => setSort(event.target.value as SortOption)}
             style={{
               background: "#111111",
               border: "1px solid #2A2A2A",
@@ -220,9 +372,9 @@ export default function SearchResultsPage({
             <option value="rating">Mejor valoración</option>
           </select>
 
-          {/* Compare button */}
           {compareList.size >= 2 && (
             <button
+              type="button"
               onClick={() =>
                 navigate({
                   id: "product-comparison",
@@ -239,16 +391,40 @@ export default function SearchResultsPage({
       </div>
 
       <div className="flex gap-6">
-        {/* Sidebar filters (desktop) */}
         <aside
           style={{ background: "#111111", border: "1px solid #2A2A2A" }}
           className="hidden lg:block w-56 shrink-0 rounded-2xl p-5 self-start sticky top-24"
         >
-          <h3 className="text-sm font-semibold text-text mb-5">Filtros</h3>
-          {renderFilters()}
+          <button
+            type="button"
+            aria-expanded={filterPanelExpanded}
+            onClick={() => setFilterPanelExpanded((current) => !current)}
+            className="w-full flex items-center justify-between text-left text-sm font-semibold text-text"
+          >
+            <span className="flex items-center gap-2">
+              Filtros
+              <span className="rounded-full bg-[#2A2A2A] px-2 py-0.5 text-xs text-muted-2">
+                {selectedFilterCount}
+              </span>
+            </span>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              style={{
+                transition: "transform 0.15s ease",
+                transform: filterPanelExpanded ? "rotate(180deg)" : "none",
+              }}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+          {filterPanelExpanded && <div className="mt-5">{renderFilters()}</div>}
         </aside>
 
-        {/* Mobile filter modal */}
         {filtersOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <div
@@ -260,8 +436,35 @@ export default function SearchResultsPage({
               className="absolute right-0 top-0 bottom-0 w-72 p-6 overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-sm font-semibold text-text">Filtros</h3>
                 <button
+                  type="button"
+                  aria-expanded={filterPanelExpanded}
+                  onClick={() => setFilterPanelExpanded((current) => !current)}
+                  className="flex items-center gap-2 text-sm font-semibold text-text"
+                >
+                  <span className="flex items-center gap-2">
+                    Filtros
+                    <span className="rounded-full bg-[#2A2A2A] px-2 py-0.5 text-xs text-muted-2">
+                      {selectedFilterCount}
+                    </span>
+                  </span>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    style={{
+                      transition: "transform 0.15s ease",
+                      transform: filterPanelExpanded ? "rotate(180deg)" : "none",
+                    }}
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setFiltersOpen(false)}
                   className="text-muted hover:text-text transition-colors"
                 >
@@ -278,12 +481,11 @@ export default function SearchResultsPage({
                   </svg>
                 </button>
               </div>
-              {renderFilters()}
+              {filterPanelExpanded && renderFilters()}
             </div>
           </div>
         )}
 
-        {/* Results */}
         <div className="flex-1 min-w-0">
           {paginated.length === 0 ? (
             <EmptyState
@@ -297,13 +499,13 @@ export default function SearchResultsPage({
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                {paginated.map((p) => (
+                {paginated.map((product) => (
                   <ProductCard
-                    key={p.id}
-                    product={p}
+                    key={product.id}
+                    product={product}
                     navigate={navigate}
-                    isFavorite={favorites.has(p.id)}
-                    isComparing={compareList.has(p.id)}
+                    isFavorite={favorites.has(product.id)}
+                    isComparing={compareList.has(product.id)}
                     onToggleFavorite={onToggleFavorite}
                     onToggleCompare={onToggleCompare}
                   />
@@ -312,7 +514,7 @@ export default function SearchResultsPage({
               <Pagination
                 page={page}
                 total={filtered.length}
-                perPage={PER_PAGE}
+                perPage={perPage}
                 onChange={setPage}
               />
             </>
@@ -322,4 +524,3 @@ export default function SearchResultsPage({
     </div>
   );
 }
-
