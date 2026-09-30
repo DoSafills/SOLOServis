@@ -7,16 +7,22 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Repository struct {
+// Repository is the persistence port of the stores module.
+type Repository interface {
+	// List returns the active stores, ordered by id.
+	List(ctx context.Context) ([]generated.ListStoresRow, error)
+}
+
+// repository is the PostgreSQL implementation of Repository.
+type repository struct {
 	queries *generated.Queries
 }
 
-func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{
-		queries: generated.New(db),
-	}
+// NewRepository returns a Repository backed by the given connection pool.
+func NewRepository(db *pgxpool.Pool) Repository {
+	return &repository{queries: generated.New(db)}
 }
 
-func (r *Repository) List(ctx context.Context) ([]generated.ListStoresRow, error) {
+func (r *repository) List(ctx context.Context) ([]generated.ListStoresRow, error) {
 	return r.queries.ListStores(ctx)
 }

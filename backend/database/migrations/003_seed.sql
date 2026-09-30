@@ -1,4 +1,4 @@
-﻿-- =====================================================================
+-- =====================================================================
 -- SOLOServis - Datos de prueba
 -- Se insertan datos mÃ­nimos y coherentes para validar relaciones,
 -- claves forÃ¡neas y restricciones definidas en 001_schema.sql

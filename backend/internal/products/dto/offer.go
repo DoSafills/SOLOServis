@@ -2,31 +2,20 @@ package dto
 
 import (
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
+	"github.com/DoSafills/SOLOServis/backend/internal/money"
 )
 
-func FromProductOffer(offer generated.ListProductOffersRow) ProductOffer {
-	price := ""
-	if offer.Price.Valid {
-		value, err := offer.Price.MarshalJSON()
-		if err == nil {
-			price = string(value)
-		}
+// FromProductOffer maps an offer row. Monetary values keep the exact decimal
+// digits stored in NUMERIC(12,2) and are emitted as JSON numbers.
+func FromProductOffer(offer generated.ListProductOffersByProductIDsRow) ProductOffer {
+	var listPrice *money.Money
+	if value := money.FromNumeric(offer.ListPrice); value.Valid() {
+		listPrice = &value
 	}
 
-	listPrice := ""
-	if offer.ListPrice.Valid {
-		value, err := offer.ListPrice.MarshalJSON()
-		if err == nil {
-			listPrice = string(value)
-		}
-	}
-
-	shippingCost := ""
-	if offer.ShippingCost.Valid {
-		value, err := offer.ShippingCost.MarshalJSON()
-		if err == nil {
-			shippingCost = string(value)
-		}
+	var shippingCost *money.Money
+	if value := money.FromNumeric(offer.ShippingCost); value.Valid() {
+		shippingCost = &value
 	}
 
 	var stock *int32
@@ -35,7 +24,7 @@ func FromProductOffer(offer generated.ListProductOffersRow) ProductOffer {
 		stock = &value
 	}
 
-	productURL := ""
+	var productURL string
 	if offer.ProductUrl.Valid {
 		productURL = offer.ProductUrl.String
 	}
@@ -43,7 +32,7 @@ func FromProductOffer(offer generated.ListProductOffersRow) ProductOffer {
 	return ProductOffer{
 		StoreID:      offer.StoreID,
 		StoreName:    offer.StoreName,
-		Price:        price,
+		Price:        money.FromNumeric(offer.Price),
 		ListPrice:    listPrice,
 		Currency:     offer.Currency,
 		ShippingCost: shippingCost,

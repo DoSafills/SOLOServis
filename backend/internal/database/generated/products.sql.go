@@ -334,6 +334,49 @@ func (q *Queries) ListProductImages(ctx context.Context, productID int32) ([]Pro
 	return items, nil
 }
 
+const listProductImagesByProductIDs = `-- name: ListProductImagesByProductIDs :many
+SELECT
+    pi.id,
+    pi.product_id,
+    pi.image_url,
+    pi.alt_text,
+    pi.sort_order,
+    pi.active
+FROM product_image pi
+WHERE pi.product_id = ANY($1::integer[])
+  AND pi.active = true
+ORDER BY pi.product_id ASC, pi.sort_order ASC, pi.id ASC
+`
+
+// Carga las imágenes de varios productos en una sola consulta para evitar el
+// patrón N+1 al listar productos.
+func (q *Queries) ListProductImagesByProductIDs(ctx context.Context, productIds []int32) ([]ProductImage, error) {
+	rows, err := q.db.Query(ctx, listProductImagesByProductIDs, productIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProductImage
+	for rows.Next() {
+		var i ProductImage
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProductID,
+			&i.ImageUrl,
+			&i.AltText,
+			&i.SortOrder,
+			&i.Active,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProductOffers = `-- name: ListProductOffers :many
 SELECT
     po.id,
@@ -382,6 +425,82 @@ func (q *Queries) ListProductOffers(ctx context.Context, productID int32) ([]Lis
 	var items []ListProductOffersRow
 	for rows.Next() {
 		var i ListProductOffersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProductID,
+			&i.StoreID,
+			&i.StoreName,
+			&i.Price,
+			&i.ListPrice,
+			&i.Currency,
+			&i.ShippingCost,
+			&i.ShippingFree,
+			&i.Available,
+			&i.Stock,
+			&i.Condition,
+			&i.ProductUrl,
+			&i.LastUpdated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProductOffersByProductIDs = `-- name: ListProductOffersByProductIDs :many
+SELECT
+    po.id,
+    po.product_id,
+    po.store_id,
+    s.name AS store_name,
+    po.price,
+    po.list_price,
+    po.currency,
+    po.shipping_cost,
+    po.shipping_free,
+    po.available,
+    po.stock,
+    po.condition,
+    po.product_url,
+    po.last_updated
+FROM product_offer po
+JOIN store s ON s.id = po.store_id
+WHERE po.product_id = ANY($1::integer[])
+ORDER BY po.product_id ASC, po.price ASC, po.id ASC
+`
+
+type ListProductOffersByProductIDsRow struct {
+	ID           int32            `json:"id"`
+	ProductID    int32            `json:"product_id"`
+	StoreID      int32            `json:"store_id"`
+	StoreName    string           `json:"store_name"`
+	Price        pgtype.Numeric   `json:"price"`
+	ListPrice    pgtype.Numeric   `json:"list_price"`
+	Currency     string           `json:"currency"`
+	ShippingCost pgtype.Numeric   `json:"shipping_cost"`
+	ShippingFree bool             `json:"shipping_free"`
+	Available    bool             `json:"available"`
+	Stock        pgtype.Int4      `json:"stock"`
+	Condition    string           `json:"condition"`
+	ProductUrl   pgtype.Text      `json:"product_url"`
+	LastUpdated  pgtype.Timestamp `json:"last_updated"`
+}
+
+// Carga las ofertas de varios productos en una sola consulta. El orden por
+// precio se mantiene dentro de cada producto.
+func (q *Queries) ListProductOffersByProductIDs(ctx context.Context, productIds []int32) ([]ListProductOffersByProductIDsRow, error) {
+	rows, err := q.db.Query(ctx, listProductOffersByProductIDs, productIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductOffersByProductIDsRow
+	for rows.Next() {
+		var i ListProductOffersByProductIDsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProductID,
@@ -534,6 +653,120 @@ func (q *Queries) ListProducts(ctx context.Context) ([]ListProductsRow, error) {
 	var items []ListProductsRow
 	for rows.Next() {
 		var i ListProductsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.CategoryID,
+			&i.BrandID,
+			&i.Name,
+			&i.Model,
+			&i.Sku,
+			&i.Description,
+			&i.Active,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.BrandName,
+			&i.CategoryName,
+			&i.Rating,
+			&i.ReviewCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProductsFiltered = `-- name: ListProductsFiltered :many
+WITH filters AS (
+    SELECT
+        COALESCE($3::text, '')   AS search,
+        COALESCE($4::text, '') AS category,
+        COALESCE($5::text, '')    AS brand
+)
+SELECT
+    p.id,
+    p.public_id,
+    p.category_id,
+    p.brand_id,
+    p.name,
+    p.model,
+    p.sku,
+    p.description,
+    p.active,
+    p.created_at,
+    p.updated_at,
+    b.name AS brand_name,
+    pc.name AS category_name,
+    COALESCE(prs.derived_average_rating, 0) AS rating,
+    COALESCE(prs.derived_review_count, 0) AS review_count
+FROM product p
+CROSS JOIN filters f
+LEFT JOIN brand b ON b.id = p.brand_id
+JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
+WHERE p.active = true
+  AND (
+        f.search = ''
+     OR p.name ILIKE '%' || f.search || '%'
+     OR p.model ILIKE '%' || f.search || '%'
+     OR p.sku ILIKE '%' || f.search || '%'
+  )
+  AND (f.category = '' OR pc.name ILIKE '%' || f.category || '%')
+  AND (f.brand = '' OR b.name ILIKE '%' || f.brand || '%')
+ORDER BY p.id
+LIMIT $2::integer
+OFFSET $1::integer
+`
+
+type ListProductsFilteredParams struct {
+	RowOffset pgtype.Int4 `json:"row_offset"`
+	RowLimit  pgtype.Int4 `json:"row_limit"`
+	Search    pgtype.Text `json:"search"`
+	Category  pgtype.Text `json:"category"`
+	Brand     pgtype.Text `json:"brand"`
+}
+
+type ListProductsFilteredRow struct {
+	ID           int32            `json:"id"`
+	PublicID     pgtype.UUID      `json:"public_id"`
+	CategoryID   int32            `json:"category_id"`
+	BrandID      pgtype.Int4      `json:"brand_id"`
+	Name         string           `json:"name"`
+	Model        pgtype.Text      `json:"model"`
+	Sku          pgtype.Text      `json:"sku"`
+	Description  pgtype.Text      `json:"description"`
+	Active       bool             `json:"active"`
+	CreatedAt    pgtype.Timestamp `json:"created_at"`
+	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
+	BrandName    pgtype.Text      `json:"brand_name"`
+	CategoryName string           `json:"category_name"`
+	Rating       pgtype.Numeric   `json:"rating"`
+	ReviewCount  int64            `json:"review_count"`
+}
+
+// Devuelve los productos activos que coinciden con los filtros opcionales.
+// Cada parámetro opcional se declara una sola vez para que sqlc genere un
+// único parámetro por filtro. Un parámetro NULL no restringe el resultado, de
+// modo que omitir `limit` conserva el comportamiento de devolver todo.
+func (q *Queries) ListProductsFiltered(ctx context.Context, arg ListProductsFilteredParams) ([]ListProductsFilteredRow, error) {
+	rows, err := q.db.Query(ctx, listProductsFiltered,
+		arg.RowOffset,
+		arg.RowLimit,
+		arg.Search,
+		arg.Category,
+		arg.Brand,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductsFilteredRow
+	for rows.Next() {
+		var i ListProductsFilteredRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.PublicID,
