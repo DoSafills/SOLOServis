@@ -1,32 +1,48 @@
 package stores
 
 import (
-	"encoding/json"
+	"context"
 	"net/http"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/apierror"
 	"github.com/DoSafills/SOLOServis/backend/internal/stores/dto"
+	"github.com/danielgtaylor/huma/v2"
 )
 
+// resourceName is used in error messages.
+const resourceName = "store"
+
+// Handler exposes the stores endpoints over HTTP.
 type Handler struct {
-	repository *Repository
+	repository Repository
 }
 
-func NewHandler(repository *Repository) *Handler {
+// NewHandler builds a Handler backed by the given repository.
+func NewHandler(repository Repository) *Handler {
 	return &Handler{repository: repository}
 }
 
-func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.repository.List(r.Context())
+type listOutput struct {
+	Body []dto.Store
+}
+
+// Register attaches the stores operation to the API.
+func (h *Handler) Register(api huma.API, basePath string) {
+	huma.Register(api, huma.Operation{
+		OperationID: "list-stores",
+		Method:      http.MethodGet,
+		Path:        basePath,
+		Summary:     "List stores",
+		Description: "Returns every active store together with its rating and the number of products it offers.",
+		Tags:        []string{"Stores"},
+	}, h.list)
+}
+
+func (h *Handler) list(ctx context.Context, _ *struct{}) (*listOutput, error) {
+	rows, err := h.repository.List(ctx)
 	if err != nil {
-		http.Error(w, "failed to list stores", http.StatusInternalServerError)
-		return
+		return nil, apierror.FromRepository(err, resourceName, "stores.List")
 	}
 
-	result := make([]dto.Store, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, dto.FromStore(row))
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(result)
+	return &listOutput{Body: dto.ListStores(rows)}, nil
 }

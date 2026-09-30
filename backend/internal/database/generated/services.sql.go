@@ -150,6 +150,84 @@ func (q *Queries) ListServiceOffers(ctx context.Context, serviceID int32) ([]Lis
 	return items, nil
 }
 
+const listServiceOffersByServiceIDs = `-- name: ListServiceOffersByServiceIDs :many
+SELECT
+    so.id,
+    so.service_id,
+    so.provider_id,
+    p.name AS provider_name,
+    so.price,
+    so.currency,
+    so.billing_period,
+    so.installation_cost,
+    so.contract_period,
+    so.available,
+    so.coverage_summary,
+    so.additional_costs_summary,
+    so.service_url,
+    so.last_updated
+FROM service_offer so
+JOIN provider p
+    ON p.id = so.provider_id
+WHERE so.service_id = ANY($1::integer[])
+  AND p.active = true
+ORDER BY so.service_id ASC, so.price ASC, so.id ASC
+`
+
+type ListServiceOffersByServiceIDsRow struct {
+	ID                     int32            `json:"id"`
+	ServiceID              int32            `json:"service_id"`
+	ProviderID             int32            `json:"provider_id"`
+	ProviderName           string           `json:"provider_name"`
+	Price                  pgtype.Numeric   `json:"price"`
+	Currency               string           `json:"currency"`
+	BillingPeriod          pgtype.Text      `json:"billing_period"`
+	InstallationCost       pgtype.Numeric   `json:"installation_cost"`
+	ContractPeriod         pgtype.Text      `json:"contract_period"`
+	Available              bool             `json:"available"`
+	CoverageSummary        pgtype.Text      `json:"coverage_summary"`
+	AdditionalCostsSummary pgtype.Text      `json:"additional_costs_summary"`
+	ServiceUrl             pgtype.Text      `json:"service_url"`
+	LastUpdated            pgtype.Timestamp `json:"last_updated"`
+}
+
+// Carga las ofertas de varios servicios en una sola consulta para evitar el
+// patrón N+1 al listar servicios.
+func (q *Queries) ListServiceOffersByServiceIDs(ctx context.Context, serviceIds []int32) ([]ListServiceOffersByServiceIDsRow, error) {
+	rows, err := q.db.Query(ctx, listServiceOffersByServiceIDs, serviceIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListServiceOffersByServiceIDsRow
+	for rows.Next() {
+		var i ListServiceOffersByServiceIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ServiceID,
+			&i.ProviderID,
+			&i.ProviderName,
+			&i.Price,
+			&i.Currency,
+			&i.BillingPeriod,
+			&i.InstallationCost,
+			&i.ContractPeriod,
+			&i.Available,
+			&i.CoverageSummary,
+			&i.AdditionalCostsSummary,
+			&i.ServiceUrl,
+			&i.LastUpdated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listServicePriceHistory = `-- name: ListServicePriceHistory :many
 SELECT
     sph.service_offer_id,
@@ -195,6 +273,54 @@ func (q *Queries) ListServicePriceHistory(ctx context.Context, serviceID int32) 
 	return items, nil
 }
 
+const listServicePriceHistoryByServiceIDs = `-- name: ListServicePriceHistoryByServiceIDs :many
+SELECT
+    so.service_id,
+    sph.service_offer_id,
+    sph.price,
+    sph.is_promotional,
+    sph.recorded_at
+FROM service_price_history sph
+JOIN service_offer so
+    ON so.id = sph.service_offer_id
+WHERE so.service_id = ANY($1::integer[])
+ORDER BY so.service_id ASC, sph.recorded_at ASC, sph.id ASC
+`
+
+type ListServicePriceHistoryByServiceIDsRow struct {
+	ServiceID      int32            `json:"service_id"`
+	ServiceOfferID int32            `json:"service_offer_id"`
+	Price          pgtype.Numeric   `json:"price"`
+	IsPromotional  bool             `json:"is_promotional"`
+	RecordedAt     pgtype.Timestamp `json:"recorded_at"`
+}
+
+func (q *Queries) ListServicePriceHistoryByServiceIDs(ctx context.Context, serviceIds []int32) ([]ListServicePriceHistoryByServiceIDsRow, error) {
+	rows, err := q.db.Query(ctx, listServicePriceHistoryByServiceIDs, serviceIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListServicePriceHistoryByServiceIDsRow
+	for rows.Next() {
+		var i ListServicePriceHistoryByServiceIDsRow
+		if err := rows.Scan(
+			&i.ServiceID,
+			&i.ServiceOfferID,
+			&i.Price,
+			&i.IsPromotional,
+			&i.RecordedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listServiceSpecifications = `-- name: ListServiceSpecifications :many
 SELECT
     scs.name,
@@ -221,6 +347,44 @@ func (q *Queries) ListServiceSpecifications(ctx context.Context, serviceID int32
 	for rows.Next() {
 		var i ListServiceSpecificationsRow
 		if err := rows.Scan(&i.Name, &i.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listServiceSpecificationsByServiceIDs = `-- name: ListServiceSpecificationsByServiceIDs :many
+SELECT
+    ssv.service_id,
+    scs.name,
+    ssv.value
+FROM service_specification_value ssv
+JOIN service_category_specification scs
+    ON scs.id = ssv.specification_id
+WHERE ssv.service_id = ANY($1::integer[])
+ORDER BY ssv.service_id ASC, scs.display_order ASC, scs.id ASC
+`
+
+type ListServiceSpecificationsByServiceIDsRow struct {
+	ServiceID int32  `json:"service_id"`
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+}
+
+func (q *Queries) ListServiceSpecificationsByServiceIDs(ctx context.Context, serviceIds []int32) ([]ListServiceSpecificationsByServiceIDsRow, error) {
+	rows, err := q.db.Query(ctx, listServiceSpecificationsByServiceIDs, serviceIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListServiceSpecificationsByServiceIDsRow
+	for rows.Next() {
+		var i ListServiceSpecificationsByServiceIDsRow
+		if err := rows.Scan(&i.ServiceID, &i.Name, &i.Value); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
