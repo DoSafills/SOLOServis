@@ -12,12 +12,24 @@ import ServiceComparisonPage from "./pages/services/ServiceComparisonPage";
 import StoresPage from "./pages/stores/StoresPage";
 import FavoritesPage from "./pages/user/FavoritesPage";
 import UserPage from "./pages/user/UserPage";
+import CartPage from "./pages/cart/CartPage";
 
 export default function App() {
   const [page, setPage] = useState<Page>({ id: "home" });
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [compareList, setCompareList] = useState<Set<string>>(new Set());
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    try {
+      const savedCart = localStorage.getItem("soloservis-cart");
+      return savedCart ? (JSON.parse(savedCart) as CartItem[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("soloservis-cart", JSON.stringify(cart));
+  }, [cart]);
 
   const addToCart = (product: Product) => {
     setCart((prev) => {
@@ -155,6 +167,15 @@ export default function App() {
             onToggleFavorite={toggleFavorite}
           />
         );
+      case "cart":
+        return (
+          <CartPage
+            cart={cart}
+            navigate={navigate}
+            onUpdateQuantity={updateCartQuantity}
+            onRemove={removeFromCart}
+          />
+        );
       case "user":
         return <UserPage navigate={navigate} favorites={favorites} />;
       default:
@@ -164,7 +185,12 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <Header navigate={navigate} currentPage={page} favCount={favorites.size} />
+      <Header
+        navigate={navigate}
+        currentPage={page}
+        favCount={favorites.size}
+        cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
+      />
 
       {/* Compare bar */}
       {compareList.size > 0 && (

@@ -5,9 +5,10 @@ interface Props {
   navigate: (page: Page) => void;
   currentPage: Page;
   favCount: number;
+  cartCount: number;
 }
 
-export default function Header({ navigate, favCount }: Props) {
+export default function Header({ navigate, favCount, cartCount }: Props) {
   const [query, setQuery] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -53,7 +54,7 @@ export default function Header({ navigate, favCount }: Props) {
               </svg>
             </div>
             <span className="font-bold text-lg tracking-tight text-text hidden sm:block">
-              compare<span className="text-prime">ya</span>
+              solo<span className="text-prime">servis</span>
             </span>
           </button>
 
@@ -124,6 +125,32 @@ export default function Header({ navigate, favCount }: Props) {
               {favCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-prime text-bg text-[10px] font-bold rounded-full flex items-center justify-center">
                   {favCount}
+                </span>
+              )}
+            </button>
+
+            {/* Cart */}
+            <button
+              onClick={() => navigate({ id: "cart" })}
+              className="relative p-2 rounded-lg text-muted-2 hover:text-prime hover:bg-prime-muted transition-all duration-200"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="9" cy="19" r="1" />
+                <circle cx="18" cy="19" r="1" />
+                <path d="M2 3h3l2.5 10.5a1 1 0 0 0 1 .8H18a1 1 0 0 0 1-.8L21 7H6" />
+              </svg>
+              {cartCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-prime text-bg text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {cartCount}
                 </span>
               )}
             </button>
