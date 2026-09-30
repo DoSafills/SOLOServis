@@ -60,6 +60,7 @@ func NewRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	storeHandler := stores.NewHandler(storeRepository)
 
 	r.Get("/stores", storeHandler.List)
+	r.Get("/stores/{id}", storeHandler.GetByID)
 
 	return r
 }
@@ -75,7 +76,7 @@ func healthHandler(w http.ResponseWriter, db *pgxpool.Pool) {
 		_ = json.NewEncoder(w).Encode(HealthResponse{
 			Status:   "error",
 			Service:  "soloservis-api",
-			Database: "unavailable",
+			Database: "disconnected",
 		})
 		return
 	}

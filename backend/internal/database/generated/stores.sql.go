@@ -11,6 +11,253 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getStoreByID = `-- name: GetStoreByID :one
+SELECT
+    s.id,
+    s.name,
+    s.website_url,
+    s.logo_url,
+    s.rating,
+    s.reputation,
+    s.shipping_information,
+    s.general_conditions,
+    s.active,
+    s.created_at,
+    s.updated_at,
+    COUNT(DISTINCT po.product_id) AS product_count
+FROM store s
+LEFT JOIN product_offer po
+    ON po.store_id = s.id
+    AND po.available = true
+LEFT JOIN product p
+    ON p.id = po.product_id
+    AND p.active = true
+WHERE s.id = $1
+  AND s.active = true
+GROUP BY
+    s.id,
+    s.name,
+    s.website_url,
+    s.logo_url,
+    s.rating,
+    s.reputation,
+    s.shipping_information,
+    s.general_conditions,
+    s.active,
+    s.created_at,
+    s.updated_at
+`
+
+type GetStoreByIDRow struct {
+	ID                  int32            `json:"id"`
+	Name                string           `json:"name"`
+	WebsiteUrl          pgtype.Text      `json:"website_url"`
+	LogoUrl             pgtype.Text      `json:"logo_url"`
+	Rating              pgtype.Numeric   `json:"rating"`
+	Reputation          pgtype.Text      `json:"reputation"`
+	ShippingInformation pgtype.Text      `json:"shipping_information"`
+	GeneralConditions   pgtype.Text      `json:"general_conditions"`
+	Active              bool             `json:"active"`
+	CreatedAt           pgtype.Timestamp `json:"created_at"`
+	UpdatedAt           pgtype.Timestamp `json:"updated_at"`
+	ProductCount        int64            `json:"product_count"`
+}
+
+func (q *Queries) GetStoreByID(ctx context.Context, id int32) (GetStoreByIDRow, error) {
+	row := q.db.QueryRow(ctx, getStoreByID, id)
+	var i GetStoreByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.WebsiteUrl,
+		&i.LogoUrl,
+		&i.Rating,
+		&i.Reputation,
+		&i.ShippingInformation,
+		&i.GeneralConditions,
+		&i.Active,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ProductCount,
+	)
+	return i, err
+}
+
+const listStoreLocations = `-- name: ListStoreLocations :many
+SELECT
+    sl.id,
+    sl.store_id,
+    sl.location_id,
+    sl.address,
+    sl.postal_code,
+    sl.active,
+    l.country,
+    l.region,
+    l.city,
+    l.commune
+FROM store_location sl
+JOIN location l
+    ON l.id = sl.location_id
+WHERE sl.store_id = $1
+  AND sl.active = true
+ORDER BY sl.id
+`
+
+type ListStoreLocationsRow struct {
+	ID         int32       `json:"id"`
+	StoreID    int32       `json:"store_id"`
+	LocationID int32       `json:"location_id"`
+	Address    pgtype.Text `json:"address"`
+	PostalCode pgtype.Text `json:"postal_code"`
+	Active     bool        `json:"active"`
+	Country    string      `json:"country"`
+	Region     pgtype.Text `json:"region"`
+	City       pgtype.Text `json:"city"`
+	Commune    pgtype.Text `json:"commune"`
+}
+
+func (q *Queries) ListStoreLocations(ctx context.Context, storeID int32) ([]ListStoreLocationsRow, error) {
+	rows, err := q.db.Query(ctx, listStoreLocations, storeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStoreLocationsRow
+	for rows.Next() {
+		var i ListStoreLocationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.StoreID,
+			&i.LocationID,
+			&i.Address,
+			&i.PostalCode,
+			&i.Active,
+			&i.Country,
+			&i.Region,
+			&i.City,
+			&i.Commune,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStoreProducts = `-- name: ListStoreProducts :many
+SELECT
+    p.id,
+    p.public_id,
+    p.category_id,
+    p.brand_id,
+    p.name,
+    p.model,
+    p.sku,
+    p.description,
+    p.active,
+    p.created_at,
+    p.updated_at,
+    b.name AS brand_name,
+    pc.name AS category_name,
+    po.id AS offer_id,
+    po.price,
+    po.list_price,
+    po.currency,
+    po.shipping_cost,
+    po.shipping_free,
+    po.available,
+    po.stock,
+    po.condition,
+    po.product_url,
+    po.last_updated
+FROM product_offer po
+JOIN product p
+    ON p.id = po.product_id
+LEFT JOIN brand b
+    ON b.id = p.brand_id
+JOIN product_category pc
+    ON pc.id = p.category_id
+WHERE po.store_id = $1
+  AND po.available = true
+  AND p.active = true
+ORDER BY p.id
+`
+
+type ListStoreProductsRow struct {
+	ID           int32            `json:"id"`
+	PublicID     pgtype.UUID      `json:"public_id"`
+	CategoryID   int32            `json:"category_id"`
+	BrandID      pgtype.Int4      `json:"brand_id"`
+	Name         string           `json:"name"`
+	Model        pgtype.Text      `json:"model"`
+	Sku          pgtype.Text      `json:"sku"`
+	Description  pgtype.Text      `json:"description"`
+	Active       bool             `json:"active"`
+	CreatedAt    pgtype.Timestamp `json:"created_at"`
+	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
+	BrandName    pgtype.Text      `json:"brand_name"`
+	CategoryName string           `json:"category_name"`
+	OfferID      int32            `json:"offer_id"`
+	Price        pgtype.Numeric   `json:"price"`
+	ListPrice    pgtype.Numeric   `json:"list_price"`
+	Currency     string           `json:"currency"`
+	ShippingCost pgtype.Numeric   `json:"shipping_cost"`
+	ShippingFree bool             `json:"shipping_free"`
+	Available    bool             `json:"available"`
+	Stock        pgtype.Int4      `json:"stock"`
+	Condition    string           `json:"condition"`
+	ProductUrl   pgtype.Text      `json:"product_url"`
+	LastUpdated  pgtype.Timestamp `json:"last_updated"`
+}
+
+func (q *Queries) ListStoreProducts(ctx context.Context, storeID int32) ([]ListStoreProductsRow, error) {
+	rows, err := q.db.Query(ctx, listStoreProducts, storeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStoreProductsRow
+	for rows.Next() {
+		var i ListStoreProductsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.CategoryID,
+			&i.BrandID,
+			&i.Name,
+			&i.Model,
+			&i.Sku,
+			&i.Description,
+			&i.Active,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.BrandName,
+			&i.CategoryName,
+			&i.OfferID,
+			&i.Price,
+			&i.ListPrice,
+			&i.Currency,
+			&i.ShippingCost,
+			&i.ShippingFree,
+			&i.Available,
+			&i.Stock,
+			&i.Condition,
+			&i.ProductUrl,
+			&i.LastUpdated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStores = `-- name: ListStores :many
 SELECT
     s.id,
