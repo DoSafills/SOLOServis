@@ -99,11 +99,17 @@ export default function ProductDetailPage({
             style={{ background: "#111111", border: "1px solid #2A2A2A" }}
             className="rounded-2xl overflow-hidden h-72 mb-3"
           >
-            <img
-              src={product.images[selectedImage] ?? product.image}
-              alt={product.name}
-              className="w-full h-full object-cover"
-            />
+            {product.images[selectedImage] ?? product.image ? (
+              <img
+                src={product.images[selectedImage] ?? product.image}
+                alt={product.name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-sm text-muted">
+                Sin imagen disponible
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2">

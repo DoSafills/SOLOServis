@@ -1,19 +1,19 @@
 ﻿import { useEffect, useState } from "react";
 import { UI_TEXT } from "../../constants/uiText";
-import type { Page, Product } from "../../types";
+import type { MacroCategory, Page, Product } from "../../types";
 
 import { getProducts, getServices } from "../../services/api/api";
 import ProductCard from "../../components/products/ProductCard";
 import ServiceCard from "../../components/services/ServiceCard";
 
 
-const productCategories = [
-  { name: UI_TEXT.categories.technology, icon: "⚡", color: "#E8001B" },
-  { name: UI_TEXT.categories.computing, icon: "💻", color: "#818CF8" },
-  { name: UI_TEXT.categories.phones, icon: "📱", color: "#F472B6" },
-  { name: UI_TEXT.categories.appliances, icon: "🏠", color: "#FB923C" },
-  { name: UI_TEXT.categories.gaming, icon: "🎮", color: "#A78BFA" },
-  { name: UI_TEXT.categories.home, icon: "🛋️", color: "#34D399" },
+const productCategories: { category: MacroCategory; name: string; icon: string; color: string }[] = [
+  { category: "tecnologia", name: UI_TEXT.categories.technology, icon: "⚡", color: "#E8001B" },
+  { category: "computacion", name: UI_TEXT.categories.computing, icon: "💻", color: "#818CF8" },
+  { category: "celulares", name: UI_TEXT.categories.phones, icon: "📱", color: "#F472B6" },
+  { category: "electrodomesticos", name: UI_TEXT.categories.appliances, icon: "🏠", color: "#FB923C" },
+  { category: "gaming", name: UI_TEXT.categories.gaming, icon: "🎮", color: "#A78BFA" },
+  { category: "hogar", name: UI_TEXT.categories.home, icon: "🛋️", color: "#34D399" },
 ];
 
 const serviceCategories = [
@@ -43,15 +43,9 @@ export default function HomePage({
   const [services, setServices] = useState<import("../../types").Service[]>([]);
 
   useEffect(() => {
-    Promise.all([getProducts(), getServices()])
-      .then(([products, services]) => {
-        setProducts(products);
-        setServices(services);
-      })
-      .catch(console.error);
+    getProducts().then(setProducts).catch(console.error);
+    getServices().then(setServices).catch(console.error);
   }, []);
-
-  const featuredProducts = products.slice(0, 4);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +53,7 @@ export default function HomePage({
     navigate({ id: "search-products", query: query.trim() });
   };
 
+  const featuredProducts = products.slice(0, 4);
   const featuredServices = services.slice(0, 4);
 
   return (
@@ -181,7 +176,7 @@ export default function HomePage({
             {productCategories.map((cat) => (
               <button
                 key={cat.name}
-                onClick={() => navigate({ id: "search-products", query: cat.name })}
+                onClick={() => navigate({ id: "search-products", query: "", category: cat.category })}
                 style={{ background: "#111111", border: "1px solid #2A2A2A" }}
                 className="flex flex-col items-center gap-2 p-4 rounded-2xl hover:border-prime hover:bg-prime-muted transition-all duration-200 group"
               >
@@ -209,13 +204,13 @@ export default function HomePage({
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {featuredProducts.map((p) => (
+            {featuredProducts.map((product) => (
               <ProductCard
-                key={p.id}
-                product={p}
+                key={product.id}
+                product={product}
                 navigate={navigate}
-                isFavorite={favorites.has(p.id)}
-                isComparing={compareList.has(p.id)}
+                isFavorite={favorites.has(product.id)}
+                isComparing={compareList.has(product.id)}
                 onToggleFavorite={onToggleFavorite}
                 onToggleCompare={onToggleCompare}
               />

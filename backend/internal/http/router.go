@@ -49,6 +49,7 @@ func registerProductRoutes(r *chi.Mux, db *pgxpool.Pool) {
 	productHandler := products.NewHandler(productRepository)
 
 	r.Get("/products", productHandler.List)
+	r.Get("/products/compare", productHandler.Compare)
 	r.Get("/products/{publicID}", productHandler.GetByPublicID)
 	r.Post("/products", productHandler.Create)
 	r.Put("/products/{publicID}", productHandler.Update)
