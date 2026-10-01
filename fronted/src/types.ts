@@ -1,6 +1,6 @@
 export type Page =
   | { id: "home" }
-  | { id: "search-products"; query: string }
+  | { id: "search-products"; query: string; category?: MacroCategory }
   | {
       id: "product-detail";
       productId: string;
@@ -22,6 +22,14 @@ export type Page =
     }
   | { id: "user" }
   | { id: "cart" };
+
+export type MacroCategory =
+  | "tecnologia"
+  | "computacion"
+  | "celulares"
+  | "electrodomesticos"
+  | "gaming"
+  | "hogar";
 
 export interface StoreOffer {
   storeId: string;

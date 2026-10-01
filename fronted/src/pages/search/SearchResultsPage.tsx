@@ -1,11 +1,12 @@
 ﻿import { useState, type ReactNode } from "react";
-import type { Page } from "../../types";
+import type { MacroCategory, Page } from "../../types";
 import { useSearchResults, type SortOption } from "../../hooks/useSearchResults";
 import ProductCard from "../../components/products/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
 
 interface Props {
   query: string;
+  category?: MacroCategory;
   navigate: (page: Page) => void;
   favorites: Set<string>;
   compareList: Set<string>;
@@ -118,6 +119,7 @@ function SearchableAdvancedFilter({
 
 export default function SearchResultsPage({
   query,
+  category,
   navigate,
   favorites,
   compareList,
@@ -162,7 +164,16 @@ export default function SearchResultsPage({
     page,
     setPage,
     perPage,
-  } = useSearchResults(query);
+  } = useSearchResults(query, category);
+
+  const categoryLabel = {
+    tecnologia: "Tecnología",
+    computacion: "Computación",
+    celulares: "Celulares",
+    electrodomesticos: "Electrodomésticos",
+    gaming: "Gaming",
+    hogar: "Hogar",
+  }[category ?? "tecnologia"];
 
   const renderFilters = () => (
     <div className="space-y-4">
@@ -366,14 +377,14 @@ export default function SearchResultsPage({
         items={[
           { label: "Inicio", onClick: () => navigate({ id: "home" }) },
           { label: "Productos" },
-          ...(query ? [{ label: `"${query}"` }] : []),
+          ...(category ? [{ label: categoryLabel }] : query ? [{ label: `"${query}"` }] : []),
         ]}
       />
 
       <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text">
-            {query ? `Resultados para "${query}"` : "Todos los productos"}
+            {category ? categoryLabel : query ? `Resultados para "${query}"` : "Todos los productos"}
           </h1>
           <p className="text-sm text-muted mt-1">{filtered.length} productos encontrados</p>
         </div>

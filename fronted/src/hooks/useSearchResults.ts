@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Product } from "../types";
+import type { MacroCategory, Product } from "../types";
 import { getProducts, toProduct, type ApiProduct } from "../services/api/products";
 
 export type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
@@ -14,14 +14,6 @@ export type ProductType =
   | "cooking"
   | "climate"
   | "smallAppliances";
-export type MacroCategory =
-  | "tecnologia"
-  | "computacion"
-  | "celulares"
-  | "electrodomesticos"
-  | "gaming"
-  | "hogar";
-
 interface AdvancedFilterDefinition {
   id: string;
   title: string;
@@ -241,7 +233,7 @@ const ADVANCED_FILTERS: Record<ProductType, AdvancedFilterDefinition[]> = {
   smallAppliances: applianceFilters({ id: "capacity", title: "Capacidad", keyPattern: CAPACITY_KEY }),
 };
 
-export function useSearchResults(query: string) {
+export function useSearchResults(query: string, category?: MacroCategory) {
   const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
   const [sort, setSort] = useState<SortOption>("relevance");
   const [priceMin, setPriceMin] = useState(0);
@@ -252,7 +244,9 @@ export function useSearchResults(query: string) {
   const [minRating, setMinRating] = useState(0);
   const [onlyDiscount, setOnlyDiscount] = useState(false);
   const [selectedTypes, setSelectedTypes] = useState<Set<ProductType>>(new Set());
-  const [selectedMacroCategories, setSelectedMacroCategories] = useState<Set<MacroCategory>>(new Set());
+  const [selectedMacroCategories, setSelectedMacroCategories] = useState<Set<MacroCategory>>(
+    () => (category ? new Set([category]) : new Set()),
+  );
   const [selectedAdvancedFilters, setSelectedAdvancedFilters] = useState<Record<string, Set<string>>>({});
   const [page, setPage] = useState(1);
 
@@ -272,7 +266,8 @@ export function useSearchResults(query: string) {
 
   useEffect(() => {
     setPage(1);
-  }, [query]);
+    setSelectedMacroCategories(category ? new Set([category]) : new Set());
+  }, [query, category]);
 
   const products: Product[] = apiProducts.map(toProduct);
   const getProductPrice = (product: Product) =>
@@ -313,7 +308,9 @@ export function useSearchResults(query: string) {
 
   const brands = [...new Set(products.map((product) => product.brand))].sort();
   const visibleProductTypes = [...new Set(
-    [...selectedMacroCategories].flatMap((category) => MACRO_CATEGORY_PRODUCT_TYPES[category]),
+    [...selectedMacroCategories].flatMap(
+      (selectedCategory) => MACRO_CATEGORY_PRODUCT_TYPES[selectedCategory],
+    ),
   )];
 
   const matchesProduct = (product: Product, excludedFacet?: string) => {

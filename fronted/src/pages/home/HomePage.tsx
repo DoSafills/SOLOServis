@@ -1,19 +1,18 @@
 ﻿import { useEffect, useState } from "react";
 import { UI_TEXT } from "../../constants/uiText";
-import type { Page, Product } from "../../types";
+import type { MacroCategory, Page } from "../../types";
 
-import { getProducts, getServices } from "../../services/api/api";
-import ProductCard from "../../components/products/ProductCard";
+import { getServices } from "../../services/api/api";
 import ServiceCard from "../../components/services/ServiceCard";
 
 
-const productCategories = [
-  { name: UI_TEXT.categories.technology, icon: "⚡", color: "#E8001B" },
-  { name: UI_TEXT.categories.computing, icon: "💻", color: "#818CF8" },
-  { name: UI_TEXT.categories.phones, icon: "📱", color: "#F472B6" },
-  { name: UI_TEXT.categories.appliances, icon: "🏠", color: "#FB923C" },
-  { name: UI_TEXT.categories.gaming, icon: "🎮", color: "#A78BFA" },
-  { name: UI_TEXT.categories.home, icon: "🛋️", color: "#34D399" },
+const productCategories: { category: MacroCategory; name: string; icon: string; color: string }[] = [
+  { category: "tecnologia", name: UI_TEXT.categories.technology, icon: "⚡", color: "#E8001B" },
+  { category: "computacion", name: UI_TEXT.categories.computing, icon: "💻", color: "#818CF8" },
+  { category: "celulares", name: UI_TEXT.categories.phones, icon: "📱", color: "#F472B6" },
+  { category: "electrodomesticos", name: UI_TEXT.categories.appliances, icon: "🏠", color: "#FB923C" },
+  { category: "gaming", name: UI_TEXT.categories.gaming, icon: "🎮", color: "#A78BFA" },
+  { category: "hogar", name: UI_TEXT.categories.home, icon: "🛋️", color: "#34D399" },
 ];
 
 const serviceCategories = [
@@ -39,19 +38,11 @@ export default function HomePage({
 }: Props) {
   const [query, setQuery] = useState("");
 
-  const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<import("../../types").Service[]>([]);
 
   useEffect(() => {
-    Promise.all([getProducts(), getServices()])
-      .then(([products, services]) => {
-        setProducts(products);
-        setServices(services);
-      })
-      .catch(console.error);
+    getServices().then(setServices).catch(console.error);
   }, []);
-
-  const featuredProducts = products.slice(0, 4);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,7 +172,7 @@ export default function HomePage({
             {productCategories.map((cat) => (
               <button
                 key={cat.name}
-                onClick={() => navigate({ id: "search-products", query: cat.name })}
+                onClick={() => navigate({ id: "search-products", query: "", category: cat.category })}
                 style={{ background: "#111111", border: "1px solid #2A2A2A" }}
                 className="flex flex-col items-center gap-2 p-4 rounded-2xl hover:border-prime hover:bg-prime-muted transition-all duration-200 group"
               >
@@ -190,35 +181,6 @@ export default function HomePage({
                   {cat.name}
                 </span>
               </button>
-            ))}
-          </div>
-        </section>
-
-        {/* Featured products */}
-        <section className="pb-12">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-bold text-text">Productos destacados</h2>
-              <p className="text-xs text-muted mt-1">Los más buscados esta semana</p>
-            </div>
-            <button
-              onClick={() => navigate({ id: "search-products", query: "" })}
-              className="text-sm text-prime hover:text-prime-dark font-medium transition-colors"
-            >
-              Ver todos →
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {featuredProducts.map((p) => (
-              <ProductCard
-                key={p.id}
-                product={p}
-                navigate={navigate}
-                isFavorite={favorites.has(p.id)}
-                isComparing={compareList.has(p.id)}
-                onToggleFavorite={onToggleFavorite}
-                onToggleCompare={onToggleCompare}
-              />
             ))}
           </div>
         </section>
