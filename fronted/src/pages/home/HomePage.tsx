@@ -1,8 +1,9 @@
 ﻿import { useEffect, useState } from "react";
 import { UI_TEXT } from "../../constants/uiText";
-import type { MacroCategory, Page } from "../../types";
+import type { MacroCategory, Page, Product } from "../../types";
 
-import { getServices } from "../../services/api/api";
+import { getProducts, getServices } from "../../services/api/api";
+import ProductCard from "../../components/products/ProductCard";
 import ServiceCard from "../../components/services/ServiceCard";
 
 
@@ -38,9 +39,11 @@ export default function HomePage({
 }: Props) {
   const [query, setQuery] = useState("");
 
+  const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<import("../../types").Service[]>([]);
 
   useEffect(() => {
+    getProducts().then(setProducts).catch(console.error);
     getServices().then(setServices).catch(console.error);
   }, []);
 
@@ -50,6 +53,7 @@ export default function HomePage({
     navigate({ id: "search-products", query: query.trim() });
   };
 
+  const featuredProducts = products.slice(0, 4);
   const featuredServices = services.slice(0, 4);
 
   return (
@@ -181,6 +185,35 @@ export default function HomePage({
                   {cat.name}
                 </span>
               </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Featured products */}
+        <section className="pb-12">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-text">Productos destacados</h2>
+              <p className="text-xs text-muted mt-1">Los más buscados esta semana</p>
+            </div>
+            <button
+              onClick={() => navigate({ id: "search-products", query: "" })}
+              className="text-sm text-prime hover:text-prime-dark font-medium transition-colors"
+            >
+              Ver todos →
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {featuredProducts.map((product) => (
+              <ProductCard
+                key={product.id}
+                product={product}
+                navigate={navigate}
+                isFavorite={favorites.has(product.id)}
+                isComparing={compareList.has(product.id)}
+                onToggleFavorite={onToggleFavorite}
+                onToggleCompare={onToggleCompare}
+              />
             ))}
           </div>
         </section>
