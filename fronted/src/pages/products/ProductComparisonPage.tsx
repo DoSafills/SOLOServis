@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getProductById } from "../../services/api/products";
+import {
+  getProductComparison,
+  type ProductComparisonRecommendation,
+} from "../../services/api/products";
 import { formatPrice } from "../../services/utils/productUtils";
 import { Breadcrumb, Badge } from "../../components/common/ui";
 
@@ -11,6 +14,7 @@ interface Props {
 
 export default function ProductComparisonPage({ productIds, navigate }: Props) {
   const [selected, setSelected] = useState<Product[]>([]);
+  const [recommendation, setRecommendation] = useState<ProductComparisonRecommendation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,6 +24,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
     async function loadProducts() {
       if (productIds.length === 0) {
         setSelected([]);
+        setRecommendation(null);
         setLoading(false);
         return;
       }
@@ -27,10 +32,10 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
       setLoading(true);
       setError(null);
       try {
-        const results = await Promise.all(productIds.map((id) => getProductById(id)));
+        const comparison = await getProductComparison(productIds);
         if (cancelled) return;
-        const valid = results.filter((p: Product | null): p is Product => p !== null);
-        setSelected(valid);
+        setSelected(comparison.products);
+        setRecommendation(comparison.recommendation);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Error al cargar los productos");
@@ -49,7 +54,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando productosÃ”Ã‡Âª</p>
+        <p className="text-muted">Cargando productos...</p>
       </div>
     );
   }
@@ -96,43 +101,12 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
   const allSpecKeys = Array.from(new Set(selected.flatMap((product) => Object.keys(product.specs)))).sort();
   const differs = (values: (string | number | undefined)[]) =>
     new Set(values.map((value) => String(value ?? "").trim().toLocaleLowerCase())).size > 1;
-
-  const scores = selected.map(() => 0);
-  const reasons = selected.map(() => [] as string[]);
-  const criteria = [
-    { label: "mejor precio", values: minPrices, lowerIsBetter: true },
-    {
-      label: "mayor valoración",
-      values: selected.map((product) => product.rating > 0 ? product.rating : null),
-      lowerIsBetter: false,
-    },
-    {
-      label: "más tiendas disponibles",
-      values: availableStoreCounts.map((count) => count > 0 ? count : null),
-      lowerIsBetter: false,
-    },
-  ];
-
-  criteria.forEach((criterion) => {
-    const availableValues = criterion.values.filter(
-      (value): value is number => value !== null && value > 0,
-    );
-    if (availableValues.length === 0) return;
-
-    const bestValue = criterion.lowerIsBetter
-      ? Math.min(...availableValues)
-      : Math.max(...availableValues);
-    criterion.values.forEach((value, index) => {
-      if (value === bestValue) {
-        scores[index] += 1;
-        reasons[index].push(criterion.label);
-      }
-    });
-  });
-
-  const bestScore = Math.max(...scores);
-  const bestIndexes = scores.flatMap((score, index) => score === bestScore ? [index] : []);
-  const hasRecommendation = bestScore > 0;
+  const winnerIds = new Set(recommendation?.winnerIds ?? []);
+  const scoresByProductId = new Map(
+    (recommendation?.scores ?? []).map((score) => [score.productId, score]),
+  );
+  const bestIndexes = selected.flatMap((product, index) => winnerIds.has(product.id) ? [index] : []);
+  const hasRecommendation = bestIndexes.length > 0;
   const lowestPrice = minPrices.filter((price): price is number => price !== null).reduce(
     (lowest, price) => Math.min(lowest, price),
     Number.POSITIVE_INFINITY,
@@ -144,11 +118,11 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
         items={[
           { label: "Inicio", onClick: () => navigate({ id: "home" }) },
           { label: "Productos", onClick: () => navigate({ id: "search-products", query: "" }) },
-          { label: "Comparaci+Â¦n" },
+          { label: "Comparación" },
         ]}
       />
 
-      <h1 className="text-2xl font-bold text-text mb-2">Comparaci+Â¦n de productos</h1>
+      <h1 className="text-2xl font-bold text-text mb-2">Comparación de productos</h1>
       <p className="text-sm text-muted mb-8">Comparando {selected.length} productos</p>
 
       <section
@@ -162,11 +136,11 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
             {bestIndexes.length === 1 ? (
               <>
                 <span className="font-semibold text-prime">{selected[bestIndexes[0]].name}</span>
-                {" "}es la mejor opción según {reasons[bestIndexes[0]].join(", ")} ({bestScore} de {criteria.length} criterios).
+                {" "}es la mejor opción según {scoresByProductId.get(selected[bestIndexes[0]].id)?.reasons.join(", ")} ({recommendation?.score} de {recommendation?.totalCriteria} criterios).
               </>
             ) : (
               <>
-                Empate entre {bestIndexes.map((index) => selected[index].name).join(" y ")} con {bestScore} de {criteria.length} criterios.
+                Empate entre {bestIndexes.map((index) => selected[index].name).join(" y ")} con {recommendation?.score} de {recommendation?.totalCriteria} criterios.
               </>
             )}
           </div>
@@ -189,7 +163,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 }}
                 className="text-left text-xs font-semibold text-muted-2 uppercase tracking-widest p-4 w-40"
               >
-                Caracter+Â¡stica
+                Característica
               </th>
               {selected.map((p) => (
                 <th
@@ -208,7 +182,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                       <div className="text-sm font-semibold text-text leading-tight">{p.name}</div>
                     </div>
                     {hasRecommendation && bestIndexes.includes(selected.indexOf(p)) && (
-                      <Badge variant="best">Mejor opción · {scores[selected.indexOf(p)]} pts</Badge>
+                      <Badge variant="best">Mejor opción · {scoresByProductId.get(p.id)?.score ?? 0} pts</Badge>
                     )}
                     <button
                       onClick={() => navigate({ id: "product-detail", productId: p.id })}
@@ -234,7 +208,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 style={{ borderBottom: "1px solid #1A1A1A", borderRight: "1px solid #2A2A2A" }}
                 className="p-4 text-xs font-semibold text-muted-2 uppercase tracking-wide"
               >
-                Precio m+Â¡nimo
+                Precio mínimo
               </td>
               {selected.map((p, i) => (
                 <td
@@ -258,7 +232,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 style={{ borderBottom: "1px solid #1A1A1A", borderRight: "1px solid #2A2A2A" }}
                 className="p-4 text-xs font-semibold text-muted-2 uppercase tracking-wide"
               >
-                Valoraci+Â¦n
+                Valoración
               </td>
               {selected.map((p) => {
                 const bestRating = Math.max(...selected.map((product) => product.rating));
@@ -271,7 +245,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                     <span
                       className={`text-sm font-bold ${p.rating > 0 && p.rating === bestRating ? "text-warn" : "text-text"}`}
                     >
-                      Ã”Ã¿Ã  {p.rating.toFixed(1)}
+                      ★ {p.rating.toFixed(1)}
                     </span>
                     <div className="text-xs text-muted">
                       ({p.reviewCount.toLocaleString("es-CL")})

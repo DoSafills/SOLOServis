@@ -41,6 +41,25 @@ export interface ApiProduct {
   offerPriceHistory?: ApiPricePoint[];
 }
 
+export interface ProductComparisonScore {
+  productId: string;
+  score: number;
+  reasons: string[];
+}
+
+export interface ProductComparisonRecommendation {
+  winnerIds: string[];
+  isTie: boolean;
+  score: number;
+  totalCriteria: number;
+  scores: ProductComparisonScore[];
+}
+
+export interface ProductComparison {
+  products: Product[];
+  recommendation: ProductComparisonRecommendation;
+}
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
 const parseAmount = (value: string | undefined): number => {
@@ -115,5 +134,24 @@ export async function getProductById(id: string): Promise<Product | null> {
   }
 
   return toProduct((await response.json()) as ApiProduct);
+}
+
+export async function getProductComparison(ids: string[]): Promise<ProductComparison> {
+  const query = new URLSearchParams({ ids: ids.join(",") });
+  const response = await fetch(`${API_URL}/products/compare?${query}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to compare products: ${response.status}`);
+  }
+
+  const comparison = (await response.json()) as {
+    products: ApiProduct[];
+    recommendation: ProductComparisonRecommendation;
+  };
+
+  return {
+    products: comparison.products.map(toProduct),
+    recommendation: comparison.recommendation,
+  };
 }
 

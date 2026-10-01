@@ -45,6 +45,7 @@ func NewRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	productHandler := products.NewHandler(productRepository)
 
 	r.Get("/products", productHandler.List)
+	r.Get("/products/compare", productHandler.Compare)
 	r.Get("/products/{publicID}", productHandler.GetByPublicID)
 	r.Post("/products", productHandler.Create)
 	r.Put("/products/{publicID}", productHandler.Update)
