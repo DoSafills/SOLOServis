@@ -145,9 +145,9 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
             )}
           </div>
         ) : (
-          <p className="mt-1 text-sm text-muted">La API no entrega datos suficientes para elegir una opción.</p>
+          <p className="mt-1 text-sm text-muted">No hay información suficiente para recomendar un producto.</p>
         )}
-        <p className="mt-2 text-xs text-muted">Criterios: menor precio disponible, valoración y tiendas con stock.</p>
+        <p className="mt-2 text-xs text-muted">Revisa precios, valoraciones y especificaciones para comparar.</p>
       </section>
 
       <div className="overflow-x-auto">
@@ -176,7 +176,13 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                   className="p-4 text-center"
                 >
                   <div className="flex flex-col items-center gap-2">
-                    <img src={p.image} alt={p.name} className="w-20 h-14 object-cover rounded-xl" />
+                    {p.image ? (
+                      <img src={p.image} alt={p.name} className="w-20 h-14 object-cover rounded-xl" />
+                    ) : (
+                      <div className="w-20 h-14 rounded-xl bg-[#1A1A1A] flex items-center justify-center text-[10px] text-muted">
+                        Sin imagen
+                      </div>
+                    )}
                     <div>
                       <div className="text-xs text-prime font-semibold">{p.brand}</div>
                       <div className="text-sm font-semibold text-text leading-tight">{p.name}</div>

@@ -74,7 +74,17 @@ const toPricePoints = (points: ApiPricePoint[] | undefined): PricePoint[] =>
   }));
 
 export const toProduct = (product: ApiProduct): Product => {
-  const images = (product.images ?? []).map((image) => image.url).filter(Boolean);
+  const images = (product.images ?? [])
+    .map((image) => image.url)
+    .filter((url) => {
+      if (!url) return false;
+      try {
+        const hostname = new URL(url).hostname;
+        return hostname !== "example.com" && !hostname.endsWith(".example.com");
+      } catch {
+        return true;
+      }
+    });
 
   const offers = (product.offers ?? []).map((offer) => ({
     storeId: String(offer.storeId),
