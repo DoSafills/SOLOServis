@@ -1,29 +1,13 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getProductById } from "../../services/api/api";
-import { formatPrice, getMinPrice } from "../../services/utils/productUtils";
+import { getProductById } from "../../services/api/products";
+import { formatPrice } from "../../services/utils/productUtils";
 import { Breadcrumb, Badge } from "../../components/common/ui";
 
 interface Props {
   productIds: string[];
   navigate: (page: Page) => void;
 }
-
-const specRows = [
-  "VRAM",
-  "Arquitectura",
-  "N+Â¦cleos CUDA",
-  "Stream Processors",
-  "Bus de memoria",
-  "TDP",
-  "Garant+Â¡a",
-  "Conectores",
-  "Procesador",
-  "RAM",
-  "Almacenamiento",
-  "Pantalla",
-  "Sistema operativo",
-];
 
 export default function ProductComparisonPage({ productIds, navigate }: Props) {
   const [selected, setSelected] = useState<Product[]>([]);
@@ -100,10 +84,59 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
     );
   }
 
-  const minPrices = selected.map((p) => getMinPrice(p));
-  const lowestPrice = Math.min(...minPrices);
+  const minPrices = selected.map((product) => {
+    const prices = product.offers
+      .filter((offer) => offer.available && offer.price > 0)
+      .map((offer) => offer.price);
+    return prices.length > 0 ? Math.min(...prices) : null;
+  });
+  const availableStoreCounts = selected.map(
+    (product) => product.offers.filter((offer) => offer.available).length,
+  );
+  const allSpecKeys = Array.from(new Set(selected.flatMap((product) => Object.keys(product.specs)))).sort();
+  const differs = (values: (string | number | undefined)[]) =>
+    new Set(values.map((value) => String(value ?? "").trim().toLocaleLowerCase())).size > 1;
 
-  const allSpecKeys = specRows.filter((key) => selected.some((p) => p.specs[key] !== undefined));
+  const scores = selected.map(() => 0);
+  const reasons = selected.map(() => [] as string[]);
+  const criteria = [
+    { label: "mejor precio", values: minPrices, lowerIsBetter: true },
+    {
+      label: "mayor valoración",
+      values: selected.map((product) => product.rating > 0 ? product.rating : null),
+      lowerIsBetter: false,
+    },
+    {
+      label: "más tiendas disponibles",
+      values: availableStoreCounts.map((count) => count > 0 ? count : null),
+      lowerIsBetter: false,
+    },
+  ];
+
+  criteria.forEach((criterion) => {
+    const availableValues = criterion.values.filter(
+      (value): value is number => value !== null && value > 0,
+    );
+    if (availableValues.length === 0) return;
+
+    const bestValue = criterion.lowerIsBetter
+      ? Math.min(...availableValues)
+      : Math.max(...availableValues);
+    criterion.values.forEach((value, index) => {
+      if (value === bestValue) {
+        scores[index] += 1;
+        reasons[index].push(criterion.label);
+      }
+    });
+  });
+
+  const bestScore = Math.max(...scores);
+  const bestIndexes = scores.flatMap((score, index) => score === bestScore ? [index] : []);
+  const hasRecommendation = bestScore > 0;
+  const lowestPrice = minPrices.filter((price): price is number => price !== null).reduce(
+    (lowest, price) => Math.min(lowest, price),
+    Number.POSITIVE_INFINITY,
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -117,6 +150,31 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
 
       <h1 className="text-2xl font-bold text-text mb-2">Comparaci+Â¦n de productos</h1>
       <p className="text-sm text-muted mb-8">Comparando {selected.length} productos</p>
+
+      <section
+        style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+        className="mb-6 rounded-xl p-4"
+        aria-live="polite"
+      >
+        <h2 className="text-sm font-semibold text-text">Recomendación</h2>
+        {hasRecommendation ? (
+          <div className="mt-1 text-sm text-muted">
+            {bestIndexes.length === 1 ? (
+              <>
+                <span className="font-semibold text-prime">{selected[bestIndexes[0]].name}</span>
+                {" "}es la mejor opción según {reasons[bestIndexes[0]].join(", ")} ({bestScore} de {criteria.length} criterios).
+              </>
+            ) : (
+              <>
+                Empate entre {bestIndexes.map((index) => selected[index].name).join(" y ")} con {bestScore} de {criteria.length} criterios.
+              </>
+            )}
+          </div>
+        ) : (
+          <p className="mt-1 text-sm text-muted">La API no entrega datos suficientes para elegir una opción.</p>
+        )}
+        <p className="mt-2 text-xs text-muted">Criterios: menor precio disponible, valoración y tiendas con stock.</p>
+      </section>
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[560px]">
@@ -149,6 +207,9 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                       <div className="text-xs text-prime font-semibold">{p.brand}</div>
                       <div className="text-sm font-semibold text-text leading-tight">{p.name}</div>
                     </div>
+                    {hasRecommendation && bestIndexes.includes(selected.indexOf(p)) && (
+                      <Badge variant="best">Mejor opción · {scores[selected.indexOf(p)]} pts</Badge>
+                    )}
                     <button
                       onClick={() => navigate({ id: "product-detail", productId: p.id })}
                       style={{
@@ -182,11 +243,11 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                   className="p-4 text-center"
                 >
                   <div
-                    className={`price text-lg font-bold ${minPrices[i] === lowestPrice ? "text-prime" : "text-text"}`}
+                    className={`price text-lg font-bold ${minPrices[i] !== null && minPrices[i] === lowestPrice ? "text-prime" : "text-text"}`}
                   >
-                    {formatPrice(minPrices[i])}
+                    {minPrices[i] === null ? "Sin oferta" : formatPrice(minPrices[i])}
                   </div>
-                  {minPrices[i] === lowestPrice && <Badge variant="best">Mejor precio</Badge>}
+                  {minPrices[i] !== null && minPrices[i] === lowestPrice && <Badge variant="best">Mejor precio</Badge>}
                 </td>
               ))}
             </tr>
@@ -200,7 +261,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 Valoraci+Â¦n
               </td>
               {selected.map((p) => {
-                const best = Math.max(...selected.map((s) => s.rating));
+                const bestRating = Math.max(...selected.map((product) => product.rating));
                 return (
                   <td
                     key={p.id}
@@ -208,7 +269,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                     className="p-4 text-center"
                   >
                     <span
-                      className={`text-sm font-bold ${p.rating === best ? "text-warn" : "text-text"}`}
+                      className={`text-sm font-bold ${p.rating > 0 && p.rating === bestRating ? "text-warn" : "text-text"}`}
                     >
                       Ã”Ã¿Ã  {p.rating.toFixed(1)}
                     </span>
@@ -221,7 +282,10 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
             </tr>
 
             {/* Spec rows */}
-            {allSpecKeys.map((key, ri) => (
+            {allSpecKeys.map((key, ri) => {
+              const values = selected.map((product) => product.specs[key]);
+              const hasDifference = differs(values);
+              return (
               <tr key={key} style={{ background: ri % 2 === 0 ? "#0A0A0A" : "transparent" }}>
                 <td
                   style={{ borderBottom: "1px solid #1A1A1A", borderRight: "1px solid #2A2A2A" }}
@@ -233,15 +297,16 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                   <td
                     key={p.id}
                     style={{ borderBottom: "1px solid #1A1A1A", borderRight: "1px solid #1A1A1A" }}
-                    className="p-4 text-center"
+                    className={`p-4 text-center ${hasDifference ? "bg-warn/5" : ""}`}
                   >
-                    <span className="text-sm text-text">
-                      {p.specs[key] ?? <span className="text-muted">Ã”Ã‡Ã¶</span>}
+                    <span className={`text-sm ${hasDifference ? "font-semibold text-warn" : "text-text"}`}>
+                      {p.specs[key] ?? <span className="text-muted">Sin dato</span>}
                     </span>
                   </td>
                 ))}
               </tr>
-            ))}
+              );
+            })}
 
             {/* Availability */}
             <tr>
@@ -257,8 +322,8 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                   style={{ borderRight: "1px solid #1A1A1A" }}
                   className="p-4 text-center"
                 >
-                  <span className="text-sm font-semibold text-prime">
-                    {p.offers.filter((o) => o.available).length} disponibles
+                  <span className={`text-sm font-semibold ${availableStoreCounts[selected.indexOf(p)] > 0 ? "text-prime" : "text-muted"}`}>
+                    {availableStoreCounts[selected.indexOf(p)]} disponibles
                   </span>
                 </td>
               ))}
