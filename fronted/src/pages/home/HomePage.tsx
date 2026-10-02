@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { UI_TEXT } from "../../constants/uiText";
-import type { Page, Product } from "../../types";
+import type { Page, Product, Service } from "../../types";
 
 import { getProducts, getServices } from "../../services/api/api";
 import ProductCard from "../../components/products/ProductCard";
@@ -25,22 +25,26 @@ const serviceCategories = [
 interface Props {
   navigate: (page: Page) => void;
   favorites: Set<string>;
-  compareList: Set<string>;
+  productCompareList: Set<string>;
+  serviceCompareList: Set<string>;
   onToggleFavorite: (id: string) => void;
-  onToggleCompare: (id: string) => void;
+  onToggleProductCompare: (id: string) => void;
+  onToggleServiceCompare: (id: string) => void;
 }
 
 export default function HomePage({
   navigate,
   favorites,
-  compareList,
+  productCompareList,
+  serviceCompareList,
   onToggleFavorite,
-  onToggleCompare,
+  onToggleProductCompare,
+  onToggleServiceCompare,
 }: Props) {
   const [query, setQuery] = useState("");
 
   const [products, setProducts] = useState<Product[]>([]);
-  const [services, setServices] = useState<import("../../types").Service[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
 
   useEffect(() => {
     Promise.all([getProducts(), getServices()])
@@ -215,9 +219,9 @@ export default function HomePage({
                 product={p}
                 navigate={navigate}
                 isFavorite={favorites.has(p.id)}
-                isComparing={compareList.has(p.id)}
+                isComparing={productCompareList.has(p.id)}
                 onToggleFavorite={onToggleFavorite}
-                onToggleCompare={onToggleCompare}
+                onToggleCompare={onToggleProductCompare}
               />
             ))}
           </div>
@@ -269,9 +273,9 @@ export default function HomePage({
                 service={s}
                 navigate={navigate}
                 isFavorite={favorites.has(s.id)}
-                isComparing={compareList.has(s.id)}
+                isComparing={serviceCompareList.has(s.id)}
                 onToggleFavorite={onToggleFavorite}
-                onToggleCompare={onToggleCompare}
+                onToggleCompare={onToggleServiceCompare}
               />
             ))}
           </div>

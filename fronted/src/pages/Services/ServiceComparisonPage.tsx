@@ -15,22 +15,59 @@ export default function ServiceComparisonPage({
 }: Props) {
   const [selected, setSelected] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
 
-    Promise.all(serviceIds.map((id) => getServiceById(id)))
-      .then((services) => {
+    async function loadServices() {
+      if (serviceIds.length === 0) {
+        setSelected([]);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const services = await Promise.all(serviceIds.map((id) => getServiceById(id)));
+        if (cancelled) return;
         setSelected(services.filter((service): service is Service => service !== null));
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Error al cargar los servicios");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadServices();
+
+    return () => {
+      cancelled = true;
+    };
   }, [serviceIds]);
 
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
         <p className="text-muted">Cargando comparación...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+        <p className="text-warn mb-4">{error}</p>
+        <button
+          onClick={() => navigate({ id: "search-services", query: "" })}
+          style={{ background: "#E8001B", color: "#0A0A0A" }}
+          className="px-5 py-2 rounded-xl text-sm font-semibold"
+        >
+          Buscar servicios
+        </button>
       </div>
     );
   }

@@ -17,7 +17,15 @@ import CartPage from "./pages/cart/CartPage";
 export default function App() {
   const [page, setPage] = useState<Page>({ id: "home" });
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
-  const [compareList, setCompareList] = useState<Set<string>>(new Set());
+  const [comparison, setComparison] = useState<
+    | { kind: "product"; ids: Set<string> }
+    | { kind: "service"; ids: Set<string> }
+    | { kind: null; ids: Set<string> }
+  >({ kind: null, ids: new Set() });
+  const productCompareList =
+    comparison.kind === "product" ? comparison.ids : new Set<string>();
+  const serviceCompareList =
+    comparison.kind === "service" ? comparison.ids : new Set<string>();
   const [cart, setCart] = useState<CartItem[]>(() => {
     try {
       const savedCart = localStorage.getItem("soloservis-cart");
@@ -83,57 +91,80 @@ export default function App() {
     });
   };
 
-  const toggleCompare = (id: string) => {
-    setCompareList((prev) => {
-      const next = new Set(prev);
+  const toggleCompare = (id: string, kind: "product" | "service") => {
+    setComparison((current) => {
+      const next = current.kind === kind ? new Set(current.ids) : new Set<string>();
       if (next.has(id)) {
         next.delete(id);
       } else if (next.size < 3) {
         next.add(id);
       }
-      return next;
+      return next.size > 0 ? { kind, ids: next } : { kind: null, ids: next };
     });
   };
+
+  const toggleProductCompare = (id: string) => toggleCompare(id, "product");
+  const toggleServiceCompare = (id: string) => toggleCompare(id, "service");
 
   const sharedProps = {
     navigate,
     favorites,
-    compareList,
     onToggleFavorite: toggleFavorite,
-    onToggleCompare: toggleCompare,
   };
 
   const renderPage = () => {
     switch (page.id) {
       case "home":
-        return <HomePage {...sharedProps} />;
+        return (
+          <HomePage
+            {...sharedProps}
+            productCompareList={productCompareList}
+            serviceCompareList={serviceCompareList}
+            onToggleProductCompare={toggleProductCompare}
+            onToggleServiceCompare={toggleServiceCompare}
+          />
+        );
       case "search-products":
-        return <SearchResultsPage {...sharedProps} query={page.query} />;
+        return (
+          <SearchResultsPage
+            {...sharedProps}
+            query={page.query}
+            compareList={productCompareList}
+            onToggleCompare={toggleProductCompare}
+          />
+        );
       case "product-detail":
         return (
           <ProductDetailPage
             productId={page.productId}
             navigate={navigate}
             isFavorite={favorites.has(page.productId)}
-            isComparing={compareList.has(page.productId)}
+            isComparing={productCompareList.has(page.productId)}
             onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
+            onToggleCompare={toggleProductCompare}
             onAddToCart={addToCart}
           />
         );
       case "product-comparison":
         return <ProductComparisonPage productIds={page.productIds} navigate={navigate} />;
       case "search-services":
-        return <ServicesPage {...sharedProps} query={page.query} />;
+        return (
+          <ServicesPage
+            {...sharedProps}
+            query={page.query}
+            compareList={serviceCompareList}
+            onToggleCompare={toggleServiceCompare}
+          />
+        );
       case "service-detail":
         return (
           <ServiceDetailPage
             serviceId={page.serviceId}
             navigate={navigate}
             isFavorite={favorites.has(page.serviceId)}
-            isComparing={compareList.has(page.serviceId)}
+            isComparing={serviceCompareList.has(page.serviceId)}
             onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
+            onToggleCompare={toggleServiceCompare}
           />
         );
       case "service-comparison":
@@ -143,9 +174,9 @@ export default function App() {
           <StoresPage
             navigate={navigate}
             favorites={favorites}
-            compareList={compareList}
+            compareList={productCompareList}
             onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
+            onToggleCompare={toggleProductCompare}
           />
         );
       case "store-detail":
@@ -154,9 +185,9 @@ export default function App() {
             navigate={navigate}
             storeId={page.storeId}
             favorites={favorites}
-            compareList={compareList}
+            compareList={productCompareList}
             onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
+            onToggleCompare={toggleProductCompare}
           />
         );
       case "favorites":
@@ -179,7 +210,15 @@ export default function App() {
       case "user":
         return <UserPage navigate={navigate} favorites={favorites} />;
       default:
-        return <HomePage {...sharedProps} />;
+        return (
+          <HomePage
+            {...sharedProps}
+            productCompareList={productCompareList}
+            serviceCompareList={serviceCompareList}
+            onToggleProductCompare={toggleProductCompare}
+            onToggleServiceCompare={toggleServiceCompare}
+          />
+        );
     }
   };
 
@@ -193,7 +232,7 @@ export default function App() {
       />
 
       {/* Compare bar */}
-      {compareList.size > 0 && (
+      {comparison.ids.size > 0 && (
         <div
           style={{
             background: "#111111",
@@ -215,18 +254,20 @@ export default function App() {
                 <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" />
               </svg>
               <span className="text-xs text-prime font-semibold">
-                {compareList.size} producto{compareList.size > 1 ? "s" : ""} en comparador
+                {comparison.ids.size} {comparison.kind === "service" ? "servicio" : "producto"}
+                {comparison.ids.size > 1 ? "s" : ""} en comparador
               </span>
             </div>
             <div className="flex items-center gap-2">
-              {compareList.size >= 2 && (
+              {comparison.ids.size >= 2 && (
                 <button
-                  onClick={() =>
-                    navigate({
-                      id: "product-comparison",
-                      productIds: [...compareList],
-                    })
-                  }
+                  onClick={() => {
+                    if (comparison.kind === "service") {
+                      navigate({ id: "service-comparison", serviceIds: [...comparison.ids] });
+                    } else if (comparison.kind === "product") {
+                      navigate({ id: "product-comparison", productIds: [...comparison.ids] });
+                    }
+                  }}
                   style={{ background: "#E8001B", color: "#0A0A0A" }}
                   className="px-3 py-1 rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity"
                 >
@@ -234,7 +275,7 @@ export default function App() {
                 </button>
               )}
               <button
-                onClick={() => setCompareList(new Set())}
+                onClick={() => setComparison({ kind: null, ids: new Set() })}
                 className="text-xs text-muted hover:text-danger transition-colors"
               >
                 Limpiar
