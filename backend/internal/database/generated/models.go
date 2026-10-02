@@ -433,8 +433,9 @@ type UserAccount struct {
 	Role         UserRole         `json:"role"`
 	Name         string           `json:"name"`
 	Email        string           `json:"email"`
-	PasswordHash string           `json:"password_hash"`
-	Active       bool             `json:"active"`
-	CreatedAt    pgtype.Timestamp `json:"created_at"`
-	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
+	PasswordHash  string           `json:"password_hash"`
+	Active        bool             `json:"active"`
+	CreatedAt     pgtype.Timestamp `json:"created_at"`
+	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
+	EmailVerified bool             `json:"email_verified"`
 }

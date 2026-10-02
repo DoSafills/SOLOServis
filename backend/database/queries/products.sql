@@ -146,11 +146,13 @@ SELECT
     p.updated_at,
     b.name AS brand_name,
     pc.name AS category_name,
+    parent.name AS parent_category_name,
     COALESCE(prs.derived_average_rating, 0) AS rating,
     COALESCE(prs.derived_review_count, 0) AS review_count
 FROM product p
 LEFT JOIN brand b ON b.id = p.brand_id
 JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
 LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
 WHERE p.public_id = $1;
 
@@ -170,11 +172,13 @@ SELECT
     p.updated_at,
     b.name AS brand_name,
     pc.name AS category_name,
+    parent.name AS parent_category_name,
     COALESCE(prs.derived_average_rating, 0) AS rating,
     COALESCE(prs.derived_review_count, 0) AS review_count
 FROM product p
 LEFT JOIN brand b ON b.id = p.brand_id
 JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
 LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
 WHERE p.active = true
 ORDER BY p.id;
@@ -214,6 +218,71 @@ FROM product_image
 WHERE product_id = $1
   AND active = true
 ORDER BY sort_order ASC, id ASC;
+
+
+-- name: ListProductCategories :many
+SELECT
+    c.id,
+    c.parent_category_id,
+    c.name,
+    c.description
+FROM product_category c
+WHERE c.active = true
+ORDER BY c.parent_category_id NULLS FIRST, c.name;
+
+
+-- name: ListProductsByCategory :many
+WITH RECURSIVE subtree AS (
+    SELECT c.id
+    FROM product_category c
+    WHERE c.id = sqlc.arg(category_id)::int
+      AND c.active = true
+    UNION ALL
+    SELECT child.id
+    FROM product_category child
+    JOIN subtree s ON child.parent_category_id = s.id
+    WHERE child.active = true
+)
+SELECT
+    p.id,
+    p.public_id,
+    p.category_id,
+    p.brand_id,
+    p.name,
+    p.model,
+    p.sku,
+    p.description,
+    p.active,
+    p.created_at,
+    p.updated_at,
+    b.name AS brand_name,
+    pc.name AS category_name,
+    parent.name AS parent_category_name,
+    COALESCE(prs.derived_average_rating, 0) AS rating,
+    COALESCE(prs.derived_review_count, 0) AS review_count
+FROM product p
+LEFT JOIN brand b ON b.id = p.brand_id
+JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
+LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
+WHERE p.active = true
+  AND p.category_id IN (SELECT id FROM subtree)
+ORDER BY p.id;
+
+
+-- name: ListProductReviews :many
+SELECT
+    r.id,
+    r.rating,
+    r.title,
+    r.content,
+    r.created_at,
+    u.name AS author_name,
+    u.email_verified AS author_verified
+FROM product_review r
+JOIN user_account u ON u.id = r.user_id
+WHERE r.product_id = $1
+ORDER BY r.created_at DESC, r.id DESC;
 
 
 -- name: CreateProduct :one
