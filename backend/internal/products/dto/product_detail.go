@@ -5,27 +5,24 @@ import (
 )
 
 type ProductDetail struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Brand       string         `json:"brand"`
-	Model       string         `json:"model"`
-	CategoryID  int32          `json:"categoryId"`
-	Category    string         `json:"category"`
-	Subcategory string         `json:"subcategory"`
-	Description string         `json:"description"`
-	Rating      float64        `json:"rating"`
-	ReviewCount int64          `json:"reviewCount"`
-	Images         []ProductImage         `json:"images"`
-	Offers         []ProductOffer         `json:"offers"`
-	Specifications []ProductSpecification `json:"specifications"`
+	ID                string            `json:"id"`
+	Name              string            `json:"name"`
+	Brand             string            `json:"brand"`
+	Model             string            `json:"model"`
+	Category          string            `json:"category"`
+	Description       string            `json:"description"`
+	Rating            float64           `json:"rating"`
+	ReviewCount       int64             `json:"reviewCount"`
+	Specs             map[string]string `json:"specs"`
+	Images            []ProductImage    `json:"images"`
+	Offers            []ProductOffer    `json:"offers"`
+	PriceHistory      []PricePoint      `json:"priceHistory"`
+	OfferPriceHistory []PricePoint      `json:"offerPriceHistory"`
 }
 
-type ProductSpecification struct {
-	Name       string `json:"name"`
-	Value      string `json:"value"`
-	Unit       string `json:"unit"`
-	DataType   string `json:"dataType"`
-	Comparable bool   `json:"comparable"`
+type PricePoint struct {
+	Date  string `json:"date"`
+	Price string `json:"price"`
 }
 
 type ProductImage struct {
@@ -75,34 +72,19 @@ func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail 
 	category, subcategory := splitCategory(product.CategoryName, product.ParentCategoryName)
 
 	return ProductDetail{
-		ID:          product.PublicID.String(),
-		Name:        product.Name,
-		Brand:       brand,
-		Model:       model,
-		CategoryID:  product.CategoryID,
-		Category:    category,
-		Subcategory: subcategory,
-		Description: description,
-		Rating:      rating,
-		ReviewCount: product.ReviewCount,
-		Images:         []ProductImage{},
-		Offers:         []ProductOffer{},
-		Specifications: []ProductSpecification{},
-	}
-}
-
-func FromProductSpecification(spec generated.ListProductSpecificationsRow) ProductSpecification {
-	var unit string
-	if spec.Unit.Valid {
-		unit = spec.Unit.String
-	}
-
-	return ProductSpecification{
-		Name:       spec.Name,
-		Value:      spec.Value,
-		Unit:       unit,
-		DataType:   spec.DataType,
-		Comparable: spec.Comparable,
+		ID:                product.PublicID.String(),
+		Name:              product.Name,
+		Brand:             brand,
+		Model:             model,
+		Category:          product.CategoryName,
+		Description:       description,
+		Rating:            rating,
+		ReviewCount:       product.ReviewCount,
+		Specs:             make(map[string]string),
+		Images:            []ProductImage{},
+		Offers:            []ProductOffer{},
+		PriceHistory:      []PricePoint{},
+		OfferPriceHistory: []PricePoint{},
 	}
 }
 

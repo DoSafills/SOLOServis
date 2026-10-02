@@ -374,3 +374,70 @@ RETURNING
     active,
     created_at,
     updated_at;
+-- name: UpdateProductByPublicID :one
+UPDATE product
+SET
+    category_id = $2,
+    brand_id = $3,
+    name = $4,
+    model = $5,
+    sku = $6,
+    description = $7,
+    updated_at = now()
+WHERE public_id = $1
+  AND active = true
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at;
+
+
+-- name: DeactivateProductByPublicID :one
+UPDATE product
+SET
+    active = false,
+    updated_at = now()
+WHERE public_id = $1
+  AND active = true
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at;
+
+-- name: ListProductSpecifications :many
+SELECT
+    pcs.name,
+    psv.value
+FROM product_specification_value psv
+JOIN product_category_specification pcs
+    ON pcs.id = psv.specification_id
+WHERE psv.product_id = $1
+ORDER BY pcs.display_order ASC, pcs.id ASC;
+
+
+-- name: ListProductPriceHistory :many
+SELECT
+    pph.recorded_at,
+    pph.price,
+    pph.is_promotional
+FROM product_price_history pph
+JOIN product_offer po
+    ON po.id = pph.product_offer_id
+WHERE po.product_id = $1
+ORDER BY pph.recorded_at ASC, pph.id ASC;

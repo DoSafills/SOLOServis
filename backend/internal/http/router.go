@@ -19,49 +19,13 @@ type HealthResponse struct {
 	Database string `json:"database"`
 }
 
-func NewRouter(db *pgxpool.Pool) *chi.Mux {
+func NewRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	r := chi.NewRouter()
-	addCORS(r)
 
-	registerHealth(r, db)
-	registerProductRoutes(r, db)
-	registerStoreRoutes(r, db)
-	registerServiceRoutes(r, db)
-
-	return r
-}
-
-func NewProductsRouter(db *pgxpool.Pool) *chi.Mux {
-	r := chi.NewRouter()
-	addCORS(r)
-	registerHealth(r, db)
-	registerProductRoutes(r, db)
-	return r
-}
-
-func NewStoresRouter(db *pgxpool.Pool) *chi.Mux {
-	r := chi.NewRouter()
-	addCORS(r)
-	registerHealth(r, db)
-	registerStoreRoutes(r, db)
-	return r
-}
-
-func NewServicesRouter(db *pgxpool.Pool) *chi.Mux {
-	r := chi.NewRouter()
-	addCORS(r)
-	registerHealth(r, db)
-	registerServiceRoutes(r, db)
-	return r
-}
-
-func addCORS(r *chi.Mux) {
-
-	// CORS
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "http://localhost:8443")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Origin", frontendURL)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
 			if req.Method == http.MethodOptions {
@@ -87,7 +51,6 @@ func registerProductRoutes(r *chi.Mux, db *pgxpool.Pool) {
 	r.Get("/categories", productHandler.ListCategories)
 	r.Get("/products", productHandler.List)
 	r.Get("/products/{publicID}", productHandler.GetByPublicID)
-	r.Get("/products/{publicID}/reviews", productHandler.ListReviews)
 }
 
 func registerStoreRoutes(r *chi.Mux, db *pgxpool.Pool) {
@@ -100,8 +63,16 @@ func registerStoreRoutes(r *chi.Mux, db *pgxpool.Pool) {
 func registerServiceRoutes(r *chi.Mux, db *pgxpool.Pool) {
 	serviceRepository := services.NewRepository(db)
 	serviceHandler := services.NewHandler(serviceRepository)
+
 	r.Get("/services", serviceHandler.List)
-	r.Get("/services/{publicID}", serviceHandler.Get)
+	r.Get("/services/{publicID}", serviceHandler.GetByPublicID)
+
+	storeRepository := stores.NewRepository(db)
+	storeHandler := stores.NewHandler(storeRepository)
+
+	r.Get("/stores", storeHandler.List)
+
+	return r
 }
 
 func healthHandler(w http.ResponseWriter, db *pgxpool.Pool) {

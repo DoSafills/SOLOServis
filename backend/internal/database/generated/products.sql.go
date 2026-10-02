@@ -116,6 +116,46 @@ func (q *Queries) DeactivateProduct(ctx context.Context, id int32) (Product, err
 	return i, err
 }
 
+const deactivateProductByPublicID = `-- name: DeactivateProductByPublicID :one
+UPDATE product
+SET
+    active = false,
+    updated_at = now()
+WHERE public_id = $1
+  AND active = true
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at
+`
+
+func (q *Queries) DeactivateProductByPublicID(ctx context.Context, publicID pgtype.UUID) (Product, error) {
+	row := q.db.QueryRow(ctx, deactivateProductByPublicID, publicID)
+	var i Product
+	err := row.Scan(
+		&i.ID,
+		&i.PublicID,
+		&i.CategoryID,
+		&i.BrandID,
+		&i.Name,
+		&i.Model,
+		&i.Sku,
+		&i.Description,
+		&i.Active,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getProductByID = `-- name: GetProductByID :one
 SELECT
     id,
@@ -415,49 +455,34 @@ func (q *Queries) ListProductOffers(ctx context.Context, productID int32) ([]Lis
 	return items, nil
 }
 
-const listProductReviews = `-- name: ListProductReviews :many
+const listProductPriceHistory = `-- name: ListProductPriceHistory :many
 SELECT
-    r.id,
-    r.rating,
-    r.title,
-    r.content,
-    r.created_at,
-    u.name AS author_name,
-    u.email_verified AS author_verified
-FROM product_review r
-JOIN user_account u ON u.id = r.user_id
-WHERE r.product_id = $1
-ORDER BY r.created_at DESC, r.id DESC
+    pph.recorded_at,
+    pph.price,
+    pph.is_promotional
+FROM product_price_history pph
+JOIN product_offer po
+    ON po.id = pph.product_offer_id
+WHERE po.product_id = $1
+ORDER BY pph.recorded_at ASC, pph.id ASC
 `
 
-type ListProductReviewsRow struct {
-	ID             int32            `json:"id"`
-	Rating         int32            `json:"rating"`
-	Title          pgtype.Text      `json:"title"`
-	Content        pgtype.Text      `json:"content"`
-	CreatedAt      pgtype.Timestamp `json:"created_at"`
-	AuthorName     string           `json:"author_name"`
-	AuthorVerified bool             `json:"author_verified"`
+type ListProductPriceHistoryRow struct {
+	RecordedAt    pgtype.Timestamp `json:"recorded_at"`
+	Price         pgtype.Numeric   `json:"price"`
+	IsPromotional bool             `json:"is_promotional"`
 }
 
-func (q *Queries) ListProductReviews(ctx context.Context, productID int32) ([]ListProductReviewsRow, error) {
-	rows, err := q.db.Query(ctx, listProductReviews, productID)
+func (q *Queries) ListProductPriceHistory(ctx context.Context, productID int32) ([]ListProductPriceHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listProductPriceHistory, productID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListProductReviewsRow
+	var items []ListProductPriceHistoryRow
 	for rows.Next() {
-		var i ListProductReviewsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Rating,
-			&i.Title,
-			&i.Content,
-			&i.CreatedAt,
-			&i.AuthorName,
-			&i.AuthorVerified,
-		); err != nil {
+		var i ListProductPriceHistoryRow
+		if err := rows.Scan(&i.RecordedAt, &i.Price, &i.IsPromotional); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -470,27 +495,18 @@ func (q *Queries) ListProductReviews(ctx context.Context, productID int32) ([]Li
 
 const listProductSpecifications = `-- name: ListProductSpecifications :many
 SELECT
-    pcs.id AS specification_id,
     pcs.name,
-    pcs.data_type,
-    pcs.unit,
-    pcs.comparable,
-    pcs.display_order,
     psv.value
 FROM product_specification_value psv
-JOIN product_category_specification pcs ON pcs.id = psv.specification_id
+JOIN product_category_specification pcs
+    ON pcs.id = psv.specification_id
 WHERE psv.product_id = $1
 ORDER BY pcs.display_order ASC, pcs.id ASC
 `
 
 type ListProductSpecificationsRow struct {
-	SpecificationID int32       `json:"specification_id"`
-	Name            string      `json:"name"`
-	DataType        string      `json:"data_type"`
-	Unit            pgtype.Text `json:"unit"`
-	Comparable      bool        `json:"comparable"`
-	DisplayOrder    int32       `json:"display_order"`
-	Value           string      `json:"value"`
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 func (q *Queries) ListProductSpecifications(ctx context.Context, productID int32) ([]ListProductSpecificationsRow, error) {
@@ -502,15 +518,7 @@ func (q *Queries) ListProductSpecifications(ctx context.Context, productID int32
 	var items []ListProductSpecificationsRow
 	for rows.Next() {
 		var i ListProductSpecificationsRow
-		if err := rows.Scan(
-			&i.SpecificationID,
-			&i.Name,
-			&i.DataType,
-			&i.Unit,
-			&i.Comparable,
-			&i.DisplayOrder,
-			&i.Value,
-		); err != nil {
+		if err := rows.Scan(&i.Name, &i.Value); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -737,6 +745,69 @@ type UpdateProductParams struct {
 func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (Product, error) {
 	row := q.db.QueryRow(ctx, updateProduct,
 		arg.ID,
+		arg.CategoryID,
+		arg.BrandID,
+		arg.Name,
+		arg.Model,
+		arg.Sku,
+		arg.Description,
+	)
+	var i Product
+	err := row.Scan(
+		&i.ID,
+		&i.PublicID,
+		&i.CategoryID,
+		&i.BrandID,
+		&i.Name,
+		&i.Model,
+		&i.Sku,
+		&i.Description,
+		&i.Active,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateProductByPublicID = `-- name: UpdateProductByPublicID :one
+UPDATE product
+SET
+    category_id = $2,
+    brand_id = $3,
+    name = $4,
+    model = $5,
+    sku = $6,
+    description = $7,
+    updated_at = now()
+WHERE public_id = $1
+  AND active = true
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at
+`
+
+type UpdateProductByPublicIDParams struct {
+	PublicID    pgtype.UUID `json:"public_id"`
+	CategoryID  int32       `json:"category_id"`
+	BrandID     pgtype.Int4 `json:"brand_id"`
+	Name        string      `json:"name"`
+	Model       pgtype.Text `json:"model"`
+	Sku         pgtype.Text `json:"sku"`
+	Description pgtype.Text `json:"description"`
+}
+
+func (q *Queries) UpdateProductByPublicID(ctx context.Context, arg UpdateProductByPublicIDParams) (Product, error) {
+	row := q.db.QueryRow(ctx, updateProductByPublicID,
+		arg.PublicID,
 		arg.CategoryID,
 		arg.BrandID,
 		arg.Name,

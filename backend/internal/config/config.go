@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Port        string
 	DatabaseURL string
+	FrontendURL string
 }
 
 // Load es para el servidor combinado (cmd/server): respeta PORT del .env,
@@ -45,5 +46,15 @@ func resolveDatabaseURL() string {
 	if databaseURL == "" {
 		databaseURL = "postgres://postgres:postgres@localhost:5432/soloservis"
 	}
-	return databaseURL
+
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:5173"
+	}
+
+	return Config{
+		Port:        port,
+		DatabaseURL: databaseURL,
+		FrontendURL: frontendURL,
+	}
 }

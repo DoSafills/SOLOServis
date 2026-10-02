@@ -20,7 +20,8 @@ export type Page =
   | {
       id: "favorites";
     }
-  | { id: "user" };
+  | { id: "user" }
+  | { id: "cart" };
 
 export interface StoreOffer {
   storeId: string;
@@ -60,6 +61,11 @@ export interface Product {
   tags: string[];
 }
 
+
+export interface CartItem {
+  product: Product;
+  quantity: number;
+}
 export interface Service {
   id: string;
   name: string;
@@ -91,3 +97,5 @@ export interface Store {
   conditions: string;
   website: string;
 }
+
+

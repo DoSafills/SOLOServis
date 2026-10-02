@@ -5,17 +5,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type CreatedProduct struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	ImageURL string `json:"imageUrl"`
+}
+
 type ProductListItem struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Brand       string  `json:"brand"`
-	Model       string  `json:"model"`
-	CategoryID  int32   `json:"categoryId"`
-	Category    string  `json:"category"`
-	Subcategory string  `json:"subcategory"`
-	Description string  `json:"description"`
-	Rating      float64 `json:"rating"`
-	ReviewCount int64   `json:"reviewCount"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Brand       string         `json:"brand"`
+	Model       string         `json:"model"`
+	Category    string         `json:"category"`
+	Description string         `json:"description"`
+	Rating      float64        `json:"rating"`
+	ReviewCount int64          `json:"reviewCount"`
+	Images      []ProductImage `json:"images"`
+	Offers      []ProductOffer `json:"offers"`
 }
 
 // splitCategory devuelve (categoría, subcategoría). Si la categoría del producto
@@ -64,22 +70,7 @@ func FromListProduct(row generated.ListProductsRow) ProductListItem {
 		Description: description,
 		Rating:      rating,
 		ReviewCount: row.ReviewCount,
+		Images:      []ProductImage{},
+		Offers:      []ProductOffer{},
 	}
-}
-
-// FromListProductByCategory mapea la fila del listado filtrado por categoría,
-// que tiene las mismas columnas que ListProducts.
-func FromListProductByCategory(row generated.ListProductsByCategoryRow) ProductListItem {
-	return FromListProduct(generated.ListProductsRow{
-		PublicID:           row.PublicID,
-		Name:               row.Name,
-		Model:              row.Model,
-		Description:        row.Description,
-		BrandName:          row.BrandName,
-		CategoryID:         row.CategoryID,
-		CategoryName:       row.CategoryName,
-		ParentCategoryName: row.ParentCategoryName,
-		Rating:             row.Rating,
-		ReviewCount:        row.ReviewCount,
-	})
 }
