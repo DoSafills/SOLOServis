@@ -25,6 +25,24 @@ interface ApiPricePoint {
   price: string;
 }
 
+export interface ApiProductCategory {
+  id: number;
+  /** null en las categorías raíz */
+  parentId: number | null;
+  name: string;
+  description: string;
+}
+
+export interface ApiProductReview {
+  author: string;
+  /** El autor confirmó su email. No indica que haya comprado el producto. */
+  authorVerified: boolean;
+  rating: number;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
 export interface ApiProduct {
   id: string;
   name: string;
@@ -81,8 +99,9 @@ export const toProduct = (product: ApiProduct): Product => {
     name: product.name,
     brand: product.brand,
     model: product.model,
+    categoryId: product.categoryId,
     category: product.category,
-    subcategory: "",
+    subcategory: product.subcategory ?? "",
     image: images[0] ?? "",
     images,
     description: product.description,
@@ -97,11 +116,33 @@ export const toProduct = (product: ApiProduct): Product => {
   };
 };
 
-export async function getProducts(): Promise<ApiProduct[]> {
-  const response = await fetch(`${API_URL}/products`);
+/** Filtrar por una categoría incluye los productos de sus subcategorías. */
+export async function getProducts(categoryId?: number): Promise<ApiProduct[]> {
+  const query = categoryId ? `?category=${categoryId}` : "";
+  const response = await fetch(`${API_URL}/products${query}`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch products: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getCategories(): Promise<ApiProductCategory[]> {
+  const response = await fetch(`${API_URL}/categories`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch categories: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getProductReviews(id: string): Promise<ApiProductReview[]> {
+  const response = await fetch(`${API_URL}/products/${id}/reviews`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch reviews: ${response.status}`);
   }
 
   return response.json();

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Page, Product } from "../types";
+import type { Page, Product } from "../../types";
 import { getProductById } from "../../services/api/api";
 import { formatPrice, getMinPrice } from "../../services/utils/productUtils";
 import { Breadcrumb, Badge } from "../../components/common/ui";
@@ -8,22 +8,6 @@ interface Props {
   productIds: string[];
   navigate: (page: Page) => void;
 }
-
-const specRows = [
-  "VRAM",
-  "Arquitectura",
-  "N+Â¦cleos CUDA",
-  "Stream Processors",
-  "Bus de memoria",
-  "TDP",
-  "Garant+Â¡a",
-  "Conectores",
-  "Procesador",
-  "RAM",
-  "Almacenamiento",
-  "Pantalla",
-  "Sistema operativo",
-];
 
 export default function ProductComparisonPage({ productIds, navigate }: Props) {
   const [selected, setSelected] = useState<Product[]>([]);
@@ -103,7 +87,8 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
   const minPrices = selected.map((p) => getMinPrice(p));
   const lowestPrice = Math.min(...minPrices);
 
-  const allSpecKeys = specRows.filter((key) => selected.some((p) => p.specs[key] !== undefined));
+  // Filas dinámicas: unión de las especificaciones de los productos seleccionados.
+  const allSpecKeys = [...new Set(selected.flatMap((p) => Object.keys(p.specs)))];
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">

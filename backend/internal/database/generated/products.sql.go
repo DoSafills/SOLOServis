@@ -493,6 +493,59 @@ func (q *Queries) ListProductPriceHistory(ctx context.Context, productID int32) 
 	return items, nil
 }
 
+const listProductReviews = `-- name: ListProductReviews :many
+SELECT
+    r.id,
+    r.rating,
+    r.title,
+    r.content,
+    r.created_at,
+    u.name AS author_name,
+    u.email_verified AS author_verified
+FROM product_review r
+JOIN user_account u ON u.id = r.user_id
+WHERE r.product_id = $1
+ORDER BY r.created_at DESC, r.id DESC
+`
+
+type ListProductReviewsRow struct {
+	ID             int32            `json:"id"`
+	Rating         int32            `json:"rating"`
+	Title          pgtype.Text      `json:"title"`
+	Content        pgtype.Text      `json:"content"`
+	CreatedAt      pgtype.Timestamp `json:"created_at"`
+	AuthorName     string           `json:"author_name"`
+	AuthorVerified bool             `json:"author_verified"`
+}
+
+func (q *Queries) ListProductReviews(ctx context.Context, productID int32) ([]ListProductReviewsRow, error) {
+	rows, err := q.db.Query(ctx, listProductReviews, productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductReviewsRow
+	for rows.Next() {
+		var i ListProductReviewsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Rating,
+			&i.Title,
+			&i.Content,
+			&i.CreatedAt,
+			&i.AuthorName,
+			&i.AuthorVerified,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProductSpecifications = `-- name: ListProductSpecifications :many
 SELECT
     pcs.name,

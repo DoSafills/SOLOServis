@@ -25,6 +25,7 @@ func Load() Config {
 	return Config{
 		Port:        port,
 		DatabaseURL: resolveDatabaseURL(),
+		FrontendURL: resolveFrontendURL(),
 	}
 }
 
@@ -38,6 +39,7 @@ func LoadForPort(defaultPort string) Config {
 	return Config{
 		Port:        defaultPort,
 		DatabaseURL: resolveDatabaseURL(),
+		FrontendURL: resolveFrontendURL(),
 	}
 }
 
@@ -47,14 +49,14 @@ func resolveDatabaseURL() string {
 		databaseURL = "postgres://postgres:postgres@localhost:5432/soloservis"
 	}
 
+	return databaseURL
+}
+
+func resolveFrontendURL() string {
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
 		frontendURL = "http://localhost:5173"
 	}
 
-	return Config{
-		Port:        port,
-		DatabaseURL: databaseURL,
-		FrontendURL: frontendURL,
-	}
+	return frontendURL
 }

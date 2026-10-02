@@ -16,7 +16,9 @@ type ProductListItem struct {
 	Name        string         `json:"name"`
 	Brand       string         `json:"brand"`
 	Model       string         `json:"model"`
+	CategoryID  int32          `json:"categoryId"`
 	Category    string         `json:"category"`
+	Subcategory string         `json:"subcategory"`
 	Description string         `json:"description"`
 	Rating      float64        `json:"rating"`
 	ReviewCount int64          `json:"reviewCount"`
@@ -73,4 +75,21 @@ func FromListProduct(row generated.ListProductsRow) ProductListItem {
 		Images:      []ProductImage{},
 		Offers:      []ProductOffer{},
 	}
+}
+
+// FromListProductByCategory mapea la fila del listado filtrado por categoría,
+// que tiene las mismas columnas que ListProducts.
+func FromListProductByCategory(row generated.ListProductsByCategoryRow) ProductListItem {
+	return FromListProduct(generated.ListProductsRow{
+		PublicID:           row.PublicID,
+		Name:               row.Name,
+		Model:              row.Model,
+		Description:        row.Description,
+		BrandName:          row.BrandName,
+		CategoryID:         row.CategoryID,
+		CategoryName:       row.CategoryName,
+		ParentCategoryName: row.ParentCategoryName,
+		Rating:             row.Rating,
+		ReviewCount:        row.ReviewCount,
+	})
 }

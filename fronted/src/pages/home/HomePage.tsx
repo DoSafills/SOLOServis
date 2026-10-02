@@ -3,18 +3,10 @@ import { UI_TEXT } from "../../constants/uiText";
 import type { Page, Product } from "../../types";
 
 import { getProducts, getServices } from "../../services/api/api";
+import { getCategories, type ApiProductCategory } from "../../services/api/products";
 import ProductCard from "../../components/products/ProductCard";
 import ServiceCard from "../../components/services/ServiceCard";
 
-
-const productCategories = [
-  { name: UI_TEXT.categories.technology, icon: "⚡", color: "#E8001B" },
-  { name: UI_TEXT.categories.computing, icon: "💻", color: "#818CF8" },
-  { name: UI_TEXT.categories.phones, icon: "📱", color: "#F472B6" },
-  { name: UI_TEXT.categories.appliances, icon: "🏠", color: "#FB923C" },
-  { name: UI_TEXT.categories.gaming, icon: "🎮", color: "#A78BFA" },
-  { name: UI_TEXT.categories.home, icon: "🛋️", color: "#34D399" },
-];
 
 const serviceCategories = [
   { name: UI_TEXT.categories.internet, icon: "🌐", color: "#F472B6" },
@@ -41,6 +33,7 @@ export default function HomePage({
 
   const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<import("../../types").Service[]>([]);
+  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
 
   useEffect(() => {
     Promise.all([getProducts(), getServices()])
@@ -49,7 +42,15 @@ export default function HomePage({
         setServices(services);
       })
       .catch(console.error);
+
+    getCategories().then(setCategories).catch(console.error);
   }, []);
+
+  // Las categorías raíz (sin padre) son las que se muestran en la portada;
+  // debajo de cada una se listan sus subcategorías.
+  const rootCategories = categories.filter((cat) => cat.parentId === null);
+  const subcategoriesOf = (parentId: number) =>
+    categories.filter((cat) => cat.parentId === parentId);
 
   const featuredProducts = products.slice(0, 4);
 

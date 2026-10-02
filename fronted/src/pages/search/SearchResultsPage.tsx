@@ -1,6 +1,11 @@
 ﻿import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getProducts, toProduct } from "../../services/api/products";
+import {
+  getCategories,
+  getProducts,
+  toProduct,
+  type ApiProductCategory,
+} from "../../services/api/products";
 import ProductCard from "../../components/products/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
 
@@ -34,12 +39,29 @@ export default function SearchResultsPage({
   const [page, setPage] = useState(1);
   const PER_PAGE = 6;
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
+  // null = todas las categorías. El backend incluye las subcategorías del id elegido.
+  const [selectedCategory, setSelectedCategory] = useState<number | null>(categoryId ?? null);
 
   useEffect(() => {
-    getProducts()
+    setSelectedCategory(categoryId ?? null);
+  }, [categoryId]);
+
+  useEffect(() => {
+    getCategories().then(setCategories).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    setPage(1);
+    getProducts(selectedCategory ?? undefined)
       .then((result) => setProducts(result.map(toProduct)))
       .catch(console.error);
-  }, []);
+  }, [selectedCategory]);
+
+  const rootCategories = categories.filter((cat) => cat.parentId === null);
+  const subcategoriesOf = (parentId: number) =>
+    categories.filter((cat) => cat.parentId === parentId);
+  const selectedCategoryName = categories.find((cat) => cat.id === selectedCategory)?.name ?? "";
 
   const brands = [...new Set(products.map((p) => p.brand))];
 

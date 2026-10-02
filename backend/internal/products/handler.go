@@ -63,7 +63,7 @@ func isHTTPURL(value string) bool {
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	products, err := h.listProducts(r)
+	listed, err := h.listProducts(r)
 	if err != nil {
 		if errors.Is(err, errInvalidCategory) {
 			http.Error(w, "invalid category id", http.StatusBadRequest)
@@ -74,12 +74,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	products := make([]dto.ProductListItem, 0, len(rows))
+	products := make([]dto.ProductListItem, 0, len(listed))
 
-	for _, row := range rows {
-		product := dto.FromListProduct(row)
+	for _, entry := range listed {
+		product := entry.item
 
-		images, err := h.repository.ListImages(r.Context(), row.ID)
+		images, err := h.repository.ListImages(r.Context(), entry.id)
 		if err != nil {
 			http.Error(w, "failed to load product images", http.StatusInternalServerError)
 			return
@@ -89,7 +89,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			product.Images = append(product.Images, dto.FromProductImage(image))
 		}
 
-		offers, err := h.repository.ListOffers(r.Context(), row.ID)
+		offers, err := h.repository.ListOffers(r.Context(), entry.id)
 		if err != nil {
 			http.Error(w, "failed to load product offers", http.StatusInternalServerError)
 			return
@@ -111,9 +111,16 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 var errInvalidCategory = errors.New("invalid category id")
 
+// listedProduct conserva el id interno del producto para poder cargar sus
+// imágenes y ofertas sin exponerlo en la respuesta.
+type listedProduct struct {
+	id   int32
+	item dto.ProductListItem
+}
+
 // listProducts devuelve el catálogo completo o, si viene ?category=<id>,
 // los productos de esa categoría y de todas sus subcategorías.
-func (h *Handler) listProducts(r *http.Request) ([]dto.ProductListItem, error) {
+func (h *Handler) listProducts(r *http.Request) ([]listedProduct, error) {
 	category := r.URL.Query().Get("category")
 
 	if category == "" {
@@ -122,9 +129,9 @@ func (h *Handler) listProducts(r *http.Request) ([]dto.ProductListItem, error) {
 			return nil, err
 		}
 
-		products := make([]dto.ProductListItem, 0, len(rows))
+		products := make([]listedProduct, 0, len(rows))
 		for _, row := range rows {
-			products = append(products, dto.FromListProduct(row))
+			products = append(products, listedProduct{id: row.ID, item: dto.FromListProduct(row)})
 		}
 
 		return products, nil
@@ -140,9 +147,9 @@ func (h *Handler) listProducts(r *http.Request) ([]dto.ProductListItem, error) {
 		return nil, err
 	}
 
-	products := make([]dto.ProductListItem, 0, len(rows))
+	products := make([]listedProduct, 0, len(rows))
 	for _, row := range rows {
-		products = append(products, dto.FromListProductByCategory(row))
+		products = append(products, listedProduct{id: row.ID, item: dto.FromListProductByCategory(row)})
 	}
 
 	return products, nil

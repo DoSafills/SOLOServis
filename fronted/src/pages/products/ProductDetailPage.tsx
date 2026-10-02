@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getProductById } from "../../services/api/products";
+import {
+  getProductById,
+  getProductReviews,
+  type ApiProductReview,
+} from "../../services/api/products";
 import { formatPrice } from "../../services/utils/productUtils";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
@@ -49,6 +53,15 @@ export default function ProductDetailPage({
           setLoading(false);
         }
       });
+
+    // Si fallan las reseñas, la ficha del producto se muestra igual.
+    getProductReviews(productId)
+      .then((result) => {
+        if (!cancelled) {
+          setReviews(result);
+        }
+      })
+      .catch(console.error);
 
     return () => {
       cancelled = true;
