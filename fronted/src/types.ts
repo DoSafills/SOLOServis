@@ -1,6 +1,6 @@
 export type Page =
   | { id: "home" }
-  | { id: "search-products"; query: string }
+  | { id: "search-products"; query: string; categoryId?: number }
   | {
       id: "product-detail";
       productId: string;
@@ -20,7 +20,8 @@ export type Page =
   | {
       id: "favorites";
     }
-  | { id: "user" };
+  | { id: "user" }
+  | { id: "cart" };
 
 export interface StoreOffer {
   storeId: string;
@@ -41,6 +42,8 @@ export interface Product {
   name: string;
   brand: string;
   model: string;
+  /** Id de la categoría del producto en el backend (la subcategoría si la tiene) */
+  categoryId?: number;
   category: string;
   subcategory: string;
   image: string;
@@ -58,6 +61,11 @@ export interface Product {
   tags: string[];
 }
 
+
+export interface CartItem {
+  product: Product;
+  quantity: number;
+}
 export interface Service {
   id: string;
   name: string;
@@ -89,3 +97,5 @@ export interface Store {
   conditions: string;
   website: string;
 }
+
+

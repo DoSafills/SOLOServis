@@ -1,0 +1,10 @@
+{
+  "description": "Transform text documents into visually appealing presentations with ease, ideal for professionals and students seeking to enhance their visual communication.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

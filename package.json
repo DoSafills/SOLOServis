@@ -27,5 +27,8 @@
   },
   "scripts": {
     "prepare": "husky"
+  },
+  "dependencies": {
+    "psql": "^0.0.1"
   }
 }
