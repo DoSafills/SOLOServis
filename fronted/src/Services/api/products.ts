@@ -1,4 +1,4 @@
-﻿import type { Product, PricePoint } from "../../types";
+import type { Product, PricePoint } from "../../types";
 
 interface ApiImage {
   url: string;
@@ -25,12 +25,32 @@ interface ApiPricePoint {
   price: string;
 }
 
+export interface ApiProductCategory {
+  id: number;
+  /** null en las categorías raíz */
+  parentId: number | null;
+  name: string;
+  description: string;
+}
+
+export interface ApiProductReview {
+  author: string;
+  /** El autor confirmó su email. No indica que haya comprado el producto. */
+  authorVerified: boolean;
+  rating: number;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
 export interface ApiProduct {
   id: string;
   name: string;
   brand: string;
   model: string;
+  categoryId: number;
   category: string;
+  subcategory: string;
   description: string;
   rating: number;
   reviewCount: number;
@@ -39,25 +59,6 @@ export interface ApiProduct {
   offers?: ApiOffer[];
   priceHistory?: ApiPricePoint[];
   offerPriceHistory?: ApiPricePoint[];
-}
-
-export interface ProductComparisonScore {
-  productId: string;
-  score: number;
-  reasons: string[];
-}
-
-export interface ProductComparisonRecommendation {
-  winnerIds: string[];
-  isTie: boolean;
-  score: number;
-  totalCriteria: number;
-  scores: ProductComparisonScore[];
-}
-
-export interface ProductComparison {
-  products: Product[];
-  recommendation: ProductComparisonRecommendation;
 }
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
@@ -74,17 +75,7 @@ const toPricePoints = (points: ApiPricePoint[] | undefined): PricePoint[] =>
   }));
 
 export const toProduct = (product: ApiProduct): Product => {
-  const images = (product.images ?? [])
-    .map((image) => image.url)
-    .filter((url) => {
-      if (!url) return false;
-      try {
-        const hostname = new URL(url).hostname;
-        return hostname !== "example.com" && !hostname.endsWith(".example.com");
-      } catch {
-        return true;
-      }
-    });
+  const images = (product.images ?? []).map((image) => image.url).filter(Boolean);
 
   const offers = (product.offers ?? []).map((offer) => ({
     storeId: String(offer.storeId),
@@ -108,8 +99,9 @@ export const toProduct = (product: ApiProduct): Product => {
     name: product.name,
     brand: product.brand,
     model: product.model,
+    categoryId: product.categoryId,
     category: product.category,
-    subcategory: "",
+    subcategory: product.subcategory ?? "",
     image: images[0] ?? "",
     images,
     description: product.description,
@@ -124,11 +116,33 @@ export const toProduct = (product: ApiProduct): Product => {
   };
 };
 
-export async function getProducts(): Promise<ApiProduct[]> {
-  const response = await fetch(`${API_URL}/products`);
+/** Filtrar por una categoría incluye los productos de sus subcategorías. */
+export async function getProducts(categoryId?: number): Promise<ApiProduct[]> {
+  const query = categoryId ? `?category=${categoryId}` : "";
+  const response = await fetch(`${API_URL}/products${query}`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch products: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getCategories(): Promise<ApiProductCategory[]> {
+  const response = await fetch(`${API_URL}/categories`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch categories: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getProductReviews(id: string): Promise<ApiProductReview[]> {
+  const response = await fetch(`${API_URL}/products/${id}/reviews`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch reviews: ${response.status}`);
   }
 
   return response.json();
@@ -144,24 +158,5 @@ export async function getProductById(id: string): Promise<Product | null> {
   }
 
   return toProduct((await response.json()) as ApiProduct);
-}
-
-export async function getProductComparison(ids: string[]): Promise<ProductComparison> {
-  const query = new URLSearchParams({ ids: ids.join(",") });
-  const response = await fetch(`${API_URL}/products/compare?${query}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to compare products: ${response.status}`);
-  }
-
-  const comparison = (await response.json()) as {
-    products: ApiProduct[];
-    recommendation: ProductComparisonRecommendation;
-  };
-
-  return {
-    products: comparison.products.map(toProduct),
-    recommendation: comparison.recommendation,
-  };
 }
 

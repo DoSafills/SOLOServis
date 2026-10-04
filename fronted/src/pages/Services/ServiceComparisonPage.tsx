@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServiceById } from "../../services/api/api";
 import { formatPrice } from "../../services/utils/productUtils";

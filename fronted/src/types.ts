@@ -1,6 +1,6 @@
 export type Page =
   | { id: "home" }
-  | { id: "search-products"; query: string; category?: MacroCategory }
+  | { id: "search-products"; query: string; categoryId?: number }
   | {
       id: "product-detail";
       productId: string;
@@ -23,14 +23,6 @@ export type Page =
   | { id: "user" }
   | { id: "cart" };
 
-export type MacroCategory =
-  | "tecnologia"
-  | "computacion"
-  | "celulares"
-  | "electrodomesticos"
-  | "gaming"
-  | "hogar";
-
 export interface StoreOffer {
   storeId: string;
   storeName: string;
@@ -50,6 +42,8 @@ export interface Product {
   name: string;
   brand: string;
   model: string;
+  /** Id de la categoría del producto en el backend (la subcategoría si la tiene) */
+  categoryId?: number;
   category: string;
   subcategory: string;
   image: string;

@@ -66,18 +66,23 @@ func isHTTPURL(value string) bool {
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.repository.List(r.Context())
+	listed, err := h.listProducts(r)
 	if err != nil {
+		if errors.Is(err, errInvalidCategory) {
+			http.Error(w, "invalid category id", http.StatusBadRequest)
+			return
+		}
+
 		http.Error(w, "failed to list products", http.StatusInternalServerError)
 		return
 	}
 
-	products := make([]dto.ProductListItem, 0, len(rows))
+	products := make([]dto.ProductListItem, 0, len(listed))
 
-	for _, row := range rows {
-		product := dto.FromListProduct(row)
+	for _, entry := range listed {
+		product := entry.item
 
-		images, err := h.repository.ListImages(r.Context(), row.ID)
+		images, err := h.repository.ListImages(r.Context(), entry.id)
 		if err != nil {
 			http.Error(w, "failed to load product images", http.StatusInternalServerError)
 			return
@@ -87,7 +92,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			product.Images = append(product.Images, dto.FromProductImage(image))
 		}
 
-		offers, err := h.repository.ListOffers(r.Context(), row.ID)
+		offers, err := h.repository.ListOffers(r.Context(), entry.id)
 		if err != nil {
 			http.Error(w, "failed to load product offers", http.StatusInternalServerError)
 			return
@@ -103,6 +108,105 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(products); err != nil {
+		return
+	}
+}
+
+var errInvalidCategory = errors.New("invalid category id")
+
+// listedProduct conserva el id interno del producto para poder cargar sus
+// imágenes y ofertas sin exponerlo en la respuesta.
+type listedProduct struct {
+	id   int32
+	item dto.ProductListItem
+}
+
+// listProducts devuelve el catálogo completo o, si viene ?category=<id>,
+// los productos de esa categoría y de todas sus subcategorías.
+func (h *Handler) listProducts(r *http.Request) ([]listedProduct, error) {
+	category := r.URL.Query().Get("category")
+
+	if category == "" {
+		rows, err := h.repository.List(r.Context())
+		if err != nil {
+			return nil, err
+		}
+
+		products := make([]listedProduct, 0, len(rows))
+		for _, row := range rows {
+			products = append(products, listedProduct{id: row.ID, item: dto.FromListProduct(row)})
+		}
+
+		return products, nil
+	}
+
+	categoryID, err := strconv.ParseInt(category, 10, 32)
+	if err != nil || categoryID <= 0 {
+		return nil, errInvalidCategory
+	}
+
+	rows, err := h.repository.ListByCategory(r.Context(), int32(categoryID))
+	if err != nil {
+		return nil, err
+	}
+
+	products := make([]listedProduct, 0, len(rows))
+	for _, row := range rows {
+		products = append(products, listedProduct{id: row.ID, item: dto.FromListProductByCategory(row)})
+	}
+
+	return products, nil
+}
+
+func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.repository.ListCategories(r.Context())
+	if err != nil {
+		http.Error(w, "failed to list categories", http.StatusInternalServerError)
+		return
+	}
+
+	categories := make([]dto.ProductCategory, 0, len(rows))
+	for _, row := range rows {
+		categories = append(categories, dto.FromProductCategory(row))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(categories); err != nil {
+		return
+	}
+}
+
+func (h *Handler) ListReviews(w http.ResponseWriter, r *http.Request) {
+	publicID := chi.URLParam(r, "publicID")
+
+	var uuid pgtype.UUID
+
+	if err := uuid.Scan(publicID); err != nil {
+		http.Error(w, "invalid product id", http.StatusBadRequest)
+		return
+	}
+
+	product, err := h.repository.GetByPublicID(r.Context(), uuid)
+	if err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+
+	rows, err := h.repository.ListReviews(r.Context(), product.ID)
+	if err != nil {
+		http.Error(w, "failed to load product reviews", http.StatusInternalServerError)
+		return
+	}
+
+	reviews := make([]dto.ProductReview, 0, len(rows))
+	for _, row := range rows {
+		reviews = append(reviews, dto.FromProductReview(row))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(reviews); err != nil {
 		return
 	}
 }

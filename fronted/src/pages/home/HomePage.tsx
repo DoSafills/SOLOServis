@@ -1,20 +1,12 @@
 ﻿import { useEffect, useState } from "react";
 import { UI_TEXT } from "../../constants/uiText";
-import type { MacroCategory, Page, Product } from "../../types";
+import type { Page, Product } from "../../types";
 
 import { getProducts, getServices } from "../../services/api/api";
+import { getCategories, type ApiProductCategory } from "../../services/api/products";
 import ProductCard from "../../components/products/ProductCard";
 import ServiceCard from "../../components/services/ServiceCard";
 
-
-const productCategories: { category: MacroCategory; name: string; icon: string; color: string }[] = [
-  { category: "tecnologia", name: UI_TEXT.categories.technology, icon: "⚡", color: "#E8001B" },
-  { category: "computacion", name: UI_TEXT.categories.computing, icon: "💻", color: "#818CF8" },
-  { category: "celulares", name: UI_TEXT.categories.phones, icon: "📱", color: "#F472B6" },
-  { category: "electrodomesticos", name: UI_TEXT.categories.appliances, icon: "🏠", color: "#FB923C" },
-  { category: "gaming", name: UI_TEXT.categories.gaming, icon: "🎮", color: "#A78BFA" },
-  { category: "hogar", name: UI_TEXT.categories.home, icon: "🛋️", color: "#34D399" },
-];
 
 const serviceCategories = [
   { name: UI_TEXT.categories.internet, icon: "🌐", color: "#F472B6" },
@@ -41,11 +33,26 @@ export default function HomePage({
 
   const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<import("../../types").Service[]>([]);
+  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
 
   useEffect(() => {
-    getProducts().then(setProducts).catch(console.error);
-    getServices().then(setServices).catch(console.error);
+    Promise.all([getProducts(), getServices()])
+      .then(([products, services]) => {
+        setProducts(products);
+        setServices(services);
+      })
+      .catch(console.error);
+
+    getCategories().then(setCategories).catch(console.error);
   }, []);
+
+  // Las categorías raíz (sin padre) son las que se muestran en la portada;
+  // debajo de cada una se listan sus subcategorías.
+  const rootCategories = categories.filter((cat) => cat.parentId === null);
+  const subcategoriesOf = (parentId: number) =>
+    categories.filter((cat) => cat.parentId === parentId);
+
+  const featuredProducts = products.slice(0, 4);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +60,6 @@ export default function HomePage({
     navigate({ id: "search-products", query: query.trim() });
   };
 
-  const featuredProducts = products.slice(0, 4);
   const featuredServices = services.slice(0, 4);
 
   return (
@@ -173,16 +179,22 @@ export default function HomePage({
             </div>
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-            {productCategories.map((cat) => (
+            {rootCategories.map((cat) => (
               <button
-                key={cat.name}
-                onClick={() => navigate({ id: "search-products", query: "", category: cat.category })}
+                key={cat.id}
+                onClick={() =>
+                  navigate({ id: "search-products", query: "", categoryId: cat.id })
+                }
                 style={{ background: "#111111", border: "1px solid #2A2A2A" }}
                 className="flex flex-col items-center gap-2 p-4 rounded-2xl hover:border-prime hover:bg-prime-muted transition-all duration-200 group"
               >
-                <span className="text-2xl">{cat.icon}</span>
-                <span className="text-xs font-medium text-muted-2 group-hover:text-prime transition-colors">
+                <span className="text-xs font-semibold text-muted-2 group-hover:text-prime transition-colors">
                   {cat.name}
+                </span>
+                <span className="text-[10px] text-muted">
+                  {subcategoriesOf(cat.id)
+                    .map((sub) => sub.name)
+                    .join(" · ") || "Sin subcategorías"}
                 </span>
               </button>
             ))}
@@ -204,13 +216,13 @@ export default function HomePage({
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {featuredProducts.map((product) => (
+            {featuredProducts.map((p) => (
               <ProductCard
-                key={product.id}
-                product={product}
+                key={p.id}
+                product={p}
                 navigate={navigate}
-                isFavorite={favorites.has(product.id)}
-                isComparing={compareList.has(product.id)}
+                isFavorite={favorites.has(p.id)}
+                isComparing={compareList.has(p.id)}
                 onToggleFavorite={onToggleFavorite}
                 onToggleCompare={onToggleCompare}
               />
