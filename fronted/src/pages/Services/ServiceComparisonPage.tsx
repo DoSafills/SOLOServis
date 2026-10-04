@@ -9,23 +9,37 @@ interface Props {
   navigate: (page: Page) => void;
 }
 
-export default function ServiceComparisonPage({
-  serviceIds,
-  navigate,
-}: Props) {
-  const [selected, setSelected] = useState<Service[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
+  const requestKey = JSON.stringify(serviceIds);
+  const [result, setResult] = useState<{ requestKey: string; services: Service[] } | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
+    const currentRequestKey = JSON.stringify(serviceIds);
 
     Promise.all(serviceIds.map((id) => getServiceById(id)))
       .then((services) => {
-        setSelected(services.filter((service): service is Service => service !== null));
+        if (!cancelled) {
+          setResult({
+            requestKey: currentRequestKey,
+            services: services.filter((service): service is Service => service !== null),
+          });
+        }
       })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      .catch((error) => {
+        console.error(error);
+        if (!cancelled) {
+          setResult({ requestKey: currentRequestKey, services: [] });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [serviceIds]);
+
+  const loading = result?.requestKey !== requestKey;
+  const selected = result?.requestKey === requestKey ? result.services : [];
 
   if (loading) {
     return (
@@ -38,9 +52,7 @@ export default function ServiceComparisonPage({
   if (selected.length < 2) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted mb-4">
-          Selecciona al menos 2 servicios para comparar.
-        </p>
+        <p className="text-muted mb-4">Selecciona al menos 2 servicios para comparar.</p>
 
         <button
           onClick={() => navigate({ id: "search-services", query: "" })}
@@ -79,16 +91,12 @@ export default function ServiceComparisonPage({
     {
       key: "contract",
       label: "Permanencia",
-      getValue: (s) =>
-        s.contractMonths
-          ? `${s.contractMonths} meses`
-          : "Sin permanencia",
+      getValue: (s) => (s.contractMonths ? `${s.contractMonths} meses` : "Sin permanencia"),
     },
     {
       key: "rating",
       label: "Valoración",
-      getValue: (s) =>
-        `★ ${s.rating.toFixed(1)} (${s.reviewCount.toLocaleString("es-CL")})`,
+      getValue: (s) => `★ ${s.rating.toFixed(1)} (${s.reviewCount.toLocaleString("es-CL")})`,
     },
     {
       key: "coverage",
@@ -97,9 +105,7 @@ export default function ServiceComparisonPage({
     },
   ];
 
-  const specKeys = [
-    ...new Set(selected.flatMap((s) => Object.keys(s.specs))),
-  ];
+  const specKeys = [...new Set(selected.flatMap((s) => Object.keys(s.specs)))];
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -108,20 +114,15 @@ export default function ServiceComparisonPage({
           { label: "Inicio", onClick: () => navigate({ id: "home" }) },
           {
             label: "Servicios",
-            onClick: () =>
-              navigate({ id: "search-services", query: "" }),
+            onClick: () => navigate({ id: "search-services", query: "" }),
           },
           { label: "Comparación" },
         ]}
       />
 
-      <h1 className="text-2xl font-bold text-text mb-2">
-        Comparación de servicios
-      </h1>
+      <h1 className="text-2xl font-bold text-text mb-2">Comparación de servicios</h1>
 
-      <p className="text-sm text-muted mb-8">
-        Comparando {selected.length} servicios
-      </p>
+      <p className="text-sm text-muted mb-8">Comparando {selected.length} servicios</p>
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[520px]">
@@ -158,13 +159,9 @@ export default function ServiceComparisonPage({
                     </div>
 
                     <div>
-                      <div className="text-sm font-bold text-prime">
-                        {service.provider}
-                      </div>
+                      <div className="text-sm font-bold text-prime">{service.provider}</div>
 
-                      <div className="text-xs text-muted-2">
-                        {service.name}
-                      </div>
+                      <div className="text-xs text-muted-2">{service.name}</div>
                     </div>
 
                     <button
@@ -194,8 +191,7 @@ export default function ServiceComparisonPage({
               <tr
                 key={row.key}
                 style={{
-                  background:
-                    rowIndex % 2 === 0 ? "#0A0A0A" : "transparent",
+                  background: rowIndex % 2 === 0 ? "#0A0A0A" : "transparent",
                 }}
               >
                 <td
@@ -212,10 +208,8 @@ export default function ServiceComparisonPage({
                   const value = row.getValue(service);
 
                   const isBest =
-                    (row.key === "monthlyPrice" &&
-                      service.monthlyPrice === lowestPrice) ||
-                    (row.key === "rating" &&
-                      service.rating === highestRating);
+                    (row.key === "monthlyPrice" && service.monthlyPrice === lowestPrice) ||
+                    (row.key === "rating" && service.rating === highestRating);
 
                   return (
                     <td
@@ -227,9 +221,7 @@ export default function ServiceComparisonPage({
                       className="p-4 text-center"
                     >
                       <span
-                        className={`text-sm font-semibold ${
-                          isBest ? "text-prime" : "text-text"
-                        }`}
+                        className={`text-sm font-semibold ${isBest ? "text-prime" : "text-text"}`}
                       >
                         {value}
                       </span>
@@ -249,10 +241,7 @@ export default function ServiceComparisonPage({
               <tr
                 key={key}
                 style={{
-                  background:
-                    (rowIndex + compareRows.length) % 2 === 0
-                      ? "#0A0A0A"
-                      : "transparent",
+                  background: (rowIndex + compareRows.length) % 2 === 0 ? "#0A0A0A" : "transparent",
                 }}
               >
                 <td
@@ -275,9 +264,7 @@ export default function ServiceComparisonPage({
                     className="p-4 text-center"
                   >
                     <span className="text-sm text-text">
-                      {service.specs[key] ?? (
-                        <span className="text-muted">—</span>
-                      )}
+                      {service.specs[key] ?? <span className="text-muted">—</span>}
                     </span>
                   </td>
                 ))}
@@ -293,17 +280,10 @@ export default function ServiceComparisonPage({
               </td>
 
               {selected.map((service) => (
-                <td
-                  key={service.id}
-                  style={{ borderRight: "1px solid #1A1A1A" }}
-                  className="p-4"
-                >
+                <td key={service.id} style={{ borderRight: "1px solid #1A1A1A" }} className="p-4">
                   <ul className="space-y-1">
                     {service.benefits.map((benefit) => (
-                      <li
-                        key={benefit}
-                        className="flex items-center gap-1.5 text-xs text-muted-2"
-                      >
+                      <li key={benefit} className="flex items-center gap-1.5 text-xs text-muted-2">
                         <svg
                           width="10"
                           height="10"

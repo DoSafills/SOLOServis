@@ -1,57 +1,68 @@
-﻿-- =====================================================================
+-- =====================================================================
 -- SOLOServis - Datos de prueba
--- Se insertan datos mÃ­nimos y coherentes para validar relaciones,
--- claves forÃ¡neas y restricciones definidas en 001_schema.sql
+-- Se insertan datos mínimos y coherentes para validar relaciones,
+-- claves foráneas y restricciones definidas en 001_schema.sql
 -- =====================================================================
 
 -- USUARIOS
 INSERT INTO user_account (role, name, email, password_hash) VALUES
 ('admin',  'Ricardo Rios',   'ricardo.rios@soloservis.cl',   'hash_demo_1'),
 ('client', 'Camila Fuentes', 'camila.fuentes@example.com',   'hash_demo_2'),
-('client', 'Jorge MuÃ±oz',    'jorge.munoz@example.com',      'hash_demo_3');
+('client', 'Jorge Muñoz',    'jorge.munoz@example.com',      'hash_demo_3');
 
 -- MARCAS
 INSERT INTO brand (name, logo_url, website_url) VALUES
 ('Samsung', 'https://cdn.example.com/logos/samsung.png', 'https://samsung.com'),
 ('LG',      'https://cdn.example.com/logos/lg.png',      'https://lg.com');
 
--- CATEGORÃAS DE PRODUCTO (con jerarquÃ­a padre/hijo)
+-- CATEGORÍAS DE PRODUCTO (con jerarquía padre/hijo)
 INSERT INTO product_category (parent_category_id, name, description) VALUES
-(NULL, 'ElectrodomÃ©sticos', 'CategorÃ­a raÃ­z de electrodomÃ©sticos');
+(NULL, 'Electrodomésticos', 'Categoría raíz de electrodomésticos');
 
 INSERT INTO product_category (parent_category_id, name, description) VALUES
 (1, 'Refrigeradores', 'Refrigeradores y freezers');
 
--- ESPECIFICACIONES DE CATEGORÃA DE PRODUCTO
+-- ESPECIFICACIONES DE CATEGORÍA DE PRODUCTO
 INSERT INTO product_category_specification (category_id, name, data_type, unit, required, comparable, display_order) VALUES
 (2, 'Capacidad', 'number', 'litros', TRUE, TRUE, 1),
-(2, 'Eficiencia energÃ©tica', 'string', NULL, FALSE, TRUE, 2);
+(2, 'Eficiencia energética', 'string', NULL, FALSE, TRUE, 2);
 
 -- PRODUCTOS
 INSERT INTO product (category_id, brand_id, name, model, sku, description) VALUES
 (2, 1, 'Refrigerador Samsung No Frost', 'RT38K', 'SKU-SAMS-001', 'Refrigerador no frost de 380 litros'),
-(2, 2, 'Refrigerador LG Side by Side',  'GS65',  'SKU-LG-001',   'Refrigerador side by side de 550 litros');
+(2, 2, 'Refrigerador LG Side by Side',  'GS65',  'SKU-LG-001',   'Refrigerador side by side de 550 litros'),
+(2, 1, 'Samsung Refrigerator RF24FSEDBSR', 'RF24FSEDBSR', 'SKU-SAMS-002', 'Refrigerador Samsung French Door de gran capacidad'),
+(2, 2, 'LG Refrigerator 617.LT', '617LT', 'SKU-LG-002', 'Refrigerador LG Side by Side con dispensador');
 
 INSERT INTO product_image (product_id, image_url, alt_text, sort_order) VALUES
-(1, 'https://cdn.example.com/products/1/main.jpg', 'Refrigerador Samsung frontal', 0),
-(2, 'https://cdn.example.com/products/2/main.jpg', 'Refrigerador LG frontal', 0);
+(1, 'https://upload.wikimedia.org/wikipedia/commons/a/ab/A_Samsung_Refrigerator.jpg', 'Refrigerador Samsung frontal', 0),
+(2, 'https://upload.wikimedia.org/wikipedia/commons/3/35/LG_refrigerator.jpg', 'Refrigerador LG frontal', 0),
+(3, 'https://upload.wikimedia.org/wikipedia/commons/a/ab/A_Samsung_Refrigerator.jpg', 'Samsung Refrigerator RF24FSEDBSR', 0),
+(4, 'https://upload.wikimedia.org/wikipedia/commons/3/35/LG_refrigerator.jpg', 'LG Refrigerator 617.LT', 0);
 
 INSERT INTO product_specification_value (product_id, specification_id, value) VALUES
 (1, 1, '380'),
 (1, 2, 'A++'),
 (2, 1, '550'),
-(2, 2, 'A+++');
+(2, 2, 'A+++'),
+(3, 1, '550'),
+(3, 2, 'A+'),
+(4, 1, '617'),
+(4, 2, 'A+');
 
 -- TIENDAS
 INSERT INTO store (name, website_url, logo_url, rating, reputation, shipping_information, general_conditions) VALUES
-('Falabella', 'https://falabella.com', 'https://cdn.example.com/stores/falabella.png', 4.20, 'Buena', 'Envío en 3-5 días hábiles', 'Garantía de 12 meses'),
-('Paris',     'https://paris.cl',      'https://cdn.example.com/stores/paris.png',      4.00, 'Buena', 'Envío en 5-7 días hábiles', 'Garantía de 12 meses');
+('Falabella', 'https://falabella.com', 'https://www.falabella.com/static/site/common/Falabella-Chile.jpg', 4.20, 'Buena', 'Envío en 3-5 días hábiles', 'Garantía de 12 meses'),
+('Paris',     'https://paris.cl',      'https://www.paris.cl/images/icons/favicon-32x32.png',      4.00, 'Buena', 'Envío en 5-7 días hábiles', 'Garantía de 12 meses');
 
 -- OFERTAS DE PRODUCTO
 INSERT INTO product_offer (product_id, store_id, price, list_price, currency, shipping_cost, shipping_free, available, stock, condition, product_url) VALUES
 (1, 1, 549990, 599990, 'CLP', 0,    TRUE,  TRUE, 15, 'new', 'https://falabella.com/producto/1'),
 (1, 2, 559990, 559990, 'CLP', 5990, FALSE, TRUE, 8,  'new', 'https://paris.cl/producto/1'),
-(2, 1, 899990, 949990, 'CLP', 0,    TRUE,  TRUE, 5,  'new', 'https://falabella.com/producto/2');
+(2, 1, 899990, 949990, 'CLP', 0,    TRUE,  TRUE, 5,  'new', 'https://falabella.com/producto/2'),
+(3, 1, 1099990, 1199990, 'CLP', 0,    TRUE,  TRUE, 6, 'new', 'https://falabella.com/producto/3'),
+(3, 2, 1149990, 1199990, 'CLP', 5990, FALSE, TRUE, 4, 'new', 'https://paris.cl/producto/3'),
+(4, 2, 1299990, 1399990, 'CLP', 0,    TRUE,  TRUE, 3, 'new', 'https://paris.cl/producto/4');
 
 -- HISTORIAL DE PRECIOS
 INSERT INTO product_price_history (product_offer_id, price, is_promotional, recorded_at) VALUES
@@ -68,25 +79,25 @@ INSERT INTO product_comparison_item (comparison_id, product_id, position) VALUES
 (1, 1, 0),
 (1, 2, 1);
 
--- INTERÃ‰S DE USUARIO EN PRODUCTOS (favoritos / alertas de precio)
+-- INTERÉS DE USUARIO EN PRODUCTOS (favoritos / alertas de precio)
 INSERT INTO product_user_interest (user_id, product_id, target_price, notify_price_drop, is_favorite) VALUES
 (2, 1, 500000, TRUE, TRUE),
 (3, 2, 850000, TRUE, FALSE);
 
--- RESEÃ‘AS DE PRODUCTOS
+-- RESEÑAS DE PRODUCTOS
 INSERT INTO product_review (user_id, product_id, rating, title, content, verified) VALUES
 (2, 1, 5, 'Excelente refrigerador', 'Muy silencioso y espacioso, lo recomiendo.', TRUE),
-(3, 1, 4, 'Buena relaciÃ³n precio-calidad', 'Cumple lo esperado, buen enfriamiento.', FALSE);
+(3, 1, 4, 'Buena relación precio-calidad', 'Cumple lo esperado, buen enfriamiento.', FALSE);
 
 -- =====================================================================
 -- SERVICIOS
 -- =====================================================================
 
 INSERT INTO service_type (name) VALUES
-('instalaciÃ³n'),
-('suscripciÃ³n'),
-('pago_Ãºnico'),
-('consultorÃ­a');
+('instalación'),
+('suscripción'),
+('pago_único'),
+('consultoría');
 
 INSERT INTO service_category (service_type_id, parent_category_id, name, description) VALUES
 (2, NULL, 'Internet y Telefonía', 'Servicios de conectividad para el hogar');
@@ -110,7 +121,7 @@ INSERT INTO service_specification_value (service_id, specification_id, value) VA
 
 -- PROVEEDORES
 INSERT INTO provider (name, website_url, logo_url, rating, reputation, general_conditions) VALUES
-('Movistar', 'https://movistar.cl', 'https://cdn.example.com/providers/movistar.png', 3.80, 'Regular', 'Contrato mÃ­nimo de 12 meses'),
+('Movistar', 'https://movistar.cl', 'https://cdn.example.com/providers/movistar.png', 3.80, 'Regular', 'Contrato mínimo de 12 meses'),
 ('Entel',    'https://entel.cl',    'https://cdn.example.com/providers/entel.png',    4.10, 'Buena',   'Sin permanencia');
 
 -- OFERTAS DE SERVICIO
@@ -132,13 +143,13 @@ INSERT INTO service_comparison_item (comparison_id, service_id, position) VALUES
 (1, 1, 0),
 (1, 2, 1);
 
--- INTERÃ‰S DE USUARIO EN SERVICIOS
+-- INTERÉS DE USUARIO EN SERVICIOS
 INSERT INTO service_user_interest (user_id, service_id, target_price, notify_price_drop, is_favorite) VALUES
 (3, 1, 20000, TRUE, TRUE);
 
--- RESEÃ‘AS DE SERVICIOS
+-- RESEÑAS DE SERVICIOS
 INSERT INTO service_review (user_id, service_id, rating, title, content, verified) VALUES
-(3, 1, 3, 'Cumple pero con caÃ­das', 'La velocidad es buena pero ha tenido cortes.', TRUE);
+(3, 1, 3, 'Cumple pero con caídas', 'La velocidad es buena pero ha tenido cortes.', TRUE);
 
 -- =====================================================================
 -- UBICACIONES
@@ -146,18 +157,18 @@ INSERT INTO service_review (user_id, service_id, rating, title, content, verifie
 
 INSERT INTO location (country, region, city, commune, latitude, longitude) VALUES
 ('Chile', 'Metropolitana', 'Santiago', 'Providencia', -33.426, -70.610),
-('Chile', 'AraucanÃ­a',     'Temuco',   'Temuco',      -38.739, -72.598);
+('Chile', 'Araucanía',     'Temuco',   'Temuco',      -38.739, -72.598);
 
 INSERT INTO store_location (store_id, location_id, address, postal_code) VALUES
 (1, 1, 'Av. Providencia 1234', '7500000'),
 (2, 2, 'Av. Alemania 567',     '4780000');
 
 INSERT INTO provider_location (provider_id, location_id, address, postal_code, service_radius) VALUES
-(1, 1, 'Av. Apoquindo 4400', '7550000', 'RegiÃ³n Metropolitana'),
-(2, 2, 'Manuel Montt 890',   '4781000', 'RegiÃ³n de la AraucanÃ­a');
+(1, 1, 'Av. Apoquindo 4400', '7550000', 'Región Metropolitana'),
+(2, 2, 'Manuel Montt 890',   '4781000', 'Región de la Araucanía');
 
 -- =====================================================================
--- BÃšSQUEDA E IA
+-- BÚSQUEDA E IA
 -- =====================================================================
 
 INSERT INTO search_query (user_id, raw_query, search_type) VALUES
@@ -192,8 +203,6 @@ INSERT INTO scrape_run (scraper_config_id, started_at, finished_at, records_foun
 INSERT INTO scraped_data (scrape_run_id, external_id, external_url, entity_type, raw_data) VALUES
 (1, 'FAL-12345', 'https://falabella.com/producto/12345', 'product', '{"name": "Refrigerador Samsung", "price": 549990}'),
 (2, 'MOV-PLAN-400', 'https://movistar.cl/planes/fibra-400', 'service', '{"name": "Plan Fibra 400", "price": 24990}');
-
-
 
 
 

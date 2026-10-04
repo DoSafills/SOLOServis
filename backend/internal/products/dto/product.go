@@ -11,16 +11,17 @@ type CreatedProduct struct {
 }
 
 type ProductListItem struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Brand       string         `json:"brand"`
-	Model       string         `json:"model"`
-	Category    string         `json:"category"`
-	Description string         `json:"description"`
-	Rating      float64        `json:"rating"`
-	ReviewCount int64          `json:"reviewCount"`
-	Images      []ProductImage `json:"images"`
-	Offers      []ProductOffer `json:"offers"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Brand       string            `json:"brand"`
+	Model       string            `json:"model"`
+	Category    string            `json:"category"`
+	Description string            `json:"description"`
+	Rating      float64           `json:"rating"`
+	ReviewCount int64             `json:"reviewCount"`
+	Specs       map[string]string `json:"specs"`
+	Images      []ProductImage    `json:"images"`
+	Offers      []ProductOffer    `json:"offers"`
 }
 
 func FromListProduct(row generated.ListProductsRow) ProductListItem {
@@ -56,6 +57,7 @@ func FromListProduct(row generated.ListProductsRow) ProductListItem {
 		Description: description,
 		Rating:      rating,
 		ReviewCount: row.ReviewCount,
+		Specs:       make(map[string]string),
 		Images:      []ProductImage{},
 		Offers:      []ProductOffer{},
 	}

@@ -93,7 +93,18 @@ SELECT
     po.stock,
     po.condition,
     po.product_url,
-    po.last_updated
+    po.last_updated,
+    COALESCE(
+        (
+            SELECT pi.image_url
+            FROM product_image pi
+            WHERE pi.product_id = p.id
+              AND pi.active = true
+            ORDER BY pi.sort_order ASC, pi.id ASC
+            LIMIT 1
+        ),
+        ''
+    )::text AS image_url
 FROM product_offer po
 JOIN product p
     ON p.id = po.product_id

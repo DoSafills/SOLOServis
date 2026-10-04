@@ -29,7 +29,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
         result = append(result, dto.FromStore(row))
     }
 
-    w.Header().Set("Content-Type", "application/json")
+    w.Header().Set("Content-Type", "application/json; charset=utf-8")
     _ = json.NewEncoder(w).Encode(result)
 }
 
@@ -72,6 +72,6 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
         result.Locations = append(result.Locations, dto.FromStoreLocation(location))
     }
 
-    w.Header().Set("Content-Type", "application/json")
+    w.Header().Set("Content-Type", "application/json; charset=utf-8")
     _ = json.NewEncoder(w).Encode(result)
 }
