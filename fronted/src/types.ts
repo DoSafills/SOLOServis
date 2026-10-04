@@ -1,6 +1,7 @@
 export type Page =
   | { id: "home" }
-  | { id: "search-products"; query: string; categoryId?: number }
+  | { id: "product-categories" }
+  | { id: "search-products"; query: string; category?: string; productGroup?: string }
   | {
       id: "product-detail";
       productId: string;
@@ -24,12 +25,20 @@ export type Page =
   | { id: "cart" };
 
 export interface StoreOffer {
+  offerId: number;
   storeId: string;
   storeName: string;
   price: number;
+  listPrice?: number | null;
   available: boolean;
   shipping: number | null;
+  shippingFree?: boolean;
+  stock?: number | null;
+  condition?: string;
   url?: string;
+  deliveryTime?: string;
+  warranty?: string;
+  lastUpdated?: string;
 }
 
 export interface PricePoint {
@@ -42,8 +51,6 @@ export interface Product {
   name: string;
   brand: string;
   model: string;
-  /** Id de la categoría del producto en el backend (la subcategoría si la tiene) */
-  categoryId?: number;
   category: string;
   subcategory: string;
   image: string;
@@ -61,10 +68,11 @@ export interface Product {
   tags: string[];
 }
 
-
 export interface CartItem {
   product: Product;
+  offer: StoreOffer;
   quantity: number;
+  cartItemId: number;
 }
 export interface Service {
   id: string;
@@ -98,4 +106,37 @@ export interface Store {
   website: string;
 }
 
+export interface StoreProduct {
+  id: string;
+  name: string;
+  brand: string;
+  model: string;
+  category: string;
+  description: string;
+  price: number;
+  listPrice: number;
+  currency: string;
+  shippingCost: number;
+  shippingFree: boolean;
+  available: boolean;
+  stock: number | null;
+  condition: string;
+  productUrl: string;
+  image: string;
+}
 
+export interface StoreLocation {
+  id: number;
+  locationId: number;
+  address: string;
+  postalCode: string;
+  country: string;
+  region: string;
+  city: string;
+  commune: string;
+}
+
+export interface StoreDetail extends Store {
+  products: StoreProduct[];
+  locations: StoreLocation[];
+}

@@ -9,7 +9,7 @@ interface Props {
   navigate: (page: Page) => void;
   favorites: Set<string>;
   compareList: Set<string>;
-  onToggleFavorite: (id: string) => void;
+  onToggleFavorite: (id: string, kind?: "product" | "service") => void;
   onToggleCompare: (id: string) => void;
 }
 
@@ -24,11 +24,37 @@ export default function ServicesPage({
   const [services, setServices] = useState<Service[]>([]);
   const [sort, setSort] = useState("relevance");
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getServices()
-      .then(setServices)
-      .catch(console.error);
+    let cancelled = false;
+
+    async function loadServices() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const result = await getServices();
+        if (!cancelled) {
+          setServices(result);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Error al cargar los servicios");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadServices();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const categories = [...new Set(services.map((s) => s.category))];
@@ -71,6 +97,29 @@ export default function ServicesPage({
     });
   };
 
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+        <p className="text-muted">Cargando servicios...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+        <p className="text-warn mb-4">{error}</p>
+        <button
+          onClick={() => navigate({ id: "search-services", query: "" })}
+          style={{ background: "#E8001B", color: "#0A0A0A" }}
+          className="px-5 py-2 rounded-xl text-sm font-semibold"
+        >
+          Ver todos los servicios
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <Breadcrumb
@@ -86,9 +135,7 @@ export default function ServicesPage({
           <h1 className="text-2xl font-bold text-text">
             {query ? `Resultados para "${query}"` : "Todos los servicios"}
           </h1>
-          <p className="text-sm text-muted mt-1">
-            {filtered.length} servicios encontrados
-          </p>
+          <p className="text-sm text-muted mt-1">{filtered.length} servicios encontrados</p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -154,8 +201,7 @@ export default function ServicesPage({
               description="No hay servicios que coincidan con tu búsqueda."
               action={{
                 label: "Ver todos los servicios",
-                onClick: () =>
-                  navigate({ id: "search-services", query: "" }),
+                onClick: () => navigate({ id: "search-services", query: "" }),
               }}
             />
           ) : (

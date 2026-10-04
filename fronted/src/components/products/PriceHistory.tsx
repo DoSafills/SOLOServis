@@ -165,8 +165,16 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               value: formatPrice(currentPrice),
               color: "text-prime",
             },
-            { label: "M&iacute;nimo registrado", value: formatPrice(minPrice), color: "text-success" },
-            { label: "M&aacute;ximo registrado", value: formatPrice(maxPrice), color: "text-prime" },
+            {
+              label: "M&iacute;nimo registrado",
+              value: formatPrice(minPrice),
+              color: "text-success",
+            },
+            {
+              label: "M&aacute;ximo registrado",
+              value: formatPrice(maxPrice),
+              color: "text-prime",
+            },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -223,4 +231,3 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
     </div>
   );
 }
-

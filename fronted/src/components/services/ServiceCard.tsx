@@ -7,7 +7,7 @@ interface Props {
   navigate: (page: Page) => void;
   isFavorite: boolean;
   isComparing: boolean;
-  onToggleFavorite: (id: string) => void;
+  onToggleFavorite: (id: string, kind?: "product" | "service") => void;
   onToggleCompare: (id: string) => void;
 }
 
@@ -43,7 +43,7 @@ export default function ServiceCard({
             active={isFavorite}
             onClick={(e) => {
               e.stopPropagation();
-              onToggleFavorite(service.id);
+              onToggleFavorite(service.id, "service");
             }}
           />
         </div>
@@ -132,4 +132,3 @@ export default function ServiceCard({
     </div>
   );
 }
-

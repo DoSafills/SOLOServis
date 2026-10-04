@@ -2,11 +2,13 @@ package http
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
-	"os"
+	"strings"
 	"time"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/DoSafills/SOLOServis/backend/internal/services"
 	"github.com/DoSafills/SOLOServis/backend/internal/stores"
@@ -20,60 +22,12 @@ type HealthResponse struct {
 	Database string `json:"database"`
 }
 
-// NewRouter arma el servidor combinado (cmd/server): expone productos,
-// tiendas y servicios en un mismo puerto.
-func NewRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	r := chi.NewRouter()
-	addCORS(r, frontendURL)
-
-	registerHealth(r, db)
-	registerProductRoutes(r, db)
-	registerStoreRoutes(r, db)
-	registerServiceRoutes(r, db)
-
-	return r
-}
-
-// Routers de los microservicios (cmd/products-api, cmd/stores-api,
-// cmd/services-api): cada uno expone solo su dominio.
-func NewProductsRouter(db *pgxpool.Pool) *chi.Mux {
-	return newDomainRouter(db, registerProductRoutes)
-}
-
-func NewStoresRouter(db *pgxpool.Pool) *chi.Mux {
-	return newDomainRouter(db, registerStoreRoutes)
-}
-
-func NewServicesRouter(db *pgxpool.Pool) *chi.Mux {
-	return newDomainRouter(db, registerServiceRoutes)
-}
-
-func newDomainRouter(db *pgxpool.Pool, register func(*chi.Mux, *pgxpool.Pool)) *chi.Mux {
-	r := chi.NewRouter()
-	addCORS(r, frontendURL())
-
-	registerHealth(r, db)
-	register(r, db)
-
-	return r
-}
-
-// frontendURL se resuelve desde el entorno porque los microservicios
-// construyen su router sin recibir la configuración.
-func frontendURL() string {
-	if value := os.Getenv("FRONTEND_URL"); value != "" {
-		return value
-	}
-
-	return "http://localhost:5173"
-}
-
-func addCORS(r *chi.Mux, frontendURL string) {
-	r.Use(func(next http.Handler) http.Handler {
+func corsMiddleware(frontendURL string) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", frontendURL)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 			if req.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
@@ -82,41 +36,135 @@ func addCORS(r *chi.Mux, frontendURL string) {
 
 			next.ServeHTTP(w, req)
 		})
-	})
+	}
 }
 
-func registerHealth(r *chi.Mux, db *pgxpool.Pool) {
+func NewProductRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	r := chi.NewRouter()
+	r.Use(corsMiddleware(frontendURL))
 	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
 		healthHandler(w, db)
 	})
-}
 
-func registerProductRoutes(r *chi.Mux, db *pgxpool.Pool) {
 	productRepository := products.NewRepository(db)
 	productHandler := products.NewHandler(productRepository)
 
-	r.Get("/categories", productHandler.ListCategories)
 	r.Get("/products", productHandler.List)
-	r.Post("/products", productHandler.Create)
 	r.Get("/products/{publicID}", productHandler.GetByPublicID)
+	r.Post("/products", productHandler.Create)
 	r.Put("/products/{publicID}", productHandler.Update)
 	r.Delete("/products/{publicID}", productHandler.Deactivate)
-	r.Get("/products/{publicID}/reviews", productHandler.ListReviews)
+
+	return r
 }
 
-func registerStoreRoutes(r *chi.Mux, db *pgxpool.Pool) {
-	storeRepository := stores.NewRepository(db)
-	storeHandler := stores.NewHandler(storeRepository)
+func NewServiceRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	r := chi.NewRouter()
+	r.Use(corsMiddleware(frontendURL))
+	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+		healthHandler(w, db)
+	})
 
-	r.Get("/stores", storeHandler.List)
-}
-
-func registerServiceRoutes(r *chi.Mux, db *pgxpool.Pool) {
 	serviceRepository := services.NewRepository(db)
 	serviceHandler := services.NewHandler(serviceRepository)
 
 	r.Get("/services", serviceHandler.List)
 	r.Get("/services/{publicID}", serviceHandler.GetByPublicID)
+
+	return r
+}
+
+func NewStoreRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	r := chi.NewRouter()
+	r.Use(corsMiddleware(frontendURL))
+	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+		healthHandler(w, db)
+	})
+
+	storeRepository := stores.NewRepository(db)
+	storeHandler := stores.NewHandler(storeRepository)
+
+	r.Get("/stores", storeHandler.List)
+	r.Get("/stores/{id}", storeHandler.GetByID)
+
+	return r
+}
+
+func NewUserRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	r := chi.NewRouter()
+	r.Use(corsMiddleware(frontendURL))
+	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+		healthHandler(w, db)
+	})
+	r.Get("/users", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status": "user-api-ready",
+			"note":   "User profile endpoints are available.",
+		})
+	})
+	r.Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) {
+		token := userBearerToken(req)
+		if token == "" {
+			apiutil.WriteError(w, http.StatusUnauthorized, "bearer token is required")
+			return
+		}
+		tokenHash := sha256.Sum256([]byte(token))
+		var user struct {
+			ID    int32  `json:"id"`
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		}
+		if err := db.QueryRow(req.Context(), `SELECT u.id,u.name,u.email FROM user_account u
+			JOIN user_session s ON s.user_id=u.id
+			WHERE u.id=$1 AND u.active AND s.access_token_hash=$2 AND s.access_expires_at>NOW()`,
+			chi.URLParam(req, "id"), tokenHash[:]).Scan(&user.ID, &user.Name, &user.Email); err != nil {
+			apiutil.WriteError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		apiutil.WriteJSON(w, http.StatusOK, user)
+	})
+	return r
+}
+
+func userBearerToken(req *http.Request) string {
+	value := req.Header.Get("Authorization")
+	if len(value) > 7 && strings.EqualFold(value[:7], "Bearer ") {
+		return strings.TrimSpace(value[7:])
+	}
+	return ""
+}
+
+func NewRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	r := chi.NewRouter()
+	r.Use(corsMiddleware(frontendURL))
+
+	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+		healthHandler(w, db)
+	})
+
+	productRepository := products.NewRepository(db)
+	productHandler := products.NewHandler(productRepository)
+
+	r.Get("/products", productHandler.List)
+	r.Get("/products/{publicID}", productHandler.GetByPublicID)
+	r.Post("/products", productHandler.Create)
+	r.Put("/products/{publicID}", productHandler.Update)
+	r.Delete("/products/{publicID}", productHandler.Deactivate)
+
+	serviceRepository := services.NewRepository(db)
+	serviceHandler := services.NewHandler(serviceRepository)
+
+	r.Get("/services", serviceHandler.List)
+	r.Get("/services/{publicID}", serviceHandler.GetByPublicID)
+
+	storeRepository := stores.NewRepository(db)
+	storeHandler := stores.NewHandler(storeRepository)
+
+	r.Get("/stores", storeHandler.List)
+	r.Get("/stores/{id}", storeHandler.GetByID)
+
+	return r
 }
 
 func healthHandler(w http.ResponseWriter, db *pgxpool.Pool) {
@@ -130,7 +178,7 @@ func healthHandler(w http.ResponseWriter, db *pgxpool.Pool) {
 		_ = json.NewEncoder(w).Encode(HealthResponse{
 			Status:   "error",
 			Service:  "soloservis-api",
-			Database: "unavailable",
+			Database: "disconnected",
 		})
 		return
 	}

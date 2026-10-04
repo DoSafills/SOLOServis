@@ -7,29 +7,74 @@ import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/comm
 interface Props {
   navigate: (page: Page) => void;
   favorites: Set<string>;
-  onToggleFavorite: (id: string) => void;
+  authenticated: boolean;
+  onToggleFavorite: (id: string, kind?: "product" | "service") => void;
 }
 
 export default function FavoritesPage({
   navigate,
   favorites,
+  authenticated,
   onToggleFavorite,
 }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    if (!authenticated) return;
+    let cancelled = false;
 
-    Promise.all([getProducts(), getServices()])
-      .then(([productsData, servicesData]) => {
-        setProducts(productsData);
-        setServices(servicesData);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+    async function loadFavorites() {
+      const [productsResult, servicesResult] = await Promise.allSettled([
+        getProducts(),
+        getServices(),
+      ]);
+      if (cancelled) return;
+
+      const errors: string[] = [];
+      if (productsResult.status === "fulfilled") setProducts(productsResult.value);
+      else errors.push("No se pudieron cargar los productos favoritos.");
+
+      if (servicesResult.status === "fulfilled") setServices(servicesResult.value);
+      else errors.push("No se pudieron cargar los servicios favoritos.");
+
+      setLoadError(errors.length > 0 ? errors.join(" ") : null);
+      setLoading(false);
+    }
+
+    void loadFavorites();
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticated]);
+
+  if (!authenticated) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8">
+        <Breadcrumb
+          items={[
+            { label: "Inicio", onClick: () => navigate({ id: "home" }) },
+            { label: "Favoritos" },
+          ]}
+        />
+        <div className="mx-auto flex max-w-lg flex-col items-center gap-4 py-24 text-center">
+          <h1 className="text-2xl font-black text-text">Inicia sesión para ver tus favoritos</h1>
+          <p className="max-w-sm text-sm text-muted">
+            La navegación y comparación son libres. Guarda y consulta tus productos favoritos al
+            iniciar sesión o crear una cuenta.
+          </p>
+          <button
+            onClick={() => navigate({ id: "user" })}
+            className="rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-5 py-3 text-sm font-bold text-white"
+          >
+            Ir a Mi cuenta
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const favProducts = products.filter((product) => favorites.has(product.id));
   const favServices = services.filter((service) => favorites.has(service.id));
@@ -52,6 +97,15 @@ export default function FavoritesPage({
           ]}
         />
 
+        {loadError && (
+          <p
+            role="alert"
+            className="mb-4 rounded-xl border border-rose-300/30 bg-rose-950/40 p-3 text-sm text-rose-200"
+          >
+            {loadError}
+          </p>
+        )}
+
         <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
           <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center mb-2">
             <svg
@@ -66,13 +120,10 @@ export default function FavoritesPage({
             </svg>
           </div>
 
-          <h3 className="text-lg font-semibold text-text">
-            No tienes favoritos aún
-          </h3>
+          <h3 className="text-lg font-semibold text-text">No tienes favoritos aún</h3>
 
           <p className="text-sm text-muted max-w-xs">
-            Guarda productos y servicios para seguir sus precios y recibir
-            alertas de bajadas.
+            Guarda productos y servicios para seguir sus precios y recibir alertas de bajadas.
           </p>
 
           <button
@@ -97,9 +148,15 @@ export default function FavoritesPage({
       />
 
       <h1 className="text-2xl font-bold text-text mb-1">Mis favoritos</h1>
-      <p className="text-sm text-muted mb-8">
-        {favorites.size} items guardados
-      </p>
+      <p className="text-sm text-muted mb-8">{favorites.size} items guardados</p>
+      {loadError && (
+        <p
+          role="alert"
+          className="mb-6 rounded-xl border border-rose-300/30 bg-rose-950/40 p-3 text-sm text-rose-200"
+        >
+          {loadError}
+        </p>
+      )}
 
       {favProducts.length > 0 && (
         <section className="mb-10">
@@ -110,8 +167,7 @@ export default function FavoritesPage({
           <div className="space-y-3">
             {favProducts.map((product) => {
               const minPrice = getMinPrice(product);
-              const prevPrice =
-                Math.round((minPrice * 1.08) / 1000) * 1000;
+              const prevPrice = Math.round((minPrice * 1.08) / 1000) * 1000;
               const diff = prevPrice - minPrice;
 
               return (
@@ -121,10 +177,10 @@ export default function FavoritesPage({
                     background: "#111111",
                     border: "1px solid #2A2A2A",
                   }}
-                  className="rounded-2xl p-4 flex items-center gap-4 hover:border-prime transition-all group"
+                  className="rounded-2xl p-3 flex items-center gap-3 hover:border-prime transition-all group"
                 >
                   <div
-                    className="w-20 h-16 rounded-xl overflow-hidden shrink-0 cursor-pointer"
+                    className="w-16 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer bg-white"
                     onClick={() =>
                       navigate({
                         id: "product-detail",
@@ -135,14 +191,12 @@ export default function FavoritesPage({
                     <img
                       src={product.image}
                       alt={product.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-contain p-1"
                     />
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-prime font-semibold">
-                      {product.brand}
-                    </div>
+                    <div className="text-xs text-prime font-semibold">{product.brand}</div>
 
                     <div
                       className="text-sm font-semibold text-text truncate cursor-pointer hover:text-prime transition-colors"
@@ -180,16 +234,11 @@ export default function FavoritesPage({
                       </div>
                     )}
 
-                    <div className="text-xs text-muted line-through">
-                      {formatPrice(prevPrice)}
-                    </div>
+                    <div className="text-xs text-muted line-through">{formatPrice(prevPrice)}</div>
                   </div>
 
                   <div className="flex flex-col items-center gap-2 shrink-0">
-                    <FavoriteButton
-                      active={true}
-                      onClick={() => onToggleFavorite(product.id)}
-                    />
+                    <FavoriteButton active={true} onClick={() => onToggleFavorite(product.id)} />
 
                     <Badge
                       variant={
@@ -198,9 +247,7 @@ export default function FavoritesPage({
                           : "unavailable"
                       }
                     >
-                      {product.offers.some((offer) => offer.available)
-                        ? "Disponible"
-                        : "Agotado"}
+                      {product.offers.some((offer) => offer.available) ? "Disponible" : "Agotado"}
                     </Badge>
                   </div>
                 </div>
@@ -218,8 +265,7 @@ export default function FavoritesPage({
 
           <div className="space-y-3">
             {favServices.map((service) => {
-              const prevPrice =
-                Math.round((service.monthlyPrice * 1.06) / 100) * 100;
+              const prevPrice = Math.round((service.monthlyPrice * 1.06) / 100) * 100;
               const diff = prevPrice - service.monthlyPrice;
 
               return (
@@ -248,9 +294,7 @@ export default function FavoritesPage({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-prime font-semibold">
-                      {service.provider}
-                    </div>
+                    <div className="text-xs text-prime font-semibold">{service.provider}</div>
 
                     <div
                       className="text-sm font-semibold text-text truncate cursor-pointer hover:text-prime transition-colors"
@@ -270,9 +314,7 @@ export default function FavoritesPage({
                   <div className="text-right shrink-0">
                     <div className="price text-lg font-bold text-prime">
                       {formatPrice(service.monthlyPrice)}
-                      <span className="text-xs text-muted font-normal">
-                        /mes
-                      </span>
+                      <span className="text-xs text-muted font-normal">/mes</span>
                     </div>
 
                     {diff > 0 && (
@@ -284,7 +326,7 @@ export default function FavoritesPage({
 
                   <FavoriteButton
                     active={true}
-                    onClick={() => onToggleFavorite(service.id)}
+                    onClick={() => onToggleFavorite(service.id, "service")}
                   />
                 </div>
               );
