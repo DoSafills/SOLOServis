@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServiceById } from "../../services/api/api";
-import { formatPrice } from "../../services/utils/productUtils";
+import {
+  formatServicePrice,
+  getServiceBillingPeriodLabel,
+} from "../../Services/utils/productUtils";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 
@@ -47,6 +50,10 @@ export default function ServiceDetailPage({
 
   const loading = result?.serviceId !== serviceId;
   const service = result?.serviceId === serviceId ? result.service : null;
+  const contractPeriod = service
+    ? service.contractPeriod?.trim() ||
+      (service.contractMonths ? `${service.contractMonths} meses` : "No informado")
+    : "";
 
   if (loading) {
     return (
@@ -88,9 +95,13 @@ export default function ServiceDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
         <div
           style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-          className="rounded-2xl overflow-hidden h-64"
+          className="flex h-64 items-center justify-center overflow-hidden rounded-2xl"
         >
-          <img src={service.image} alt={service.name} className="w-full h-full object-cover" />
+          {service.image ? (
+            <img src={service.image} alt={service.name} className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-sm font-medium text-slate-300">Sin imagen</span>
+          )}
         </div>
 
         <div className="flex flex-col gap-4">
@@ -142,27 +153,29 @@ export default function ServiceDetailPage({
             }}
             className="rounded-2xl p-4"
           >
-            <div className="text-xs text-prime font-semibold mb-1">Precio mensual</div>
+            <div className="text-xs text-prime font-semibold mb-1">Precio</div>
 
             <div className="price text-3xl font-bold text-prime">
-              {formatPrice(service.monthlyPrice)}
-              <span className="text-sm font-normal text-muted"> /mes</span>
+              {formatServicePrice(service.monthlyPrice, service.currency)}
+              {getServiceBillingPeriodLabel(service.billingPeriod) && (
+                <span className="text-sm font-normal text-muted">
+                  {" "}
+                  {getServiceBillingPeriodLabel(service.billingPeriod)}
+                </span>
+              )}
             </div>
 
             <div className="flex gap-4 mt-2 text-xs text-muted">
               <span>
                 Instalación:{" "}
-                {service.installationCost === 0
-                  ? "Gratis"
-                  : service.installationCost
-                    ? formatPrice(service.installationCost)
-                    : "Sin costo"}
+                {service.installationCost === null
+                  ? "No informado"
+                  : service.installationCost === 0
+                    ? "Gratis"
+                    : formatServicePrice(service.installationCost, service.currency)}
               </span>
 
-              <span>
-                Contrato:{" "}
-                {service.contractMonths ? `${service.contractMonths} meses` : "Sin permanencia"}
-              </span>
+              <span>Contrato: {contractPeriod}</span>
             </div>
           </div>
 

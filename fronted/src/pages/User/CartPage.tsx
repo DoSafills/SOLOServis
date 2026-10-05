@@ -1,6 +1,6 @@
 import type { CartItem, Page } from "../../types";
 import { Breadcrumb } from "../../components/common/ui";
-import { formatPrice } from "../../services/utils/productUtils";
+import { formatPrice } from "../../Services/utils/productUtils";
 
 interface Props {
   cart: CartItem[];

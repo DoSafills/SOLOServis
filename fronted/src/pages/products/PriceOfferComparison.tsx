@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Product, StoreOffer } from "../../types";
-import { formatPrice } from "../../services/utils/productUtils";
+import { formatPrice } from "../../Services/utils/productUtils";
 
 interface Props {
   product: Product;

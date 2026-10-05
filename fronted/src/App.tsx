@@ -10,6 +10,7 @@ import ProductComparisonPage from "./pages/products/ProductComparisonPage";
 import ServicesPage from "./pages/services/ServicesPage";
 import ServiceDetailPage from "./pages/services/ServiceDetailPage";
 import ServiceComparisonPage from "./pages/services/ServiceComparisonPage";
+import ServiceComparisonDock from "./components/services/ServiceComparisonDock";
 import StoresPage from "./pages/stores/StoresPage";
 import FavoritesPage from "./pages/user/FavoritesPage";
 import UserPage from "./pages/user/UserPage";
@@ -439,6 +440,11 @@ export default function App() {
     setPersistenceError(null);
   };
 
+  const clearServiceComparison = () => {
+    setCompareList(new Set());
+    setPersistenceError(null);
+  };
+
   const toggleProductCompare = async (id: string, category: string) => {
     if (productCompareList.has(id)) {
       setProductCompareList((previous) => {
@@ -625,6 +631,17 @@ export default function App() {
               {productCompareError}
             </p>
           )}
+        </div>
+      )}
+
+      {compareList.size > 0 && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <ServiceComparisonDock
+            serviceIds={[...compareList]}
+            onClear={clearServiceComparison}
+            onRemove={(serviceId) => void toggleCompare(serviceId)}
+            onNavigate={navigate}
+          />
         </div>
       )}
 

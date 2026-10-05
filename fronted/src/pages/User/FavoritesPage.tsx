@@ -1,7 +1,12 @@
 ﻿import { useEffect, useState } from "react";
 import type { Page, Product, Service } from "../../types";
 import { getProducts, getServices } from "../../services/api/api";
-import { formatPrice, getMinPrice } from "../../services/utils/productUtils";
+import {
+  formatPrice,
+  formatServicePrice,
+  getMinPrice,
+  getServiceBillingPeriodLabel,
+} from "../../Services/utils/productUtils";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 
 interface Props {
@@ -265,9 +270,6 @@ export default function FavoritesPage({
 
           <div className="space-y-3">
             {favServices.map((service) => {
-              const prevPrice = Math.round((service.monthlyPrice * 1.06) / 100) * 100;
-              const diff = prevPrice - service.monthlyPrice;
-
               return (
                 <div
                   key={service.id}
@@ -313,15 +315,14 @@ export default function FavoritesPage({
 
                   <div className="text-right shrink-0">
                     <div className="price text-lg font-bold text-prime">
-                      {formatPrice(service.monthlyPrice)}
-                      <span className="text-xs text-muted font-normal">/mes</span>
+                      {formatServicePrice(service.monthlyPrice, service.currency)}
+                      {getServiceBillingPeriodLabel(service.billingPeriod) && (
+                        <span className="text-xs text-muted font-normal">
+                          {" "}
+                          {getServiceBillingPeriodLabel(service.billingPeriod)}
+                        </span>
+                      )}
                     </div>
-
-                    {diff > 0 && (
-                      <div className="flex items-center gap-1 text-xs text-success font-semibold justify-end">
-                        ↑ Bajó {formatPrice(diff)}
-                      </div>
-                    )}
                   </div>
 
                   <FavoriteButton

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import { getProductById } from "../../services/api/api";
-import { formatPrice, getMinOffer } from "../../services/utils/productUtils";
+import { formatPrice, getMinOffer } from "../../Services/utils/productUtils";
 import { Breadcrumb } from "../../components/common/ui";
 import { areProductCategoriesCompatible } from "./productComparisonUtils";
 

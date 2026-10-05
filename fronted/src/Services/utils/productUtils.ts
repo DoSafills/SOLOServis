@@ -2,6 +2,26 @@ import type { Product } from "../../types";
 
 export const formatPrice = (price: number): string => `$${price.toLocaleString("es-CL")}`;
 
+export const formatServicePrice = (price: number, currency = "CLP"): string =>
+  new Intl.NumberFormat("es-CL", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: currency === "CLP" ? 0 : 2,
+  }).format(price);
+
+export const getServiceBillingPeriodLabel = (billingPeriod?: string | null): string => {
+  switch (billingPeriod) {
+    case "monthly":
+      return "/mes";
+    case "yearly":
+      return "/año";
+    case "one_time":
+      return "pago único";
+    default:
+      return "";
+  }
+};
+
 export const getMinPrice = (product: Product): number => {
   const availableOffers = product.offers.filter((offer) => offer.available);
 

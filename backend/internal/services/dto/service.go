@@ -8,7 +8,10 @@ type ServiceDetail struct {
 	Subcategory      string            `json:"subcategory"`
 	Description      string            `json:"description"`
 	MonthlyPrice     float64           `json:"monthlyPrice"`
+	Currency         string            `json:"currency"`
+	BillingPeriod    string            `json:"billingPeriod"`
 	InstallationCost *float64          `json:"installationCost"`
+	ContractPeriod   string            `json:"contractPeriod"`
 	ContractMonths   *int              `json:"contractMonths"`
 	Rating           float64           `json:"rating"`
 	ReviewCount      int64             `json:"reviewCount"`

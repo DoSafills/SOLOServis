@@ -9,7 +9,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import type { PricePoint } from "../../types";
-import { formatPrice } from "../../services/utils/productUtils";
+import { formatPrice } from "../../Services/utils/productUtils";
 
 const ranges = [
   { label: "7d", days: 7 },

@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServiceById } from "../../services/api/api";
-import { formatPrice } from "../../services/utils/productUtils";
+import {
+  formatServicePrice,
+  getServiceBillingPeriodLabel,
+} from "../../Services/utils/productUtils";
 import { Breadcrumb, Badge } from "../../components/common/ui";
 
 interface Props {
@@ -65,7 +68,14 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
     );
   }
 
-  const lowestPrice = Math.min(...selected.map((s) => s.monthlyPrice));
+  const hasComparablePrices = selected.every(
+    (service) =>
+      service.currency === selected[0].currency &&
+      service.billingPeriod === selected[0].billingPeriod,
+  );
+  const lowestPrice = hasComparablePrices
+    ? Math.min(...selected.map((service) => service.monthlyPrice))
+    : null;
   const highestRating = Math.max(...selected.map((s) => s.rating));
 
   const compareRows: {
@@ -75,23 +85,26 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
   }[] = [
     {
       key: "monthlyPrice",
-      label: "Precio mensual",
-      getValue: (s) => `${formatPrice(s.monthlyPrice)}/mes`,
+      label: "Precio",
+      getValue: (s) =>
+        `${formatServicePrice(s.monthlyPrice, s.currency)} ${getServiceBillingPeriodLabel(s.billingPeriod)}`.trim(),
     },
     {
       key: "installation",
       label: "Instalación",
       getValue: (s) =>
-        s.installationCost === 0
-          ? "Gratis"
-          : s.installationCost
-            ? formatPrice(s.installationCost)
-            : "Sin costo",
+        s.installationCost === null
+          ? "No informado"
+          : s.installationCost === 0
+            ? "Gratis"
+            : formatServicePrice(s.installationCost, s.currency),
     },
     {
       key: "contract",
       label: "Permanencia",
-      getValue: (s) => (s.contractMonths ? `${s.contractMonths} meses` : "Sin permanencia"),
+      getValue: (s) =>
+        s.contractPeriod?.trim() ||
+        (s.contractMonths ? `${s.contractMonths} meses` : "No informado"),
     },
     {
       key: "rating",
@@ -208,7 +221,9 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
                   const value = row.getValue(service);
 
                   const isBest =
-                    (row.key === "monthlyPrice" && service.monthlyPrice === lowestPrice) ||
+                    (row.key === "monthlyPrice" &&
+                      lowestPrice !== null &&
+                      service.monthlyPrice === lowestPrice) ||
                     (row.key === "rating" && service.rating === highestRating);
 
                   return (

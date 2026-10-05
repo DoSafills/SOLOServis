@@ -82,8 +82,11 @@ export interface Service {
   subcategory: string;
   description: string;
   monthlyPrice: number;
+  currency?: string;
+  billingPeriod?: string | null;
   installationCost: number | null;
   contractMonths: number | null;
+  contractPeriod?: string | null;
   rating: number;
   reviewCount: number;
   specs: Record<string, string>;

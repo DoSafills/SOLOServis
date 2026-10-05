@@ -2,6 +2,7 @@ package dto
 
 import (
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ProductDetail struct {
@@ -46,6 +47,13 @@ type ProductOffer struct {
 	Stock        *int32 `json:"stock"`
 	Condition    string `json:"condition"`
 	ProductURL   string `json:"productUrl"`
+}
+
+func splitCategory(categoryName string, parentCategoryName pgtype.Text) (string, string) {
+	if parentCategoryName.Valid && parentCategoryName.String != "" {
+		return parentCategoryName.String, categoryName
+	}
+	return categoryName, ""
 }
 
 func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail {

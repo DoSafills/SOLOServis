@@ -55,6 +55,10 @@ func FromService(
 				result.MonthlyPrice = value.Float64
 			}
 		}
+		result.Currency = offer.Currency
+		if offer.BillingPeriod.Valid {
+			result.BillingPeriod = offer.BillingPeriod.String
+		}
 
 		if offer.InstallationCost.Valid {
 			if value, err := offer.InstallationCost.Float64Value(); err == nil && value.Valid {
@@ -63,6 +67,7 @@ func FromService(
 		}
 
 		if offer.ContractPeriod.Valid {
+			result.ContractPeriod = offer.ContractPeriod.String
 			result.ContractMonths = parseContractMonths(offer.ContractPeriod.String)
 		}
 

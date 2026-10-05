@@ -1,6 +1,6 @@
 import type { Product, Page, StoreOffer } from "../../types";
 import { Rating, FavoriteButton } from "../common/ui";
-import { formatPrice, getMinOffer } from "../../services/utils/productUtils";
+import { formatPrice, getMinOffer } from "../../Services/utils/productUtils";
 
 interface Props {
   product: Product;

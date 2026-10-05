@@ -1,0 +1,302 @@
+FUNCIONES DEL CATALOGO DE SERVICIOS
+===================================
+
+Este documento explica, una por una, las funciones y comportamientos implementados
+para el catalogo de servicios. Se indican sus archivos principales para facilitar
+la consulta del codigo.
+
+
+1. CARGA Y CONVERSION DE SERVICIOS
+---------------------------------
+
+getServices(params?)
+Archivo: ../fronted/src/Services/api/api.ts
+
+Consulta la API de servicios y devuelve el listado como objetos Service para el
+frontend. Acepta parametros opcionales, como una categoria, y los convierte en
+parametros de URL. Si la respuesta de la API viene envuelta en un objeto de lista,
+usa el helper fetchList para obtener los elementos.
+
+getServiceById(id)
+Archivo: ../fronted/src/Services/api/api.ts
+
+Solicita un servicio individual por su identificador. Devuelve null cuando la API
+responde que no existe (404) y lanza un error para otras respuestas fallidas. La
+vista de detalle y las vistas de comparacion usan esta funcion.
+
+toService(service)
+Archivo: ../fronted/src/Services/api/services.ts
+
+Convierte el formato recibido desde la API al modelo Service que utiliza la
+interfaz. Completa y normaliza campos como nombre, proveedor, categoria, precio,
+moneda, frecuencia de cobro, especificaciones, cobertura e imagen.
+
+FromService(...)
+Archivo: ../backend/internal/services/dto/service_mapper.go
+
+Construye el DTO de servicio que devuelve el backend. Combina los datos principales
+del servicio con ofertas, especificaciones e historial de precios. Toma de la oferta
+el proveedor, precio, moneda, frecuencia, instalacion, permanencia y cobertura.
+
+FromServiceList(...)
+Archivo: ../backend/internal/services/dto/service_mapper.go
+
+Adapta una fila proveniente del listado de servicios al formato que espera
+FromService. Asi el endpoint de listado y el endpoint de detalle comparten el mismo
+proceso de armado del DTO.
+
+parseContractMonths(value)
+Archivo: ../backend/internal/services/dto/service_mapper.go
+
+Intenta leer el primer numero de un texto de permanencia y convertirlo en meses.
+Si el texto no comienza con un numero valido o el numero no es positivo, no inventa
+una duracion y devuelve un valor vacio.
+
+
+2. FUNCIONES AUXILIARES DE FILTRADO Y PRESENTACION
+-------------------------------------------------
+
+normalize(value)
+Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
+
+Normaliza textos para comparar categorias, busquedas y valores de especificaciones
+sin distinguir mayusculas ni acentos. Por ejemplo, permite comparar "Educacion" con
+"Educación".
+
+getServiceMacroCategory(service)
+Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
+
+Clasifica cada servicio en una macro categoria a partir del texto de sus categorias:
+Internet, Seguros, Tecnicos o Educacion. Si no encuentra palabras reconocidas, lo
+marca como "other". La clasificacion es textual; los registros deben incluir nombres
+de categoria que correspondan a esos grupos.
+
+getServicePrice(service)
+Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
+
+Devuelve el precio del servicio si es un numero valido. Si el valor no es finito,
+devuelve null para que los filtros y el orden no traten un dato invalido como precio.
+
+getPriceBasis(service)
+Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
+
+Forma una clave con moneda y frecuencia de cobro, por ejemplo CLP:monthly o
+USD:yearly. Se usa al ordenar por precio para mantener agrupados importes con bases
+distintas. No convierte divisas.
+
+getSpeed(service, direction)
+Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
+
+Busca en las especificaciones la velocidad de subida o de bajada solicitada. Lee el
+numero inicial del valor y tolera coma decimal, por lo que tambien puede procesar
+valores que incluyan una nota como "estimado; no verificado". Devuelve null si no
+hay una velocidad utilizable.
+
+getContract(service)
+Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
+
+Obtiene el texto de permanencia del servicio. Prefiere el periodo descriptivo; si no
+esta informado, intenta mostrar la duracion en meses. Si tampoco hay datos, indica
+"No informado".
+
+getInstallation(service)
+Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
+
+Convierte el costo de instalacion en una opcion de filtro legible: "Gratis", "Con
+costo" o "No informado".
+
+FilterGroup(...)
+Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
+
+Renderiza un grupo de filtros desplegable con titulo y contenido. Puede empezar
+abierto o cerrado y se utiliza para agrupar precio, proveedor, valoracion,
+especificaciones y filtros avanzados.
+
+
+3. FUNCIONES DE LA PAGINA DE SERVICIOS
+--------------------------------------
+
+ServicesPage(...)
+Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
+
+Es la pagina principal del catalogo de servicios. Carga los servicios al entrar,
+presenta las macro categorias y, despues de elegir una, muestra resultados, filtros,
+ordenamiento, tarjetas y paginacion.
+
+loadServices()
+Funcion interna de ServicesPage.
+
+Solicita el catalogo usando getServices. Mientras consulta muestra el estado de
+carga; si falla conserva y muestra un mensaje de error. Al desmontarse la pagina
+evita actualizar el estado de un componente que ya no esta activo.
+
+servicesInCategory
+Funcion de filtrado dentro de ServicesPage.
+
+Limita los registros a la macro categoria y, si se selecciono una, a la microcategoria
+correspondiente. Cuando no se ha elegido una macro categoria devuelve una lista vacia:
+asi la vista inicial presenta categorias y no tarjetas de servicios.
+
+queryMatches
+Funcion de filtrado dentro de ServicesPage.
+
+Busca el texto ingresado en nombre, proveedor, categoria, subcategoria, descripcion,
+cobertura y especificaciones. Normaliza los textos antes de compararlos.
+
+filtered
+Funcion de filtrado dentro de ServicesPage.
+
+Aplica simultaneamente los filtros seleccionados: rango numerico de precio,
+velocidades de Internet, proveedores, valoracion minima, instalacion, permanencia,
+cobertura y valores de especificaciones. El rango de precio compara los numeros tal
+cual estan almacenados; no convierte monedas.
+
+sorted
+Funcion de ordenamiento dentro de ServicesPage.
+
+Ordena los resultados por precio ascendente, precio descendente o valoracion. Para
+los ordenamientos de precio, agrupa primero por getPriceBasis; los precios de monedas
+o frecuencias distintas no se convierten ni se comparan entre si.
+
+paginated
+Funcion de paginacion dentro de ServicesPage.
+
+Selecciona el bloque de resultados correspondiente a la pagina actual. El catalogo
+muestra seis tarjetas por pagina.
+
+updateFilters(change)
+Actualiza los filtros indicados y vuelve a la primera pagina de resultados.
+
+clearFilters()
+Restablece los filtros al estado inicial y vuelve a la primera pagina.
+
+toggleProvider(provider)
+Agrega o quita un proveedor de la seleccion multiple de proveedores y reinicia la
+paginacion.
+
+toggleSpecificationValue(name, value)
+Agrega o quita un valor de especificacion. La comparacion ignora mayusculas y
+acentos; al retirar el ultimo valor de una especificacion, elimina ese filtro.
+
+selectParentCategory(category)
+Selecciona una macro categoria, limpia los filtros anteriores, vuelve a la primera
+pagina y abre el panel de esa categoria para mostrar sus microcategorias. Al elegir
+"all", deja la vista en el selector de categorias sin mostrar servicios.
+
+toggleMacroCategory
+Manejador de interfaz dentro de ServicesPage.
+
+Abre o cierra el panel de microcategorias de cada macro categoria. Es independiente
+del boton que selecciona y filtra la macro categoria.
+
+Seleccion de microcategoria
+Manejador de interfaz dentro de ServicesPage.
+
+Selecciona una microcategoria, limita los resultados a ella y lleva la vista a la
+seccion de resultados para que sea visible inmediatamente.
+
+renderFilters()
+Funcion interna de ServicesPage.
+
+Construye los controles generales y avanzados. Incluye precio minimo y maximo,
+seleccion multiple de proveedores, valoracion, instalacion, permanencia, cobertura,
+velocidad de subida y bajada cuando corresponde, y especificaciones agrupadas en
+secciones desplegables.
+
+
+4. TARJETAS, DETALLE Y PRECIOS
+-----------------------------
+
+ServiceCard(...)
+Archivo: ../fronted/src/components/services/ServiceCard.tsx
+
+Muestra la tarjeta de un servicio con imagen, categoria, proveedor, especificaciones,
+valoracion, precio, moneda y frecuencia. Incluye acciones para abrir el detalle,
+guardar en favoritos y agregar o quitar el servicio del comparador. El borde y la
+sombra reaccionan a la interaccion del usuario.
+
+ServiceDetailPage(...)
+Archivo: ../fronted/src/pages/Services/ServiceDetailPage.tsx
+
+Carga y muestra la ficha completa de un servicio: caracteristicas, beneficios,
+valoracion, precio, instalacion, permanencia, historial y acciones de favorito y
+comparacion. Muestra estados de carga y de servicio no encontrado.
+
+formatServicePrice(price, currency)
+Archivo: ../fronted/src/Services/utils/productUtils.ts
+
+Formatea un numero como moneda usando Intl.NumberFormat y el codigo de moneda
+recibido. Usa cero decimales para CLP y hasta dos para otras monedas.
+
+getServiceBillingPeriodLabel(billingPeriod)
+Archivo: ../fronted/src/Services/utils/productUtils.ts
+
+Convierte los valores de frecuencia conocidos en etiquetas para la interfaz:
+"monthly" se muestra como "/mes", "yearly" como "/año" y "one_time" como
+"pago único". Para valores desconocidos no agrega una etiqueta.
+
+
+5. COMPARACION DE SERVICIOS
+---------------------------
+
+toggleCompare(id)
+Archivo: ../fronted/src/App.tsx
+
+Agrega o quita un servicio de la seleccion de comparacion. Limita la seleccion a
+tres servicios y muestra un aviso si se intenta agregar uno mas. La lista se guarda
+en el almacenamiento local del navegador para conservarla entre visitas.
+
+clearServiceComparison()
+Archivo: ../fronted/src/App.tsx
+
+Vacía la lista de servicios seleccionados para comparar.
+
+ServiceComparisonDock(...)
+Archivo: ../fronted/src/components/services/ServiceComparisonDock.tsx
+
+Muestra una bandeja fija con los servicios seleccionados. Permite desplegar o
+contraer la bandeja, abrir el detalle de un servicio, quitarlo de la seleccion,
+limpiar todos y navegar a la comparacion cuando hay al menos dos servicios.
+
+loadServices()
+Funcion interna de ServiceComparisonDock.
+
+Consulta en paralelo los servicios seleccionados con getServiceById. Omite los que
+ya no existen y presenta un error explicito si falta alguno o si la consulta falla.
+Ignora las respuestas pendientes si la bandeja cambia o se desmonta.
+
+ServiceComparisonPage(...)
+Archivo: ../fronted/src/pages/Services/ServiceComparisonPage.tsx
+
+Carga las fichas seleccionadas y las presenta en una tabla. Compara precio,
+instalacion, permanencia, valoracion, cobertura y especificaciones, y permite ir al
+detalle individual.
+
+hasComparablePrices y lowestPrice
+Calculos internos de ServiceComparisonPage.
+
+Solo consideran que un servicio tiene el precio mas bajo cuando todos los servicios
+seleccionados tienen la misma moneda y frecuencia de cobro. Si estas bases difieren,
+no se destaca un ganador de precio. La valoracion mas alta puede destacarse por
+separado.
+
+
+6. CARGA DE DATOS
+-----------------
+
+Migracion 006_seed_servicios_fibra.sql
+Archivo: ../backend/database/migrations/006_seed_servicios_fibra.sql
+
+Agrega planes de Internet de fibra con ofertas y especificaciones de velocidad. Las
+velocidades de subida que no estaban confirmadas se identifican como estimadas y no
+verificadas.
+
+Migracion 007_seed_security_education_services.sql
+Archivo: ../backend/database/migrations/007_seed_security_education_services.sql
+
+Agrega categorias, proveedores, VPN, antivirus y servicios de educacion con sus
+ofertas y especificaciones disponibles. La carga usa comprobaciones para evitar
+duplicados al volver a ejecutarse.
+
+La interfaz obtiene los datos desde la API: las migraciones deben ejecutarse en la
+base de datos correspondiente para que esos servicios aparezcan en el catalogo.

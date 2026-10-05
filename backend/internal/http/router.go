@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	appconfig "github.com/DoSafills/SOLOServis/backend/internal/config"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/DoSafills/SOLOServis/backend/internal/services"
 	"github.com/DoSafills/SOLOServis/backend/internal/stores"
@@ -37,6 +38,18 @@ func corsMiddleware(frontendURL string) func(next http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 		})
 	}
+}
+
+func NewProductsRouter(db *pgxpool.Pool) *chi.Mux {
+	return NewProductRouter(db, appconfig.LoadForPort("8081").FrontendURL)
+}
+
+func NewServicesRouter(db *pgxpool.Pool) *chi.Mux {
+	return NewServiceRouter(db, appconfig.LoadForPort("8083").FrontendURL)
+}
+
+func NewStoresRouter(db *pgxpool.Pool) *chi.Mux {
+	return NewStoreRouter(db, appconfig.LoadForPort("8082").FrontendURL)
 }
 
 func NewProductRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {

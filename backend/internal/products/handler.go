@@ -102,7 +102,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			product.Offers = append(product.Offers, dto.FromProductOffer(offer))
 		}
 
-		specifications, err := h.repository.ListSpecifications(r.Context(), row.ID)
+		specifications, err := h.repository.ListSpecifications(r.Context(), entry.id)
 		if err != nil {
 			http.Error(w, "failed to load product specifications", http.StatusInternalServerError)
 			return
