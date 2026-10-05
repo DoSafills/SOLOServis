@@ -26,9 +26,11 @@ interface Props {
   favorites: Set<string>;
   compareList: Set<string>;
   productCompareList: Set<string>;
+  serviceCart: Set<string>;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
+  onAddServiceToCart: (service: Service) => void;
   onToggleFavorite: (id: string, kind?: "product" | "service") => void;
-  onToggleCompare: (id: string) => void;
+  onToggleCompare: (id: string, category: string) => void;
   onToggleProductCompare: (id: string, category: string) => void;
 }
 
@@ -37,7 +39,9 @@ export default function HomePage({
   favorites,
   compareList,
   productCompareList,
+  serviceCart,
   onAddToCart,
+  onAddServiceToCart,
   onToggleFavorite,
   onToggleCompare,
   onToggleProductCompare,
@@ -286,8 +290,10 @@ export default function HomePage({
                 navigate={navigate}
                 isFavorite={favorites.has(s.id)}
                 isComparing={compareList.has(s.id)}
+                isInCart={serviceCart.has(s.id)}
                 onToggleFavorite={onToggleFavorite}
                 onToggleCompare={onToggleCompare}
+                onAddToCart={onAddServiceToCart}
               />
             ))}
           </div>

@@ -13,8 +13,10 @@ interface Props {
   navigate: (page: Page) => void;
   isFavorite: boolean;
   isComparing: boolean;
+  isInCart: boolean;
   onToggleFavorite: (id: string, kind?: "product" | "service") => void;
-  onToggleCompare: (id: string) => void;
+  onToggleCompare: (id: string, category: string) => void;
+  onAddToCart: (service: Service) => void;
 }
 
 export default function ServiceDetailPage({
@@ -22,8 +24,10 @@ export default function ServiceDetailPage({
   navigate,
   isFavorite,
   isComparing,
+  isInCart,
   onToggleFavorite,
   onToggleCompare,
+  onAddToCart,
 }: Props) {
   const [result, setResult] = useState<{ serviceId: string; service: Service | null } | null>(null);
 
@@ -179,21 +183,36 @@ export default function ServiceDetailPage({
             </div>
           </div>
 
-          <button
-            onClick={() => onToggleCompare(service.id)}
-            style={
-              isComparing
-                ? { background: "#E8001B", color: "#0A0A0A" }
-                : {
-                    background: "#1A1A1A",
-                    border: "1px solid #2A2A2A",
-                    color: "#94A3B8",
-                  }
-            }
-            className="py-3 rounded-2xl text-sm font-semibold transition-all hover:border-prime hover:text-prime"
-          >
-            {isComparing ? "✓ Agregado al comparador" : "Agregar al comparador"}
-          </button>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => onAddToCart(service)}
+              disabled={isInCart}
+              className={`rounded-2xl border py-3 text-sm font-semibold transition-all ${
+                isInCart
+                  ? "cursor-default border-emerald-300/30 bg-emerald-400/10 text-emerald-200"
+                  : "border-emerald-300/30 bg-emerald-400/10 text-emerald-100 hover:border-emerald-300/60 hover:bg-emerald-400/20"
+              }`}
+            >
+              {isInCart ? "✓ En la cesta" : "Agregar a la cesta"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleCompare(service.id, service.category)}
+              style={
+                isComparing
+                  ? { background: "#E8001B", color: "#0A0A0A" }
+                  : {
+                      background: "#1A1A1A",
+                      border: "1px solid #2A2A2A",
+                      color: "#94A3B8",
+                    }
+              }
+              className="rounded-2xl py-3 text-sm font-semibold transition-all hover:border-prime hover:text-prime"
+            >
+              {isComparing ? "✓ Agregado al comparador" : "Agregar al comparador"}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -1,16 +1,29 @@
-import type { CartItem, Page } from "../../types";
+import type { CartItem, Page, Service } from "../../types";
 import { Breadcrumb } from "../../components/common/ui";
-import { formatPrice } from "../../Services/utils/productUtils";
+import {
+  formatPrice,
+  formatServicePrice,
+  getServiceBillingPeriodLabel,
+} from "../../Services/utils/productUtils";
 
 interface Props {
   cart: CartItem[];
+  serviceCart: Service[];
   navigate: (page: Page) => void;
   onUpdateQuantity: (cartItemId: number, quantity: number) => void;
   onRemove: (cartItemId: number) => void;
+  onRemoveService: (serviceId: string) => void;
 }
 
-export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }: Props) {
-  const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+export default function CartPage({
+  cart,
+  serviceCart,
+  navigate,
+  onUpdateQuantity,
+  onRemove,
+  onRemoveService,
+}: Props) {
+  const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0) + serviceCart.length;
   const storeSummaries = Array.from(
     cart.reduce((stores, item) => {
       const storeId = item.offer.storeId;
@@ -49,7 +62,7 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
     }
   };
 
-  if (cart.length === 0) {
+  if (cart.length === 0 && serviceCart.length === 0) {
     return (
       <div className="mx-auto my-6 max-w-4xl rounded-[32px] bg-gradient-to-br from-slate-900 via-indigo-950 to-violet-950 px-4 py-16 text-center shadow-xl shadow-black/30">
         <Breadcrumb
@@ -73,13 +86,13 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
           </div>
           <h1 className="text-2xl font-bold text-slate-100">Tu cesta está vacía</h1>
           <p className="mx-auto mt-3 max-w-md text-sm text-slate-300">
-            Añade productos para comparar precios y guardar tus mejores opciones.
+            Añade productos o servicios para guardar tus opciones en la cesta.
           </p>
           <button
             onClick={() => navigate({ id: "home" })}
             className="mt-6 rounded-2xl bg-gradient-to-r from-violet-600 to-fuchsia-500 px-5 py-3 text-sm font-bold text-white shadow-md shadow-violet-950/50 transition hover:brightness-110"
           >
-            Explorar productos
+            Explorar productos y servicios
           </button>
         </div>
       </div>
@@ -95,7 +108,7 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
       <div className="mb-8 flex items-end justify-between gap-3 flex-wrap">
         <div>
           <p className="text-sm font-extrabold uppercase tracking-[0.2em] text-violet-300">Cesta</p>
-          <h1 className="mt-2 text-3xl font-extrabold text-slate-50">Tus productos</h1>
+          <h1 className="mt-2 text-3xl font-extrabold text-slate-50">Tus productos y servicios</h1>
         </div>
         <span className="rounded-full border border-violet-300/30 bg-violet-400/10 px-4 py-2 text-sm font-bold text-violet-100">
           {itemCount} artículos
@@ -219,6 +232,65 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
               </div>
             );
           })}
+          {serviceCart.map((service) => (
+            <article
+              key={service.id}
+              className="rounded-3xl border border-emerald-300/20 bg-slate-800/90 p-4 shadow-lg shadow-black/20 md:p-5"
+            >
+              <div className="flex flex-col gap-4 md:flex-row md:items-center">
+                <button
+                  type="button"
+                  onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
+                  className="h-28 w-full shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-violet-950 to-cyan-950 md:w-32"
+                  aria-label={`Ver ${service.name}`}
+                >
+                  {service.image ? (
+                    <img src={service.image} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="flex h-full items-center justify-center text-sm text-slate-300">
+                      Servicio
+                    </span>
+                  )}
+                </button>
+                <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-extrabold uppercase tracking-[0.16em] text-emerald-200">
+                      {service.provider}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
+                      className="mt-1 text-left text-xl font-extrabold text-slate-50 hover:text-cyan-100"
+                    >
+                      {service.name}
+                    </button>
+                    <p className="mt-2 text-sm text-slate-300">{service.category}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Suscripción de servicio ·{" "}
+                      {service.contractPeriod?.trim() || "Permanencia no informada"}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between gap-4 md:justify-end">
+                    <p className="text-lg font-extrabold text-emerald-300">
+                      {formatServicePrice(service.monthlyPrice, service.currency)}
+                      {getServiceBillingPeriodLabel(service.billingPeriod) && (
+                        <span className="ml-1 text-xs font-semibold text-slate-400">
+                          {getServiceBillingPeriodLabel(service.billingPeriod)}
+                        </span>
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => onRemoveService(service.id)}
+                      className="text-sm font-semibold text-slate-400 transition-colors hover:text-rose-300"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </article>
+          ))}
         </div>
 
         <aside className="h-fit rounded-3xl border border-indigo-300/20 bg-slate-800/90 p-5 shadow-lg shadow-black/20">
@@ -274,6 +346,31 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                 </div>
               </section>
             ))}
+            {serviceCart.length > 0 && (
+              <section className="overflow-hidden rounded-2xl border border-emerald-300/25 bg-gradient-to-br from-slate-800 via-emerald-950/50 to-slate-900">
+                <h3 className="border-b border-emerald-300/20 px-4 py-3 text-lg font-extrabold text-emerald-100">
+                  Servicios
+                </h3>
+                <ul className="space-y-3 p-4">
+                  {serviceCart.map((service) => (
+                    <li
+                      key={service.id}
+                      className="border-b border-emerald-300/15 pb-3 last:border-0 last:pb-0"
+                    >
+                      <p className="text-sm font-bold text-slate-100">{service.name}</p>
+                      <p className="mt-1 text-sm font-extrabold text-emerald-300">
+                        {formatServicePrice(service.monthlyPrice, service.currency)}{" "}
+                        {getServiceBillingPeriodLabel(service.billingPeriod)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+                <p className="border-t border-emerald-300/20 bg-slate-950/50 px-4 py-3 text-xs leading-relaxed text-slate-300">
+                  Los precios de servicios se muestran por separado según su moneda y período de
+                  cobro.
+                </p>
+              </section>
+            )}
           </div>
 
           <button

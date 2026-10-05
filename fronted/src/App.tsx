@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { CartItem, Page, Product, StoreOffer } from "./types";
+import type { CartItem, Page, Product, Service, StoreOffer } from "./types";
 import Header from "./components/common/Header";
 import Footer from "./components/common/Footer";
 import HomePage from "./pages/home/HomePage";
@@ -17,7 +17,7 @@ import UserPage from "./pages/user/UserPage";
 import CartPage from "./pages/user/CartPage";
 import { areProductCategoriesCompatible } from "./pages/products/productComparisonUtils";
 import ComparisonDock from "./components/products/ComparisonDock";
-import { getProductById } from "./services/api/api";
+import { getProductById, getServiceById } from "./services/api/api";
 import {
   addCartItem,
   addSearchHistory,
@@ -37,6 +37,7 @@ import {
 import type { AuthSession, AuthUser, SearchHistoryEntry } from "./services/api/personalization";
 
 const SERVICE_COMPARISON_KEY = "soloservice.service-comparison";
+const SERVICE_CART_KEY = "soloservice.service-cart";
 const PRODUCT_COMPARISON_PRODUCTS_KEY = "soloservice.product-comparison-products";
 const GUEST_CART_KEY = "soloservice.guest-cart";
 
@@ -88,6 +89,18 @@ function storeGuestCart(cart: CartItem[]): void {
   localStorage.setItem(GUEST_CART_KEY, JSON.stringify(entries));
 }
 
+function storeServiceCart(services: Service[]): void {
+  localStorage.setItem(SERVICE_CART_KEY, JSON.stringify(services.map((service) => service.id)));
+}
+
+function normalizeServiceCategory(category: string): string {
+  return category
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .trim();
+}
+
 function makeCartItem(product: Product, offerId: number, quantity: number): CartItem | null {
   const offer = product.offers.find((candidate) => candidate.offerId === offerId);
   if (!offer) return null;
@@ -109,10 +122,51 @@ export default function App() {
     {},
   );
   const [productCompareError, setProductCompareError] = useState<string | null>(null);
+  const [serviceCompareCategories, setServiceCompareCategories] = useState<Record<string, string>>(
+    {},
+  );
+  const [serviceCompareError, setServiceCompareError] = useState<string | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [serviceCart, setServiceCart] = useState<Service[]>([]);
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const userId = user?.userId ?? null;
   const activeUserId = useRef<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const serviceIds = readStoredIds(SERVICE_CART_KEY);
+
+    void Promise.all([...serviceIds].map((id) => getServiceById(id)))
+      .then((services) => {
+        if (cancelled) return;
+        const availableServices = services.filter(
+          (service): service is Service => service !== null,
+        );
+        setServiceCart((previous) => {
+          const mergedServices = new Map(
+            availableServices.map((service) => [service.id, service] as const),
+          );
+          previous.forEach((service) => mergedServices.set(service.id, service));
+          const updated = [...mergedServices.values()];
+          storeServiceCart(updated);
+          return updated;
+        });
+        if (availableServices.length !== serviceIds.size) {
+          setPersistenceError("Se quitaron de la cesta los servicios que ya no están disponibles.");
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setPersistenceError(
+            `No se pudo recuperar la cesta de servicios: ${error instanceof Error ? error.message : "error desconocido"}`,
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -425,24 +479,103 @@ export default function App() {
     }
   };
 
-  const toggleCompare = async (id: string) => {
+  const toggleCompare = async (id: string, category?: string) => {
     const isComparing = compareList.has(id);
-    if (!isComparing && compareList.size >= 3) {
-      setPersistenceError("Solo puedes comparar hasta 3 servicios a la vez.");
+    if (isComparing) {
+      setCompareList((previous) => {
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
+      setServiceCompareCategories((previous) => {
+        const next = { ...previous };
+        delete next[id];
+        return next;
+      });
+      setServiceCompareError(null);
       return;
     }
+    if (!isComparing && compareList.size >= 3) {
+      setServiceCompareError("Solo puedes comparar hasta 3 servicios a la vez.");
+      return;
+    }
+
+    let candidateCategory = category?.trim() ?? "";
+    try {
+      if (!candidateCategory) {
+        const candidate = await getServiceById(id);
+        if (!candidate) {
+          setServiceCompareError("No se pudo agregar el servicio porque ya no está disponible.");
+          return;
+        }
+        candidateCategory = candidate.category;
+      }
+
+      const selectedServices = await Promise.all(
+        [...compareList].map(async (selectedId) => {
+          const selectedCategory = serviceCompareCategories[selectedId];
+          if (selectedCategory) return { category: selectedCategory };
+          const selected = await getServiceById(selectedId);
+          return selected ? { category: selected.category } : null;
+        }),
+      );
+      if (selectedServices.some((service) => service === null)) {
+        setServiceCompareError(
+          "No se pudo validar la categoría de un servicio seleccionado. Quítalo del comparador e inténtalo nuevamente.",
+        );
+        return;
+      }
+
+      const incompatible = selectedServices.find(
+        (service) =>
+          service &&
+          normalizeServiceCategory(service.category) !==
+            normalizeServiceCategory(candidateCategory),
+      );
+      if (incompatible) {
+        setServiceCompareError(
+          `No se agregó el servicio: “${candidateCategory}” es una categoría diferente de “${incompatible.category}”. Compara servicios de la misma categoría.`,
+        );
+        return;
+      }
+    } catch (error) {
+      setServiceCompareError(
+        `No se pudo validar la categoría del servicio: ${error instanceof Error ? error.message : "error desconocido"}`,
+      );
+      return;
+    }
+
     setCompareList((previous) => {
       const next = new Set(previous);
-      if (isComparing) next.delete(id);
-      else next.add(id);
+      next.add(id);
       return next;
     });
-    setPersistenceError(null);
+    setServiceCompareCategories((previous) => ({ ...previous, [id]: candidateCategory }));
+    setServiceCompareError(null);
   };
 
   const clearServiceComparison = () => {
     setCompareList(new Set());
+    setServiceCompareCategories({});
+    setServiceCompareError(null);
+  };
+
+  const addServiceToCart = (service: Service) => {
+    setServiceCart((previous) => {
+      if (previous.some((item) => item.id === service.id)) return previous;
+      const updated = [...previous, service];
+      storeServiceCart(updated);
+      return updated;
+    });
     setPersistenceError(null);
+  };
+
+  const removeServiceFromCart = (serviceId: string) => {
+    setServiceCart((previous) => {
+      const updated = previous.filter((service) => service.id !== serviceId);
+      storeServiceCart(updated);
+      return updated;
+    });
   };
 
   const toggleProductCompare = async (id: string, category: string) => {
@@ -491,7 +624,9 @@ export default function App() {
     favorites,
     compareList,
     productCompareList,
+    serviceCart: new Set(serviceCart.map((service) => service.id)),
     onAddToCart: addToCart,
+    onAddServiceToCart: addServiceToCart,
     onToggleFavorite: toggleFavorite,
     onToggleCompare: toggleCompare,
     onToggleProductCompare: toggleProductCompare,
@@ -542,12 +677,21 @@ export default function App() {
             navigate={navigate}
             isFavorite={favorites.has(page.serviceId)}
             isComparing={compareList.has(page.serviceId)}
+            isInCart={serviceCart.some((service) => service.id === page.serviceId)}
             onToggleFavorite={toggleFavorite}
             onToggleCompare={toggleCompare}
+            onAddToCart={addServiceToCart}
           />
         );
       case "service-comparison":
-        return <ServiceComparisonPage serviceIds={page.serviceIds} navigate={navigate} />;
+        return (
+          <ServiceComparisonPage
+            serviceIds={page.serviceIds}
+            navigate={navigate}
+            serviceCart={new Set(serviceCart.map((service) => service.id))}
+            onAddToCart={addServiceToCart}
+          />
+        );
       case "stores":
         return (
           <StoresPage
@@ -594,9 +738,11 @@ export default function App() {
         return (
           <CartPage
             cart={cart}
+            serviceCart={serviceCart}
             navigate={navigate}
             onUpdateQuantity={updateCartQuantity}
             onRemove={removeFromCart}
+            onRemoveService={removeServiceFromCart}
           />
         );
       default:
@@ -610,7 +756,7 @@ export default function App() {
         navigate={navigate}
         currentPage={page}
         favCount={favorites.size}
-        cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
+        cartCount={cart.reduce((sum, item) => sum + item.quantity, 0) + serviceCart.length}
       />
 
       <main style={{ flex: 1 }}>{renderPage()}</main>
@@ -642,6 +788,14 @@ export default function App() {
             onRemove={(serviceId) => void toggleCompare(serviceId)}
             onNavigate={navigate}
           />
+          {serviceCompareError && (
+            <p
+              role="alert"
+              className="mt-2 max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-amber-300/25 bg-slate-950/95 px-3 py-2 text-[11px] font-medium text-amber-200 shadow-lg"
+            >
+              {serviceCompareError}
+            </p>
+          )}
         </div>
       )}
 

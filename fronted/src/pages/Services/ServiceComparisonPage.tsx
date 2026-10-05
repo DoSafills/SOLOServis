@@ -5,14 +5,55 @@ import {
   formatServicePrice,
   getServiceBillingPeriodLabel,
 } from "../../Services/utils/productUtils";
-import { Breadcrumb, Badge } from "../../components/common/ui";
+import { Breadcrumb } from "../../components/common/ui";
 
 interface Props {
   serviceIds: string[];
   navigate: (page: Page) => void;
+  serviceCart: Set<string>;
+  onAddToCart: (service: Service) => void;
 }
 
-export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
+const normalizeComparableText = (value: string): string =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .trim();
+
+const getSpecBestIndices = (services: Service[], name: string): Set<number> => {
+  const entries = services.map((service) => {
+    const value = service.specs[name] ?? "";
+    const numericMatch = normalizeComparableText(value).match(/[+-]?\d+(?:[.,]\d+)?/);
+    const numeric = numericMatch ? Number(numericMatch[0].replace(",", ".")) : null;
+    const unit = normalizeComparableText(value)
+      .replace(/[+-]?\d+(?:[.,]\d+)?/g, "#")
+      .replace(/[^a-z#]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return { value: normalizeComparableText(value), numeric, unit };
+  });
+  const populated = entries.filter((entry) => entry.value);
+  if (populated.length < 2) return new Set();
+
+  const units = new Set(populated.map((entry) => entry.unit));
+  if (units.size !== 1 || populated.some((entry) => entry.numeric === null)) return new Set();
+
+  const values = populated.map((entry) => entry.numeric as number);
+  const bestValue = Math.max(...values);
+  return new Set(entries.flatMap((entry, index) => (entry.numeric === bestValue ? [index] : [])));
+};
+
+const bestCellClass =
+  "border-cyan-200/80 bg-gradient-to-br from-cyan-300/20 via-sky-500/10 to-violet-500/15 text-white shadow-[0_0_22px_rgba(34,211,238,0.12)] ring-1 ring-cyan-200/20";
+const defaultCellClass = "border-white/[0.07] bg-slate-950/35 text-slate-100";
+
+export default function ServiceComparisonPage({
+  serviceIds,
+  navigate,
+  serviceCart,
+  onAddToCart,
+}: Props) {
   const requestKey = JSON.stringify(serviceIds);
   const [result, setResult] = useState<{ requestKey: string; services: Service[] } | null>(null);
 
@@ -46,24 +87,65 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando comparación...</p>
+      <div className="mx-auto max-w-7xl px-4 py-24 text-center">
+        <div className="mx-auto flex max-w-sm flex-col items-center rounded-3xl border border-white/10 bg-slate-950/50 p-8">
+          <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-300/10 text-2xl text-cyan-200">
+            ⚖
+          </span>
+          <p className="text-sm font-semibold text-slate-200">Preparando tu comparación</p>
+          <p className="mt-1 text-xs text-slate-400">
+            Estamos reuniendo los datos de cada servicio.
+          </p>
+        </div>
       </div>
     );
   }
 
   if (selected.length < 2) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted mb-4">Selecciona al menos 2 servicios para comparar.</p>
+      <div className="mx-auto max-w-7xl px-4 py-24 text-center">
+        <div className="mx-auto max-w-lg rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900 to-indigo-950/60 p-8">
+          <span className="text-3xl" aria-hidden="true">
+            ⚖
+          </span>
+          <p className="mb-4 mt-3 text-slate-300">Selecciona al menos 2 servicios para comparar.</p>
 
-        <button
-          onClick={() => navigate({ id: "search-services", query: "" })}
-          style={{ background: "#E8001B", color: "#0A0A0A" }}
-          className="px-5 py-2 rounded-xl text-sm font-semibold"
-        >
-          Buscar servicios
-        </button>
+          <button
+            onClick={() => navigate({ id: "search-services", query: "" })}
+            className="rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-950/30 transition hover:brightness-110"
+          >
+            Buscar servicios
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const selectedCategory = selected[0].category.trim();
+  if (
+    !selectedCategory ||
+    selected.some(
+      (service) =>
+        service.category.trim().toLocaleLowerCase() !== selectedCategory.toLocaleLowerCase(),
+    )
+  ) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-24 text-center">
+        <div className="mx-auto max-w-lg rounded-3xl border border-amber-200/15 bg-gradient-to-br from-slate-900 to-amber-950/20 p-8">
+          <span className="text-3xl" aria-hidden="true">
+            ⚠
+          </span>
+          <p className="mb-4 mt-3 text-slate-300">
+            Solo puedes comparar servicios que pertenezcan a la misma categoría.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate({ id: "search-services", query: "" })}
+            className="rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-violet-950/30 transition hover:brightness-110"
+          >
+            Volver a los servicios
+          </button>
+        </div>
       </div>
     );
   }
@@ -77,6 +159,14 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
     ? Math.min(...selected.map((service) => service.monthlyPrice))
     : null;
   const highestRating = Math.max(...selected.map((s) => s.rating));
+  const bestPriceIndices = hasComparablePrices
+    ? new Set(
+        selected.flatMap((service, index) => (service.monthlyPrice === lowestPrice ? [index] : [])),
+      )
+    : new Set<number>();
+  const bestRatingIndices = new Set(
+    selected.flatMap((service, index) => (service.rating === highestRating ? [index] : [])),
+  );
 
   const compareRows: {
     key: string;
@@ -133,192 +223,237 @@ export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
         ]}
       />
 
-      <h1 className="text-2xl font-bold text-text mb-2">Comparación de servicios</h1>
+      <section className="relative mb-7 overflow-hidden rounded-[28px] border border-violet-200/15 bg-gradient-to-br from-violet-950/65 via-slate-950 to-cyan-950/45 px-5 py-6 shadow-[0_20px_60px_rgba(2,6,23,0.35)] sm:px-8 sm:py-8">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-cyan-400/10 blur-3xl"
+        />
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="mb-2 flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[0.2em] text-cyan-200">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-cyan-200/20 bg-cyan-300/10 text-base">
+                ⚖
+              </span>
+              Comparador de servicios
+            </p>
+            <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
+              Elige el servicio ideal
+            </h1>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-300">
+              Revisa precios, condiciones y características en una sola vista para decidir con más
+              claridad.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <span className="rounded-xl border border-white/10 bg-slate-950/45 px-3 py-2 text-xs font-semibold text-slate-200">
+              {selected.length} servicios
+            </span>
+            <span className="rounded-xl border border-cyan-200/20 bg-cyan-300/10 px-3 py-2 text-xs font-bold text-cyan-100">
+              {selectedCategory}
+            </span>
+          </div>
+        </div>
+      </section>
 
-      <p className="text-sm text-muted mb-8">Comparando {selected.length} servicios</p>
-
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[520px]">
-          <thead>
-            <tr>
-              <th
-                style={{
-                  background: "#111111",
-                  borderBottom: "1px solid #2A2A2A",
-                  borderRight: "1px solid #2A2A2A",
-                }}
-                className="text-left text-xs font-semibold text-muted-2 uppercase tracking-widest p-4 w-40"
-              >
-                Característica
-              </th>
-
-              {selected.map((service) => (
-                <th
-                  key={service.id}
-                  style={{
-                    background: "#111111",
-                    borderBottom: "1px solid #2A2A2A",
-                    borderRight: "1px solid #1A1A1A",
-                  }}
-                  className="p-4 text-center"
-                >
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="w-16 h-12 rounded-xl overflow-hidden">
-                      <img
-                        src={service.image}
-                        alt={service.provider}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="text-sm font-bold text-prime">{service.provider}</div>
-
-                      <div className="text-xs text-muted-2">{service.name}</div>
-                    </div>
-
-                    <button
-                      onClick={() =>
-                        navigate({
-                          id: "service-detail",
-                          serviceId: service.id,
-                        })
-                      }
-                      style={{
-                        background: "#1A1A1A",
-                        border: "1px solid #2A2A2A",
-                        color: "#94A3B8",
-                      }}
-                      className="text-xs px-3 py-1 rounded-lg hover:border-prime hover:text-prime transition-all"
-                    >
-                      Ver detalle
-                    </button>
-                  </div>
+      <div className="overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-slate-900/95 via-slate-950/95 to-indigo-950/40 p-3 shadow-[0_24px_70px_rgba(2,6,23,0.48)] sm:p-5">
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-white/[0.07] bg-slate-950/45 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-extrabold text-white">Comparación detallada</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              {selected.length} opciones · Categoría: {selectedCategory}
+            </p>
+          </div>
+          <p className="flex flex-wrap items-center gap-2 text-[11px] leading-relaxed text-slate-300">
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-cyan-200/50 bg-cyan-300 px-2.5 py-1 font-extrabold text-slate-950">
+              ✦ Mejor
+            </span>
+            Los destacados indican el mejor valor comparable.
+            {!hasComparablePrices && (
+              <span className="text-amber-200">
+                No se destacan precios porque usan monedas o períodos distintos.
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] border-separate border-spacing-1.5">
+            <thead>
+              <tr>
+                <th className="w-44 rounded-2xl border border-white/10 bg-slate-800/90 p-4 text-left text-[10px] font-extrabold uppercase tracking-[0.18em] text-slate-300">
+                  Datos del servicio
                 </th>
-              ))}
-            </tr>
-          </thead>
 
-          <tbody>
-            {compareRows.map((row, rowIndex) => (
-              <tr
-                key={row.key}
-                style={{
-                  background: rowIndex % 2 === 0 ? "#0A0A0A" : "transparent",
-                }}
-              >
-                <td
-                  style={{
-                    borderBottom: "1px solid #1A1A1A",
-                    borderRight: "1px solid #2A2A2A",
-                  }}
-                  className="p-4 text-xs font-semibold text-muted-2 uppercase tracking-wide"
-                >
-                  {row.label}
-                </td>
-
-                {selected.map((service) => {
-                  const value = row.getValue(service);
-
-                  const isBest =
-                    (row.key === "monthlyPrice" &&
-                      lowestPrice !== null &&
-                      service.monthlyPrice === lowestPrice) ||
-                    (row.key === "rating" && service.rating === highestRating);
-
-                  return (
-                    <td
-                      key={service.id}
-                      style={{
-                        borderBottom: "1px solid #1A1A1A",
-                        borderRight: "1px solid #1A1A1A",
-                      }}
-                      className="p-4 text-center"
-                    >
-                      <span
-                        className={`text-sm font-semibold ${isBest ? "text-prime" : "text-text"}`}
-                      >
-                        {value}
-                      </span>
-
-                      {isBest && row.key === "monthlyPrice" && (
-                        <div className="mt-1">
-                          <Badge variant="best">Mejor precio</Badge>
+                {selected.map((service) => (
+                  <th
+                    key={service.id}
+                    className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/95 via-slate-900 to-slate-950 p-4 text-center shadow-lg shadow-black/10"
+                  >
+                    <div className="flex flex-col items-center gap-3">
+                      {service.image ? (
+                        <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-1.5 shadow-inner">
+                          <img
+                            src={service.image}
+                            alt={service.name}
+                            className="h-20 w-28 rounded-xl object-cover"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex h-20 w-28 items-center justify-center rounded-2xl border border-white/10 bg-slate-700/80 text-[10px] text-slate-300">
+                          Sin imagen
                         </div>
                       )}
-                    </td>
-                  );
-                })}
+
+                      <div>
+                        <div className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-cyan-300">
+                          {service.provider}
+                        </div>
+                        <div className="mt-1.5 max-w-[200px] text-sm font-extrabold leading-snug text-white">
+                          {service.name}
+                        </div>
+                        <div className="mt-2 text-base font-black text-emerald-300">
+                          {formatServicePrice(service.monthlyPrice, service.currency)}
+                          <span className="ml-1 text-[10px] font-semibold text-slate-400">
+                            {getServiceBillingPeriodLabel(service.billingPeriod)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate({
+                            id: "service-detail",
+                            serviceId: service.id,
+                          })
+                        }
+                        className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[11px] font-bold text-slate-200 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100"
+                      >
+                        Ver detalle
+                      </button>
+                      <button
+                        type="button"
+                        disabled={serviceCart.has(service.id)}
+                        onClick={() => onAddToCart(service)}
+                        className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-3 py-2 text-[11px] font-extrabold text-white shadow-md shadow-violet-950/40 transition hover:brightness-110 disabled:cursor-default disabled:from-emerald-950 disabled:to-emerald-900 disabled:text-emerald-200 disabled:shadow-none"
+                      >
+                        {serviceCart.has(service.id) ? "✓ En la cesta" : "Agregar al carrito"}
+                      </button>
+                    </div>
+                  </th>
+                ))}
               </tr>
-            ))}
+            </thead>
 
-            {specKeys.map((key, rowIndex) => (
-              <tr
-                key={key}
-                style={{
-                  background: (rowIndex + compareRows.length) % 2 === 0 ? "#0A0A0A" : "transparent",
-                }}
-              >
-                <td
-                  style={{
-                    borderBottom: "1px solid #1A1A1A",
-                    borderRight: "1px solid #2A2A2A",
-                  }}
-                  className="p-4 text-xs font-semibold text-muted-2 uppercase tracking-wide"
+            <tbody>
+              {compareRows.map((row) => (
+                <tr key={row.key}>
+                  <th
+                    scope="row"
+                    className="rounded-xl border border-white/[0.07] bg-slate-800/75 p-4 text-left text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-300"
+                  >
+                    {row.label}
+                  </th>
+
+                  {selected.map((service, index) => {
+                    const value = row.getValue(service);
+                    const isBest =
+                      (row.key === "monthlyPrice" && bestPriceIndices.has(index)) ||
+                      (row.key === "rating" && bestRatingIndices.has(index));
+
+                    return (
+                      <td
+                        key={service.id}
+                        className={`rounded-xl border p-3 text-center ${
+                          isBest
+                            ? "border-cyan-200 bg-gradient-to-br from-cyan-300/25 via-sky-500/15 to-violet-500/20 text-white shadow-[0_0_24px_rgba(34,211,238,0.24),inset_0_0_0_1px_rgba(165,243,252,0.2)] ring-1 ring-cyan-200/30"
+                            : defaultCellClass
+                        }`}
+                      >
+                        <span className="text-sm font-semibold">{value || "No informado"}</span>
+                        {isBest && (
+                          <span className="mt-1 block text-[10px] font-extrabold text-cyan-100">
+                            {row.key === "monthlyPrice" ? "✦ Mejor precio" : "✦ Mejor valoración"}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+
+              {specKeys.map((key) => {
+                const bestIndices = getSpecBestIndices(selected, key);
+                return (
+                  <tr key={key}>
+                    <th
+                      scope="row"
+                      className="rounded-xl border border-white/[0.07] bg-slate-800/75 p-4 text-left text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-300"
+                    >
+                      {key}
+                    </th>
+                    {selected.map((service, index) => (
+                      <td
+                        key={service.id}
+                        className={`rounded-xl border p-3 text-center ${
+                          bestIndices.has(index) ? bestCellClass : defaultCellClass
+                        }`}
+                      >
+                        <span className="text-sm font-semibold">
+                          {service.specs[key] || <span className="text-slate-500">—</span>}
+                        </span>
+                        {bestIndices.has(index) && (
+                          <span className="mt-1 block text-[10px] font-extrabold text-cyan-100">
+                            ✦ Mejor valor
+                          </span>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+
+              <tr>
+                <th
+                  scope="row"
+                  className="rounded-xl border border-white/[0.07] bg-slate-800/75 p-4 text-left align-top text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-300"
                 >
-                  {key}
-                </td>
-
+                  Beneficios
+                </th>
                 {selected.map((service) => (
                   <td
                     key={service.id}
-                    style={{
-                      borderBottom: "1px solid #1A1A1A",
-                      borderRight: "1px solid #1A1A1A",
-                    }}
-                    className="p-4 text-center"
+                    className="rounded-xl border border-white/[0.07] bg-slate-950/35 p-4"
                   >
-                    <span className="text-sm text-text">
-                      {service.specs[key] ?? <span className="text-muted">—</span>}
-                    </span>
+                    {service.benefits.length > 0 ? (
+                      <ul className="space-y-1">
+                        {service.benefits.map((benefit) => (
+                          <li
+                            key={benefit}
+                            className="flex items-center gap-1.5 text-xs text-slate-200"
+                          >
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="#67e8f9"
+                              strokeWidth="3"
+                            >
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                            {benefit}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="text-sm text-slate-500">—</span>
+                    )}
                   </td>
                 ))}
               </tr>
-            ))}
-
-            <tr>
-              <td
-                style={{ borderRight: "1px solid #2A2A2A" }}
-                className="p-4 text-xs font-semibold text-muted-2 uppercase tracking-wide align-top"
-              >
-                Beneficios
-              </td>
-
-              {selected.map((service) => (
-                <td key={service.id} style={{ borderRight: "1px solid #1A1A1A" }} className="p-4">
-                  <ul className="space-y-1">
-                    {service.benefits.map((benefit) => (
-                      <li key={benefit} className="flex items-center gap-1.5 text-xs text-muted-2">
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#E8001B"
-                          strokeWidth="3"
-                        >
-                          <path d="M20 6 9 17l-5-5" />
-                        </svg>
-
-                        {benefit}
-                      </li>
-                    ))}
-                  </ul>
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

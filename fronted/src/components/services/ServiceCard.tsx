@@ -10,8 +10,10 @@ interface Props {
   navigate: (page: Page) => void;
   isFavorite: boolean;
   isComparing: boolean;
+  isInCart: boolean;
   onToggleFavorite: (id: string, kind?: "product" | "service") => void;
-  onToggleCompare: (id: string) => void;
+  onToggleCompare: (id: string, category: string) => void;
+  onAddToCart: (service: Service) => void;
 }
 
 export default function ServiceCard({
@@ -19,8 +21,10 @@ export default function ServiceCard({
   navigate,
   isFavorite,
   isComparing,
+  isInCart,
   onToggleFavorite,
   onToggleCompare,
+  onAddToCart,
 }: Props) {
   const openService = () => navigate({ id: "service-detail", serviceId: service.id });
   const hasReferentialPrice = service.description.includes(
@@ -31,7 +35,13 @@ export default function ServiceCard({
     (service.contractMonths ? `${service.contractMonths} meses` : "No informado");
 
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-indigo-300/20 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 shadow-lg shadow-slate-950/30 transition duration-300 hover:-translate-y-1 hover:border-violet-300/60 hover:shadow-xl hover:shadow-violet-950/40">
+    <div
+      className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 shadow-lg shadow-slate-950/30 transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-violet-950/40 ${
+        isComparing
+          ? "z-[1] scale-[1.02] border-cyan-300 ring-2 ring-cyan-400/30"
+          : "border-indigo-300/20 hover:border-violet-300/60"
+      }`}
+    >
       {/* Image */}
       <div
         className="relative h-36 cursor-pointer overflow-hidden bg-gradient-to-br from-violet-950 via-slate-900 to-cyan-950"
@@ -136,24 +146,32 @@ export default function ServiceCard({
         <div className="mt-1 flex gap-2">
           <button
             type="button"
-            onClick={openService}
-            className="flex-1 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 py-2 text-xs font-bold text-white shadow-md shadow-violet-950/30 transition hover:brightness-110"
+            onClick={() => onAddToCart(service)}
+            disabled={isInCart}
+            className="flex-1 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 py-2 text-xs font-bold text-white shadow-md shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-default disabled:from-emerald-950 disabled:to-emerald-900 disabled:text-emerald-200 disabled:shadow-none"
           >
-            Ver servicio
+            {isInCart ? "✓ En la cesta" : "Agregar al carrito"}
           </button>
           <button
             type="button"
-            onClick={() => onToggleCompare(service.id)}
-            aria-pressed={isComparing}
-            className={`flex-1 rounded-lg border py-2 text-xs font-bold transition ${
-              isComparing
-                ? "border-cyan-200/50 bg-gradient-to-r from-cyan-500/25 to-violet-500/25 text-cyan-100 shadow-[0_0_18px_rgba(34,211,238,0.16)]"
-                : "border-violet-200/25 bg-violet-400/10 text-violet-100 hover:border-violet-200/50 hover:bg-violet-400/20"
-            }`}
+            onClick={openService}
+            className="flex-1 rounded-lg border border-cyan-200/25 bg-cyan-400/10 py-2 text-xs font-bold text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20"
           >
-            {isComparing ? "✓ Comparando" : "Comparar"}
+            Ver servicio
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => onToggleCompare(service.id, service.category)}
+          aria-pressed={isComparing}
+          className={`mt-1 w-full rounded-lg border py-2 text-sm font-extrabold transition ${
+            isComparing
+              ? "border-cyan-200/50 bg-gradient-to-r from-cyan-500/25 to-violet-500/25 text-cyan-100 shadow-[0_0_18px_rgba(34,211,238,0.16)]"
+              : "border-violet-200/25 bg-violet-400/10 text-violet-100 hover:border-violet-200/50 hover:bg-violet-400/20"
+          }`}
+        >
+          {isComparing ? "✓ Comparando" : "Comparar"}
+        </button>
       </div>
     </div>
   );

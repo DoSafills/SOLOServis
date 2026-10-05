@@ -211,16 +211,18 @@ ServiceCard(...)
 Archivo: ../fronted/src/components/services/ServiceCard.tsx
 
 Muestra la tarjeta de un servicio con imagen, categoria, proveedor, especificaciones,
-valoracion, precio, moneda y frecuencia. Incluye acciones para abrir el detalle,
-guardar en favoritos y agregar o quitar el servicio del comparador. El borde y la
-sombra reaccionan a la interaccion del usuario.
+valoracion, precio, moneda y frecuencia. Incluye las acciones "Agregar al carrito" y
+"Ver servicio" en una fila, y "Comparar" en una fila de ancho completo, siguiendo la
+disposicion de las tarjetas de productos. Tambien permite guardar en favoritos; la
+tarjeta se resalta cuando el servicio esta seleccionado para comparar.
 
 ServiceDetailPage(...)
 Archivo: ../fronted/src/pages/Services/ServiceDetailPage.tsx
 
 Carga y muestra la ficha completa de un servicio: caracteristicas, beneficios,
 valoracion, precio, instalacion, permanencia, historial y acciones de favorito y
-comparacion. Muestra estados de carga y de servicio no encontrado.
+comparacion. Permite agregar el servicio al carrito y muestra si ya esta agregado.
+Muestra estados de carga y de servicio no encontrado.
 
 formatServicePrice(price, currency)
 Archivo: ../fronted/src/Services/utils/productUtils.ts
@@ -242,9 +244,12 @@ Convierte los valores de frecuencia conocidos en etiquetas para la interfaz:
 toggleCompare(id)
 Archivo: ../fronted/src/App.tsx
 
-Agrega o quita un servicio de la seleccion de comparacion. Limita la seleccion a
-tres servicios y muestra un aviso si se intenta agregar uno mas. La lista se guarda
-en el almacenamiento local del navegador para conservarla entre visitas.
+Agrega o quita un servicio de la seleccion de comparacion. Al agregarlo valida que
+pertenezca a la misma categoria que los servicios ya seleccionados; si no coincide,
+muestra un aviso y conserva la seleccion actual. Limita la seleccion a tres servicios.
+La lista se guarda en el almacenamiento local del navegador para conservarla entre
+visitas. Al quitar servicios o limpiar la seleccion tambien actualiza sus categorias
+asociadas.
 
 clearServiceComparison()
 Archivo: ../fronted/src/App.tsx
@@ -268,9 +273,20 @@ Ignora las respuestas pendientes si la bandeja cambia o se desmonta.
 ServiceComparisonPage(...)
 Archivo: ../fronted/src/pages/Services/ServiceComparisonPage.tsx
 
-Carga las fichas seleccionadas y las presenta en una tabla. Compara precio,
-instalacion, permanencia, valoracion, cobertura y especificaciones, y permite ir al
-detalle individual.
+Carga las fichas seleccionadas y las presenta en una tabla adaptable con encabezado
+visual, tarjetas para identificar cada servicio, precios y botones de detalle y
+carrito. Compara instalacion, permanencia, valoracion, cobertura, especificaciones y
+beneficios. Destaca el menor precio solo cuando todos tienen la misma moneda y
+frecuencia; puede destacar la mejor valoracion y valores numericos de especificaciones
+con unidades coincidentes. Verifica nuevamente que los servicios pertenezcan a la
+misma categoria antes de mostrar la tabla.
+
+getSpecBestIndices(services, name)
+Funcion auxiliar de ServiceComparisonPage.
+
+Busca el mayor valor numerico de una especificacion cuando al menos dos servicios
+tienen valores y sus unidades coinciden. No destaca valores textuales, unidades
+distintas ni datos incompletos.
 
 hasComparablePrices y lowestPrice
 Calculos internos de ServiceComparisonPage.
@@ -281,7 +297,31 @@ no se destaca un ganador de precio. La valoracion mas alta puede destacarse por
 separado.
 
 
-6. CARGA DE DATOS
+6. CESTA DE SERVICIOS
+---------------------
+
+addServiceToCart(service)
+Archivo: ../fronted/src/App.tsx
+
+Agrega un servicio a la cesta si todavia no estaba incluido. Guarda sus identificadores
+en el almacenamiento local del navegador. La cesta de servicios es independiente de
+la cesta de productos y no se sincroniza con la cuenta.
+
+removeServiceFromCart(serviceId)
+Archivo: ../fronted/src/App.tsx
+
+Quita un servicio de la cesta local y actualiza su almacenamiento persistente.
+
+CartPage(...)
+Archivo: ../fronted/src/pages/user/CartPage.tsx
+
+Muestra productos y servicios en la misma pagina. Los servicios se pueden quitar y
+se presentan con proveedor, categoria, precio y frecuencia de cobro. Sus importes se
+muestran por separado de los totales de tienda porque pueden tener distintas monedas
+y frecuencias.
+
+
+7. CARGA DE DATOS
 -----------------
 
 Migracion 006_seed_servicios_fibra.sql
