@@ -26,6 +26,7 @@ interface Props {
   favorites: Set<string>;
   compareList: Set<string>;
   productCompareList: Set<string>;
+  cartProductIds: Set<string>;
   serviceCart: Set<string>;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
   onAddServiceToCart: (service: Service) => void;
@@ -39,6 +40,7 @@ export default function HomePage({
   favorites,
   compareList,
   productCompareList,
+  cartProductIds,
   serviceCart,
   onAddToCart,
   onAddServiceToCart,
@@ -260,6 +262,7 @@ export default function HomePage({
                 navigate={navigate}
                 isFavorite={favorites.has(p.id)}
                 isComparing={productCompareList.has(p.id)}
+                isInCart={cartProductIds.has(p.id)}
                 onAddToCart={onAddToCart}
                 onToggleFavorite={onToggleFavorite}
                 onToggleCompare={onToggleProductCompare}

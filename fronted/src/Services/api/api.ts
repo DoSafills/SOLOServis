@@ -155,7 +155,11 @@ export async function getServices(params?: { category?: string }): Promise<Servi
     Object.entries(params ?? {}).filter(([, value]) => Boolean(value)) as [string, string][],
   ).toString();
 
-  return fetchList<Service>(SERVICE_API_URL, `/services${query ? `?${query}` : ""}`);
+  const services = await fetchList<Service>(
+    SERVICE_API_URL,
+    `/services${query ? `?${query}` : ""}`,
+  );
+  return services.map((service) => ({ ...service, currency: "CLP" }));
 }
 
 export async function getServiceById(id: string): Promise<Service | null> {
@@ -169,7 +173,8 @@ export async function getServiceById(id: string): Promise<Service | null> {
     throw new Error(`Error ${response.status} al obtener el servicio`);
   }
 
-  return response.json() as Promise<Service>;
+  const service = (await response.json()) as Service;
+  return { ...service, currency: "CLP" };
 }
 
 export async function getStores(): Promise<Store[]> {

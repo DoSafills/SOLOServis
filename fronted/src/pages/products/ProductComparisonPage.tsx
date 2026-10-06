@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import { getProductById } from "../../services/api/api";
 import { formatPrice, getMinOffer } from "../../Services/utils/productUtils";
@@ -8,6 +8,7 @@ import { areProductCategoriesCompatible } from "./productComparisonUtils";
 interface Props {
   productIds: string[];
   navigate: (page: Page) => void;
+  cartProductIds: Set<string>;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
 }
 
@@ -196,36 +197,18 @@ const getCellTone = (state: SpecCellState) => {
   }
 };
 
-export default function ProductComparisonPage({ productIds, navigate, onAddToCart }: Props) {
+export default function ProductComparisonPage({
+  productIds,
+  navigate,
+  cartProductIds,
+  onAddToCart,
+}: Props) {
   const [selected, setSelected] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [recentlyAdded, setRecentlyAdded] = useState<Set<string>>(new Set());
-  const addTimeouts = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-
-  useEffect(
-    () => () => {
-      addTimeouts.current.forEach(clearTimeout);
-    },
-    [],
-  );
 
   const handleAddToCart = (product: Product, offer: StoreOffer) => {
     onAddToCart(product, offer);
-    setRecentlyAdded((previous) => new Set(previous).add(product.id));
-    const previousTimeout = addTimeouts.current.get(product.id);
-    if (previousTimeout) clearTimeout(previousTimeout);
-    addTimeouts.current.set(
-      product.id,
-      setTimeout(() => {
-        setRecentlyAdded((previous) => {
-          const next = new Set(previous);
-          next.delete(product.id);
-          return next;
-        });
-        addTimeouts.current.delete(product.id);
-      }, 1500),
-    );
   };
 
   useEffect(() => {
@@ -402,12 +385,12 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
                           if (offer) handleAddToCart(product, offer);
                         }}
                         className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white shadow-md transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40 ${
-                          recentlyAdded.has(product.id)
+                          cartProductIds.has(product.id)
                             ? "bg-gradient-to-r from-emerald-700 to-emerald-600 shadow-emerald-950/30"
                             : "bg-gradient-to-r from-[#ff9878] to-[#fb7185] shadow-rose-500/15"
                         }`}
                       >
-                        {recentlyAdded.has(product.id) ? "✓ Agregado" : "Agregar al carrito"}
+                        {cartProductIds.has(product.id) ? "✓ Agregado" : "Agregar al carrito"}
                       </button>
                     </div>
                   </th>

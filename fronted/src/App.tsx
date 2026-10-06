@@ -626,6 +626,7 @@ export default function App() {
     favorites,
     compareList,
     productCompareList,
+    cartProductIds: new Set(cart.map((item) => item.product.id)),
     serviceCart: new Set(serviceCart.map((service) => service.id)),
     onAddToCart: addToCart,
     onAddServiceToCart: addServiceToCart,
@@ -667,6 +668,7 @@ export default function App() {
           <ProductComparisonPage
             productIds={page.productIds}
             navigate={navigate}
+            cartProductIds={new Set(cart.map((item) => item.product.id))}
             onAddToCart={addToCart}
           />
         );

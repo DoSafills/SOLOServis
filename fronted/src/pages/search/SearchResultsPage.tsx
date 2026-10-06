@@ -17,6 +17,7 @@ interface Props {
   navigate: (page: Page) => void;
   favorites: Set<string>;
   productCompareList: Set<string>;
+  cartProductIds: Set<string>;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
   onToggleFavorite: (id: string) => void;
   onToggleProductCompare: (id: string, category: string) => void;
@@ -112,6 +113,7 @@ export default function SearchResultsPage({
   navigate,
   favorites,
   productCompareList,
+  cartProductIds,
   onAddToCart,
   onToggleFavorite,
   onToggleProductCompare,
@@ -663,6 +665,7 @@ export default function SearchResultsPage({
                     navigate={navigate}
                     isFavorite={favorites.has(p.id)}
                     isComparing={productCompareList.has(p.id)}
+                    isInCart={cartProductIds.has(p.id)}
                     onAddToCart={onAddToCart}
                     onToggleFavorite={onToggleFavorite}
                     onToggleCompare={onToggleProductCompare}
