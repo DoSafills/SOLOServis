@@ -64,12 +64,12 @@ sin distinguir mayusculas ni acentos. Por ejemplo, permite comparar "Educacion" 
 "Educación".
 
 getServiceMacroCategory(service)
-Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
+Archivo: ../fronted/src/Services/utils/serviceCategories.ts
 
-Clasifica cada servicio en una macro categoria a partir del texto de sus categorias:
-Internet, Seguros, Tecnicos o Educacion. Si no encuentra palabras reconocidas, lo
-marca como "other". La clasificacion es textual; los registros deben incluir nombres
-de categoria que correspondan a esos grupos.
+Clasifica un servicio como Internet, Seguros, Tecnicos o Educacion analizando su
+categoria y subcategoria, sin distinguir mayusculas ni acentos. Si no reconoce los
+textos, devuelve "other". Se comparte entre las paginas de navegacion por categorias
+para que un servicio quede en el mismo grupo en todos los recorridos.
 
 getServicePrice(service)
 Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
@@ -119,9 +119,9 @@ especificaciones y filtros avanzados.
 ServicesPage(...)
 Archivo: ../fronted/src/pages/Services/ServicesPage.tsx
 
-Es la pagina principal del catalogo de servicios. Carga los servicios al entrar,
-presenta las macro categorias y, despues de elegir una, muestra resultados, filtros,
-ordenamiento, tarjetas y paginacion.
+Es la pagina principal del catalogo de servicios. Carga los servicios y conserva el
+flujo original de busqueda, filtros, ordenamiento, tarjetas y paginacion. Sus tarjetas
+de categoria navegan a una pagina propia de macro categoria o de categoria.
 
 loadServices()
 Funcion interna de ServicesPage.
@@ -133,8 +133,8 @@ evita actualizar el estado de un componente que ya no esta activo.
 servicesInCategory
 Funcion de filtrado dentro de ServicesPage.
 
-Limita los registros a la macro categoria y, si se selecciono una, a la microcategoria
-correspondiente. Cuando no se ha elegido una macro categoria devuelve una lista vacia:
+Limita los registros a la macro categoria y, si se eligio una categoria, a esa
+categoria. Cuando no se ha elegido una macro categoria devuelve una lista vacia:
 asi la vista inicial presenta categorias y no tarjetas de servicios.
 
 queryMatches
@@ -179,9 +179,9 @@ Agrega o quita un valor de especificacion. La comparacion ignora mayusculas y
 acentos; al retirar el ultimo valor de una especificacion, elimina ese filtro.
 
 selectParentCategory(category)
-Selecciona una macro categoria, limpia los filtros anteriores, vuelve a la primera
-pagina y abre el panel de esa categoria para mostrar sus microcategorias. Al elegir
-"all", deja la vista en el selector de categorias sin mostrar servicios.
+Selecciona una macro categoria en el contexto de la pagina principal, limpia los
+filtros anteriores, vuelve a la primera pagina y abre el panel correspondiente. La
+seleccion principal de macro categoria navega a ServiceMacroCategoryPage.
 
 toggleMacroCategory
 Manejador de interfaz dentro de ServicesPage.
@@ -192,8 +192,8 @@ del boton que selecciona y filtra la macro categoria.
 Seleccion de microcategoria
 Manejador de interfaz dentro de ServicesPage.
 
-Selecciona una microcategoria, limita los resultados a ella y lleva la vista a la
-seccion de resultados para que sea visible inmediatamente.
+Al seleccionar una tarjeta de categoria interna, navega a ServiceCategoryPage, donde
+se presentan los servicios y filtros especificos de esa categoria.
 
 renderFilters()
 Funcion interna de ServicesPage.
@@ -202,6 +202,66 @@ Construye los controles generales y avanzados. Incluye precio minimo y maximo,
 seleccion multiple de proveedores, valoracion, instalacion, permanencia, cobertura,
 velocidad de subida y bajada cuando corresponde, y especificaciones agrupadas en
 secciones desplegables.
+
+3.1 PAGINAS DE MACRO CATEGORIA Y CATEGORIA
+------------------------------------------
+
+ServiceMacroCategoryPage(...)
+Archivo: ../fronted/src/pages/Services/ServiceMacroCategoryPage.tsx
+
+Pagina individual para una macro categoria (Internet, Seguros, Tecnicos o Educacion).
+Carga servicios, agrupa sus categorias internas y presenta tarjetas visuales con
+imagen, cantidad de servicios y accion "Explorar", siguiendo el estilo de Productos.
+La seleccion de una tarjeta abre ServiceCategoryPage. Incluye estados de carga, error
+y categoria sin resultados.
+
+categories
+Calculo interno de ServiceMacroCategoryPage.
+
+Agrupa por nombre de categoria solamente los servicios cuya clasificacion, calculada
+por getServiceMacroCategory, coincide con la macro categoria solicitada. Cuenta los
+servicios y conserva la primera imagen disponible para ilustrar cada tarjeta.
+
+ServiceCategoryPage(...)
+Archivo: ../fronted/src/pages/Services/ServiceCategoryPage.tsx
+
+Pagina individual de una categoria interna dentro de una macro categoria. Carga los
+servicios, conserva los que coinciden con ambas categorias y ofrece filtros de precio
+y especificaciones, ordenamiento, paginacion y tarjetas de servicio. Los filtros se
+generan con los datos existentes y se muestran en un panel lateral en escritorio o
+desplegable en pantallas pequenas. Las tarjetas conservan las acciones de carrito,
+favoritos y comparacion.
+
+specifications y specificationOptions
+Calculos internos de ServiceCategoryPage.
+
+Obtienen los nombres de especificaciones presentes en los servicios filtrados y los
+valores unicos disponibles para cada una. Se usan para crear filtros seleccionables
+sin mantener una lista estatica de atributos.
+
+filteredServices
+Filtrado interno de ServiceCategoryPage.
+
+Aplica el rango de precio y todos los valores de especificacion elegidos. Los valores
+seleccionados dentro de una especificacion son alternativas; las distintas
+especificaciones se combinan para estrechar resultados.
+
+toggleSpecification(name, value)
+Alterna un valor seleccionable de especificacion y vuelve a la primera pagina.
+
+clearFilters()
+Quita especificaciones y limites de precio, y reinicia la paginacion.
+
+renderFilters()
+Construye controles de precio y filtros multiseleccion para las especificaciones
+disponibles en los servicios de la categoria.
+
+getServiceMacroCategory(service)
+Archivo: ../fronted/src/Services/utils/serviceCategories.ts
+
+Helper compartido por ambas paginas para limitar la clasificacion a Internet,
+Seguros, Tecnicos y Educacion. Categorias como VPN, Antivirus o Educacion Online
+pertenecen a las categorias internas y se obtienen de los datos del catalogo.
 
 
 4. TARJETAS, DETALLE Y PRECIOS
@@ -275,11 +335,23 @@ Archivo: ../fronted/src/pages/Services/ServiceComparisonPage.tsx
 
 Carga las fichas seleccionadas y las presenta en una tabla adaptable con encabezado
 visual, tarjetas para identificar cada servicio, precios y botones de detalle y
-carrito. Compara instalacion, permanencia, valoracion, cobertura, especificaciones y
-beneficios. Destaca el menor precio solo cuando todos tienen la misma moneda y
+carrito. Agrupa los datos generales bajo "Resumen y condiciones" y organiza las
+especificaciones en secciones tematicas; los beneficios tienen su propio bloque.
+Usa textos compactos y botones ajustados al ancho de sus etiquetas. El boton de
+agregar usa el degradado rojizo del comparador de Productos y conserva el estilo
+verde cuando el servicio ya esta en la cesta. Compara instalacion, permanencia,
+valoracion, cobertura, especificaciones y beneficios. Destaca el menor precio solo
+cuando todos tienen la misma moneda y
 frecuencia; puede destacar la mejor valoracion y valores numericos de especificaciones
 con unidades coincidentes. Verifica nuevamente que los servicios pertenezcan a la
 misma categoria antes de mostrar la tabla.
+
+specificationGroups
+Constante dentro de ServiceComparisonPage.
+
+Agrupa los nombres de especificacion en secciones legibles, como conectividad, plan,
+seguridad, educacion y otros. La seccion "Otros" recoge las especificaciones que no
+coinciden con los patrones tematicos anteriores.
 
 getSpecBestIndices(services, name)
 Funcion auxiliar de ServiceComparisonPage.
@@ -295,6 +367,30 @@ Solo consideran que un servicio tiene el precio mas bajo cuando todos los servic
 seleccionados tienen la misma moneda y frecuencia de cobro. Si estas bases difieren,
 no se destaca un ganador de precio. La valoracion mas alta puede destacarse por
 separado.
+
+ProductComparisonPage(...)
+Archivo: ../fronted/src/pages/products/ProductComparisonPage.tsx
+
+Muestra una tabla de comparacion de productos y sus ofertas. Al agregar un producto
+usa handleAddToCart para invocar la accion existente y mostrar temporalmente
+"Agregado" durante 1,5 segundos. Cada producto mantiene su propio temporizador, que se
+reinicia ante otra pulsacion y se limpia al desmontar la pagina. El estado temporal no
+bloquea agregar el mismo producto otra vez. El boton vuelve luego a su degradado
+rojizo original.
+
+handleAddToCart(product, offer)
+Funcion interna de ProductComparisonPage.
+
+Agrega la oferta al carrito, marca el producto como agregado y programa el retiro de
+la confirmacion visual. Si se vuelve a pulsar durante esos 1,5 segundos, reinicia el
+temporizador para ese producto.
+
+ProductCard.handleAddToCart()
+Archivo: ../fronted/src/components/products/ProductCard.tsx
+
+Agrega la mejor oferta disponible y muestra "Agregado" por 1,5 segundos. La
+confirmacion es solo visual: el boton permanece habilitado, por lo que se puede
+agregar repetidamente el mismo producto. Si no hay oferta disponible, no agrega nada.
 
 
 6. CESTA DE SERVICIOS
