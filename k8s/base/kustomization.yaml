@@ -1,0 +1,51 @@
+# SOLOServis MVP en Kubernetes (namespace student-rrios).
+# No aplicar directo: scripts/k8s/deploy.ps1 genera overlays/local con
+# registry, tag, StorageClass, IngressClass y host del entorno real.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: student-rrios
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: soloservis
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - postgres/secret.yaml
+  - postgres/service.yaml
+  - postgres/statefulset.yaml
+  - migrations/job.yaml
+  - product-api/deployment.yaml
+  - product-api/service.yaml
+  - store-api/deployment.yaml
+  - store-api/service.yaml
+  - frontend/deployment.yaml
+  - frontend/service.yaml
+  - ingress.yaml
+
+configMapGenerator:
+  # Config compartida por las APIs. FRONTEND_URL = origen público (CORS).
+  - name: soloservis-config
+    literals:
+      - FRONTEND_URL=http://soloservis.local
+    options:
+      labels:
+        app.kubernetes.io/component: config
+  # Script del Job de migraciones. Los .sql los agrega el overlay generado
+  # (kustomize no puede leer archivos fuera de su directorio raíz).
+  - name: soloservis-migrate-script
+    files:
+      - migrations/migrate.sh
+    options:
+      labels:
+        app.kubernetes.io/component: migrations
+
+images:
+  - name: soloservis/product-api
+    newTag: dev
+  - name: soloservis/store-api
+    newTag: dev
+  - name: soloservis/frontend
+    newTag: dev

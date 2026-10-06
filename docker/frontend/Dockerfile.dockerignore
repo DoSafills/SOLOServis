@@ -1,0 +1,10 @@
+# Contexto = raíz del repo; solo se necesitan fronted/ y docker/frontend/.
+**
+!fronted/**
+!docker/frontend/nginx.conf
+fronted/node_modules
+fronted/dist
+fronted/.vite
+fronted/**/*.tsbuildinfo
+fronted/.env
+fronted/.env.*
