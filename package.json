@@ -17,18 +17,14 @@
     "lint-staged": "^17.3.0"
   },
   "lint-staged": {
-    "backend/**/*.ts": [
-      "pnpm --dir backend exec prettier --write",
-      "pnpm --dir backend exec eslint --fix"
+    "backend/**/*.go": [
+      "gofmt -w"
     ],
-    "frontend/src/**/*.{ts,tsx}": [
-      "pnpm --dir frontend exec oxfmt"
+    "fronted/src/**/*.{ts,tsx}": [
+      "pnpm --dir fronted exec oxfmt"
     ]
   },
   "scripts": {
     "prepare": "husky"
-  },
-  "dependencies": {
-    "psql": "^0.0.1"
   }
 }

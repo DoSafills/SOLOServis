@@ -1,4 +1,3 @@
-@"
 # DiagramasSS
 
 Esta carpeta contiene los diagramas correspondientes al proyecto SOLOServis.
@@ -26,4 +25,3 @@ consistente.
 
 Cuando un diagrama represente una versión específica de la arquitectura o
 modelo de datos, deberá actualizarse cuando dichos componentes cambien.
-"@ | Set-Content "docs\DiagramasSS\README.md" -Encoding UTF8
