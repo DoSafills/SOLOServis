@@ -11,6 +11,15 @@ export type Page =
       id: "search-services";
       query: string;
     }
+  | {
+      id: "service-macrocategory";
+      macroCategory: string;
+    }
+  | {
+      id: "service-category";
+      macroCategory: string;
+      category: string;
+    }
   | { id: "service-detail"; serviceId: string }
   | {
       id: "service-comparison";

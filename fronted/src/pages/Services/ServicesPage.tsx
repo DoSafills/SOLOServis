@@ -3,6 +3,7 @@ import type { Page, Service } from "../../types";
 import { getServices } from "../../services/api/api";
 import ServiceCard from "../../components/services/ServiceCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
+import { getServiceMacroCategory } from "../../Services/utils/serviceCategories";
 
 interface Props {
   query: string;
@@ -92,8 +93,6 @@ const serviceMacroCategories = [
   },
 ] as const;
 
-type ServiceMacroCategory = (typeof serviceMacroCategories)[number]["id"];
-
 const serviceCategoryColorStyles = [
   {
     card: "from-blue-950 via-slate-900 to-cyan-950 border-cyan-300/25 hover:border-cyan-200/70",
@@ -130,15 +129,6 @@ const serviceCategoryColorStyles = [
     action: "border-amber-100/20 bg-amber-300/10 text-amber-100 group-hover:bg-amber-300/20",
   },
 ] as const;
-
-const getServiceMacroCategory = (service: Service): ServiceMacroCategory | "other" => {
-  const category = normalize(`${service.category} ${service.subcategory}`);
-  if (/internet|fibra|telefonia/.test(category)) return "internet";
-  if (/segur|seguro|vpn|antivirus/.test(category)) return "insurance";
-  if (/educacion|educativo|academia|curso/.test(category)) return "education";
-  if (/tecnico|soporte|reparacion|instalacion/.test(category)) return "technical";
-  return "other";
-};
 
 const serviceSpecFilterGroups = [
   {
@@ -763,7 +753,9 @@ export default function ServicesPage({
                 <button
                   type="button"
                   aria-pressed={activeMacro === macroCategory.id}
-                  onClick={() => selectParentCategory(macroCategory.id)}
+                  onClick={() =>
+                    navigate({ id: "service-macrocategory", macroCategory: macroCategory.id })
+                  }
                   className="flex min-w-0 flex-1 items-center gap-4 rounded-xl p-1 text-left transition hover:bg-white/[0.035] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
                 >
                   <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/45 text-2xl shadow-inner">
@@ -823,8 +815,11 @@ export default function ServicesPage({
                             type="button"
                             aria-pressed={isSelected}
                             onClick={() => {
-                              selectParentCategory(macroCategory.id);
-                              setActiveCategory(category.name);
+                              navigate({
+                                id: "service-category",
+                                macroCategory: macroCategory.id,
+                                category: category.name,
+                              });
                             }}
                             className={`group relative flex min-h-32 min-w-0 items-center gap-3 overflow-hidden rounded-2xl border bg-gradient-to-br ${colors.card} p-3.5 text-left shadow-lg shadow-slate-950/25 transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-violet-950/35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:gap-4 sm:p-4 ${
                               isSelected ? "ring-1 ring-cyan-300/60" : ""

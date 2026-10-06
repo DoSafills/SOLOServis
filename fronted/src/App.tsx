@@ -8,6 +8,8 @@ import SearchResultsPage from "./pages/search/SearchResultsPage";
 import ProductDetailPage from "./pages/products/ProductDetailPage";
 import ProductComparisonPage from "./pages/products/ProductComparisonPage";
 import ServicesPage from "./pages/services/ServicesPage";
+import ServiceMacroCategoryPage from "./pages/services/ServiceMacroCategoryPage";
+import ServiceCategoryPage from "./pages/services/ServiceCategoryPage";
 import ServiceDetailPage from "./pages/services/ServiceDetailPage";
 import ServiceComparisonPage from "./pages/services/ServiceComparisonPage";
 import ServiceComparisonDock from "./components/services/ServiceComparisonDock";
@@ -670,6 +672,23 @@ export default function App() {
         );
       case "search-services":
         return <ServicesPage {...sharedProps} query={page.query} />;
+      case "service-macrocategory":
+        return (
+          <ServiceMacroCategoryPage
+            key={page.macroCategory}
+            macroCategory={page.macroCategory}
+            navigate={navigate}
+          />
+        );
+      case "service-category":
+        return (
+          <ServiceCategoryPage
+            key={`${page.macroCategory}:${page.category}`}
+            {...sharedProps}
+            macroCategory={page.macroCategory}
+            category={page.category}
+          />
+        );
       case "service-detail":
         return (
           <ServiceDetailPage

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServiceById } from "../../services/api/api";
 import {
@@ -47,6 +47,26 @@ const getSpecBestIndices = (services: Service[], name: string): Set<number> => {
 const bestCellClass =
   "border-cyan-200/80 bg-gradient-to-br from-cyan-300/20 via-sky-500/10 to-violet-500/15 text-white shadow-[0_0_22px_rgba(34,211,238,0.12)] ring-1 ring-cyan-200/20";
 const defaultCellClass = "border-white/[0.07] bg-slate-950/35 text-slate-100";
+
+const specificationGroups = [
+  {
+    title: "Conectividad y velocidad",
+    pattern: /(velocidad|conectividad|wifi|wi-fi|red|fibra|datos)/i,
+  },
+  {
+    title: "Plan y condiciones",
+    pattern: /(plan|contrato|permanencia|duraci[oó]n|dispositivo|l[ií]mite|usuario)/i,
+  },
+  {
+    title: "Seguridad y privacidad",
+    pattern: /(seguridad|privacidad|protecci[oó]n|amenaza|vpn|antivirus|cifrado)/i,
+  },
+  {
+    title: "Educación y contenido",
+    pattern: /(curso|idioma|contenido|clase|certificaci[oó]n|aprendizaje|cat[aá]logo)/i,
+  },
+  { title: "Otros", pattern: /.*/ },
+];
 
 export default function ServiceComparisonPage({
   serviceIds,
@@ -208,7 +228,20 @@ export default function ServiceComparisonPage({
     },
   ];
 
-  const specKeys = [...new Set(selected.flatMap((s) => Object.keys(s.specs)))];
+  const specNames = [...new Set(selected.flatMap((service) => Object.keys(service.specs)))].sort(
+    (first, second) => first.localeCompare(second, "es"),
+  );
+  const assignedSpecs = new Set<string>();
+  const specGroups = specificationGroups
+    .map(({ title, pattern }) => ({
+      title,
+      names: specNames.filter((name) => {
+        if (assignedSpecs.has(name) || !pattern.test(name)) return false;
+        assignedSpecs.add(name);
+        return true;
+      }),
+    }))
+    .filter((group) => group.names.length > 0);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -223,7 +256,7 @@ export default function ServiceComparisonPage({
         ]}
       />
 
-      <section className="relative mb-7 overflow-hidden rounded-[28px] border border-violet-200/15 bg-gradient-to-br from-violet-950/65 via-slate-950 to-cyan-950/45 px-5 py-6 shadow-[0_20px_60px_rgba(2,6,23,0.35)] sm:px-8 sm:py-8">
+      <section className="relative mb-7 overflow-hidden rounded-[28px] border border-slate-600/80 bg-gradient-to-br from-slate-900/95 via-slate-950/90 to-indigo-950/45 px-5 py-6 shadow-[0_24px_70px_rgba(2,6,23,0.55)] sm:px-8 sm:py-8">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-cyan-400/10 blur-3xl"
@@ -255,8 +288,8 @@ export default function ServiceComparisonPage({
         </div>
       </section>
 
-      <div className="overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-slate-900/95 via-slate-950/95 to-indigo-950/40 p-3 shadow-[0_24px_70px_rgba(2,6,23,0.48)] sm:p-5">
-        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-white/[0.07] bg-slate-950/45 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="overflow-hidden rounded-[28px] border border-slate-600/80 bg-gradient-to-br from-slate-900/95 via-slate-950/90 to-indigo-950/45 p-3 shadow-[0_24px_70px_rgba(2,6,23,0.55)] sm:p-5">
+        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-700/70 bg-slate-950/45 p-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-sm font-extrabold text-white">Comparación detallada</h2>
             <p className="mt-1 text-xs text-slate-400">
@@ -288,29 +321,29 @@ export default function ServiceComparisonPage({
                     key={service.id}
                     className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/95 via-slate-900 to-slate-950 p-4 text-center shadow-lg shadow-black/10"
                   >
-                    <div className="flex flex-col items-center gap-3">
+                    <div className="flex flex-col items-center gap-2.5">
                       {service.image ? (
                         <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-1.5 shadow-inner">
                           <img
                             src={service.image}
                             alt={service.name}
-                            className="h-20 w-28 rounded-xl object-cover"
+                            className="h-16 w-20 rounded-xl object-cover"
                           />
                         </div>
                       ) : (
-                        <div className="flex h-20 w-28 items-center justify-center rounded-2xl border border-white/10 bg-slate-700/80 text-[10px] text-slate-300">
+                        <div className="flex h-16 w-20 items-center justify-center rounded-2xl border border-slate-700 bg-slate-700/80 text-[10px] text-slate-300">
                           Sin imagen
                         </div>
                       )}
 
                       <div>
-                        <div className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-cyan-300">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
                           {service.provider}
                         </div>
-                        <div className="mt-1.5 max-w-[200px] text-sm font-extrabold leading-snug text-white">
+                        <div className="mt-1 max-w-[180px] text-xs font-semibold leading-tight text-slate-100">
                           {service.name}
                         </div>
-                        <div className="mt-2 text-base font-black text-emerald-300">
+                        <div className="mt-1.5 text-sm font-bold text-emerald-300">
                           {formatServicePrice(service.monthlyPrice, service.currency)}
                           <span className="ml-1 text-[10px] font-semibold text-slate-400">
                             {getServiceBillingPeriodLabel(service.billingPeriod)}
@@ -326,7 +359,7 @@ export default function ServiceComparisonPage({
                             serviceId: service.id,
                           })
                         }
-                        className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[11px] font-bold text-slate-200 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100"
+                        className="inline-flex min-h-8 w-fit min-w-0 self-center items-center justify-center whitespace-nowrap rounded-lg border border-slate-600 bg-slate-700/80 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors hover:border-cyan-400 hover:text-cyan-200"
                       >
                         Ver detalle
                       </button>
@@ -334,7 +367,13 @@ export default function ServiceComparisonPage({
                         type="button"
                         disabled={serviceCart.has(service.id)}
                         onClick={() => onAddToCart(service)}
-                        className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-3 py-2 text-[11px] font-extrabold text-white shadow-md shadow-violet-950/40 transition hover:brightness-110 disabled:cursor-default disabled:from-emerald-950 disabled:to-emerald-900 disabled:text-emerald-200 disabled:shadow-none"
+                        style={{
+                          background: serviceCart.has(service.id)
+                            ? "linear-gradient(135deg, #064e3b 0%, #065f46 100%)"
+                            : "linear-gradient(135deg, #ff6b59 0%, #f43f5e 100%)",
+                          color: serviceCart.has(service.id) ? "#a7f3d0" : "#fff",
+                        }}
+                        className="inline-flex min-h-8 w-fit min-w-0 self-center items-center justify-center whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11px] font-semibold shadow-md shadow-rose-500/15 transition hover:brightness-105 disabled:cursor-default disabled:shadow-none"
                       >
                         {serviceCart.has(service.id) ? "✓ En la cesta" : "Agregar al carrito"}
                       </button>
@@ -345,11 +384,19 @@ export default function ServiceComparisonPage({
             </thead>
 
             <tbody>
+              <tr>
+                <th
+                  colSpan={selected.length + 1}
+                  className="rounded-xl border border-violet-400/30 bg-gradient-to-r from-violet-500/20 via-slate-900 to-cyan-500/15 px-4 py-3 text-left text-[10px] font-extrabold uppercase tracking-[0.18em] text-cyan-200"
+                >
+                  Resumen y condiciones
+                </th>
+              </tr>
               {compareRows.map((row) => (
                 <tr key={row.key}>
                   <th
                     scope="row"
-                    className="rounded-xl border border-white/[0.07] bg-slate-800/75 p-4 text-left text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-300"
+                    className="rounded-xl border border-slate-700 bg-slate-800/70 p-3 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200"
                   >
                     {row.label}
                   </th>
@@ -369,7 +416,7 @@ export default function ServiceComparisonPage({
                             : defaultCellClass
                         }`}
                       >
-                        <span className="text-sm font-semibold">{value || "No informado"}</span>
+                        <span className="text-xs font-semibold">{value || "No informado"}</span>
                         {isBest && (
                           <span className="mt-1 block text-[10px] font-extrabold text-cyan-100">
                             {row.key === "monthlyPrice" ? "✦ Mejor precio" : "✦ Mejor valoración"}
@@ -381,55 +428,75 @@ export default function ServiceComparisonPage({
                 </tr>
               ))}
 
-              {specKeys.map((key) => {
-                const bestIndices = getSpecBestIndices(selected, key);
-                return (
-                  <tr key={key}>
+              {specGroups.map((group) => (
+                <Fragment key={group.title}>
+                  <tr>
                     <th
-                      scope="row"
-                      className="rounded-xl border border-white/[0.07] bg-slate-800/75 p-4 text-left text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-300"
+                      colSpan={selected.length + 1}
+                      className="rounded-xl border border-violet-400/30 bg-gradient-to-r from-violet-500/20 via-slate-900 to-cyan-500/15 px-4 py-3 text-left text-[10px] font-extrabold uppercase tracking-[0.18em] text-cyan-200"
                     >
-                      {key}
+                      {group.title}
                     </th>
-                    {selected.map((service, index) => (
-                      <td
-                        key={service.id}
-                        className={`rounded-xl border p-3 text-center ${
-                          bestIndices.has(index) ? bestCellClass : defaultCellClass
-                        }`}
-                      >
-                        <span className="text-sm font-semibold">
-                          {service.specs[key] || <span className="text-slate-500">—</span>}
-                        </span>
-                        {bestIndices.has(index) && (
-                          <span className="mt-1 block text-[10px] font-extrabold text-cyan-100">
-                            ✦ Mejor valor
-                          </span>
-                        )}
-                      </td>
-                    ))}
                   </tr>
-                );
-              })}
+                  {group.names.map((key) => {
+                    const bestIndices = getSpecBestIndices(selected, key);
+                    return (
+                      <tr key={key}>
+                        <th
+                          scope="row"
+                          className="rounded-xl border border-slate-700 bg-slate-800/70 p-3 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                        >
+                          {key}
+                        </th>
+                        {selected.map((service, index) => (
+                          <td
+                            key={service.id}
+                            className={`rounded-xl border p-2.5 text-center ${
+                              bestIndices.has(index) ? bestCellClass : defaultCellClass
+                            }`}
+                          >
+                            <span className="text-xs font-semibold">
+                              {service.specs[key] || <span className="text-slate-500">—</span>}
+                            </span>
+                            {bestIndices.has(index) && (
+                              <span className="mt-1 block text-[9px] font-extrabold text-cyan-100">
+                                ✦ Mejor valor
+                              </span>
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </Fragment>
+              ))}
 
               <tr>
                 <th
+                  colSpan={selected.length + 1}
+                  className="rounded-xl border border-violet-400/30 bg-gradient-to-r from-violet-500/20 via-slate-900 to-cyan-500/15 px-4 py-3 text-left text-[10px] font-extrabold uppercase tracking-[0.18em] text-cyan-200"
+                >
+                  Beneficios incluidos
+                </th>
+              </tr>
+              <tr>
+                <th
                   scope="row"
-                  className="rounded-xl border border-white/[0.07] bg-slate-800/75 p-4 text-left align-top text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-300"
+                  className="rounded-xl border border-slate-700 bg-slate-800/70 p-3 text-left align-top text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200"
                 >
                   Beneficios
                 </th>
                 {selected.map((service) => (
                   <td
                     key={service.id}
-                    className="rounded-xl border border-white/[0.07] bg-slate-950/35 p-4"
+                    className="rounded-xl border border-white/[0.07] bg-slate-950/35 p-3"
                   >
                     {service.benefits.length > 0 ? (
                       <ul className="space-y-1">
                         {service.benefits.map((benefit) => (
                           <li
                             key={benefit}
-                            className="flex items-center gap-1.5 text-xs text-slate-200"
+                            className="flex items-center gap-1.5 text-[11px] text-slate-200"
                           >
                             <svg
                               width="10"
@@ -446,7 +513,7 @@ export default function ServiceComparisonPage({
                         ))}
                       </ul>
                     ) : (
-                      <span className="text-sm text-slate-500">—</span>
+                      <span className="text-xs text-slate-500">—</span>
                     )}
                   </td>
                 ))}

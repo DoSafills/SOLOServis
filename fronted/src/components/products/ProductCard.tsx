@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { Product, Page, StoreOffer } from "../../types";
 import { Rating, FavoriteButton } from "../common/ui";
 import { formatPrice, getMinOffer } from "../../Services/utils/productUtils";
@@ -21,11 +22,28 @@ export default function ProductCard({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
+  const [justAdded, setJustAdded] = useState(false);
+  const addedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bestOffer = getMinOffer(product);
   const discountPercent =
     bestOffer?.listPrice && bestOffer.listPrice > bestOffer.price
       ? Math.round(((bestOffer.listPrice - bestOffer.price) / bestOffer.listPrice) * 100)
       : null;
+
+  useEffect(
+    () => () => {
+      if (addedTimeout.current) clearTimeout(addedTimeout.current);
+    },
+    [],
+  );
+
+  const handleAddToCart = () => {
+    if (!bestOffer) return;
+    onAddToCart(product, bestOffer);
+    setJustAdded(true);
+    if (addedTimeout.current) clearTimeout(addedTimeout.current);
+    addedTimeout.current = setTimeout(() => setJustAdded(false), 1500);
+  };
 
   return (
     <div
@@ -142,10 +160,14 @@ export default function ProductCard({
           <button
             type="button"
             disabled={!bestOffer}
-            onClick={() => bestOffer && onAddToCart(product, bestOffer)}
-            className="flex-1 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 py-2 text-xs font-bold text-white shadow-md shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none"
+            onClick={handleAddToCart}
+            className={`flex-1 rounded-lg py-2 text-xs font-bold shadow-md transition hover:brightness-110 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none ${
+              justAdded
+                ? "bg-gradient-to-r from-emerald-800 to-emerald-700 text-emerald-100 shadow-emerald-950/30"
+                : "bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white shadow-violet-950/30"
+            }`}
           >
-            Agregar al carrito
+            {justAdded ? "✓ Agregado" : "Agregar al carrito"}
           </button>
           <button
             type="button"

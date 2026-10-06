@@ -10,10 +10,10 @@ import ServiceCard from "../../components/services/ServiceCard";
 const productCategories = PRODUCT_TYPES;
 
 const serviceCategories = [
-  { name: UI_TEXT.categories.internet, icon: "🌐", color: "#F472B6" },
-  { name: UI_TEXT.categories.insurance, icon: "🛡️", color: "#FBBF24" },
-  { name: UI_TEXT.categories.technicians, icon: "🔧", color: "#60A5FA" },
-  { name: UI_TEXT.categories.education, icon: "📚", color: "#34D399" },
+  { id: "internet", name: UI_TEXT.categories.internet, icon: "🌐", color: "#F472B6" },
+  { id: "insurance", name: UI_TEXT.categories.insurance, icon: "🛡️", color: "#FBBF24" },
+  { id: "technical", name: UI_TEXT.categories.technicians, icon: "🔧", color: "#60A5FA" },
+  { id: "education", name: UI_TEXT.categories.education, icon: "📚", color: "#34D399" },
 ];
 
 const featuredCategories = [
@@ -92,7 +92,7 @@ export default function HomePage({
                 key={`${cat.name}-${cat.icon}`}
                 onClick={() =>
                   cat.kind === "service"
-                    ? navigate({ id: "search-services", query: cat.name })
+                    ? navigate({ id: "service-macrocategory", macroCategory: cat.id })
                     : navigate({ id: "search-products", query: "", productGroup: cat.id })
                 }
                 style={{

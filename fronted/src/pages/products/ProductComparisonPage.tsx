@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import { getProductById } from "../../services/api/api";
 import { formatPrice, getMinOffer } from "../../Services/utils/productUtils";
@@ -200,6 +200,33 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
   const [selected, setSelected] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recentlyAdded, setRecentlyAdded] = useState<Set<string>>(new Set());
+  const addTimeouts = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  useEffect(
+    () => () => {
+      addTimeouts.current.forEach(clearTimeout);
+    },
+    [],
+  );
+
+  const handleAddToCart = (product: Product, offer: StoreOffer) => {
+    onAddToCart(product, offer);
+    setRecentlyAdded((previous) => new Set(previous).add(product.id));
+    const previousTimeout = addTimeouts.current.get(product.id);
+    if (previousTimeout) clearTimeout(previousTimeout);
+    addTimeouts.current.set(
+      product.id,
+      setTimeout(() => {
+        setRecentlyAdded((previous) => {
+          const next = new Set(previous);
+          next.delete(product.id);
+          return next;
+        });
+        addTimeouts.current.delete(product.id);
+      }, 1500),
+    );
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -372,15 +399,15 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
                         disabled={!cartOffers[selected.indexOf(product)]}
                         onClick={() => {
                           const offer = cartOffers[selected.indexOf(product)];
-                          if (offer) onAddToCart(product, offer);
+                          if (offer) handleAddToCart(product, offer);
                         }}
-                        style={{
-                          background: "linear-gradient(135deg, #ff9878 0%, #fb7185 100%)",
-                          color: "#fff",
-                        }}
-                        className="rounded-lg px-3 py-1.5 text-[11px] font-semibold shadow-md shadow-rose-500/15 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
+                        className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white shadow-md transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40 ${
+                          recentlyAdded.has(product.id)
+                            ? "bg-gradient-to-r from-emerald-700 to-emerald-600 shadow-emerald-950/30"
+                            : "bg-gradient-to-r from-[#ff9878] to-[#fb7185] shadow-rose-500/15"
+                        }`}
                       >
-                        Agregar al carrito
+                        {recentlyAdded.has(product.id) ? "✓ Agregado" : "Agregar al carrito"}
                       </button>
                     </div>
                   </th>
