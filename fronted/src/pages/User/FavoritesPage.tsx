@@ -1,7 +1,11 @@
 ﻿import { useEffect, useState } from "react";
 import type { Page, Product, Service } from "../../types";
 import { getProducts, getServices } from "../../services/api/api";
-import { formatPrice, getMinPrice } from "../../services/utils/productUtils";
+import {
+  formatPrice,
+  getBillingPeriodText,
+  getMinPrice,
+} from "../../services/utils/productUtils";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 
 interface Props {
@@ -314,7 +318,10 @@ export default function FavoritesPage({
                   <div className="text-right shrink-0">
                     <div className="price text-lg font-bold text-prime">
                       {formatPrice(service.monthlyPrice)}
-                      <span className="text-xs text-muted font-normal">/mes</span>
+                      <span className="text-xs text-muted font-normal">
+                        {" "}
+                        {getBillingPeriodText(service.billingPeriod)}
+                      </span>
                     </div>
 
                     {diff > 0 && (

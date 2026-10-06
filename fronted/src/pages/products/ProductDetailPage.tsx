@@ -12,7 +12,8 @@ interface Props {
   isComparing: boolean;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string, category: string) => void;
-  onAddToCart: (product: Product, offer: StoreOffer) => void;
+  cartProductIds: ReadonlySet<string>;
+  onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
 }
 
 type ProductSpecification = [name: string, value: string];
@@ -84,6 +85,7 @@ export default function ProductDetailPage({
   isComparing,
   onToggleFavorite,
   onToggleCompare,
+  cartProductIds,
   onAddToCart,
 }: Props) {
   const [product, setProduct] = useState<Product | null>(null);
@@ -262,7 +264,11 @@ export default function ProductDetailPage({
         </div>
       </div>
 
-      <PriceOfferComparison product={product} onAddToCart={onAddToCart} />
+      <PriceOfferComparison
+        product={product}
+        cartProductIds={cartProductIds}
+        onAddToCart={onAddToCart}
+      />
 
       <PriceHistory
         history={product.priceHistory}

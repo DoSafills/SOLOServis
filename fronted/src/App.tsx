@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { CartItem, Page, Product, StoreOffer } from "./types";
+import type { AnyCartItem, CartItem, Page, Product, Service, StoreOffer } from "./types";
 import Header from "./components/common/Header";
 import Footer from "./components/common/Footer";
 import HomePage from "./pages/home/HomePage";
 import ProductCategoriesPage from "./pages/products/ProductCategoriesPage";
+import ServiceCategoriesPage from "./pages/services/ServiceCategoriesPage";
 import SearchResultsPage from "./pages/search/SearchResultsPage";
 import ProductDetailPage from "./pages/products/ProductDetailPage";
 import ProductComparisonPage from "./pages/products/ProductComparisonPage";
@@ -16,9 +17,11 @@ import UserPage from "./pages/user/UserPage";
 import CartPage from "./pages/user/CartPage";
 import { areProductCategoriesCompatible } from "./pages/products/productComparisonUtils";
 import ComparisonDock from "./components/products/ComparisonDock";
-import { getProductById } from "./services/api/api";
+import ServiceComparisonDock from "./components/services/ServiceComparisonDock";
+import { getProductById, getServiceById } from "./services/api/api";
 import {
   addCartItem,
+  addServiceCartItem,
   addSearchHistory,
   getCartItems,
   getFavoriteProductIds,
@@ -39,11 +42,21 @@ const SERVICE_COMPARISON_KEY = "soloservice.service-comparison";
 const PRODUCT_COMPARISON_PRODUCTS_KEY = "soloservice.product-comparison-products";
 const GUEST_CART_KEY = "soloservice.guest-cart";
 
-interface StoredCartEntry {
+interface StoredProductCartEntry {
+  type: "product";
   productId: string;
   offerId: number;
   quantity: number;
 }
+
+interface StoredServiceCartEntry {
+  type: "service";
+  serviceId: string;
+  serviceOfferId: number;
+  quantity: number;
+}
+
+type StoredCartEntry = StoredProductCartEntry | StoredServiceCartEntry;
 
 function readStoredIds(key: string): Set<string> {
   try {
@@ -60,37 +73,96 @@ function readGuestCart(): StoredCartEntry[] {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(GUEST_CART_KEY) ?? "[]");
     if (!Array.isArray(value)) return [];
-    return value.filter(
-      (item): item is StoredCartEntry =>
-        typeof item === "object" &&
-        item !== null &&
+    return value.flatMap((item): StoredCartEntry[] => {
+      if (
+        typeof item !== "object" ||
+        item === null ||
+        !("quantity" in item) ||
+        typeof item.quantity !== "number" ||
+        !Number.isInteger(item.quantity) ||
+        item.quantity <= 0
+      ) {
+        return [];
+      }
+      if (
+        "type" in item &&
+        item.type === "service" &&
+        "serviceId" in item &&
+        typeof item.serviceId === "string" &&
+        "serviceOfferId" in item &&
+        typeof item.serviceOfferId === "number" &&
+        item.serviceOfferId > 0
+      ) {
+        return [
+          {
+            type: "service",
+            serviceId: item.serviceId,
+            serviceOfferId: item.serviceOfferId,
+            quantity: item.quantity,
+          },
+        ];
+      }
+      if (
         "productId" in item &&
         typeof item.productId === "string" &&
         "offerId" in item &&
         typeof item.offerId === "number" &&
-        "quantity" in item &&
-        typeof item.quantity === "number" &&
-        Number.isInteger(item.quantity) &&
-        item.quantity > 0,
-    );
+        item.offerId > 0
+      ) {
+        return [
+          {
+            type: "product",
+            productId: item.productId,
+            offerId: item.offerId,
+            quantity: item.quantity,
+          },
+        ];
+      }
+      return [];
+    });
   } catch {
     return [];
   }
 }
 
-function storeGuestCart(cart: CartItem[]): void {
-  const entries = cart.map(({ product, offer, quantity }) => ({
-    productId: product.id,
-    offerId: offer.offerId,
-    quantity,
-  }));
+function storeGuestCart(cart: AnyCartItem[]): void {
+  const entries = cart.map((item): StoredCartEntry =>
+    item.type === "product"
+      ? {
+          type: "product",
+          productId: item.product.id,
+          offerId: item.offer.offerId,
+          quantity: item.quantity,
+        }
+      : {
+          type: "service",
+          serviceId: item.service.id,
+          serviceOfferId: item.serviceOfferId,
+          quantity: item.quantity,
+        },
+  );
   localStorage.setItem(GUEST_CART_KEY, JSON.stringify(entries));
 }
 
 function makeCartItem(product: Product, offerId: number, quantity: number): CartItem | null {
   const offer = product.offers.find((candidate) => candidate.offerId === offerId);
   if (!offer) return null;
-  return { product, offer, quantity, cartItemId: offerId };
+  return { type: "product", product, offer, quantity, cartItemId: offerId };
+}
+
+function makeServiceCartItem(
+  service: Service,
+  serviceOfferId: number,
+  quantity: number,
+): AnyCartItem | null {
+  if (service.offerId !== serviceOfferId) return null;
+  return {
+    type: "service",
+    service: { ...service, offerId: serviceOfferId },
+    serviceOfferId,
+    quantity,
+    cartItemId: -serviceOfferId,
+  };
 }
 
 export default function App() {
@@ -108,8 +180,10 @@ export default function App() {
     {},
   );
   const [productCompareError, setProductCompareError] = useState<string | null>(null);
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<AnyCartItem[]>([]);
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
+  const addingProductIds = useRef(new Set<string>());
+  const addingServiceIds = useRef(new Set<string>());
   const userId = user?.userId ?? null;
   const activeUserId = useRef<number | null>(null);
 
@@ -147,12 +221,18 @@ export default function App() {
     if (!userId) {
       void Promise.all(
         readGuestCart().map(async (entry) => {
+          if (entry.type === "service") {
+            const service = await getServiceById(entry.serviceId);
+            return service
+              ? makeServiceCartItem(service, entry.serviceOfferId, entry.quantity)
+              : null;
+          }
           const product = await getProductById(entry.productId);
           return product ? makeCartItem(product, entry.offerId, entry.quantity) : null;
         }),
       )
         .then((items) => {
-          if (!cancelled) setCart(items.filter((item): item is CartItem => item !== null));
+          if (!cancelled) setCart(items.filter((item): item is AnyCartItem => item !== null));
         })
         .catch((error: unknown) => {
           if (!cancelled) {
@@ -265,11 +345,22 @@ export default function App() {
     if (guestCart.length > 0) {
       try {
         const accountCart = await getCartItems(session.userId);
-        const offerIds = new Set(accountCart.map((item) => item.offer.offerId));
+        const productOfferIds = new Set(
+          accountCart.flatMap((item) => (item.type === "product" ? [item.offer.offerId] : [])),
+        );
+        const serviceOfferIds = new Set(
+          accountCart.flatMap((item) => (item.type === "service" ? [item.serviceOfferId] : [])),
+        );
         for (const item of guestCart) {
-          if (offerIds.has(item.offerId)) continue;
-          await addCartItem(session.userId, item.productId, item.offerId);
-          offerIds.add(item.offerId);
+          if (item.type === "product") {
+            if (productOfferIds.has(item.offerId)) continue;
+            await addCartItem(session.userId, item.productId, item.offerId);
+            productOfferIds.add(item.offerId);
+          } else {
+            if (serviceOfferIds.has(item.serviceOfferId)) continue;
+            await addServiceCartItem(session.userId, item.serviceId, item.serviceOfferId);
+            serviceOfferIds.add(item.serviceOfferId);
+          }
         }
         localStorage.removeItem(GUEST_CART_KEY);
       } catch (error) {
@@ -318,34 +409,129 @@ export default function App() {
       setPersistenceError(
         "Esta oferta no tiene un identificador válido para guardarla en la cesta.",
       );
-      return;
+      return false;
     }
 
-    if (!userId) {
-      setCart((previous) => {
-        const existing = previous.find((item) => item.offer.offerId === offer.offerId);
-        const updated = existing
-          ? previous.map((item) =>
-              item.offer.offerId === offer.offerId
-                ? { ...item, quantity: item.quantity + 1 }
-                : item,
-            )
-          : [...previous, { product, offer, quantity: 1, cartItemId: offer.offerId }];
-        storeGuestCart(updated);
-        return updated;
-      });
-      setPersistenceError(null);
-      return;
+    if (cart.some((item) => item.type === "product" && item.product.id === product.id)) {
+      return true;
     }
+    if (addingProductIds.current.has(product.id)) return false;
+    addingProductIds.current.add(product.id);
 
     try {
+      if (!userId) {
+        setCart((previous) => {
+          if (previous.some((item) => item.type === "product" && item.product.id === product.id)) {
+            return previous;
+          }
+          const updated: AnyCartItem[] = [
+            ...previous,
+            { type: "product", product, offer, quantity: 1, cartItemId: offer.offerId },
+          ];
+          storeGuestCart(updated);
+          return updated;
+        });
+        setPersistenceError(null);
+        return true;
+      }
+
       await addCartItem(userId, product.id, offer.offerId);
-      setCart(await getCartItems(userId));
+      setCart((previous) =>
+        previous.some((item) => item.type === "product" && item.product.id === product.id)
+          ? previous
+          : [
+              ...previous,
+              { type: "product", product, offer, quantity: 1, cartItemId: offer.offerId },
+            ],
+      );
+      try {
+        setCart(await getCartItems(userId));
+      } catch (error) {
+        setPersistenceError(
+          `El producto se agregó, pero no se pudo actualizar la cesta: ${error instanceof Error ? error.message : "error desconocido"}`,
+        );
+        return true;
+      }
       setPersistenceError(null);
+      return true;
     } catch (error) {
       setPersistenceError(
         `No se pudo guardar el producto en la cesta: ${error instanceof Error ? error.message : "error desconocido"}`,
       );
+      return false;
+    } finally {
+      addingProductIds.current.delete(product.id);
+    }
+  };
+
+  const addServiceToCart = async (service: Service): Promise<boolean> => {
+    const serviceOfferId = service.offerId;
+    if (serviceOfferId === undefined || serviceOfferId <= 0) {
+      setPersistenceError("Este servicio no tiene una oferta disponible para agregar a la cesta.");
+      return false;
+    }
+
+    if (cart.some((item) => item.type === "service" && item.service.id === service.id)) {
+      return true;
+    }
+    if (addingServiceIds.current.has(service.id)) return false;
+    addingServiceIds.current.add(service.id);
+
+    try {
+      if (!userId) {
+        setCart((previous) => {
+          if (previous.some((item) => item.type === "service" && item.service.id === service.id)) {
+            return previous;
+          }
+          const updated: AnyCartItem[] = [
+            ...previous,
+            {
+              type: "service",
+              service,
+              serviceOfferId,
+              quantity: 1,
+              cartItemId: -serviceOfferId,
+            },
+          ];
+          storeGuestCart(updated);
+          return updated;
+        });
+        setPersistenceError(null);
+        return true;
+      }
+
+      await addServiceCartItem(userId, service.id, serviceOfferId);
+      setCart((previous) =>
+        previous.some((item) => item.type === "service" && item.service.id === service.id)
+          ? previous
+          : [
+              ...previous,
+              {
+                type: "service",
+                service,
+                serviceOfferId,
+                quantity: 1,
+                cartItemId: -serviceOfferId,
+              },
+            ],
+      );
+      try {
+        setCart(await getCartItems(userId));
+      } catch (error) {
+        setPersistenceError(
+          `El servicio se agregó, pero no se pudo actualizar la cesta: ${error instanceof Error ? error.message : "error desconocido"}`,
+        );
+        return true;
+      }
+      setPersistenceError(null);
+      return true;
+    } catch (error) {
+      setPersistenceError(
+        `No se pudo guardar el servicio en la cesta: ${error instanceof Error ? error.message : "error desconocido"}`,
+      );
+      return false;
+    } finally {
+      addingServiceIds.current.delete(service.id);
     }
   };
 
@@ -480,12 +666,27 @@ export default function App() {
     setProductCompareError(null);
   };
 
+  const clearServiceComparison = () => {
+    setCompareList(new Set());
+    setPersistenceError(null);
+  };
+
+  const cartProductIds = new Set(
+    cart.flatMap((item) => (item.type === "product" ? [item.product.id] : [])),
+  );
+  const cartServiceIds = new Set(
+    cart.flatMap((item) => (item.type === "service" ? [item.service.id] : [])),
+  );
+
   const sharedProps = {
     navigate,
     favorites,
     compareList,
     productCompareList,
+    cartProductIds,
+    cartServiceIds,
     onAddToCart: addToCart,
+    onAddServiceToCart: addServiceToCart,
     onToggleFavorite: toggleFavorite,
     onToggleCompare: toggleCompare,
     onToggleProductCompare: toggleProductCompare,
@@ -497,6 +698,8 @@ export default function App() {
         return <HomePage {...sharedProps} />;
       case "product-categories":
         return <ProductCategoriesPage navigate={navigate} />;
+      case "service-categories":
+        return <ServiceCategoriesPage navigate={navigate} />;
       case "search-products":
         return (
           <SearchResultsPage
@@ -514,6 +717,7 @@ export default function App() {
             navigate={navigate}
             isFavorite={favorites.has(page.productId)}
             isComparing={productCompareList.has(page.productId)}
+            cartProductIds={cartProductIds}
             onToggleFavorite={toggleFavorite}
             onToggleCompare={toggleProductCompare}
             onAddToCart={addToCart}
@@ -524,11 +728,19 @@ export default function App() {
           <ProductComparisonPage
             productIds={page.productIds}
             navigate={navigate}
+            cartProductIds={cartProductIds}
             onAddToCart={addToCart}
           />
         );
       case "search-services":
-        return <ServicesPage {...sharedProps} query={page.query} />;
+        return (
+          <ServicesPage
+            {...sharedProps}
+            query={page.query}
+            category={page.category}
+            key={`${page.category ?? ""}:${page.query}`}
+          />
+        );
       case "service-detail":
         return (
           <ServiceDetailPage
@@ -536,12 +748,21 @@ export default function App() {
             navigate={navigate}
             isFavorite={favorites.has(page.serviceId)}
             isComparing={compareList.has(page.serviceId)}
+            cartServiceIds={cartServiceIds}
             onToggleFavorite={toggleFavorite}
             onToggleCompare={toggleCompare}
+            onAddToCart={addServiceToCart}
           />
         );
       case "service-comparison":
-        return <ServiceComparisonPage serviceIds={page.serviceIds} navigate={navigate} />;
+        return (
+          <ServiceComparisonPage
+            serviceIds={page.serviceIds}
+            navigate={navigate}
+            cartServiceIds={cartServiceIds}
+            onAddToCart={addServiceToCart}
+          />
+        );
       case "stores":
         return (
           <StoresPage
@@ -625,6 +846,17 @@ export default function App() {
               {productCompareError}
             </p>
           )}
+        </div>
+      )}
+
+      {compareList.size > 0 && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <ServiceComparisonDock
+            serviceIds={[...compareList]}
+            onClear={clearServiceComparison}
+            onRemove={(service) => toggleCompare(service.id)}
+            onNavigate={navigate}
+          />
         </div>
       )}
 

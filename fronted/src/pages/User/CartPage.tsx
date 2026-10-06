@@ -1,9 +1,13 @@
-import type { CartItem, Page } from "../../types";
+import type { AnyCartItem, CartItem, Page, ServiceCartItem } from "../../types";
 import { Breadcrumb } from "../../components/common/ui";
-import { formatPrice } from "../../services/utils/productUtils";
+import {
+  formatPrice,
+  getBillingPeriodName,
+  getBillingPeriodText,
+} from "../../services/utils/productUtils";
 
 interface Props {
-  cart: CartItem[];
+  cart: AnyCartItem[];
   navigate: (page: Page) => void;
   onUpdateQuantity: (cartItemId: number, quantity: number) => void;
   onRemove: (cartItemId: number) => void;
@@ -12,20 +16,41 @@ interface Props {
 export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }: Props) {
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const storeSummaries = Array.from(
-    cart.reduce((stores, item) => {
-      const storeId = item.offer.storeId;
-      const existing = stores.get(storeId);
-      if (existing) {
-        existing.items.push(item);
-      } else {
-        stores.set(storeId, { name: item.offer.storeName, items: [item] });
-      }
-      return stores;
-    }, new Map<string, { name: string; items: CartItem[] }>()),
+    cart
+      .filter((item): item is CartItem => item.type === "product")
+      .reduce((stores, item) => {
+        const storeId = item.offer.storeId;
+        const existing = stores.get(storeId);
+        if (existing) {
+          existing.items.push(item);
+        } else {
+          stores.set(storeId, { name: item.offer.storeName, items: [item] });
+        }
+        return stores;
+      }, new Map<string, { name: string; items: CartItem[] }>()),
   ).map(([id, store]) => ({
     id,
     ...store,
     total: store.items.reduce((sum, item) => sum + item.offer.price * item.quantity, 0),
+  }));
+  const serviceSummaries = Array.from(
+    cart
+      .filter((item): item is ServiceCartItem => item.type === "service")
+      .reduce((providers, item) => {
+        const provider = item.service.provider || "Servicios";
+        const billingPeriod = item.service.billingPeriod ?? "monthly";
+        const key = `${provider}:${billingPeriod}`;
+        const existing = providers.get(key);
+        if (existing) existing.items.push(item);
+        else providers.set(key, { name: provider, billingPeriod, items: [item] });
+        return providers;
+      }, new Map<string, { name: string; billingPeriod: string; items: ServiceCartItem[] }>()),
+  ).map(([, provider]) => ({
+    ...provider,
+    total: provider.items.reduce(
+      (sum, item) => sum + item.service.monthlyPrice * item.quantity,
+      0,
+    ),
   }));
 
   const getDiscountPercent = (
@@ -73,7 +98,7 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
           </div>
           <h1 className="text-2xl font-bold text-slate-100">Tu cesta está vacía</h1>
           <p className="mx-auto mt-3 max-w-md text-sm text-slate-300">
-            Añade productos para comparar precios y guardar tus mejores opciones.
+            Añade productos o servicios para tener tus opciones guardadas.
           </p>
           <button
             onClick={() => navigate({ id: "home" })}
@@ -95,7 +120,7 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
       <div className="mb-8 flex items-end justify-between gap-3 flex-wrap">
         <div>
           <p className="text-sm font-extrabold uppercase tracking-[0.2em] text-violet-300">Cesta</p>
-          <h1 className="mt-2 text-3xl font-extrabold text-slate-50">Tus productos</h1>
+          <h1 className="mt-2 text-3xl font-extrabold text-slate-50">Tus productos y servicios</h1>
         </div>
         <span className="rounded-full border border-violet-300/30 bg-violet-400/10 px-4 py-2 text-sm font-bold text-violet-100">
           {itemCount} artículos
@@ -104,7 +129,96 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
 
       <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
         <div className="space-y-4">
-          {cart.map(({ product, offer, quantity, cartItemId }) => {
+          {cart.map((item) => {
+            if (item.type === "service") {
+              const { service, quantity, cartItemId } = item;
+              const totalItem = service.monthlyPrice * quantity;
+              return (
+                <div
+                  key={`service-${cartItemId}`}
+                  className="rounded-3xl border border-indigo-300/20 bg-slate-800/90 p-4 shadow-lg shadow-black/20 md:p-5"
+                >
+                  <div className="flex flex-col gap-4 md:flex-row">
+                    <button
+                      onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
+                      className="h-28 w-full shrink-0 overflow-hidden rounded-2xl md:w-32"
+                    >
+                      <img
+                        src={service.image}
+                        alt={service.name}
+                        className="h-full w-full object-cover"
+                      />
+                    </button>
+                    <div className="flex flex-1 flex-col justify-between gap-4 md:flex-row md:items-center">
+                      <div>
+                        <p className="text-sm font-extrabold uppercase tracking-[0.16em] text-violet-300">
+                          {service.provider}
+                        </p>
+                        <button
+                          onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
+                          className="text-left"
+                        >
+                          <h2 className="mt-1 text-xl font-extrabold text-slate-50">
+                            {service.name}
+                          </h2>
+                        </button>
+                        <p className="mt-2 text-sm font-medium text-slate-300">
+                          {service.category}
+                        </p>
+                        <div className="mt-3 rounded-xl border border-emerald-300/15 bg-gradient-to-r from-emerald-950/60 to-cyan-950/60 px-3 py-2">
+                          <div className="text-xl font-extrabold text-emerald-300">
+                            {formatPrice(service.monthlyPrice)}{" "}
+                            {getBillingPeriodText(service.billingPeriod)}
+                          </div>
+                          {service.installationCost !== null && (
+                            <p className="mt-1 text-xs font-medium text-slate-300">
+                              Instalación:{" "}
+                              {service.installationCost === 0
+                                ? "Gratis"
+                                : formatPrice(service.installationCost)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 md:justify-end">
+                        <div className="flex items-center gap-2 rounded-xl border border-violet-300/25 bg-violet-950/70 px-2 py-1.5">
+                          <button
+                            onClick={() => onUpdateQuantity(cartItemId, quantity - 1)}
+                            className="h-8 w-8 rounded-lg text-xl font-bold text-violet-200 hover:bg-violet-800"
+                            aria-label={`Disminuir cantidad de ${service.name}`}
+                          >
+                            −
+                          </button>
+                          <span className="min-w-7 text-center text-base font-extrabold text-white">
+                            {quantity}
+                          </span>
+                          <button
+                            onClick={() => onUpdateQuantity(cartItemId, quantity + 1)}
+                            className="h-8 w-8 rounded-lg text-xl font-bold text-violet-200 hover:bg-violet-800"
+                            aria-label={`Aumentar cantidad de ${service.name}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <div className="min-w-[90px] text-right">
+                          <div className="text-xl font-extrabold text-slate-50">
+                            {formatPrice(totalItem)} {getBillingPeriodText(service.billingPeriod)}
+                          </div>
+                          <button
+                            onClick={() => onRemove(cartItemId)}
+                            className="mt-1 text-sm font-semibold text-slate-400 transition-colors hover:text-rose-300"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            const { product, offer, quantity, cartItemId } = item;
             const price = offer.price;
             const totalItem = price * quantity;
             const discountPercent = getDiscountPercent(offer.listPrice, price);
@@ -112,7 +226,7 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
 
             return (
               <div
-                key={cartItemId}
+                key={`product-${cartItemId}`}
                 className="rounded-3xl border border-indigo-300/20 bg-slate-800/90 p-4 shadow-lg shadow-black/20 md:p-5"
               >
                 <div className="flex flex-col md:flex-row gap-4">
@@ -270,6 +384,45 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                   <span className="text-base font-bold text-slate-200">Total en {store.name}</span>
                   <span className="text-xl font-black text-emerald-300">
                     {formatPrice(store.total)}
+                  </span>
+                </div>
+              </section>
+            ))}
+            {serviceSummaries.map((provider) => (
+              <section
+                key={`${provider.name}:${provider.billingPeriod}`}
+                className="overflow-hidden rounded-2xl border border-cyan-300/25 bg-gradient-to-br from-slate-800 via-indigo-950/80 to-slate-900 shadow-sm shadow-black/20"
+              >
+                <h3 className="border-b border-cyan-300/25 bg-gradient-to-r from-cyan-700/40 via-violet-700/30 to-indigo-700/30 px-4 py-3 text-xl font-extrabold text-cyan-50">
+                  {provider.name} · {getBillingPeriodName(provider.billingPeriod)}
+                </h3>
+                <ul className="space-y-3 p-4">
+                  {provider.items.map(({ service, quantity, serviceOfferId }) => (
+                    <li
+                      key={serviceOfferId}
+                      className="border-b border-indigo-300/15 pb-3 last:border-0 last:pb-0"
+                    >
+                      <p className="text-base font-bold leading-snug text-slate-100">
+                        {service.name}
+                      </p>
+                      <div className="mt-1.5 flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-slate-300">
+                          Cantidad: {quantity}
+                        </span>
+                        <span className="text-base font-extrabold text-emerald-300">
+                          {formatPrice(service.monthlyPrice * quantity)}{" "}
+                          {getBillingPeriodText(service.billingPeriod)}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex items-center justify-between border-t border-cyan-300/20 bg-slate-950/50 px-4 py-3">
+                  <span className="text-base font-bold text-slate-200">
+                    Total {getBillingPeriodName(provider.billingPeriod)}
+                  </span>
+                  <span className="text-xl font-black text-emerald-300">
+                    {formatPrice(provider.total)} {getBillingPeriodText(provider.billingPeriod)}
                   </span>
                 </div>
               </section>

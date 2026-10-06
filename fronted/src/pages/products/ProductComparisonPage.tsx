@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import { getProductById } from "../../services/api/api";
 import { formatPrice, getMinOffer } from "../../services/utils/productUtils";
@@ -8,7 +8,8 @@ import { areProductCategoriesCompatible } from "./productComparisonUtils";
 interface Props {
   productIds: string[];
   navigate: (page: Page) => void;
-  onAddToCart: (product: Product, offer: StoreOffer) => void;
+  cartProductIds: ReadonlySet<string>;
+  onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
 }
 
 interface ComparedOffer {
@@ -196,10 +197,33 @@ const getCellTone = (state: SpecCellState) => {
   }
 };
 
-export default function ProductComparisonPage({ productIds, navigate, onAddToCart }: Props) {
+export default function ProductComparisonPage({
+  productIds,
+  navigate,
+  cartProductIds,
+  onAddToCart,
+}: Props) {
   const [selected, setSelected] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [addingProductIds, setAddingProductIds] = useState<Set<string>>(() => new Set());
+  const addingProductIdsRef = useRef(new Set<string>());
+
+  const addProductToCart = async (product: Product, offer: StoreOffer) => {
+    if (cartProductIds.has(product.id) || addingProductIdsRef.current.has(product.id)) return;
+    addingProductIdsRef.current.add(product.id);
+    setAddingProductIds((previous) => new Set(previous).add(product.id));
+    try {
+      await onAddToCart(product, offer);
+    } finally {
+      addingProductIdsRef.current.delete(product.id);
+      setAddingProductIds((previous) => {
+        const next = new Set(previous);
+        next.delete(product.id);
+        return next;
+      });
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -333,64 +357,77 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
                 <th className="w-44 rounded-xl border border-slate-700 bg-slate-800/90 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
                   Característica
                 </th>
-                {selected.map((product) => (
-                  <th
-                    key={product.id}
-                    className="rounded-xl border border-slate-700 bg-gradient-to-br from-slate-800/95 to-slate-900/95 p-4 text-center"
-                  >
-                    <div className="flex flex-col items-center gap-3">
-                      {product.image ? (
-                        <img
-                          src={product.image}
-                          alt={product.name}
-                          className="h-16 w-20 rounded-2xl object-contain"
-                        />
-                      ) : (
-                        <div className="flex h-16 w-20 items-center justify-center rounded-2xl bg-slate-700/80 text-[10px] text-slate-300">
-                          Sin imagen
-                        </div>
-                      )}
+                {selected.map((product, index) => {
+                  const cartOffer = cartOffers[index];
+                  const offerInCart = cartProductIds.has(product.id);
+                  const offerIsAdding = addingProductIds.has(product.id);
+                  return (
+                    <th
+                      key={product.id}
+                      className="rounded-xl border border-slate-700 bg-gradient-to-br from-slate-800/95 to-slate-900/95 p-4 text-center"
+                    >
+                      <div className="flex flex-col items-center gap-3">
+                        {product.image ? (
+                          <img
+                            src={product.image}
+                            alt={product.name}
+                            className="h-16 w-20 rounded-2xl object-contain"
+                          />
+                        ) : (
+                          <div className="flex h-16 w-20 items-center justify-center rounded-2xl bg-slate-700/80 text-[10px] text-slate-300">
+                            Sin imagen
+                          </div>
+                        )}
 
-                      <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
-                          {product.brand}
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                            {product.brand}
+                          </div>
+                          <div className="mt-1 max-w-[180px] text-sm font-semibold leading-tight text-slate-100">
+                            {product.name}
+                          </div>
                         </div>
-                        <div className="mt-1 max-w-[180px] text-sm font-semibold leading-tight text-slate-100">
-                          {product.name}
-                        </div>
+
+                        <button
+                          onClick={() => navigate({ id: "product-detail", productId: product.id })}
+                          className="rounded-lg border border-slate-600 bg-slate-700/80 px-3 py-1 text-[11px] font-medium text-slate-200 transition-colors hover:border-cyan-400 hover:text-cyan-200"
+                        >
+                          Ver detalle
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={!cartOffer && !offerInCart}
+                          onClick={() => cartOffer && void addProductToCart(product, cartOffer)}
+                          aria-live="polite"
+                          aria-disabled={offerInCart || offerIsAdding}
+                          className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold shadow-md transition ${
+                            offerInCart
+                              ? "bg-emerald-700 text-emerald-100 shadow-emerald-950/30"
+                              : offerIsAdding
+                                ? "bg-emerald-800 text-emerald-100 shadow-emerald-950/30"
+                                : "bg-gradient-to-r from-[#ff9878] to-[#fb7185] text-white shadow-rose-500/15 hover:brightness-105"
+                          } disabled:cursor-not-allowed disabled:opacity-40`}
+                        >
+                          {offerInCart
+                            ? "Agregado en la cesta"
+                            : offerIsAdding
+                              ? "Agregando a la cesta..."
+                              : "Agregar al carrito"}
+                        </button>
                       </div>
-
-                      <button
-                        onClick={() => navigate({ id: "product-detail", productId: product.id })}
-                        className="rounded-lg border border-slate-600 bg-slate-700/80 px-3 py-1 text-[11px] font-medium text-slate-200 transition-colors hover:border-cyan-400 hover:text-cyan-200"
-                      >
-                        Ver detalle
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={!cartOffers[selected.indexOf(product)]}
-                        onClick={() => {
-                          const offer = cartOffers[selected.indexOf(product)];
-                          if (offer) onAddToCart(product, offer);
-                        }}
-                        style={{
-                          background: "linear-gradient(135deg, #ff9878 0%, #fb7185 100%)",
-                          color: "#fff",
-                        }}
-                        className="rounded-lg px-3 py-1.5 text-[11px] font-semibold shadow-md shadow-rose-500/15 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Agregar al carrito
-                      </button>
-                    </div>
-                  </th>
-                ))}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
 
             <tbody>
               <tr>
-                <th scope="row" className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200">
+                <th
+                  scope="row"
+                  className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                >
                   Precio del producto
                 </th>
                 {productOffers.map((result, index) => (
@@ -420,7 +457,10 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
               </tr>
 
               <tr>
-                <th scope="row" className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200">
+                <th
+                  scope="row"
+                  className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                >
                   Valoración
                 </th>
                 {selected.map((product) => {
@@ -477,7 +517,8 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
                         {selected.map((product, productIndex) => {
                           const rawValue = product.specs[name]?.trim();
                           const state = states[productIndex] ?? "default";
-                          const displayValue = rawValue && rawValue.length > 0 ? rawValue : "No informado";
+                          const displayValue =
+                            rawValue && rawValue.length > 0 ? rawValue : "No informado";
 
                           return (
                             <td
@@ -487,7 +528,9 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
                               <div
                                 className={`flex min-h-16 flex-col items-center justify-center rounded-xl border px-3 py-2.5 transition duration-200 hover:-translate-y-0.5 ${getCellTone(state)}`}
                               >
-                                <span className="block text-sm font-bold leading-snug">{displayValue}</span>
+                                <span className="block text-sm font-bold leading-snug">
+                                  {displayValue}
+                                </span>
                                 {state === "best" && (
                                   <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-cyan-100/70 bg-cyan-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-slate-950 shadow-[0_0_14px_rgba(103,232,249,0.45)]">
                                     ✦ Mejor
@@ -502,7 +545,6 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
                   })}
                 </Fragment>
               ))}
-
             </tbody>
           </table>
         </div>

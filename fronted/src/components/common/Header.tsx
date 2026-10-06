@@ -28,8 +28,11 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
     },
     {
       label: "Servicios",
-      active: currentPage.id === "search-services" || currentPage.id === "service-detail",
-      action: () => navigate({ id: "search-services", query: "" }),
+      active:
+        currentPage.id === "service-categories" ||
+        currentPage.id === "search-services" ||
+        currentPage.id === "service-detail",
+      action: () => navigate({ id: "service-categories" }),
     },
     {
       label: "Tiendas",
@@ -69,7 +72,10 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
               </svg>
             </div>
             <span className="block text-left text-[15px] font-black leading-none tracking-tight text-white sm:text-lg">
-              Solo<span className="bg-gradient-to-r from-fuchsia-300 via-violet-300 to-cyan-200 bg-clip-text text-transparent">Service</span>
+              Solo
+              <span className="bg-gradient-to-r from-fuchsia-300 via-violet-300 to-cyan-200 bg-clip-text text-transparent">
+                Service
+              </span>
               <span className="mt-1 hidden text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-400 sm:block">
                 Compara y elige mejor
               </span>
@@ -110,7 +116,10 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
           </form>
 
           {/* Nav links (desktop) */}
-          <nav aria-label="Navegación principal" className="hidden items-center gap-1 rounded-2xl border border-white/[0.07] bg-white/[0.035] p-1 lg:flex">
+          <nav
+            aria-label="Navegación principal"
+            className="hidden items-center gap-1 rounded-2xl border border-white/[0.07] bg-white/[0.035] p-1 lg:flex"
+          >
             {navLinks.map((l) => (
               <button
                 key={l.label}

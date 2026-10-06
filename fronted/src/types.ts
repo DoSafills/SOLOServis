@@ -1,6 +1,7 @@
 export type Page =
   | { id: "home" }
   | { id: "product-categories" }
+  | { id: "service-categories" }
   | { id: "search-products"; query: string; category?: string; productGroup?: string }
   | {
       id: "product-detail";
@@ -10,6 +11,7 @@ export type Page =
   | {
       id: "search-services";
       query: string;
+      category?: string;
     }
   | { id: "service-detail"; serviceId: string }
   | {
@@ -69,19 +71,33 @@ export interface Product {
 }
 
 export interface CartItem {
+  type: "product";
   product: Product;
   offer: StoreOffer;
   quantity: number;
   cartItemId: number;
 }
+
+export interface ServiceCartItem {
+  type: "service";
+  service: Service;
+  serviceOfferId: number;
+  quantity: number;
+  cartItemId: number;
+}
+
+export type AnyCartItem = CartItem | ServiceCartItem;
+
 export interface Service {
   id: string;
+  offerId?: number;
   name: string;
   provider: string;
   category: string;
   subcategory: string;
   description: string;
   monthlyPrice: number;
+  billingPeriod?: string;
   installationCost: number | null;
   contractMonths: number | null;
   rating: number;

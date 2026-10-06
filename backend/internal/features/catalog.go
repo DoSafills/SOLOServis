@@ -92,13 +92,14 @@ func (h *Handler) CreateOffer(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var offerID int32
+	var savedPrice float64
 	err = tx.QueryRow(r.Context(), `INSERT INTO product_offer
 		(product_id, store_id, price, list_price, currency, shipping_cost, shipping_free, available, stock, condition, product_url)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`, productID, input.StoreID,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, price`, productID, input.StoreID,
 		input.Price, input.ListPrice, input.Currency, input.ShippingCost, input.ShippingFree,
-		input.Available, input.Stock, input.Condition, input.ProductURL).Scan(&offerID)
+		input.Available, input.Stock, input.Condition, input.ProductURL).Scan(&offerID, &savedPrice)
 	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO product_price_history (product_offer_id, price) VALUES ($1,$2)`, offerID, input.Price)
+		_, err = tx.Exec(r.Context(), `INSERT INTO product_price_history (product_offer_id, price) VALUES ($1,$2)`, offerID, savedPrice)
 	}
 	if err != nil {
 		apiutil.WriteError(w, http.StatusBadRequest, "invalid store or offer data")
@@ -141,13 +142,14 @@ func (h *Handler) UpdateOffer(w http.ResponseWriter, r *http.Request) {
 		apiutil.WriteError(w, http.StatusNotFound, "offer not found")
 		return
 	}
-	_, err = tx.Exec(r.Context(), `UPDATE product_offer SET price=$2, list_price=$3, currency=$4,
+	var currentPrice float64
+	err = tx.QueryRow(r.Context(), `UPDATE product_offer SET price=$2, list_price=$3, currency=$4,
 		shipping_cost=$5, shipping_free=$6, available=$7, stock=$8, condition=$9,
-		product_url=$10, last_updated=NOW() WHERE id=$1`, offerID, input.Price, input.ListPrice,
+		product_url=$10, last_updated=NOW() WHERE id=$1 RETURNING price`, offerID, input.Price, input.ListPrice,
 		input.Currency, input.ShippingCost, input.ShippingFree, input.Available, input.Stock,
-		input.Condition, input.ProductURL)
-	if err == nil && oldPrice != input.Price {
-		_, err = tx.Exec(r.Context(), `INSERT INTO product_price_history (product_offer_id, price) VALUES ($1,$2)`, offerID, input.Price)
+		input.Condition, input.ProductURL).Scan(&currentPrice)
+	if err == nil && oldPrice != currentPrice {
+		_, err = tx.Exec(r.Context(), `INSERT INTO product_price_history (product_offer_id, price) VALUES ($1,$2)`, offerID, currentPrice)
 	}
 	if err != nil {
 		apiutil.WriteError(w, http.StatusBadRequest, "could not update offer")
@@ -157,10 +159,10 @@ func (h *Handler) UpdateOffer(w http.ResponseWriter, r *http.Request) {
 		apiutil.WriteError(w, http.StatusInternalServerError, "could not commit offer update")
 		return
 	}
-	if input.Price < oldPrice {
-		h.notifyPriceDrop(r.Context(), offerID, oldPrice, input.Price)
+	if currentPrice < oldPrice {
+		h.notifyPriceDrop(r.Context(), offerID, oldPrice, currentPrice)
 	}
-	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"id": offerID, "price": input.Price, "updated": true})
+	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"id": offerID, "price": currentPrice, "currency": "CLP", "updated": true})
 }
 
 func (h *Handler) notifyPriceDrop(ctx context.Context, offerID int32, oldPrice, newPrice float64) {
