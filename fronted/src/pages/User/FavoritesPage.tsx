@@ -1,8 +1,16 @@
-﻿import { useEffect, useState } from "react";
-import type { Page, Product, Service } from "../../types";
-import { getProducts, getServices } from "../../services/api/api";
+import type { Page } from "../../types";
+import { getProducts } from "../../services/api/products";
+import { getServices } from "../../services/api/services";
 import { formatPrice, getMinPrice } from "../../services/utils/productUtils";
-import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
+import { useFetch } from "../../hooks/useFetch";
+import {
+  Badge,
+  Breadcrumb,
+  EmptyState,
+  FavoriteButton,
+  PageMessage,
+  Rating,
+} from "../../components/common/ui";
 
 interface Props {
   navigate: (page: Page) => void;
@@ -10,36 +18,17 @@ interface Props {
   onToggleFavorite: (id: string) => void;
 }
 
-export default function FavoritesPage({
-  navigate,
-  favorites,
-  onToggleFavorite,
-}: Props) {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [services, setServices] = useState<Service[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-
-    Promise.all([getProducts(), getServices()])
-      .then(([productsData, servicesData]) => {
-        setProducts(productsData);
-        setServices(servicesData);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+export default function FavoritesPage({ navigate, favorites, onToggleFavorite }: Props) {
+  const { data: products = [], loading: loadingProducts } = useFetch("products", () =>
+    getProducts(),
+  );
+  const { data: services = [], loading: loadingServices } = useFetch("services", getServices);
 
   const favProducts = products.filter((product) => favorites.has(product.id));
   const favServices = services.filter((service) => favorites.has(service.id));
 
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando favoritos...</p>
-      </div>
-    );
+  if (loadingProducts || loadingServices) {
+    return <PageMessage>Cargando favoritos...</PageMessage>;
   }
 
   if (favorites.size === 0) {
@@ -52,37 +41,14 @@ export default function FavoritesPage({
           ]}
         />
 
-        <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center mb-2">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#64748B"
-              strokeWidth="1.5"
-            >
-              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-            </svg>
-          </div>
-
-          <h3 className="text-lg font-semibold text-text">
-            No tienes favoritos aún
-          </h3>
-
-          <p className="text-sm text-muted max-w-xs">
-            Guarda productos y servicios para seguir sus precios y recibir
-            alertas de bajadas.
-          </p>
-
-          <button
-            onClick={() => navigate({ id: "home" })}
-            style={{ background: "#E8001B", color: "#0A0A0A" }}
-            className="mt-2 px-5 py-2 rounded-xl text-sm font-semibold"
-          >
-            Explorar productos
-          </button>
-        </div>
+        <EmptyState
+          title="No tienes favoritos aún"
+          description="Guarda productos y servicios para seguir sus precios y recibir alertas de bajadas."
+          action={{ label: "Explorar productos", onClick: () => navigate({ id: "home" }) }}
+          icon={
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+          }
+        />
       </div>
     );
   }
@@ -97,9 +63,7 @@ export default function FavoritesPage({
       />
 
       <h1 className="text-2xl font-bold text-text mb-1">Mis favoritos</h1>
-      <p className="text-sm text-muted mb-8">
-        {favorites.size} items guardados
-      </p>
+      <p className="text-sm text-muted mb-8">{favorites.size} items guardados</p>
 
       {favProducts.length > 0 && (
         <section className="mb-10">
@@ -110,8 +74,7 @@ export default function FavoritesPage({
           <div className="space-y-3">
             {favProducts.map((product) => {
               const minPrice = getMinPrice(product);
-              const prevPrice =
-                Math.round((minPrice * 1.08) / 1000) * 1000;
+              const prevPrice = Math.round((minPrice * 1.08) / 1000) * 1000;
               const diff = prevPrice - minPrice;
 
               return (
@@ -140,9 +103,7 @@ export default function FavoritesPage({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-prime font-semibold">
-                      {product.brand}
-                    </div>
+                    <div className="text-xs text-prime font-semibold">{product.brand}</div>
 
                     <div
                       className="text-sm font-semibold text-text truncate cursor-pointer hover:text-prime transition-colors"
@@ -180,16 +141,11 @@ export default function FavoritesPage({
                       </div>
                     )}
 
-                    <div className="text-xs text-muted line-through">
-                      {formatPrice(prevPrice)}
-                    </div>
+                    <div className="text-xs text-muted line-through">{formatPrice(prevPrice)}</div>
                   </div>
 
                   <div className="flex flex-col items-center gap-2 shrink-0">
-                    <FavoriteButton
-                      active={true}
-                      onClick={() => onToggleFavorite(product.id)}
-                    />
+                    <FavoriteButton active={true} onClick={() => onToggleFavorite(product.id)} />
 
                     <Badge
                       variant={
@@ -198,9 +154,7 @@ export default function FavoritesPage({
                           : "unavailable"
                       }
                     >
-                      {product.offers.some((offer) => offer.available)
-                        ? "Disponible"
-                        : "Agotado"}
+                      {product.offers.some((offer) => offer.available) ? "Disponible" : "Agotado"}
                     </Badge>
                   </div>
                 </div>
@@ -218,8 +172,7 @@ export default function FavoritesPage({
 
           <div className="space-y-3">
             {favServices.map((service) => {
-              const prevPrice =
-                Math.round((service.monthlyPrice * 1.06) / 100) * 100;
+              const prevPrice = Math.round((service.monthlyPrice * 1.06) / 100) * 100;
               const diff = prevPrice - service.monthlyPrice;
 
               return (
@@ -248,9 +201,7 @@ export default function FavoritesPage({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-prime font-semibold">
-                      {service.provider}
-                    </div>
+                    <div className="text-xs text-prime font-semibold">{service.provider}</div>
 
                     <div
                       className="text-sm font-semibold text-text truncate cursor-pointer hover:text-prime transition-colors"
@@ -270,9 +221,7 @@ export default function FavoritesPage({
                   <div className="text-right shrink-0">
                     <div className="price text-lg font-bold text-prime">
                       {formatPrice(service.monthlyPrice)}
-                      <span className="text-xs text-muted font-normal">
-                        /mes
-                      </span>
+                      <span className="text-xs text-muted font-normal">/mes</span>
                     </div>
 
                     {diff > 0 && (
@@ -282,10 +231,7 @@ export default function FavoritesPage({
                     )}
                   </div>
 
-                  <FavoriteButton
-                    active={true}
-                    onClick={() => onToggleFavorite(service.id)}
-                  />
+                  <FavoriteButton active={true} onClick={() => onToggleFavorite(service.id)} />
                 </div>
               );
             })}

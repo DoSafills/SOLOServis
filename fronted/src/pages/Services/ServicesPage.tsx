@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
-import type { Page, Service } from "../../types";
-import { getServices } from "../../services/api/api";
+import { useState } from "react";
+import type { Page } from "../../types";
+import { getServices } from "../../services/api/services";
+import { toggleInSet } from "../../services/utils/setUtils";
+import { useFetch } from "../../hooks/useFetch";
 import ServiceCard from "../../components/services/ServiceCard";
 import { Breadcrumb, EmptyState } from "../../components/common/ui";
 
@@ -21,55 +23,35 @@ export default function ServicesPage({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
-  const [services, setServices] = useState<Service[]>([]);
+  const { data: services = [] } = useFetch("services", getServices);
   const [sort, setSort] = useState("relevance");
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    getServices()
-      .then(setServices)
-      .catch(console.error);
-  }, []);
-
   const categories = [...new Set(services.map((s) => s.category))];
 
-  let filtered = services.filter((s) => {
-    if (
-      query &&
-      !s.name.toLowerCase().includes(query.toLowerCase()) &&
-      !s.provider.toLowerCase().includes(query.toLowerCase()) &&
-      !s.category.toLowerCase().includes(query.toLowerCase())
-    ) {
-      return false;
-    }
+  const normalizedQuery = query.toLowerCase();
 
-    if (selectedCats.size > 0 && !selectedCats.has(s.category)) {
-      return false;
-    }
-
-    return true;
-  });
-
-  filtered = [...filtered].sort((a, b) => {
-    if (sort === "price-asc") return a.monthlyPrice - b.monthlyPrice;
-    if (sort === "price-desc") return b.monthlyPrice - a.monthlyPrice;
-    if (sort === "rating") return b.rating - a.rating;
-    return 0;
-  });
-
-  const toggleCat = (cat: string) => {
-    setSelectedCats((prev) => {
-      const next = new Set(prev);
-
-      if (next.has(cat)) {
-        next.delete(cat);
-      } else {
-        next.add(cat);
+  const filtered = services
+    .filter((s) => {
+      if (
+        normalizedQuery &&
+        ![s.name, s.provider, s.category].some((field) =>
+          field.toLowerCase().includes(normalizedQuery),
+        )
+      ) {
+        return false;
       }
 
-      return next;
+      return selectedCats.size === 0 || selectedCats.has(s.category);
+    })
+    .sort((a, b) => {
+      if (sort === "price-asc") return a.monthlyPrice - b.monthlyPrice;
+      if (sort === "price-desc") return b.monthlyPrice - a.monthlyPrice;
+      if (sort === "rating") return b.rating - a.rating;
+      return 0;
     });
-  };
+
+  const toggleCat = (cat: string) => setSelectedCats((prev) => toggleInSet(prev, cat));
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -86,9 +68,7 @@ export default function ServicesPage({
           <h1 className="text-2xl font-bold text-text">
             {query ? `Resultados para "${query}"` : "Todos los servicios"}
           </h1>
-          <p className="text-sm text-muted mt-1">
-            {filtered.length} servicios encontrados
-          </p>
+          <p className="text-sm text-muted mt-1">{filtered.length} servicios encontrados</p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -154,8 +134,7 @@ export default function ServicesPage({
               description="No hay servicios que coincidan con tu búsqueda."
               action={{
                 label: "Ver todos los servicios",
-                onClick: () =>
-                  navigate({ id: "search-services", query: "" }),
+                onClick: () => navigate({ id: "search-services", query: "" }),
               }}
             />
           ) : (

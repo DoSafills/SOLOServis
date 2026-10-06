@@ -1,12 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Page, Product } from "../../types";
-import {
-  getProductById,
-  getProductReviews,
-  type ApiProductReview,
-} from "../../services/api/products";
+import { getProductById, getProductReviews } from "../../services/api/products";
 import { formatPrice } from "../../services/utils/productUtils";
-import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
+import { useFetch } from "../../hooks/useFetch";
+import { Badge, Breadcrumb, FavoriteButton, PageMessage, Rating } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 
 interface Props {
@@ -28,59 +25,18 @@ export default function ProductDetailPage({
   onToggleCompare,
   onAddToCart,
 }: Props) {
-  const [product, setProduct] = useState<Product | null>(null);
-  const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState(0);
-  const [reviews, setReviews] = useState<ApiProductReview[]>([]);
+  const { data: product, loading } = useFetch(`product:${productId}`, () =>
+    getProductById(productId),
+  );
+  // Si fallan las reseñas, la ficha del producto se muestra igual.
+  const { data: reviews = [] } = useFetch(`reviews:${productId}`, () =>
+    getProductReviews(productId),
+  );
 
-  useEffect(() => {
-    let cancelled = false;
+  if (loading) return <PageMessage>Cargando producto...</PageMessage>;
 
-    getProductById(productId)
-      .then((result) => {
-        if (!cancelled) {
-          setSelectedImage(0);
-          setProduct(result);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setProduct(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    // Si fallan las reseñas, la ficha del producto se muestra igual.
-    getProductReviews(productId)
-      .then((result) => {
-        if (!cancelled) {
-          setReviews(result);
-        }
-      })
-      .catch(console.error);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [productId]);
-
-  if (loading)
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando producto...</p>
-      </div>
-    );
-
-  if (!product)
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Producto no encontrado.</p>
-      </div>
-    );
+  if (!product) return <PageMessage>Producto no encontrado.</PageMessage>;
 
   const sortedOffers = [...product.offers].sort((a, b) => {
     if (a.available && !b.available) return -1;
@@ -153,7 +109,7 @@ export default function ProductDetailPage({
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-bold text-prime uppercase tracking-widest">
-                {product.brand} � {product.category}
+                {product.brand} · {product.category}
               </span>
               <FavoriteButton active={isFavorite} onClick={() => onToggleFavorite(product.id)} />
             </div>
@@ -172,7 +128,7 @@ export default function ProductDetailPage({
             className="rounded-2xl p-4"
           >
             <h3 className="text-xs font-semibold text-muted-2 uppercase tracking-widest mb-3">
-              Caracter�sticas principales
+              Características principales
             </h3>
 
             <div className="grid grid-cols-2 gap-2">
@@ -202,13 +158,13 @@ export default function ProductDetailPage({
                 </div>
 
                 <div className="text-xs text-muted mt-1">
-                  Mejor precio en {cheapestAvailable.storeName} � Env�o:
+                  Mejor precio en {cheapestAvailable.storeName} · Envío:{" "}
                   {cheapestAvailable.shipping === 0 ? (
                     <span className="text-success">Gratis</span>
                   ) : cheapestAvailable.shipping ? (
                     formatPrice(cheapestAvailable.shipping)
                   ) : (
-                    "�"
+                    "—"
                   )}
                 </div>
               </div>
@@ -319,7 +275,7 @@ export default function ProductDetailPage({
               }
               className="flex-1 py-3 rounded-2xl text-sm font-semibold transition-all hover:border-prime hover:text-prime"
             >
-              {isComparing ? "? Agregado al comparador" : "Agregar al comparador"}
+              {isComparing ? "✓ Agregado al comparador" : "Agregar al comparador"}
             </button>
           </div>
         </div>
@@ -345,10 +301,10 @@ export default function ProductDetailPage({
                   Disponibilidad
                 </th>
                 <th className="text-center text-xs font-semibold text-muted-2 uppercase tracking-widest pb-3">
-                  Env�o
+                  Envío
                 </th>
                 <th className="text-right text-xs font-semibold text-muted-2 uppercase tracking-widest pb-3">
-                  Acci�n
+                  Acción
                 </th>
               </tr>
             </thead>
@@ -398,7 +354,7 @@ export default function ProductDetailPage({
 
                   <td className="py-4 text-center text-sm text-muted">
                     {offer.shipping === null ? (
-                      "�"
+                      "—"
                     ) : offer.shipping === 0 ? (
                       <span className="text-success font-medium">Gratis</span>
                     ) : (
@@ -407,21 +363,25 @@ export default function ProductDetailPage({
                   </td>
 
                   <td className="py-4 text-right">
-                    <button
-                      disabled={!offer.available}
-                      style={
-                        offer.available
-                          ? { background: "#E8001B", color: "#0A0A0A" }
-                          : {
-                              background: "#1A1A1A",
-                              color: "#64748B",
-                              cursor: "not-allowed",
-                            }
-                      }
-                      className="px-4 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-90"
-                    >
-                      Ver oferta
-                    </button>
+                    {offer.available && offer.url ? (
+                      <a
+                        href={offer.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ background: "#E8001B", color: "#0A0A0A" }}
+                        className="inline-block px-4 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-90"
+                      >
+                        Ver oferta
+                      </a>
+                    ) : (
+                      <button
+                        disabled
+                        style={{ background: "#1A1A1A", color: "#64748B", cursor: "not-allowed" }}
+                        className="px-4 py-1.5 rounded-xl text-xs font-semibold"
+                      >
+                        Ver oferta
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -440,7 +400,7 @@ export default function ProductDetailPage({
         style={{ background: "#111111", border: "1px solid #2A2A2A" }}
         className="rounded-2xl p-6 mt-6"
       >
-        <h2 className="text-lg font-semibold text-text">Especificaciones t�cnicas</h2>
+        <h2 className="text-lg font-semibold text-text">Especificaciones técnicas</h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-px" style={{ background: "#1A1A1A" }}>
           {Object.entries(product.specs).map(([k, v]) => (
@@ -498,7 +458,3 @@ export default function ProductDetailPage({
     </div>
   );
 }
-
-
-
-

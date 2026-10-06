@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import type { Page, Service } from "../../types";
-import { getServiceById } from "../../services/api/api";
+import type { Page } from "../../types";
+import { getServiceById } from "../../services/api/services";
 import { formatPrice } from "../../services/utils/productUtils";
-import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
+import { formatContract, formatInstallation } from "../../services/utils/serviceUtils";
+import { useFetch } from "../../hooks/useFetch";
+import { Badge, Breadcrumb, FavoriteButton, PageMessage, Rating } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 
 interface Props {
@@ -22,33 +23,13 @@ export default function ServiceDetailPage({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
-  const [service, setService] = useState<Service | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: service, loading } = useFetch(`service:${serviceId}`, () =>
+    getServiceById(serviceId),
+  );
 
-  useEffect(() => {
-    setLoading(true);
+  if (loading) return <PageMessage>Cargando servicio...</PageMessage>;
 
-    getServiceById(serviceId)
-      .then(setService)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [serviceId]);
-
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando servicio...</p>
-      </div>
-    );
-  }
-
-  if (!service) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Servicio no encontrado.</p>
-      </div>
-    );
-  }
+  if (!service) return <PageMessage>Servicio no encontrado.</PageMessage>;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -76,11 +57,7 @@ export default function ServiceDetailPage({
           style={{ background: "#111111", border: "1px solid #2A2A2A" }}
           className="rounded-2xl overflow-hidden h-64"
         >
-          <img
-            src={service.image}
-            alt={service.name}
-            className="w-full h-full object-cover"
-          />
+          <img src={service.image} alt={service.name} className="w-full h-full object-cover" />
         </div>
 
         <div className="flex flex-col gap-4">
@@ -90,28 +67,19 @@ export default function ServiceDetailPage({
                 {service.category} · {service.subcategory}
               </Badge>
 
-              <h1 className="text-2xl font-bold text-text mt-2 leading-snug">
-                {service.name}
-              </h1>
+              <h1 className="text-2xl font-bold text-text mt-2 leading-snug">{service.name}</h1>
 
-              <div className="text-sm font-semibold text-prime mt-1">
-                {service.provider}
-              </div>
+              <div className="text-sm font-semibold text-prime mt-1">{service.provider}</div>
 
               <div className="mt-2">
                 <Rating value={service.rating} count={service.reviewCount} />
               </div>
             </div>
 
-            <FavoriteButton
-              active={isFavorite}
-              onClick={() => onToggleFavorite(service.id)}
-            />
+            <FavoriteButton active={isFavorite} onClick={() => onToggleFavorite(service.id)} />
           </div>
 
-          <p className="text-sm text-muted leading-relaxed">
-            {service.description}
-          </p>
+          <p className="text-sm text-muted leading-relaxed">{service.description}</p>
 
           <div
             style={{ background: "#111111", border: "1px solid #2A2A2A" }}
@@ -123,15 +91,9 @@ export default function ServiceDetailPage({
 
             <div className="grid grid-cols-2 gap-2">
               {Object.entries(service.specs).map(([key, value]) => (
-                <div
-                  key={key}
-                  style={{ background: "#1A1A1A" }}
-                  className="rounded-xl px-3 py-2"
-                >
+                <div key={key} style={{ background: "#1A1A1A" }} className="rounded-xl px-3 py-2">
                   <div className="text-xs text-muted">{key}</div>
-                  <div className="text-sm font-semibold text-text">
-                    {value}
-                  </div>
+                  <div className="text-sm font-semibold text-text">{value}</div>
                 </div>
               ))}
             </div>
@@ -144,9 +106,7 @@ export default function ServiceDetailPage({
             }}
             className="rounded-2xl p-4"
           >
-            <div className="text-xs text-prime font-semibold mb-1">
-              Precio mensual
-            </div>
+            <div className="text-xs text-prime font-semibold mb-1">Precio mensual</div>
 
             <div className="price text-3xl font-bold text-prime">
               {formatPrice(service.monthlyPrice)}
@@ -154,21 +114,9 @@ export default function ServiceDetailPage({
             </div>
 
             <div className="flex gap-4 mt-2 text-xs text-muted">
-              <span>
-                Instalación:{" "}
-                {service.installationCost === 0
-                  ? "Gratis"
-                  : service.installationCost
-                    ? formatPrice(service.installationCost)
-                    : "Sin costo"}
-              </span>
+              <span>Instalación: {formatInstallation(service.installationCost)}</span>
 
-              <span>
-                Contrato:{" "}
-                {service.contractMonths
-                  ? `${service.contractMonths} meses`
-                  : "Sin permanencia"}
-              </span>
+              <span>Contrato: {formatContract(service.contractMonths)}</span>
             </div>
           </div>
 
@@ -185,9 +133,7 @@ export default function ServiceDetailPage({
             }
             className="py-3 rounded-2xl text-sm font-semibold transition-all hover:border-prime hover:text-prime"
           >
-            {isComparing
-              ? "✓ Agregado al comparador"
-              : "Agregar al comparador"}
+            {isComparing ? "✓ Agregado al comparador" : "Agregar al comparador"}
           </button>
         </div>
       </div>
@@ -196,9 +142,7 @@ export default function ServiceDetailPage({
         style={{ background: "#111111", border: "1px solid #2A2A2A" }}
         className="rounded-2xl p-6 mb-6"
       >
-        <h2 className="text-lg font-bold text-text mb-4">
-          Beneficios incluidos
-        </h2>
+        <h2 className="text-lg font-bold text-text mb-4">Beneficios incluidos</h2>
 
         <div className="flex flex-wrap gap-2">
           {service.benefits.map((benefit) => (

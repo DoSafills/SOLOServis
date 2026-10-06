@@ -11,69 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const getServiceByPublicID = `-- name: GetServiceByPublicID :one
-SELECT
-    s.id,
-    s.public_id,
-    s.category_id,
-    s.name,
-    s.description,
-    s.image_url,
-    s.active,
-    s.created_at,
-    s.updated_at,
-    sc.name AS category_name,
-    parent_sc.name AS subcategory_name,
-    COALESCE(srs.derived_average_rating, 0) AS rating,
-    COALESCE(srs.derived_review_count, 0) AS review_count
-FROM service s
-JOIN service_category sc
-    ON sc.id = s.category_id
-LEFT JOIN service_category parent_sc
-    ON parent_sc.id = sc.parent_category_id
-LEFT JOIN service_rating_summary srs
-    ON srs.service_id = s.id
-WHERE s.public_id = $1
-  AND s.active = true
-`
-
-type GetServiceByPublicIDRow struct {
-	ID              int32            `json:"id"`
-	PublicID        pgtype.UUID      `json:"public_id"`
-	CategoryID      int32            `json:"category_id"`
-	Name            string           `json:"name"`
-	Description     pgtype.Text      `json:"description"`
-	ImageUrl        pgtype.Text      `json:"image_url"`
-	Active          bool             `json:"active"`
-	CreatedAt       pgtype.Timestamp `json:"created_at"`
-	UpdatedAt       pgtype.Timestamp `json:"updated_at"`
-	CategoryName    string           `json:"category_name"`
-	SubcategoryName pgtype.Text      `json:"subcategory_name"`
-	Rating          pgtype.Numeric   `json:"rating"`
-	ReviewCount     int64            `json:"review_count"`
-}
-
-func (q *Queries) GetServiceByPublicID(ctx context.Context, publicID pgtype.UUID) (GetServiceByPublicIDRow, error) {
-	row := q.db.QueryRow(ctx, getServiceByPublicID, publicID)
-	var i GetServiceByPublicIDRow
-	err := row.Scan(
-		&i.ID,
-		&i.PublicID,
-		&i.CategoryID,
-		&i.Name,
-		&i.Description,
-		&i.ImageUrl,
-		&i.Active,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.CategoryName,
-		&i.SubcategoryName,
-		&i.Rating,
-		&i.ReviewCount,
-	)
-	return i, err
-}
-
 const listServiceOffers = `-- name: ListServiceOffers :many
 SELECT
     so.id,
@@ -93,9 +30,9 @@ SELECT
 FROM service_offer so
 JOIN provider p
     ON p.id = so.provider_id
-WHERE so.service_id = $1
+WHERE so.service_id = ANY($1::int[])
   AND p.active = true
-ORDER BY so.price ASC, so.id ASC
+ORDER BY so.service_id, so.price ASC, so.id ASC
 `
 
 type ListServiceOffersRow struct {
@@ -115,8 +52,8 @@ type ListServiceOffersRow struct {
 	LastUpdated            pgtype.Timestamp `json:"last_updated"`
 }
 
-func (q *Queries) ListServiceOffers(ctx context.Context, serviceID int32) ([]ListServiceOffersRow, error) {
-	rows, err := q.db.Query(ctx, listServiceOffers, serviceID)
+func (q *Queries) ListServiceOffers(ctx context.Context, serviceIds []int32) ([]ListServiceOffersRow, error) {
+	rows, err := q.db.Query(ctx, listServiceOffers, serviceIds)
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +89,7 @@ func (q *Queries) ListServiceOffers(ctx context.Context, serviceID int32) ([]Lis
 
 const listServicePriceHistory = `-- name: ListServicePriceHistory :many
 SELECT
+    so.service_id,
     sph.service_offer_id,
     sph.price,
     sph.is_promotional,
@@ -159,19 +97,20 @@ SELECT
 FROM service_price_history sph
 JOIN service_offer so
     ON so.id = sph.service_offer_id
-WHERE so.service_id = $1
-ORDER BY sph.recorded_at ASC, sph.id ASC
+WHERE so.service_id = ANY($1::int[])
+ORDER BY so.service_id, sph.recorded_at ASC, sph.id ASC
 `
 
 type ListServicePriceHistoryRow struct {
+	ServiceID      int32            `json:"service_id"`
 	ServiceOfferID int32            `json:"service_offer_id"`
 	Price          pgtype.Numeric   `json:"price"`
 	IsPromotional  bool             `json:"is_promotional"`
 	RecordedAt     pgtype.Timestamp `json:"recorded_at"`
 }
 
-func (q *Queries) ListServicePriceHistory(ctx context.Context, serviceID int32) ([]ListServicePriceHistoryRow, error) {
-	rows, err := q.db.Query(ctx, listServicePriceHistory, serviceID)
+func (q *Queries) ListServicePriceHistory(ctx context.Context, serviceIds []int32) ([]ListServicePriceHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listServicePriceHistory, serviceIds)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +119,7 @@ func (q *Queries) ListServicePriceHistory(ctx context.Context, serviceID int32) 
 	for rows.Next() {
 		var i ListServicePriceHistoryRow
 		if err := rows.Scan(
+			&i.ServiceID,
 			&i.ServiceOfferID,
 			&i.Price,
 			&i.IsPromotional,
@@ -196,23 +136,30 @@ func (q *Queries) ListServicePriceHistory(ctx context.Context, serviceID int32) 
 }
 
 const listServiceSpecifications = `-- name: ListServiceSpecifications :many
+
 SELECT
+    ssv.service_id,
     scs.name,
-    ssv.value
+    ssv.value,
+    scs.unit
 FROM service_specification_value ssv
 JOIN service_category_specification scs
     ON scs.id = ssv.specification_id
-WHERE ssv.service_id = $1
-ORDER BY scs.display_order ASC, scs.id ASC
+WHERE ssv.service_id = ANY($1::int[])
+ORDER BY ssv.service_id, scs.display_order ASC, scs.id ASC
 `
 
 type ListServiceSpecificationsRow struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	ServiceID int32       `json:"service_id"`
+	Name      string      `json:"name"`
+	Value     string      `json:"value"`
+	Unit      pgtype.Text `json:"unit"`
 }
 
-func (q *Queries) ListServiceSpecifications(ctx context.Context, serviceID int32) ([]ListServiceSpecificationsRow, error) {
-	rows, err := q.db.Query(ctx, listServiceSpecifications, serviceID)
+// Las tres queries siguientes reciben varios servicios a la vez para que el
+// listado no haga una consulta por servicio.
+func (q *Queries) ListServiceSpecifications(ctx context.Context, serviceIds []int32) ([]ListServiceSpecificationsRow, error) {
+	rows, err := q.db.Query(ctx, listServiceSpecifications, serviceIds)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +167,12 @@ func (q *Queries) ListServiceSpecifications(ctx context.Context, serviceID int32
 	var items []ListServiceSpecificationsRow
 	for rows.Next() {
 		var i ListServiceSpecificationsRow
-		if err := rows.Scan(&i.Name, &i.Value); err != nil {
+		if err := rows.Scan(
+			&i.ServiceID,
+			&i.Name,
+			&i.Value,
+			&i.Unit,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -254,6 +206,7 @@ LEFT JOIN service_category parent_sc
 LEFT JOIN service_rating_summary srs
     ON srs.service_id = s.id
 WHERE s.active = true
+  AND ($1::uuid IS NULL OR s.public_id = $1)
 ORDER BY s.id
 `
 
@@ -273,8 +226,8 @@ type ListServicesRow struct {
 	ReviewCount     int64            `json:"review_count"`
 }
 
-func (q *Queries) ListServices(ctx context.Context) ([]ListServicesRow, error) {
-	rows, err := q.db.Query(ctx, listServices)
+func (q *Queries) ListServices(ctx context.Context, publicID pgtype.UUID) ([]ListServicesRow, error) {
+	rows, err := q.db.Query(ctx, listServices, publicID)
 	if err != nil {
 		return nil, err
 	}

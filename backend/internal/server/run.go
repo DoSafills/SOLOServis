@@ -12,11 +12,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type RouterFactory func(*pgxpool.Pool) *chi.Mux
+type RouterFactory func(db *pgxpool.Pool, frontendURL string) *chi.Mux
 
-func Run(serviceName string, defaultPort string, factory RouterFactory) {
-	cfg := appconfig.LoadForPort(defaultPort)
-
+// Run conecta a PostgreSQL y levanta el servidor HTTP. Lo usan tanto el
+// servidor combinado (cmd/server) como los microservicios.
+func Run(serviceName string, cfg appconfig.Config, factory RouterFactory) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -30,8 +30,9 @@ func Run(serviceName string, defaultPort string, factory RouterFactory) {
 		log.Fatal(err)
 	}
 
-	router := factory(db)
-	server := &http.Server{Addr: ":" + cfg.Port, Handler: router}
+	log.Println("PostgreSQL connection established")
+
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: factory(db, cfg.FrontendURL)}
 	log.Printf("%s API running on http://localhost:%s", serviceName, cfg.Port)
 
 	if err := server.ListenAndServe(); err != nil {

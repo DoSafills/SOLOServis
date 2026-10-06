@@ -1,4 +1,9 @@
 import type { Product, Page } from "../../types";
+import {
+  formatPrice,
+  getAvailableStoreCount,
+  getMinPrice,
+} from "../../services/utils/productUtils";
 import { Badge, Rating, FavoriteButton } from "../common/ui";
 
 interface Props {
@@ -18,6 +23,9 @@ export default function ProductCard({
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
+  const minPrice = getMinPrice(product);
+  const storeCount = getAvailableStoreCount(product);
+
   return (
     <div
       style={{
@@ -46,7 +54,13 @@ export default function ProductCard({
         <div className="absolute inset-0 bg-gradient-to-t from-surface/60 to-transparent" />
 
         <div className="absolute top-2 left-2 flex gap-1.5">
-          <Badge variant="unavailable">Sin ofertas</Badge>
+          {storeCount > 0 ? (
+            <Badge variant="available">
+              {storeCount} {storeCount === 1 ? "tienda" : "tiendas"}
+            </Badge>
+          ) : (
+            <Badge variant="unavailable">Sin ofertas</Badge>
+          )}
         </div>
 
         <div className="absolute top-2 right-2">
@@ -92,8 +106,12 @@ export default function ProductCard({
         <Rating value={product.rating} count={product.reviewCount} />
 
         {/* Price */}
-        <div className="text-xs text-muted mb-0.5">Precio</div>
-        <div className="text-sm font-semibold text-muted">No disponible</div>
+        <div className="text-xs text-muted mb-0.5">{storeCount > 0 ? "Desde" : "Precio"}</div>
+        {storeCount > 0 ? (
+          <div className="price text-xl font-semibold text-prime">{formatPrice(minPrice)}</div>
+        ) : (
+          <div className="text-sm font-semibold text-muted">No disponible</div>
+        )}
 
         {/* Actions */}
         <div className="flex gap-2 mt-1">

@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"github.com/DoSafills/SOLOServis/backend/internal/database/dbutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -26,6 +27,40 @@ type ProductListItem struct {
 	Offers      []ProductOffer `json:"offers"`
 }
 
+// ProductDetail amplía el ítem del listado; al embeberlo, sus campos se
+// serializan al mismo nivel que los propios.
+type ProductDetail struct {
+	ProductListItem
+	Specs             map[string]string `json:"specs"`
+	PriceHistory      []PricePoint      `json:"priceHistory"`
+	OfferPriceHistory []PricePoint      `json:"offerPriceHistory"`
+}
+
+type PricePoint struct {
+	Date  string `json:"date"`
+	Price string `json:"price"`
+}
+
+type ProductImage struct {
+	URL       string `json:"url"`
+	AltText   string `json:"altText"`
+	SortOrder int32  `json:"sortOrder"`
+}
+
+type ProductOffer struct {
+	StoreID      int32  `json:"storeId"`
+	StoreName    string `json:"storeName"`
+	Price        string `json:"price"`
+	ListPrice    string `json:"listPrice"`
+	Currency     string `json:"currency"`
+	ShippingCost string `json:"shippingCost"`
+	ShippingFree bool   `json:"shippingFree"`
+	Available    bool   `json:"available"`
+	Stock        *int32 `json:"stock"`
+	Condition    string `json:"condition"`
+	ProductURL   string `json:"productUrl"`
+}
+
 // splitCategory devuelve (categoría, subcategoría). Si la categoría del producto
 // tiene padre, el padre es la categoría y la del producto es la subcategoría.
 func splitCategory(categoryName string, parentName pgtype.Text) (string, string) {
@@ -35,61 +70,83 @@ func splitCategory(categoryName string, parentName pgtype.Text) (string, string)
 	return categoryName, ""
 }
 
-func FromListProduct(row generated.ListProductsRow) ProductListItem {
-	var model string
-	if row.Model.Valid {
-		model = row.Model.String
-	}
-
-	var description string
-	if row.Description.Valid {
-		description = row.Description.String
-	}
-
-	var brand string
-	if row.BrandName.Valid {
-		brand = row.BrandName.String
-	}
-
-	var rating float64
-	if row.Rating.Valid {
-		value, err := row.Rating.Float64Value()
-		if err == nil && value.Valid {
-			rating = value.Float64
-		}
-	}
-
+func FromListProduct(
+	row generated.ListProductsRow,
+	images []generated.ProductImage,
+	offers []generated.ListProductOffersRow,
+) ProductListItem {
 	category, subcategory := splitCategory(row.CategoryName, row.ParentCategoryName)
 
-	return ProductListItem{
+	item := ProductListItem{
 		ID:          row.PublicID.String(),
 		Name:        row.Name,
-		Brand:       brand,
-		Model:       model,
+		Brand:       dbutil.Text(row.BrandName),
+		Model:       dbutil.Text(row.Model),
 		CategoryID:  row.CategoryID,
 		Category:    category,
 		Subcategory: subcategory,
-		Description: description,
-		Rating:      rating,
+		Description: dbutil.Text(row.Description),
+		Rating:      dbutil.Float(row.Rating),
 		ReviewCount: row.ReviewCount,
-		Images:      []ProductImage{},
-		Offers:      []ProductOffer{},
+		Images:      make([]ProductImage, 0, len(images)),
+		Offers:      make([]ProductOffer, 0, len(offers)),
 	}
+
+	for _, image := range images {
+		item.Images = append(item.Images, ProductImage{
+			URL:       image.ImageUrl,
+			AltText:   dbutil.Text(image.AltText),
+			SortOrder: image.SortOrder,
+		})
+	}
+
+	for _, offer := range offers {
+		item.Offers = append(item.Offers, ProductOffer{
+			StoreID:      offer.StoreID,
+			StoreName:    offer.StoreName,
+			Price:        dbutil.NumericString(offer.Price),
+			ListPrice:    dbutil.NumericString(offer.ListPrice),
+			Currency:     offer.Currency,
+			ShippingCost: dbutil.NumericString(offer.ShippingCost),
+			ShippingFree: offer.ShippingFree,
+			Available:    offer.Available,
+			Stock:        dbutil.Int4Ptr(offer.Stock),
+			Condition:    offer.Condition,
+			ProductURL:   dbutil.Text(offer.ProductUrl),
+		})
+	}
+
+	return item
 }
 
-// FromListProductByCategory mapea la fila del listado filtrado por categoría,
-// que tiene las mismas columnas que ListProducts.
-func FromListProductByCategory(row generated.ListProductsByCategoryRow) ProductListItem {
-	return FromListProduct(generated.ListProductsRow{
-		PublicID:           row.PublicID,
-		Name:               row.Name,
-		Model:              row.Model,
-		Description:        row.Description,
-		BrandName:          row.BrandName,
-		CategoryID:         row.CategoryID,
-		CategoryName:       row.CategoryName,
-		ParentCategoryName: row.ParentCategoryName,
-		Rating:             row.Rating,
-		ReviewCount:        row.ReviewCount,
-	})
+func NewProductDetail(
+	item ProductListItem,
+	specifications []generated.ListProductSpecificationsRow,
+	history []generated.ListProductPriceHistoryRow,
+) ProductDetail {
+	detail := ProductDetail{
+		ProductListItem:   item,
+		Specs:             make(map[string]string, len(specifications)),
+		PriceHistory:      make([]PricePoint, 0, len(history)),
+		OfferPriceHistory: []PricePoint{},
+	}
+
+	for _, specification := range specifications {
+		detail.Specs[specification.Name] = dbutil.WithUnit(specification.Value, specification.Unit)
+	}
+
+	for _, point := range history {
+		pricePoint := PricePoint{
+			Date:  dbutil.Date(point.RecordedAt),
+			Price: dbutil.NumericString(point.Price),
+		}
+
+		detail.PriceHistory = append(detail.PriceHistory, pricePoint)
+
+		if point.IsPromotional {
+			detail.OfferPriceHistory = append(detail.OfferPriceHistory, pricePoint)
+		}
+	}
+
+	return detail
 }

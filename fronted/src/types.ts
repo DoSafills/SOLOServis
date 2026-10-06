@@ -58,14 +58,15 @@ export interface Product {
   offerPrice?: number;
   /** Historical record of offer prices; empty array means no offers have occurred */
   offerPriceHistory: PricePoint[];
+  /** Palabras clave para la búsqueda; la API todavía no las entrega. */
   tags: string[];
 }
-
 
 export interface CartItem {
   product: Product;
   quantity: number;
 }
+
 export interface Service {
   id: string;
   name: string;
@@ -97,5 +98,3 @@ export interface Store {
   conditions: string;
   website: string;
 }
-
-

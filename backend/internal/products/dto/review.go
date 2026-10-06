@@ -3,6 +3,7 @@ package dto
 import (
 	"time"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/database/dbutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 )
 
@@ -19,16 +20,6 @@ type ProductReview struct {
 }
 
 func FromProductReview(review generated.ListProductReviewsRow) ProductReview {
-	var title string
-	if review.Title.Valid {
-		title = review.Title.String
-	}
-
-	var content string
-	if review.Content.Valid {
-		content = review.Content.String
-	}
-
 	var createdAt string
 	if review.CreatedAt.Valid {
 		createdAt = review.CreatedAt.Time.Format(time.RFC3339)
@@ -38,8 +29,8 @@ func FromProductReview(review generated.ListProductReviewsRow) ProductReview {
 		Author:         review.AuthorName,
 		AuthorVerified: review.AuthorVerified,
 		Rating:         review.Rating,
-		Title:          title,
-		Content:        content,
+		Title:          dbutil.Text(review.Title),
+		Content:        dbutil.Text(review.Content),
 		CreatedAt:      createdAt,
 	}
 }

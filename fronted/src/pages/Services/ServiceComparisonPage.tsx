@@ -1,55 +1,33 @@
-import { useEffect, useState } from "react";
 import type { Page, Service } from "../../types";
-import { getServiceById } from "../../services/api/api";
+import { getServiceById } from "../../services/api/services";
 import { formatPrice } from "../../services/utils/productUtils";
-import { Breadcrumb, Badge } from "../../components/common/ui";
+import { formatContract, formatInstallation } from "../../services/utils/serviceUtils";
+import { useFetch } from "../../hooks/useFetch";
+import { Breadcrumb, Badge, PageMessage } from "../../components/common/ui";
 
 interface Props {
   serviceIds: string[];
   navigate: (page: Page) => void;
 }
 
-export default function ServiceComparisonPage({
-  serviceIds,
-  navigate,
-}: Props) {
-  const [selected, setSelected] = useState<Service[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function ServiceComparisonPage({ serviceIds, navigate }: Props) {
+  const { data: selected = [], loading } = useFetch(`compare:${serviceIds.join(",")}`, async () => {
+    const services = await Promise.all(serviceIds.map((id) => getServiceById(id)));
+    return services.filter((service): service is Service => service !== null);
+  });
 
-  useEffect(() => {
-    setLoading(true);
-
-    Promise.all(serviceIds.map((id) => getServiceById(id)))
-      .then((services) => {
-        setSelected(services.filter((service): service is Service => service !== null));
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [serviceIds]);
-
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando comparación...</p>
-      </div>
-    );
-  }
+  if (loading) return <PageMessage>Cargando comparación...</PageMessage>;
 
   if (selected.length < 2) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted mb-4">
-          Selecciona al menos 2 servicios para comparar.
-        </p>
-
-        <button
-          onClick={() => navigate({ id: "search-services", query: "" })}
-          style={{ background: "#E8001B", color: "#0A0A0A" }}
-          className="px-5 py-2 rounded-xl text-sm font-semibold"
-        >
-          Buscar servicios
-        </button>
-      </div>
+      <PageMessage
+        action={{
+          label: "Buscar servicios",
+          onClick: () => navigate({ id: "search-services", query: "" }),
+        }}
+      >
+        Selecciona al menos 2 servicios para comparar.
+      </PageMessage>
     );
   }
 
@@ -69,26 +47,17 @@ export default function ServiceComparisonPage({
     {
       key: "installation",
       label: "Instalación",
-      getValue: (s) =>
-        s.installationCost === 0
-          ? "Gratis"
-          : s.installationCost
-            ? formatPrice(s.installationCost)
-            : "Sin costo",
+      getValue: (s) => formatInstallation(s.installationCost),
     },
     {
       key: "contract",
       label: "Permanencia",
-      getValue: (s) =>
-        s.contractMonths
-          ? `${s.contractMonths} meses`
-          : "Sin permanencia",
+      getValue: (s) => formatContract(s.contractMonths),
     },
     {
       key: "rating",
       label: "Valoración",
-      getValue: (s) =>
-        `★ ${s.rating.toFixed(1)} (${s.reviewCount.toLocaleString("es-CL")})`,
+      getValue: (s) => `★ ${s.rating.toFixed(1)} (${s.reviewCount.toLocaleString("es-CL")})`,
     },
     {
       key: "coverage",
@@ -97,9 +66,7 @@ export default function ServiceComparisonPage({
     },
   ];
 
-  const specKeys = [
-    ...new Set(selected.flatMap((s) => Object.keys(s.specs))),
-  ];
+  const specKeys = [...new Set(selected.flatMap((s) => Object.keys(s.specs)))];
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -108,20 +75,15 @@ export default function ServiceComparisonPage({
           { label: "Inicio", onClick: () => navigate({ id: "home" }) },
           {
             label: "Servicios",
-            onClick: () =>
-              navigate({ id: "search-services", query: "" }),
+            onClick: () => navigate({ id: "search-services", query: "" }),
           },
           { label: "Comparación" },
         ]}
       />
 
-      <h1 className="text-2xl font-bold text-text mb-2">
-        Comparación de servicios
-      </h1>
+      <h1 className="text-2xl font-bold text-text mb-2">Comparación de servicios</h1>
 
-      <p className="text-sm text-muted mb-8">
-        Comparando {selected.length} servicios
-      </p>
+      <p className="text-sm text-muted mb-8">Comparando {selected.length} servicios</p>
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[520px]">
@@ -158,13 +120,9 @@ export default function ServiceComparisonPage({
                     </div>
 
                     <div>
-                      <div className="text-sm font-bold text-prime">
-                        {service.provider}
-                      </div>
+                      <div className="text-sm font-bold text-prime">{service.provider}</div>
 
-                      <div className="text-xs text-muted-2">
-                        {service.name}
-                      </div>
+                      <div className="text-xs text-muted-2">{service.name}</div>
                     </div>
 
                     <button
@@ -194,8 +152,7 @@ export default function ServiceComparisonPage({
               <tr
                 key={row.key}
                 style={{
-                  background:
-                    rowIndex % 2 === 0 ? "#0A0A0A" : "transparent",
+                  background: rowIndex % 2 === 0 ? "#0A0A0A" : "transparent",
                 }}
               >
                 <td
@@ -212,10 +169,8 @@ export default function ServiceComparisonPage({
                   const value = row.getValue(service);
 
                   const isBest =
-                    (row.key === "monthlyPrice" &&
-                      service.monthlyPrice === lowestPrice) ||
-                    (row.key === "rating" &&
-                      service.rating === highestRating);
+                    (row.key === "monthlyPrice" && service.monthlyPrice === lowestPrice) ||
+                    (row.key === "rating" && service.rating === highestRating);
 
                   return (
                     <td
@@ -227,9 +182,7 @@ export default function ServiceComparisonPage({
                       className="p-4 text-center"
                     >
                       <span
-                        className={`text-sm font-semibold ${
-                          isBest ? "text-prime" : "text-text"
-                        }`}
+                        className={`text-sm font-semibold ${isBest ? "text-prime" : "text-text"}`}
                       >
                         {value}
                       </span>
@@ -249,10 +202,7 @@ export default function ServiceComparisonPage({
               <tr
                 key={key}
                 style={{
-                  background:
-                    (rowIndex + compareRows.length) % 2 === 0
-                      ? "#0A0A0A"
-                      : "transparent",
+                  background: (rowIndex + compareRows.length) % 2 === 0 ? "#0A0A0A" : "transparent",
                 }}
               >
                 <td
@@ -275,9 +225,7 @@ export default function ServiceComparisonPage({
                     className="p-4 text-center"
                   >
                     <span className="text-sm text-text">
-                      {service.specs[key] ?? (
-                        <span className="text-muted">—</span>
-                      )}
+                      {service.specs[key] ?? <span className="text-muted">—</span>}
                     </span>
                   </td>
                 ))}
@@ -293,17 +241,10 @@ export default function ServiceComparisonPage({
               </td>
 
               {selected.map((service) => (
-                <td
-                  key={service.id}
-                  style={{ borderRight: "1px solid #1A1A1A" }}
-                  className="p-4"
-                >
+                <td key={service.id} style={{ borderRight: "1px solid #1A1A1A" }} className="p-4">
                   <ul className="space-y-1">
                     {service.benefits.map((benefit) => (
-                      <li
-                        key={benefit}
-                        className="flex items-center gap-1.5 text-xs text-muted-2"
-                      >
+                      <li key={benefit} className="flex items-center gap-1.5 text-xs text-muted-2">
                         <svg
                           width="10"
                           height="10"

@@ -17,7 +17,12 @@ LEFT JOIN product_offer po
     ON po.store_id = s.id
     AND po.available = true
 WHERE s.active = true
-GROUP BY
+GROUP BY s.id
+ORDER BY s.id;
+
+
+-- name: GetStore :one
+SELECT
     s.id,
     s.name,
     s.website_url,
@@ -28,5 +33,12 @@ GROUP BY
     s.general_conditions,
     s.active,
     s.created_at,
-    s.updated_at
-ORDER BY s.id;
+    s.updated_at,
+    COUNT(DISTINCT po.product_id) AS product_count
+FROM store s
+LEFT JOIN product_offer po
+    ON po.store_id = s.id
+    AND po.available = true
+WHERE s.id = $1
+  AND s.active = true
+GROUP BY s.id;

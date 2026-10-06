@@ -1,5 +1,6 @@
-﻿import type { Service, Page } from "../../types";
+import type { Service, Page } from "../../types";
 import { formatPrice } from "../../services/utils/productUtils";
+import { formatContract, formatInstallation } from "../../services/utils/serviceUtils";
 import { Badge, Rating, FavoriteButton } from "../common/ui";
 
 interface Props {
@@ -92,18 +93,8 @@ export default function ServiceCard({
             <span className="text-xs font-normal text-muted"> /mes</span>
           </div>
           <div className="flex gap-3 mt-1 text-xs text-muted">
-            <span>
-              Instalación:{" "}
-              {service.installationCost === 0
-                ? "Gratis"
-                : service.installationCost
-                  ? formatPrice(service.installationCost)
-                  : "Sin costo"}
-            </span>
-            <span>
-              Contrato:{" "}
-              {service.contractMonths ? `${service.contractMonths} meses` : "Sin permanencia"}
-            </span>
+            <span>Instalación: {formatInstallation(service.installationCost)}</span>
+            <span>Contrato: {formatContract(service.contractMonths)}</span>
           </div>
         </div>
 
@@ -132,4 +123,3 @@ export default function ServiceCard({
     </div>
   );
 }
-

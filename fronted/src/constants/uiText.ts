@@ -1,4 +1,4 @@
-﻿export const UI_TEXT = {
+export const UI_TEXT = {
   arrows: {
     right: "→",
     dash: "—",

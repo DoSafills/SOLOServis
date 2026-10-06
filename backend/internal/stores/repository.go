@@ -20,3 +20,7 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 func (r *Repository) List(ctx context.Context) ([]generated.ListStoresRow, error) {
 	return r.queries.ListStores(ctx)
 }
+
+func (r *Repository) Get(ctx context.Context, id int32) (generated.GetStoreRow, error) {
+	return r.queries.GetStore(ctx, id)
+}

@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"github.com/DoSafills/SOLOServis/backend/internal/database/dbutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 )
 
@@ -14,21 +15,10 @@ type ProductCategory struct {
 }
 
 func FromProductCategory(category generated.ListProductCategoriesRow) ProductCategory {
-	var parentID *int32
-	if category.ParentCategoryID.Valid {
-		value := category.ParentCategoryID.Int32
-		parentID = &value
-	}
-
-	var description string
-	if category.Description.Valid {
-		description = category.Description.String
-	}
-
 	return ProductCategory{
 		ID:          category.ID,
-		ParentID:    parentID,
+		ParentID:    dbutil.Int4Ptr(category.ParentCategoryID),
 		Name:        category.Name,
-		Description: description,
+		Description: dbutil.Text(category.Description),
 	}
 }

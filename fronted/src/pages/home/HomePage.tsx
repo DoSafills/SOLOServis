@@ -1,12 +1,12 @@
-﻿import { useEffect, useState } from "react";
+import { useState } from "react";
 import { UI_TEXT } from "../../constants/uiText";
-import type { Page, Product } from "../../types";
-
-import { getProducts, getServices } from "../../services/api/api";
-import { getCategories, type ApiProductCategory } from "../../services/api/products";
+import type { Page } from "../../types";
+import { getProducts } from "../../services/api/products";
+import { getServices } from "../../services/api/services";
+import { useFetch } from "../../hooks/useFetch";
+import { useCategories } from "../../hooks/useCategories";
 import ProductCard from "../../components/products/ProductCard";
 import ServiceCard from "../../components/services/ServiceCard";
-
 
 const serviceCategories = [
   { name: UI_TEXT.categories.internet, icon: "🌐", color: "#F472B6" },
@@ -14,6 +14,7 @@ const serviceCategories = [
   { name: UI_TEXT.categories.technicians, icon: "🔧", color: "#60A5FA" },
   { name: UI_TEXT.categories.education, icon: "📚", color: "#34D399" },
 ];
+
 interface Props {
   navigate: (page: Page) => void;
   favorites: Set<string>;
@@ -31,36 +32,20 @@ export default function HomePage({
 }: Props) {
   const [query, setQuery] = useState("");
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [services, setServices] = useState<import("../../types").Service[]>([]);
-  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
-
-  useEffect(() => {
-    Promise.all([getProducts(), getServices()])
-      .then(([products, services]) => {
-        setProducts(products);
-        setServices(services);
-      })
-      .catch(console.error);
-
-    getCategories().then(setCategories).catch(console.error);
-  }, []);
-
+  const { data: products = [] } = useFetch("products", () => getProducts());
+  const { data: services = [] } = useFetch("services", getServices);
   // Las categorías raíz (sin padre) son las que se muestran en la portada;
   // debajo de cada una se listan sus subcategorías.
-  const rootCategories = categories.filter((cat) => cat.parentId === null);
-  const subcategoriesOf = (parentId: number) =>
-    categories.filter((cat) => cat.parentId === parentId);
+  const { rootCategories, subcategoriesOf } = useCategories();
 
   const featuredProducts = products.slice(0, 4);
+  const featuredServices = services.slice(0, 4);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
     navigate({ id: "search-products", query: query.trim() });
   };
-
-  const featuredServices = services.slice(0, 4);
 
   return (
     <div>
@@ -174,17 +159,15 @@ export default function HomePage({
         <section className="py-12">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-xl font-bold text-text">Categorías de productos</h2>
-              <p className="text-xs text-muted mt-1">Encuentra lo que buscas por categoría</p>
+              <h2 className="text-xl font-bold text-text">{UI_TEXT.products.categories}</h2>
+              <p className="text-xs text-muted mt-1">{UI_TEXT.products.categoryDescription}</p>
             </div>
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
             {rootCategories.map((cat) => (
               <button
                 key={cat.id}
-                onClick={() =>
-                  navigate({ id: "search-products", query: "", categoryId: cat.id })
-                }
+                onClick={() => navigate({ id: "search-products", query: "", categoryId: cat.id })}
                 style={{ background: "#111111", border: "1px solid #2A2A2A" }}
                 className="flex flex-col items-center gap-2 p-4 rounded-2xl hover:border-prime hover:bg-prime-muted transition-all duration-200 group"
               >
@@ -206,7 +189,7 @@ export default function HomePage({
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-xl font-bold text-text">Productos destacados</h2>
-              <p className="text-xs text-muted mt-1">Los más buscados esta semana</p>
+              <p className="text-xs text-muted mt-1">{UI_TEXT.products.popularDescription}</p>
             </div>
             <button
               onClick={() => navigate({ id: "search-products", query: "" })}
@@ -287,5 +270,3 @@ export default function HomePage({
     </div>
   );
 }
-
-

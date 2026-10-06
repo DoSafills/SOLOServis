@@ -12,6 +12,7 @@ import ServiceComparisonPage from "./pages/services/ServiceComparisonPage";
 import StoresPage from "./pages/stores/StoresPage";
 import FavoritesPage from "./pages/user/FavoritesPage";
 import UserPage from "./pages/user/UserPage";
+import { toggleInSet } from "./services/utils/setUtils";
 
 export default function App() {
   const [page, setPage] = useState<Page>({ id: "home" });
@@ -25,9 +26,7 @@ export default function App() {
 
       if (existing) {
         return prev.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item,
+          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item,
         );
       }
 
@@ -42,9 +41,7 @@ export default function App() {
     }
 
     setCart((prev) =>
-      prev.map((item) =>
-        item.product.id === productId ? { ...item, quantity } : item,
-      ),
+      prev.map((item) => (item.product.id === productId ? { ...item, quantity } : item)),
     );
   };
 
@@ -59,29 +56,10 @@ export default function App() {
 
   const navigate = (next: Page) => setPage(next);
 
-  const toggleFavorite = (id: string) => {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
+  const toggleFavorite = (id: string) => setFavorites((prev) => toggleInSet(prev, id));
 
-  const toggleCompare = (id: string) => {
-    setCompareList((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else if (next.size < 3) {
-        next.add(id);
-      }
-      return next;
-    });
-  };
+  // El comparador admite como máximo 3 elementos.
+  const toggleCompare = (id: string) => setCompareList((prev) => toggleInSet(prev, id, 3));
 
   const sharedProps = {
     navigate,
@@ -96,12 +74,19 @@ export default function App() {
       case "home":
         return <HomePage {...sharedProps} />;
       case "search-products":
+        // La key reinicia filtros y paginación en cada búsqueda nueva.
         return (
-          <SearchResultsPage {...sharedProps} query={page.query} categoryId={page.categoryId} />
+          <SearchResultsPage
+            key={`${page.query}|${page.categoryId ?? ""}`}
+            {...sharedProps}
+            query={page.query}
+            categoryId={page.categoryId}
+          />
         );
       case "product-detail":
         return (
           <ProductDetailPage
+            key={page.productId}
             productId={page.productId}
             navigate={navigate}
             isFavorite={favorites.has(page.productId)}
@@ -129,26 +114,9 @@ export default function App() {
       case "service-comparison":
         return <ServiceComparisonPage serviceIds={page.serviceIds} navigate={navigate} />;
       case "stores":
-        return (
-          <StoresPage
-            navigate={navigate}
-            favorites={favorites}
-            compareList={compareList}
-            onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
-          />
-        );
+        return <StoresPage {...sharedProps} />;
       case "store-detail":
-        return (
-          <StoresPage
-            navigate={navigate}
-            storeId={page.storeId}
-            favorites={favorites}
-            compareList={compareList}
-            onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
-          />
-        );
+        return <StoresPage {...sharedProps} storeId={page.storeId} />;
       case "favorites":
         return (
           <FavoritesPage
@@ -226,6 +194,3 @@ export default function App() {
     </div>
   );
 }
-
-
-

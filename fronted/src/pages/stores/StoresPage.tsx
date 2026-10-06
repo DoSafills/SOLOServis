@@ -1,7 +1,8 @@
-﻿import { useEffect, useState } from "react";
-import type { Page, Product, Store } from "../../types";
-import { getStores, getProducts } from "../../services/api/api";
-import { Badge, Breadcrumb, Rating } from "../../components/common/ui";
+import type { Page, Store } from "../../types";
+import { getProducts } from "../../services/api/products";
+import { getStoreById, getStores } from "../../services/api/stores";
+import { useFetch } from "../../hooks/useFetch";
+import { Badge, Breadcrumb, PageMessage, Rating } from "../../components/common/ui";
 import ProductCard from "../../components/products/ProductCard";
 
 interface Props {
@@ -13,35 +14,19 @@ interface Props {
   storeId?: string;
 }
 
+/** Muestra el logo si es una URL; si no hay, las iniciales de la tienda. */
+function StoreLogo({ store }: { store: Store }) {
+  if (store.logo.startsWith("http")) {
+    return (
+      <img src={store.logo} alt={store.name} className="w-full h-full object-contain rounded-xl" />
+    );
+  }
+
+  return <>{store.logo || store.name.slice(0, 2).toUpperCase()}</>;
+}
+
 function StoreList({ navigate }: { navigate: (page: Page) => void }) {
-  const [stores, setStores] = useState<Store[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadStores() {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await getStores();
-        if (cancelled) return;
-        setStores(result);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Error al cargar las tiendas");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadStores();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data: stores = [], loading, error } = useFetch("stores", getStores);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -80,7 +65,7 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
                   }}
                   className="w-12 h-12 rounded-xl flex items-center justify-center text-sm font-bold text-prime"
                 >
-                  {store.logo}
+                  <StoreLogo store={store} />
                 </div>
                 <div>
                   <div className="text-sm font-bold text-text group-hover:text-prime transition-colors">
@@ -126,59 +111,23 @@ function StoreDetail({
   onToggleFavorite,
   onToggleCompare,
 }: Required<Props>) {
-  const [store, setStore] = useState<Store | null>(null);
-  const [storeProducts, setStoreProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Los productos de la tienda son los que tienen alguna oferta en ella.
+  const { data, loading, error } = useFetch(`store:${storeId}`, async () => {
+    const [store, products] = await Promise.all([getStoreById(storeId), getProducts()]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadStoreData() {
-      setLoading(true);
-      setError(null);
-      try {
-        const [stores, products]: [Store[], Product[]] = await Promise.all([
-          getStores(),
-          getProducts(),
-        ]);
-        if (cancelled) return;
-        setStore(stores.find((s: Store) => s.id === storeId) ?? null);
-        setStoreProducts(
-          products.filter((p: Product) => p.offers.some((o) => o.storeId === storeId)),
-        );
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Error al cargar la tienda");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadStoreData();
-
-    return () => {
-      cancelled = true;
+    return {
+      store,
+      storeProducts: products.filter((p) => p.offers.some((o) => o.storeId === storeId)),
     };
-  }, [storeId]);
+  });
 
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando tienda…</p>
-      </div>
-    );
-  }
+  if (loading) return <PageMessage>Cargando tienda…</PageMessage>;
 
-  if (error) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-warn">{error}</p>
-      </div>
-    );
-  }
+  if (error) return <PageMessage tone="warn">{error}</PageMessage>;
 
-  if (!store) return null;
+  if (!data?.store) return <PageMessage>Tienda no encontrada.</PageMessage>;
+
+  const { store, storeProducts } = data;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -200,7 +149,7 @@ function StoreDetail({
             style={{ background: "rgba(232,0,27,0.12)", border: "1px solid rgba(232,0,27,0.3)" }}
             className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold text-prime shrink-0"
           >
-            {store.logo}
+            <StoreLogo store={store} />
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-1 flex-wrap">
@@ -248,17 +197,7 @@ function StoreDetail({
 
 export default function StoresPage(props: Props) {
   if (props.storeId) {
-    return (
-      <StoreDetail
-        {...props}
-        storeId={props.storeId}
-        favorites={props.favorites}
-        compareList={props.compareList}
-        onToggleFavorite={props.onToggleFavorite}
-        onToggleCompare={props.onToggleCompare}
-      />
-    );
+    return <StoreDetail {...props} storeId={props.storeId} />;
   }
   return <StoreList navigate={props.navigate} />;
 }
-

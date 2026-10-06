@@ -77,6 +77,22 @@ func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (P
 	return i, err
 }
 
+const createProductImage = `-- name: CreateProductImage :exec
+INSERT INTO product_image (product_id, image_url, alt_text, sort_order)
+VALUES ($1, $2, $3, 0)
+`
+
+type CreateProductImageParams struct {
+	ProductID int32       `json:"product_id"`
+	ImageUrl  string      `json:"image_url"`
+	AltText   pgtype.Text `json:"alt_text"`
+}
+
+func (q *Queries) CreateProductImage(ctx context.Context, arg CreateProductImageParams) error {
+	_, err := q.db.Exec(ctx, createProductImage, arg.ProductID, arg.ImageUrl, arg.AltText)
+	return err
+}
+
 const deactivateProduct = `-- name: DeactivateProduct :one
 UPDATE product
 SET
@@ -228,75 +244,6 @@ func (q *Queries) GetProductByPublicID(ctx context.Context, publicID pgtype.UUID
 	return i, err
 }
 
-const getProductDetailByPublicID = `-- name: GetProductDetailByPublicID :one
-SELECT
-    p.id,
-    p.public_id,
-    p.category_id,
-    p.brand_id,
-    p.name,
-    p.model,
-    p.sku,
-    p.description,
-    p.active,
-    p.created_at,
-    p.updated_at,
-    b.name AS brand_name,
-    pc.name AS category_name,
-    parent.name AS parent_category_name,
-    COALESCE(prs.derived_average_rating, 0) AS rating,
-    COALESCE(prs.derived_review_count, 0) AS review_count
-FROM product p
-LEFT JOIN brand b ON b.id = p.brand_id
-JOIN product_category pc ON pc.id = p.category_id
-LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
-LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
-WHERE p.public_id = $1
-`
-
-type GetProductDetailByPublicIDRow struct {
-	ID                 int32            `json:"id"`
-	PublicID           pgtype.UUID      `json:"public_id"`
-	CategoryID         int32            `json:"category_id"`
-	BrandID            pgtype.Int4      `json:"brand_id"`
-	Name               string           `json:"name"`
-	Model              pgtype.Text      `json:"model"`
-	Sku                pgtype.Text      `json:"sku"`
-	Description        pgtype.Text      `json:"description"`
-	Active             bool             `json:"active"`
-	CreatedAt          pgtype.Timestamp `json:"created_at"`
-	UpdatedAt          pgtype.Timestamp `json:"updated_at"`
-	BrandName          pgtype.Text      `json:"brand_name"`
-	CategoryName       string           `json:"category_name"`
-	ParentCategoryName pgtype.Text      `json:"parent_category_name"`
-	Rating             pgtype.Numeric   `json:"rating"`
-	ReviewCount        int64            `json:"review_count"`
-}
-
-func (q *Queries) GetProductDetailByPublicID(ctx context.Context, publicID pgtype.UUID) (GetProductDetailByPublicIDRow, error) {
-	row := q.db.QueryRow(ctx, getProductDetailByPublicID, publicID)
-	var i GetProductDetailByPublicIDRow
-	err := row.Scan(
-		&i.ID,
-		&i.PublicID,
-		&i.CategoryID,
-		&i.BrandID,
-		&i.Name,
-		&i.Model,
-		&i.Sku,
-		&i.Description,
-		&i.Active,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.BrandName,
-		&i.CategoryName,
-		&i.ParentCategoryName,
-		&i.Rating,
-		&i.ReviewCount,
-	)
-	return i, err
-}
-
 const listProductCategories = `-- name: ListProductCategories :many
 SELECT
     c.id,
@@ -349,13 +296,13 @@ SELECT
     sort_order,
     active
 FROM product_image
-WHERE product_id = $1
+WHERE product_id = ANY($1::int[])
   AND active = true
-ORDER BY sort_order ASC, id ASC
+ORDER BY product_id, sort_order ASC, id ASC
 `
 
-func (q *Queries) ListProductImages(ctx context.Context, productID int32) ([]ProductImage, error) {
-	rows, err := q.db.Query(ctx, listProductImages, productID)
+func (q *Queries) ListProductImages(ctx context.Context, productIds []int32) ([]ProductImage, error) {
+	rows, err := q.db.Query(ctx, listProductImages, productIds)
 	if err != nil {
 		return nil, err
 	}
@@ -399,8 +346,8 @@ SELECT
     po.last_updated
 FROM product_offer po
 JOIN store s ON s.id = po.store_id
-WHERE po.product_id = $1
-ORDER BY po.price ASC
+WHERE po.product_id = ANY($1::int[])
+ORDER BY po.product_id, po.price ASC
 `
 
 type ListProductOffersRow struct {
@@ -420,8 +367,8 @@ type ListProductOffersRow struct {
 	LastUpdated  pgtype.Timestamp `json:"last_updated"`
 }
 
-func (q *Queries) ListProductOffers(ctx context.Context, productID int32) ([]ListProductOffersRow, error) {
-	rows, err := q.db.Query(ctx, listProductOffers, productID)
+func (q *Queries) ListProductOffers(ctx context.Context, productIds []int32) ([]ListProductOffersRow, error) {
+	rows, err := q.db.Query(ctx, listProductOffers, productIds)
 	if err != nil {
 		return nil, err
 	}
@@ -549,7 +496,8 @@ func (q *Queries) ListProductReviews(ctx context.Context, productID int32) ([]Li
 const listProductSpecifications = `-- name: ListProductSpecifications :many
 SELECT
     pcs.name,
-    psv.value
+    psv.value,
+    pcs.unit
 FROM product_specification_value psv
 JOIN product_category_specification pcs
     ON pcs.id = psv.specification_id
@@ -558,8 +506,9 @@ ORDER BY pcs.display_order ASC, pcs.id ASC
 `
 
 type ListProductSpecificationsRow struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	Name  string      `json:"name"`
+	Value string      `json:"value"`
+	Unit  pgtype.Text `json:"unit"`
 }
 
 func (q *Queries) ListProductSpecifications(ctx context.Context, productID int32) ([]ListProductSpecificationsRow, error) {
@@ -571,7 +520,7 @@ func (q *Queries) ListProductSpecifications(ctx context.Context, productID int32
 	var items []ListProductSpecificationsRow
 	for rows.Next() {
 		var i ListProductSpecificationsRow
-		if err := rows.Scan(&i.Name, &i.Value); err != nil {
+		if err := rows.Scan(&i.Name, &i.Value, &i.Unit); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -583,89 +532,6 @@ func (q *Queries) ListProductSpecifications(ctx context.Context, productID int32
 }
 
 const listProducts = `-- name: ListProducts :many
-SELECT
-    p.id,
-    p.public_id,
-    p.category_id,
-    p.brand_id,
-    p.name,
-    p.model,
-    p.sku,
-    p.description,
-    p.active,
-    p.created_at,
-    p.updated_at,
-    b.name AS brand_name,
-    pc.name AS category_name,
-    parent.name AS parent_category_name,
-    COALESCE(prs.derived_average_rating, 0) AS rating,
-    COALESCE(prs.derived_review_count, 0) AS review_count
-FROM product p
-LEFT JOIN brand b ON b.id = p.brand_id
-JOIN product_category pc ON pc.id = p.category_id
-LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
-LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
-WHERE p.active = true
-ORDER BY p.id
-`
-
-type ListProductsRow struct {
-	ID                 int32            `json:"id"`
-	PublicID           pgtype.UUID      `json:"public_id"`
-	CategoryID         int32            `json:"category_id"`
-	BrandID            pgtype.Int4      `json:"brand_id"`
-	Name               string           `json:"name"`
-	Model              pgtype.Text      `json:"model"`
-	Sku                pgtype.Text      `json:"sku"`
-	Description        pgtype.Text      `json:"description"`
-	Active             bool             `json:"active"`
-	CreatedAt          pgtype.Timestamp `json:"created_at"`
-	UpdatedAt          pgtype.Timestamp `json:"updated_at"`
-	BrandName          pgtype.Text      `json:"brand_name"`
-	CategoryName       string           `json:"category_name"`
-	ParentCategoryName pgtype.Text      `json:"parent_category_name"`
-	Rating             pgtype.Numeric   `json:"rating"`
-	ReviewCount        int64            `json:"review_count"`
-}
-
-func (q *Queries) ListProducts(ctx context.Context) ([]ListProductsRow, error) {
-	rows, err := q.db.Query(ctx, listProducts)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListProductsRow
-	for rows.Next() {
-		var i ListProductsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.PublicID,
-			&i.CategoryID,
-			&i.BrandID,
-			&i.Name,
-			&i.Model,
-			&i.Sku,
-			&i.Description,
-			&i.Active,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.BrandName,
-			&i.CategoryName,
-			&i.ParentCategoryName,
-			&i.Rating,
-			&i.ReviewCount,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listProductsByCategory = `-- name: ListProductsByCategory :many
 WITH RECURSIVE subtree AS (
     SELECT c.id
     FROM product_category c
@@ -700,11 +566,20 @@ JOIN product_category pc ON pc.id = p.category_id
 LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
 LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
 WHERE p.active = true
-  AND p.category_id IN (SELECT id FROM subtree)
+  AND (
+      $1::int IS NULL
+      OR p.category_id IN (SELECT id FROM subtree)
+  )
+  AND ($2::uuid IS NULL OR p.public_id = $2)
 ORDER BY p.id
 `
 
-type ListProductsByCategoryRow struct {
+type ListProductsParams struct {
+	CategoryID pgtype.Int4 `json:"category_id"`
+	PublicID   pgtype.UUID `json:"public_id"`
+}
+
+type ListProductsRow struct {
 	ID                 int32            `json:"id"`
 	PublicID           pgtype.UUID      `json:"public_id"`
 	CategoryID         int32            `json:"category_id"`
@@ -723,15 +598,17 @@ type ListProductsByCategoryRow struct {
 	ReviewCount        int64            `json:"review_count"`
 }
 
-func (q *Queries) ListProductsByCategory(ctx context.Context, categoryID int32) ([]ListProductsByCategoryRow, error) {
-	rows, err := q.db.Query(ctx, listProductsByCategory, categoryID)
+// Sin filtros devuelve todo el catálogo activo. Con category_id, los productos
+// de esa categoría y de todas sus subcategorías; con public_id, ese producto.
+func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]ListProductsRow, error) {
+	rows, err := q.db.Query(ctx, listProducts, arg.CategoryID, arg.PublicID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListProductsByCategoryRow
+	var items []ListProductsRow
 	for rows.Next() {
-		var i ListProductsByCategoryRow
+		var i ListProductsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.PublicID,

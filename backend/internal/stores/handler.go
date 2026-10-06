@@ -1,10 +1,15 @@
 package stores
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
+	"github.com/DoSafills/SOLOServis/backend/internal/http/httpx"
 	"github.com/DoSafills/SOLOServis/backend/internal/stores/dto"
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 type Handler struct {
@@ -22,11 +27,31 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := make([]dto.Store, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, dto.FromStore(row))
+	result := make([]dto.Store, len(rows))
+	for i, row := range rows {
+		result[i] = dto.FromStore(row)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(result)
+	httpx.WriteJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 32)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid store id", http.StatusBadRequest)
+		return
+	}
+
+	row, err := h.repository.Get(r.Context(), int32(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		http.Error(w, "store not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load store", http.StatusInternalServerError)
+		return
+	}
+
+	// GetStore y ListStores devuelven las mismas columnas.
+	httpx.WriteJSON(w, http.StatusOK, dto.FromStore(generated.ListStoresRow(row)))
 }

@@ -11,6 +11,64 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getStore = `-- name: GetStore :one
+SELECT
+    s.id,
+    s.name,
+    s.website_url,
+    s.logo_url,
+    s.rating,
+    s.reputation,
+    s.shipping_information,
+    s.general_conditions,
+    s.active,
+    s.created_at,
+    s.updated_at,
+    COUNT(DISTINCT po.product_id) AS product_count
+FROM store s
+LEFT JOIN product_offer po
+    ON po.store_id = s.id
+    AND po.available = true
+WHERE s.id = $1
+  AND s.active = true
+GROUP BY s.id
+`
+
+type GetStoreRow struct {
+	ID                  int32            `json:"id"`
+	Name                string           `json:"name"`
+	WebsiteUrl          pgtype.Text      `json:"website_url"`
+	LogoUrl             pgtype.Text      `json:"logo_url"`
+	Rating              pgtype.Numeric   `json:"rating"`
+	Reputation          pgtype.Text      `json:"reputation"`
+	ShippingInformation pgtype.Text      `json:"shipping_information"`
+	GeneralConditions   pgtype.Text      `json:"general_conditions"`
+	Active              bool             `json:"active"`
+	CreatedAt           pgtype.Timestamp `json:"created_at"`
+	UpdatedAt           pgtype.Timestamp `json:"updated_at"`
+	ProductCount        int64            `json:"product_count"`
+}
+
+func (q *Queries) GetStore(ctx context.Context, id int32) (GetStoreRow, error) {
+	row := q.db.QueryRow(ctx, getStore, id)
+	var i GetStoreRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.WebsiteUrl,
+		&i.LogoUrl,
+		&i.Rating,
+		&i.Reputation,
+		&i.ShippingInformation,
+		&i.GeneralConditions,
+		&i.Active,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ProductCount,
+	)
+	return i, err
+}
+
 const listStores = `-- name: ListStores :many
 SELECT
     s.id,
@@ -30,18 +88,7 @@ LEFT JOIN product_offer po
     ON po.store_id = s.id
     AND po.available = true
 WHERE s.active = true
-GROUP BY
-    s.id,
-    s.name,
-    s.website_url,
-    s.logo_url,
-    s.rating,
-    s.reputation,
-    s.shipping_information,
-    s.general_conditions,
-    s.active,
-    s.created_at,
-    s.updated_at
+GROUP BY s.id
 ORDER BY s.id
 `
 

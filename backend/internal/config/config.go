@@ -17,46 +17,27 @@ type Config struct {
 func Load() Config {
 	_ = godotenv.Load(".env")
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	return Config{
-		Port:        port,
-		DatabaseURL: resolveDatabaseURL(),
-		FrontendURL: resolveFrontendURL(),
-	}
+	return LoadForPort(envOr("PORT", "8080"))
 }
 
 // LoadForPort es para los binarios de microservicio (products-api, stores-api,
 // services-api): cada uno usa siempre su propio puerto por defecto, sin que
 // la variable PORT compartida del .env se lo pise — si no, los tres terminan
 // compitiendo por el mismo puerto.
-func LoadForPort(defaultPort string) Config {
+func LoadForPort(port string) Config {
 	_ = godotenv.Load(".env")
 
 	return Config{
-		Port:        defaultPort,
-		DatabaseURL: resolveDatabaseURL(),
-		FrontendURL: resolveFrontendURL(),
+		Port:        port,
+		DatabaseURL: envOr("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/soloservis"),
+		FrontendURL: envOr("FRONTEND_URL", "http://localhost:5173"),
 	}
 }
 
-func resolveDatabaseURL() string {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		databaseURL = "postgres://postgres:postgres@localhost:5432/soloservis"
+func envOr(key string, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
 
-	return databaseURL
-}
-
-func resolveFrontendURL() string {
-	frontendURL := os.Getenv("FRONTEND_URL")
-	if frontendURL == "" {
-		frontendURL = "http://localhost:5173"
-	}
-
-	return frontendURL
+	return fallback
 }

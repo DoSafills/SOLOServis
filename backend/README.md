@@ -652,13 +652,19 @@ Si se modifica una consulta SQL, se debe volver a ejecutar sqlc.
 ```text
 GetProductByID
 GetProductByPublicID
-GetProductDetailByPublicID
-ListProducts
-ListProductOffers
-ListProductImages
+ListProducts               (catálogo, filtro por categoría o un producto por public_id)
+ListProductOffers          (ofertas de varios productos en una consulta)
+ListProductImages          (imágenes de varios productos en una consulta)
+ListProductCategories
+ListProductReviews
+ListProductSpecifications  (incluye la unidad de cada especificación)
+ListProductPriceHistory
 CreateProduct
+CreateProductImage
 UpdateProduct
+UpdateProductByPublicID
 DeactivateProduct
+DeactivateProductByPublicID
 ```
 
 Esto permite separar:

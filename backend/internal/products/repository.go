@@ -2,12 +2,17 @@ package products
 
 import (
 	"context"
+	"errors"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/database/dbutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 	"github.com/DoSafills/SOLOServis/backend/internal/products/dto"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrNotFound = errors.New("product not found")
 
 type Repository struct {
 	db      *pgxpool.Pool
@@ -30,30 +35,16 @@ func (r *Repository) Create(ctx context.Context, request dto.CreateProductReques
 
 	queries := r.queries.WithTx(tx)
 
-	var brandID pgtype.Int4
-	if request.BrandID != nil {
-		brandID = pgtype.Int4{
-			Int32: *request.BrandID,
-			Valid: true,
-		}
-	}
-
-	product, err := queries.CreateProduct(ctx, generated.CreateProductParams{
-		CategoryID:  request.CategoryID,
-		BrandID:     brandID,
-		Name:        request.Name,
-		Model:       pgtype.Text{String: request.Model, Valid: request.Model != ""},
-		Sku:         pgtype.Text{String: request.SKU, Valid: request.SKU != ""},
-		Description: pgtype.Text{String: request.Description, Valid: request.Description != ""},
-	})
+	product, err := queries.CreateProduct(ctx, request.ToParams())
 	if err != nil {
 		return dto.CreatedProduct{}, err
 	}
 
-	_, err = tx.Exec(ctx, `
-        INSERT INTO product_image (product_id, image_url, alt_text, sort_order)
-        VALUES ($1, $2, $3, 0)
-    `, product.ID, request.ImageURL, request.Name)
+	err = queries.CreateProductImage(ctx, generated.CreateProductImageParams{
+		ProductID: product.ID,
+		ImageUrl:  request.ImageURL,
+		AltText:   dbutil.NullableText(request.Name),
+	})
 	if err != nil {
 		return dto.CreatedProduct{}, err
 	}
@@ -69,50 +60,120 @@ func (r *Repository) Create(ctx context.Context, request dto.CreateProductReques
 	}, nil
 }
 
-func (r *Repository) List(ctx context.Context) ([]generated.ListProductsRow, error) {
-	return r.queries.ListProducts(ctx)
+// List devuelve el catálogo, opcionalmente filtrado por categoría
+// (incluye sus subcategorías).
+func (r *Repository) List(ctx context.Context, categoryID pgtype.Int4) ([]dto.ProductListItem, error) {
+	_, items, err := r.list(ctx, generated.ListProductsParams{CategoryID: categoryID})
+	return items, err
 }
 
-func (r *Repository) ListByCategory(ctx context.Context, categoryID int32) ([]generated.ListProductsByCategoryRow, error) {
-	return r.queries.ListProductsByCategory(ctx, categoryID)
+func (r *Repository) GetDetail(ctx context.Context, publicID pgtype.UUID) (dto.ProductDetail, error) {
+	rows, items, err := r.list(ctx, generated.ListProductsParams{PublicID: publicID})
+	if err != nil {
+		return dto.ProductDetail{}, err
+	}
+
+	if len(rows) == 0 {
+		return dto.ProductDetail{}, ErrNotFound
+	}
+
+	specifications, err := r.queries.ListProductSpecifications(ctx, rows[0].ID)
+	if err != nil {
+		return dto.ProductDetail{}, err
+	}
+
+	priceHistory, err := r.queries.ListProductPriceHistory(ctx, rows[0].ID)
+	if err != nil {
+		return dto.ProductDetail{}, err
+	}
+
+	return dto.NewProductDetail(items[0], specifications, priceHistory), nil
 }
 
-func (r *Repository) ListCategories(ctx context.Context) ([]generated.ListProductCategoriesRow, error) {
-	return r.queries.ListProductCategories(ctx)
+// list carga los productos con sus imágenes y ofertas en tres consultas en
+// total, sin importar cuántos productos haya. También devuelve las filas
+// para que el llamador pueda usar los ids internos.
+func (r *Repository) list(ctx context.Context, params generated.ListProductsParams) ([]generated.ListProductsRow, []dto.ProductListItem, error) {
+	rows, err := r.queries.ListProducts(ctx, params)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ids := make([]int32, len(rows))
+	for i, row := range rows {
+		ids[i] = row.ID
+	}
+
+	images, err := r.queries.ListProductImages(ctx, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	offers, err := r.queries.ListProductOffers(ctx, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	imagesByProduct := dbutil.GroupBy(images, func(image generated.ProductImage) int32 { return image.ProductID })
+	offersByProduct := dbutil.GroupBy(offers, func(offer generated.ListProductOffersRow) int32 { return offer.ProductID })
+
+	items := make([]dto.ProductListItem, len(rows))
+	for i, row := range rows {
+		items[i] = dto.FromListProduct(row, imagesByProduct[row.ID], offersByProduct[row.ID])
+	}
+
+	return rows, items, nil
 }
 
-func (r *Repository) GetByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.Product, error) {
-	return r.queries.GetProductByPublicID(ctx, publicID)
+func (r *Repository) ListCategories(ctx context.Context) ([]dto.ProductCategory, error) {
+	rows, err := r.queries.ListProductCategories(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	categories := make([]dto.ProductCategory, len(rows))
+	for i, row := range rows {
+		categories[i] = dto.FromProductCategory(row)
+	}
+
+	return categories, nil
 }
 
-func (r *Repository) GetDetailByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.GetProductDetailByPublicIDRow, error) {
-	return r.queries.GetProductDetailByPublicID(ctx, publicID)
-}
+func (r *Repository) ListReviews(ctx context.Context, publicID pgtype.UUID) ([]dto.ProductReview, error) {
+	product, err := r.queries.GetProductByPublicID(ctx, publicID)
+	if err != nil {
+		return nil, notFound(err)
+	}
 
-func (r *Repository) ListOffers(ctx context.Context, productID int32) ([]generated.ListProductOffersRow, error) {
-	return r.queries.ListProductOffers(ctx, productID)
-}
+	rows, err := r.queries.ListProductReviews(ctx, product.ID)
+	if err != nil {
+		return nil, err
+	}
 
-func (r *Repository) ListImages(ctx context.Context, productID int32) ([]generated.ProductImage, error) {
-	return r.queries.ListProductImages(ctx, productID)
-}
+	reviews := make([]dto.ProductReview, len(rows))
+	for i, row := range rows {
+		reviews[i] = dto.FromProductReview(row)
+	}
 
-func (r *Repository) ListReviews(ctx context.Context, productID int32) ([]generated.ListProductReviewsRow, error) {
-	return r.queries.ListProductReviews(ctx, productID)
-}
-
-func (r *Repository) ListSpecifications(ctx context.Context, productID int32) ([]generated.ListProductSpecificationsRow, error) {
-	return r.queries.ListProductSpecifications(ctx, productID)
-}
-
-func (r *Repository) ListPriceHistory(ctx context.Context, productID int32) ([]generated.ListProductPriceHistoryRow, error) {
-	return r.queries.ListProductPriceHistory(ctx, productID)
+	return reviews, nil
 }
 
 func (r *Repository) UpdateByPublicID(ctx context.Context, params generated.UpdateProductByPublicIDParams) (generated.Product, error) {
-	return r.queries.UpdateProductByPublicID(ctx, params)
+	product, err := r.queries.UpdateProductByPublicID(ctx, params)
+	return product, notFound(err)
 }
 
 func (r *Repository) DeactivateByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.Product, error) {
-	return r.queries.DeactivateProductByPublicID(ctx, publicID)
+	product, err := r.queries.DeactivateProductByPublicID(ctx, publicID)
+	return product, notFound(err)
+}
+
+// notFound traduce "sin filas" a ErrNotFound para que el handler pueda
+// distinguirlo de un fallo de la base de datos.
+func notFound(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+
+	return err
 }

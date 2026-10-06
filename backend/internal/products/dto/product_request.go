@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"github.com/DoSafills/SOLOServis/backend/internal/database/dbutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -27,11 +28,11 @@ type UpdateProductRequest struct {
 func (r CreateProductRequest) ToParams() generated.CreateProductParams {
 	return generated.CreateProductParams{
 		CategoryID:  r.CategoryID,
-		BrandID:     nullableInt4(r.BrandID),
+		BrandID:     dbutil.NullableInt4(r.BrandID),
 		Name:        r.Name,
-		Model:       nullableText(r.Model),
-		Sku:         nullableText(r.SKU),
-		Description: nullableText(r.Description),
+		Model:       dbutil.NullableText(r.Model),
+		Sku:         dbutil.NullableText(r.SKU),
+		Description: dbutil.NullableText(r.Description),
 	}
 }
 
@@ -39,32 +40,10 @@ func (r UpdateProductRequest) ToParams(publicID pgtype.UUID) generated.UpdatePro
 	return generated.UpdateProductByPublicIDParams{
 		PublicID:    publicID,
 		CategoryID:  r.CategoryID,
-		BrandID:     nullableInt4(r.BrandID),
+		BrandID:     dbutil.NullableInt4(r.BrandID),
 		Name:        r.Name,
-		Model:       nullableText(r.Model),
-		Sku:         nullableText(r.SKU),
-		Description: nullableText(r.Description),
-	}
-}
-
-func nullableInt4(value *int32) pgtype.Int4 {
-	if value == nil {
-		return pgtype.Int4{}
-	}
-
-	return pgtype.Int4{
-		Int32: *value,
-		Valid: true,
-	}
-}
-
-func nullableText(value string) pgtype.Text {
-	if value == "" {
-		return pgtype.Text{}
-	}
-
-	return pgtype.Text{
-		String: value,
-		Valid:  true,
+		Model:       dbutil.NullableText(r.Model),
+		Sku:         dbutil.NullableText(r.SKU),
+		Description: dbutil.NullableText(r.Description),
 	}
 }

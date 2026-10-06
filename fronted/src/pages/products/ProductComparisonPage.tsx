@@ -1,8 +1,12 @@
-import { useEffect, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getProductById } from "../../services/api/api";
-import { formatPrice, getMinPrice } from "../../services/utils/productUtils";
-import { Breadcrumb, Badge } from "../../components/common/ui";
+import { getProductById } from "../../services/api/products";
+import {
+  formatPrice,
+  getAvailableStoreCount,
+  getMinPrice,
+} from "../../services/utils/productUtils";
+import { useFetch } from "../../hooks/useFetch";
+import { Breadcrumb, Badge, PageMessage } from "../../components/common/ui";
 
 interface Props {
   productIds: string[];
@@ -10,82 +14,41 @@ interface Props {
 }
 
 export default function ProductComparisonPage({ productIds, navigate }: Props) {
-  const [selected, setSelected] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: selected = [],
+    loading,
+    error,
+  } = useFetch(`compare:${productIds.join(",")}`, async () => {
+    const results = await Promise.all(productIds.map((id) => getProductById(id)));
+    return results.filter((p): p is Product => p !== null);
+  });
 
-  useEffect(() => {
-    let cancelled = false;
+  const searchAction = {
+    label: "Buscar productos",
+    onClick: () => navigate({ id: "search-products", query: "" }),
+  };
 
-    async function loadProducts() {
-      if (productIds.length === 0) {
-        setSelected([]);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-      try {
-        const results = await Promise.all(productIds.map((id) => getProductById(id)));
-        if (cancelled) return;
-        const valid = results.filter((p: Product | null): p is Product => p !== null);
-        setSelected(valid);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Error al cargar los productos");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadProducts();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [productIds]);
-
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando productosÃ”Ã‡Âª</p>
-      </div>
-    );
-  }
+  if (loading) return <PageMessage>Cargando productos…</PageMessage>;
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-warn mb-4">{error}</p>
-        <button
-          onClick={() => navigate({ id: "search-products", query: "" })}
-          style={{ background: "#E8001B", color: "#0A0A0A" }}
-          className="px-5 py-2 rounded-xl text-sm font-semibold"
-        >
-          Buscar productos
-        </button>
-      </div>
+      <PageMessage tone="warn" action={searchAction}>
+        {error}
+      </PageMessage>
     );
   }
 
   if (selected.length < 2) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted mb-4">Selecciona al menos 2 productos para comparar.</p>
-        <button
-          onClick={() => navigate({ id: "search-products", query: "" })}
-          style={{ background: "#E8001B", color: "#0A0A0A" }}
-          className="px-5 py-2 rounded-xl text-sm font-semibold"
-        >
-          Buscar productos
-        </button>
-      </div>
+      <PageMessage action={searchAction}>
+        Selecciona al menos 2 productos para comparar.
+      </PageMessage>
     );
   }
 
   const minPrices = selected.map((p) => getMinPrice(p));
   const lowestPrice = Math.min(...minPrices);
+  const bestRating = Math.max(...selected.map((p) => p.rating));
 
   // Filas dinámicas: unión de las especificaciones de los productos seleccionados.
   const allSpecKeys = [...new Set(selected.flatMap((p) => Object.keys(p.specs)))];
@@ -96,11 +59,11 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
         items={[
           { label: "Inicio", onClick: () => navigate({ id: "home" }) },
           { label: "Productos", onClick: () => navigate({ id: "search-products", query: "" }) },
-          { label: "Comparaci+Â¦n" },
+          { label: "Comparación" },
         ]}
       />
 
-      <h1 className="text-2xl font-bold text-text mb-2">Comparaci+Â¦n de productos</h1>
+      <h1 className="text-2xl font-bold text-text mb-2">Comparación de productos</h1>
       <p className="text-sm text-muted mb-8">Comparando {selected.length} productos</p>
 
       <div className="overflow-x-auto">
@@ -116,7 +79,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 }}
                 className="text-left text-xs font-semibold text-muted-2 uppercase tracking-widest p-4 w-40"
               >
-                Caracter+Â¡stica
+                Característica
               </th>
               {selected.map((p) => (
                 <th
@@ -158,7 +121,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 style={{ borderBottom: "1px solid #1A1A1A", borderRight: "1px solid #2A2A2A" }}
                 className="p-4 text-xs font-semibold text-muted-2 uppercase tracking-wide"
               >
-                Precio m+Â¡nimo
+                Precio mínimo
               </td>
               {selected.map((p, i) => (
                 <td
@@ -182,27 +145,24 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                 style={{ borderBottom: "1px solid #1A1A1A", borderRight: "1px solid #2A2A2A" }}
                 className="p-4 text-xs font-semibold text-muted-2 uppercase tracking-wide"
               >
-                Valoraci+Â¦n
+                Valoración
               </td>
-              {selected.map((p) => {
-                const best = Math.max(...selected.map((s) => s.rating));
-                return (
-                  <td
-                    key={p.id}
-                    style={{ borderBottom: "1px solid #1A1A1A", borderRight: "1px solid #1A1A1A" }}
-                    className="p-4 text-center"
+              {selected.map((p) => (
+                <td
+                  key={p.id}
+                  style={{ borderBottom: "1px solid #1A1A1A", borderRight: "1px solid #1A1A1A" }}
+                  className="p-4 text-center"
+                >
+                  <span
+                    className={`text-sm font-bold ${p.rating === bestRating ? "text-warn" : "text-text"}`}
                   >
-                    <span
-                      className={`text-sm font-bold ${p.rating === best ? "text-warn" : "text-text"}`}
-                    >
-                      Ã”Ã¿Ã  {p.rating.toFixed(1)}
-                    </span>
-                    <div className="text-xs text-muted">
-                      ({p.reviewCount.toLocaleString("es-CL")})
-                    </div>
-                  </td>
-                );
-              })}
+                    ★ {p.rating.toFixed(1)}
+                  </span>
+                  <div className="text-xs text-muted">
+                    ({p.reviewCount.toLocaleString("es-CL")})
+                  </div>
+                </td>
+              ))}
             </tr>
 
             {/* Spec rows */}
@@ -221,7 +181,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                     className="p-4 text-center"
                   >
                     <span className="text-sm text-text">
-                      {p.specs[key] ?? <span className="text-muted">Ã”Ã‡Ã¶</span>}
+                      {p.specs[key] ?? <span className="text-muted">—</span>}
                     </span>
                   </td>
                 ))}
@@ -243,7 +203,7 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
                   className="p-4 text-center"
                 >
                   <span className="text-sm font-semibold text-prime">
-                    {p.offers.filter((o) => o.available).length} disponibles
+                    {getAvailableStoreCount(p)} disponibles
                   </span>
                 </td>
               ))}
@@ -254,6 +214,3 @@ export default function ProductComparisonPage({ productIds, navigate }: Props) {
     </div>
   );
 }
-
-
-

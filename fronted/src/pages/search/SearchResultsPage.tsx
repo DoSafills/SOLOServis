@@ -1,11 +1,10 @@
-﻿import { useEffect, useState } from "react";
-import type { Page, Product } from "../../types";
-import {
-  getCategories,
-  getProducts,
-  toProduct,
-  type ApiProductCategory,
-} from "../../services/api/products";
+import { useState } from "react";
+import type { Page } from "../../types";
+import { getProducts } from "../../services/api/products";
+import { getMinPrice } from "../../services/utils/productUtils";
+import { toggleInSet } from "../../services/utils/setUtils";
+import { useFetch } from "../../hooks/useFetch";
+import { useCategories } from "../../hooks/useCategories";
 import ProductCard from "../../components/products/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
 
@@ -20,6 +19,14 @@ interface Props {
 }
 
 type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
+
+const PER_PAGE = 6;
+
+/** Lee un filtro de precio ignorando puntos y símbolos; sin dígitos = sin límite. */
+const parsePriceFilter = (value: string): number | null => {
+  const digits = value.replace(/\D/g, "");
+  return digits ? Number(digits) : null;
+};
 
 export default function SearchResultsPage({
   query,
@@ -37,73 +44,67 @@ export default function SearchResultsPage({
   const [availableOnly, setAvailableOnly] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
-  const PER_PAGE = 6;
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
   // null = todas las categorías. El backend incluye las subcategorías del id elegido.
+  // App remonta esta página (key) cuando cambia la búsqueda, así que el valor
+  // inicial basta para seguir el prop categoryId.
   const [selectedCategory, setSelectedCategory] = useState<number | null>(categoryId ?? null);
 
-  useEffect(() => {
-    setSelectedCategory(categoryId ?? null);
-  }, [categoryId]);
+  const { categories, rootCategories, subcategoriesOf } = useCategories();
+  const { data: products = [] } = useFetch(`products:${selectedCategory ?? "all"}`, () =>
+    getProducts(selectedCategory ?? undefined),
+  );
 
-  useEffect(() => {
-    getCategories().then(setCategories).catch(console.error);
-  }, []);
-
-  useEffect(() => {
-    setPage(1);
-    getProducts(selectedCategory ?? undefined)
-      .then((result) => setProducts(result.map(toProduct)))
-      .catch(console.error);
-  }, [selectedCategory]);
-
-  const rootCategories = categories.filter((cat) => cat.parentId === null);
-  const subcategoriesOf = (parentId: number) =>
-    categories.filter((cat) => cat.parentId === parentId);
   const selectedCategoryName = categories.find((cat) => cat.id === selectedCategory)?.name ?? "";
 
   const brands = [...new Set(products.map((p) => p.brand))];
 
-  let filtered = products.filter((p) => {
-    if (
-      query &&
-      !p.name.toLowerCase().includes(query.toLowerCase()) &&
-      !p.brand.toLowerCase().includes(query.toLowerCase()) &&
-      !p.category.toLowerCase().includes(query.toLowerCase())
-    ) {
-      return false;
-    }
+  const normalizedQuery = query.toLowerCase();
+  const minPrice = parsePriceFilter(priceMin);
+  const maxPrice = parsePriceFilter(priceMax);
 
-    if (selectedBrands.size > 0 && !selectedBrands.has(p.brand)) {
-      return false;
-    }
+  const filtered = products
+    .map((product) => ({ product, price: getMinPrice(product) }))
+    .filter(({ product, price }) => {
+      if (
+        normalizedQuery &&
+        ![product.name, product.brand, product.category].some((field) =>
+          field.toLowerCase().includes(normalizedQuery),
+        )
+      ) {
+        return false;
+      }
 
-    return true;
-  });
+      if (selectedBrands.size > 0 && !selectedBrands.has(product.brand)) return false;
 
-  filtered = [...filtered].sort((a, b) => {
-    if (sort === "rating") return b.rating - a.rating;
-    return 0;
-  });
+      // getMinPrice devuelve 0 cuando no hay ofertas disponibles.
+      if (availableOnly && price === 0) return false;
+      if (minPrice !== null && price < minPrice) return false;
+      if (maxPrice !== null && price > maxPrice) return false;
+
+      return true;
+    })
+    .sort((a, b) => {
+      if (sort === "price-asc") return a.price - b.price;
+      if (sort === "price-desc") return b.price - a.price;
+      if (sort === "rating") return b.product.rating - a.product.rating;
+      return 0;
+    })
+    .map(({ product }) => product);
 
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
-  const toggleBrand = (brand: string) => {
-    setSelectedBrands((prev) => {
-      const next = new Set(prev);
+  // Todo cambio de filtro vuelve a la primera página.
+  const withPageReset =
+    <T,>(setter: (value: T) => void) =>
+    (value: T) => {
+      setter(value);
+      setPage(1);
+    };
 
-      if (next.has(brand)) {
-        next.delete(brand);
-      } else {
-        next.add(brand);
-      }
-
-      return next;
-    });
-
-    setPage(1);
-  };
+  const selectCategory = withPageReset(setSelectedCategory);
+  const toggleBrand = withPageReset((brand: string) =>
+    setSelectedBrands((prev) => toggleInSet(prev, brand)),
+  );
 
   const renderFilters = () => (
     <div className="space-y-6">
@@ -114,9 +115,11 @@ export default function SearchResultsPage({
         </h4>
         <div className="space-y-1">
           <button
-            onClick={() => setSelectedCategory(null)}
+            onClick={() => selectCategory(null)}
             className={`block text-left text-sm transition-colors ${
-              selectedCategory === null ? "text-prime font-semibold" : "text-muted-2 hover:text-prime"
+              selectedCategory === null
+                ? "text-prime font-semibold"
+                : "text-muted-2 hover:text-prime"
             }`}
           >
             Todas
@@ -124,7 +127,7 @@ export default function SearchResultsPage({
           {rootCategories.map((cat) => (
             <div key={cat.id} className="space-y-1">
               <button
-                onClick={() => setSelectedCategory(cat.id)}
+                onClick={() => selectCategory(cat.id)}
                 className={`block text-left text-sm transition-colors ${
                   selectedCategory === cat.id
                     ? "text-prime font-semibold"
@@ -136,7 +139,7 @@ export default function SearchResultsPage({
               {subcategoriesOf(cat.id).map((sub) => (
                 <button
                   key={sub.id}
-                  onClick={() => setSelectedCategory(sub.id)}
+                  onClick={() => selectCategory(sub.id)}
                   className={`block text-left text-xs pl-3 transition-colors ${
                     selectedCategory === sub.id
                       ? "text-prime font-semibold"
@@ -159,7 +162,7 @@ export default function SearchResultsPage({
           <input
             type="checkbox"
             checked={availableOnly}
-            onChange={(e) => setAvailableOnly(e.target.checked)}
+            onChange={(e) => withPageReset(setAvailableOnly)(e.target.checked)}
             className="accent-prime"
           />
           <span className="text-sm text-muted-2">Solo disponibles</span>
@@ -174,14 +177,14 @@ export default function SearchResultsPage({
         <div className="flex gap-2">
           <input
             value={priceMin}
-            onChange={(e) => setPriceMin(e.target.value)}
+            onChange={(e) => withPageReset(setPriceMin)(e.target.value)}
             placeholder="Mín"
             style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
             className="w-full px-3 py-2 rounded-xl text-xs text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
           />
           <input
             value={priceMax}
-            onChange={(e) => setPriceMax(e.target.value)}
+            onChange={(e) => withPageReset(setPriceMax)(e.target.value)}
             placeholder="Máx"
             style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
             className="w-full px-3 py-2 rounded-xl text-xs text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
@@ -215,7 +218,7 @@ export default function SearchResultsPage({
             setPriceMin("");
             setPriceMax("");
             setAvailableOnly(false);
-            setSelectedCategory(null);
+            selectCategory(null);
           }}
           className="text-xs text-prime hover:text-prime-dark transition-colors"
         >
@@ -239,9 +242,7 @@ export default function SearchResultsPage({
       <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text">
-            {query
-              ? `Resultados para "${query}"`
-              : selectedCategoryName || "Todos los productos"}
+            {query ? `Resultados para "${query}"` : selectedCategoryName || "Todos los productos"}
           </h1>
           <p className="text-sm text-muted mt-1">{filtered.length} productos encontrados</p>
         </div>
@@ -393,4 +394,3 @@ export default function SearchResultsPage({
     </div>
   );
 }
-

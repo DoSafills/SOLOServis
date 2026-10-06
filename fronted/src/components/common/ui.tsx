@@ -1,4 +1,3 @@
-
 export function Badge({
   variant = "default",
   children,
@@ -119,14 +118,53 @@ export function LoadingState() {
   );
 }
 
+/** Mensaje centrado para estados de carga, error o "no encontrado". */
+export function PageMessage({
+  children,
+  tone = "muted",
+  action,
+}: {
+  children: React.ReactNode;
+  tone?: "muted" | "warn";
+  action?: { label: string; onClick: () => void };
+}) {
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+      <p className={`${tone === "warn" ? "text-warn" : "text-muted"} ${action ? "mb-4" : ""}`}>
+        {children}
+      </p>
+      {action && (
+        <button
+          onClick={action.onClick}
+          style={{ background: "#E8001B", color: "#0A0A0A" }}
+          className="px-5 py-2 rounded-xl text-sm font-semibold"
+        >
+          {action.label}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const searchIcon = (
+  <>
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.35-4.35" />
+    <path d="M11 8v3M11 14h.01" />
+  </>
+);
+
 export function EmptyState({
   title,
   description,
   action,
+  icon = searchIcon,
 }: {
   title: string;
   description: string;
   action?: { label: string; onClick: () => void };
+  /** Contenido SVG (paths) del ícono; por defecto, una lupa. */
+  icon?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
@@ -139,9 +177,7 @@ export function EmptyState({
           stroke="#64748B"
           strokeWidth="1.5"
         >
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.35-4.35" />
-          <path d="M11 8v3M11 14h.01" />
+          {icon}
         </svg>
       </div>
       <h3 className="text-lg font-semibold text-text">{title}</h3>
