@@ -550,6 +550,7 @@ export default function App() {
             compareList={compareList}
             onToggleFavorite={toggleFavorite}
             onToggleCompare={toggleCompare}
+            onAddToCart={addToCart}
           />
         );
       case "store-detail":
@@ -561,6 +562,7 @@ export default function App() {
             compareList={compareList}
             onToggleFavorite={toggleFavorite}
             onToggleCompare={toggleCompare}
+            onAddToCart={addToCart}
           />
         );
       case "favorites":

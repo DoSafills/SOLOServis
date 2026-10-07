@@ -1,7 +1,9 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import type { Page, Store, StoreDetail, StoreProduct } from "../../types";
+﻿import { useEffect, useMemo, useState, useRef } from "react";
+import type { Page, Product, Store, StoreDetail, StoreOffer, StoreProduct } from "../../types";
 import { getStores, getStoreById } from "../../services/api/api";
 import { Badge, Breadcrumb, Rating } from "../../components/common/ui";
+
+let offerIdCounter = 1000;
 
 interface Props {
   navigate: (page: Page) => void;
@@ -9,6 +11,7 @@ interface Props {
   compareList: Set<string>;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string) => void;
+  onAddToCart: (product: Product, offer: StoreOffer) => void;
   storeId?: string;
 }
 
@@ -135,18 +138,71 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
   );
 }
 
-function StoreProductCard({ product }: { product: StoreProduct }) {
+function StoreProductCard({
+  product,
+  onAddToCart,
+}: {
+  product: StoreProduct;
+  onAddToCart: (product: Product, offer: StoreOffer) => void;
+}) {
+  const mappedProduct: Product = {
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    model: product.model,
+    category: product.category,
+    subcategory: "",
+    image: product.image,
+    images: [],
+    description: product.description,
+    rating: 0,
+    reviewCount: 0,
+    specs: {},
+    offers: [],
+    priceHistory: [],
+    offerPriceHistory: [],
+    tags: [],
+  };
+
+  const mappedOffer: StoreOffer = {
+    offerId: offerIdCounter++,
+    storeId: "",
+    storeName: "",
+    price: product.price,
+    listPrice: product.listPrice,
+    available: product.available,
+    shipping: product.shippingCost,
+    shippingFree: product.shippingFree,
+    stock: product.stock,
+    condition: product.condition,
+    url: product.productUrl,
+  };
+
   return (
     <div
       style={{ background: "#111111", border: "1px solid #2A2A2A" }}
       className="rounded-2xl overflow-hidden hover:border-prime transition-colors"
     >
       <div className="h-56 bg-surface flex items-center justify-center p-5">
-        {product.image ? (
-          <img src={product.image} alt={product.name} className="w-full h-full object-contain" />
-        ) : (
-          <div className="text-sm text-muted">Imagen no disponible</div>
-        )}
+        {product.image && product.image.startsWith("http")
+          ? (
+            <img
+              src={product.image}
+              alt={product.name}
+              className="w-full h-full object-contain"
+            />
+          ) : product.image
+          ? (
+            <img
+              src={product.image}
+              alt={product.name}
+              className="w-full h-full object-contain"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-sm text-muted">
+              Sin imagen
+            </div>
+          )}
       </div>
 
       <div className="p-5">
@@ -154,7 +210,7 @@ function StoreProductCard({ product }: { product: StoreProduct }) {
           <div>
             <p className="text-xs text-muted mb-1">{product.brand || "Sin marca"}</p>
 
-            <h3 className="text-sm font-semibold text-text leading-5">{product.name}</h3>
+            <h3 className="text-sm font-semibold text-prime leading-5">{product.name}</h3>
           </div>
 
           <Badge variant={product.available ? "available" : "unavailable"}>
@@ -196,12 +252,21 @@ function StoreProductCard({ product }: { product: StoreProduct }) {
             <span className="text-muted-2 font-medium text-right">{product.model || "—"}</span>
           </div>
         </div>
+
+        <button
+          type="button"
+          disabled={!product.available}
+          onClick={() => onAddToCart(mappedProduct, mappedOffer)}
+          className="mt-4 w-full rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none"
+        >
+          Agregar al carrito
+        </button>
       </div>
     </div>
   );
 }
 
-function StoreDetail({ storeId, navigate }: Required<Props>) {
+function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
   const [store, setStore] = useState<StoreDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -290,18 +355,26 @@ function StoreDetail({ storeId, navigate }: Required<Props>) {
         }}
         className="mb-8 flex flex-col overflow-hidden rounded-2xl md:flex-row"
       >
-        <div className="flex h-48 w-full shrink-0 items-center justify-center overflow-hidden bg-slate-300 p-4 md:h-auto md:min-h-[220px] md:w-64">
-          {store.logo ? (
-            <img
-              src={store.logo}
-              alt={`Imagen de ${store.name}`}
-              className="h-full w-full object-contain"
-            />
-          ) : (
-            <span className="text-5xl font-bold text-slate-700">
-              {store.name.slice(0, 2).toUpperCase()}
-            </span>
-          )}
+        <div className="flex h-48 w-full shrink-0 items-center justify-center overflow-hidden p-6 md:h-auto md:min-h-[220px] md:w-72">
+          {store.logo && store.logo.startsWith("http")
+            ? (
+              <img
+                src={store.logo}
+                alt={`Imagen de ${store.name}`}
+                className="max-h-full max-w-full object-contain"
+              />
+            ) : store.logo
+            ? (
+              <img
+                src={store.logo}
+                alt={`Imagen de ${store.name}`}
+                className="max-h-full max-w-full object-contain"
+              />
+            ) : (
+              <span className="text-5xl font-bold text-prime">
+                {store.name.slice(0, 2).toUpperCase()}
+              </span>
+            )}
         </div>
 
         <div className="flex min-w-0 flex-1 items-start gap-4 p-6 flex-wrap">
@@ -379,7 +452,11 @@ function StoreDetail({ storeId, navigate }: Required<Props>) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
           {filteredProducts.map((product) => (
-            <StoreProductCard key={product.id} product={product} />
+            <StoreProductCard
+              key={product.id}
+              product={product}
+              onAddToCart={onAddToCart}
+            />
           ))}
         </div>
       )}
@@ -393,7 +470,7 @@ function StoreDetail({ storeId, navigate }: Required<Props>) {
             style={{ background: "#111111", border: "1px solid #2A2A2A" }}
             className="rounded-2xl p-5"
           >
-            <div className="text-sm font-semibold text-text">
+            <div className="text-sm font-semibold text-prime">
               {location.address || "Direccion no disponible"}
             </div>
 
