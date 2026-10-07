@@ -556,9 +556,28 @@ export default function App() {
       case "service-comparison":
         return <ServiceComparisonPage serviceIds={page.serviceIds} navigate={navigate} />;
       case "stores":
-        return <StoresPage navigate={navigate} />;
+        return (
+          <StoresPage
+            navigate={navigate}
+            favorites={favorites}
+            compareList={compareList}
+            onToggleFavorite={toggleFavorite}
+            onToggleCompare={toggleCompare}
+            onAddToCart={addToCart}
+          />
+        );
       case "store-detail":
-        return <StoresPage navigate={navigate} storeId={page.storeId} />;
+        return (
+          <StoresPage
+            navigate={navigate}
+            storeId={page.storeId}
+            favorites={favorites}
+            compareList={compareList}
+            onToggleFavorite={toggleFavorite}
+            onToggleCompare={toggleCompare}
+            onAddToCart={addToCart}
+          />
+        );
       case "favorites":
         return (
           <FavoritesPage
