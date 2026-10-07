@@ -1,5 +1,5 @@
-import type { CartItem, Product } from "../../types";
-import { getProductById } from "../../services/api/api";
+import type { AnyCartItem, Product, Service } from "../../types";
+import { getProductById, getServiceById } from "../../services/api/api";
 
 const FAVORITES_API_URL = import.meta.env.VITE_FAVORITES_API_URL ?? "http://localhost:8089";
 const CART_API_URL = import.meta.env.VITE_CART_API_URL ?? "http://localhost:8090";
@@ -41,8 +41,16 @@ class ApiError extends Error {
 
 interface ApiCartItem {
   id: number;
-  productId: string;
-  offerId: number;
+  itemType: "product" | "service";
+  productId: string | null;
+  offerId: number | null;
+  serviceId: string | null;
+  serviceOfferId: number | null;
+  serviceProvider: string | null;
+  serviceMonthlyPrice: number | null;
+  serviceBillingPeriod: string | null;
+  serviceInstallationCost: number | null;
+  serviceContractPeriod: string | null;
   quantity: number;
 }
 
@@ -291,24 +299,64 @@ export async function setFavoriteService(
   });
 }
 
-export async function getCartItems(userId: number): Promise<CartItem[]> {
+export async function getCartItems(userId: number): Promise<AnyCartItem[]> {
   const items = await request<ApiCartItem[]>(CART_API_URL, `/cart?userId=${userId}`);
   const productsById = new Map<string, Product>();
+  const servicesById = new Map<string, Service>();
   await Promise.all(
-    [...new Set(items.map((item) => item.productId))].map(async (productId) => {
-      const product = await getProductById(productId);
-      if (!product) throw new Error(`No se encontró el producto ${productId} de la cesta.`);
-      productsById.set(productId, product);
-    }),
+    [...new Set(items.flatMap((item) => (item.productId ? [item.productId] : [])))].map(
+      async (productId) => {
+        const product = await getProductById(productId);
+        if (!product) throw new Error(`No se encontró el producto ${productId} de la cesta.`);
+        productsById.set(productId, product);
+      },
+    ),
+  );
+  await Promise.all(
+    [...new Set(items.flatMap((item) => (item.serviceId ? [item.serviceId] : [])))].map(
+      async (serviceId) => {
+        const service = await getServiceById(serviceId);
+        if (!service) throw new Error(`No se encontró el servicio ${serviceId} de la cesta.`);
+        servicesById.set(serviceId, service);
+      },
+    ),
   );
 
   return items.map((item) => {
+    if (item.itemType === "service") {
+      const service = item.serviceId ? servicesById.get(item.serviceId) : undefined;
+      if (!service || !item.serviceOfferId || item.serviceMonthlyPrice === null) {
+        throw new Error(
+          `No se encontró la oferta de servicio ${item.serviceOfferId ?? ""} de la cesta.`,
+        );
+      }
+      const contractMonths = item.serviceContractPeriod?.match(/^\s*(\d+)/)?.[1];
+      return {
+        type: "service",
+        service: {
+          ...service,
+          provider: item.serviceProvider ?? service.provider,
+          monthlyPrice: item.serviceMonthlyPrice,
+          billingPeriod: item.serviceBillingPeriod ?? service.billingPeriod ?? "monthly",
+          installationCost: item.serviceInstallationCost,
+          contractMonths: contractMonths ? Number(contractMonths) : null,
+          offerId: item.serviceOfferId,
+        },
+        serviceOfferId: item.serviceOfferId,
+        quantity: item.quantity,
+        cartItemId: item.id,
+      };
+    }
+
+    if (!item.productId || !item.offerId) {
+      throw new Error(`No se encontró la oferta ${item.offerId} de la cesta.`);
+    }
     const product = productsById.get(item.productId);
     const offer = product?.offers.find((candidate) => candidate.offerId === item.offerId);
     if (!product || !offer) {
       throw new Error(`No se encontró la oferta ${item.offerId} de la cesta.`);
     }
-    return { product, offer, quantity: item.quantity, cartItemId: item.id };
+    return { type: "product", product, offer, quantity: item.quantity, cartItemId: item.id };
   });
 }
 
@@ -316,6 +364,17 @@ export async function addCartItem(userId: number, productId: string, offerId: nu
   await request(CART_API_URL, "/cart/items", {
     method: "POST",
     body: JSON.stringify({ userId, productId, offerId, quantity: 1 }),
+  });
+}
+
+export async function addServiceCartItem(
+  userId: number,
+  serviceId: string,
+  serviceOfferId: number,
+): Promise<void> {
+  await request(CART_API_URL, "/cart/items", {
+    method: "POST",
+    body: JSON.stringify({ userId, serviceId, serviceOfferId, quantity: 1 }),
   });
 }
 

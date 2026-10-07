@@ -28,8 +28,11 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
     },
     {
       label: "Servicios",
-      active: currentPage.id === "search-services" || currentPage.id === "service-detail",
-      action: () => navigate({ id: "search-services", query: "" }),
+      active:
+        currentPage.id === "service-categories" ||
+        currentPage.id === "search-services" ||
+        currentPage.id === "service-detail",
+      action: () => navigate({ id: "service-categories" }),
     },
     {
       label: "Tiendas",

@@ -2,12 +2,14 @@ package dto
 
 type ServiceDetail struct {
 	ID               string            `json:"id"`
+	OfferID          int32             `json:"offerId"`
 	Name             string            `json:"name"`
 	Provider         string            `json:"provider"`
 	Category         string            `json:"category"`
 	Subcategory      string            `json:"subcategory"`
 	Description      string            `json:"description"`
 	MonthlyPrice     float64           `json:"monthlyPrice"`
+	BillingPeriod    string            `json:"billingPeriod"`
 	InstallationCost *float64          `json:"installationCost"`
 	ContractMonths   *int              `json:"contractMonths"`
 	Rating           float64           `json:"rating"`

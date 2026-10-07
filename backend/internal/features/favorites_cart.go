@@ -80,10 +80,12 @@ func (h *Handler) DeleteFavorite(w http.ResponseWriter, r *http.Request) {
 }
 
 type cartInput struct {
-	UserID    int32  `json:"userId"`
-	ProductID string `json:"productId"`
-	OfferID   int32  `json:"offerId"`
-	Quantity  int32  `json:"quantity"`
+	UserID         int32  `json:"userId"`
+	ProductID      string `json:"productId"`
+	OfferID        int32  `json:"offerId"`
+	ServiceID      string `json:"serviceId"`
+	ServiceOfferID int32  `json:"serviceOfferId"`
+	Quantity       int32  `json:"quantity"`
 }
 
 func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
@@ -92,24 +94,47 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "userId is required")
 		return
 	}
-	h.rows(w, r, `SELECT jsonb_build_object('id',ci.id,'userId',ci.user_id,'productId',p.public_id,
-		'productName',p.name,'offerId',o.id,'storeId',o.store_id,'storeName',s.name,
-		'quantity',ci.quantity,'savedPrice',ci.saved_price,'savedShippingCost',ci.saved_shipping_cost,
-		'currentPrice',o.price,'productUrl',o.product_url,'updatedAt',ci.updated_at)
-		FROM cart_item ci JOIN product p ON p.id=ci.product_id JOIN product_offer o ON o.id=ci.offer_id
-		JOIN store s ON s.id=o.store_id WHERE ci.user_id=$1 ORDER BY ci.created_at DESC`, userID)
+	h.rows(w, r, `SELECT jsonb_build_object('id',ci.id,'userId',ci.user_id,
+		'itemType',CASE WHEN ci.service_offer_id IS NULL THEN 'product' ELSE 'service' END,
+		'productId',p.public_id,'productName',p.name,'offerId',o.id,'storeId',o.store_id,
+		'storeName',s.name,'productUrl',o.product_url,'serviceId',sv.public_id,
+		'serviceName',sv.name,'serviceOfferId',so.id,'serviceProvider',sp.name,
+		'serviceMonthlyPrice',so.price,'serviceInstallationCost',so.installation_cost,
+		'serviceBillingPeriod',so.billing_period,'serviceContractPeriod',so.contract_period,'quantity',ci.quantity,
+		'savedPrice',ci.saved_price,'savedShippingCost',ci.saved_shipping_cost,
+		'currentPrice',COALESCE(o.price,so.price),'updatedAt',ci.updated_at)
+		FROM cart_item ci
+		LEFT JOIN product p ON p.id=ci.product_id
+		LEFT JOIN product_offer o ON o.id=ci.offer_id
+		LEFT JOIN store s ON s.id=o.store_id
+		LEFT JOIN service_offer so ON so.id=ci.service_offer_id
+		LEFT JOIN service sv ON sv.id=so.service_id
+		LEFT JOIN provider sp ON sp.id=so.provider_id
+		WHERE ci.user_id=$1 ORDER BY ci.created_at DESC`, userID)
 }
 
 func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	var input cartInput
-	if !decode(r, &input) || input.OfferID <= 0 || input.Quantity <= 0 {
-		badRequest(w, "userId, offerId and a positive quantity are required")
+	if !decode(r, &input) || input.Quantity <= 0 {
+		badRequest(w, "userId, a cart item and a positive quantity are required")
+		return
+	}
+	productItem := input.ProductID != "" && input.OfferID > 0 &&
+		input.ServiceID == "" && input.ServiceOfferID == 0
+	serviceItem := input.ServiceID != "" && input.ServiceOfferID > 0 &&
+		input.ProductID == "" && input.OfferID == 0
+	if !productItem && !serviceItem {
+		badRequest(w, "provide either productId and offerId or serviceId and serviceOfferId")
 		return
 	}
 	input.UserID = normalizeUserID(r, input.UserID)
 	userID, err := h.service.UserID(r.Context(), input.UserID)
 	if err != nil {
 		apiutil.WriteError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if serviceItem {
+		h.addServiceCartItem(w, r, input, userID)
 		return
 	}
 	tx, err := h.db.Begin(r.Context())
@@ -160,6 +185,45 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{"userId": userID, "productId": productPublicID, "offerId": input.OfferID, "quantity": input.Quantity, "savedPrice": price, "savedShippingCost": shipping})
+}
+
+func (h *Handler) addServiceCartItem(w http.ResponseWriter, r *http.Request, input cartInput, userID int32) {
+	serviceID, err := h.service.ServiceID(r.Context(), input.ServiceID)
+	if err != nil {
+		apiutil.WriteError(w, http.StatusNotFound, "service not found")
+		return
+	}
+
+	var publicID string
+	var price float64
+	var offerServiceID int32
+	err = h.db.QueryRow(r.Context(), `SELECT s.public_id::text,so.service_id,so.price
+		FROM service_offer so JOIN service s ON s.id=so.service_id
+		JOIN provider p ON p.id=so.provider_id
+		WHERE so.id=$1 AND so.available AND p.active`, input.ServiceOfferID).
+		Scan(&publicID, &offerServiceID, &price)
+	if err != nil {
+		apiutil.WriteError(w, http.StatusNotFound, "available service offer not found")
+		return
+	}
+	if offerServiceID != serviceID {
+		badRequest(w, "offer does not belong to serviceId")
+		return
+	}
+
+	_, err = h.db.Exec(r.Context(), `INSERT INTO cart_item
+		(user_id,product_id,offer_id,service_offer_id,quantity,saved_price,saved_shipping_cost)
+		VALUES ($1,NULL,NULL,$2,$3,$4,0)
+		ON CONFLICT (user_id,service_offer_id) WHERE service_offer_id IS NOT NULL DO NOTHING`,
+		userID, input.ServiceOfferID, input.Quantity, price)
+	if err != nil {
+		apiutil.WriteError(w, http.StatusInternalServerError, "could not add service to cart")
+		return
+	}
+	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{
+		"userId": userID, "serviceId": publicID, "serviceOfferId": input.ServiceOfferID,
+		"quantity": input.Quantity, "savedPrice": price,
+	})
 }
 
 func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
