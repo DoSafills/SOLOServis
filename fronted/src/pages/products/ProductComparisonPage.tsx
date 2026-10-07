@@ -9,6 +9,7 @@ interface Props {
   productIds: string[];
   navigate: (page: Page) => void;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
+  onRemoveProduct: (productId: string, category: string) => void;
 }
 
 interface ComparedOffer {
@@ -196,8 +197,14 @@ const getCellTone = (state: SpecCellState) => {
   }
 };
 
-export default function ProductComparisonPage({ productIds, navigate, onAddToCart }: Props) {
+export default function ProductComparisonPage({
+  productIds,
+  navigate,
+  onAddToCart,
+  onRemoveProduct,
+}: Props) {
   const [selected, setSelected] = useState<Product[]>([]);
+  const [comparisonCategory, setComparisonCategory] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -218,6 +225,7 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
         if (cancelled) return;
         const valid = results.filter((p: Product | null): p is Product => p !== null);
         setSelected(valid);
+        setComparisonCategory(valid[0]?.category);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Error al cargar los productos");
@@ -261,7 +269,13 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
       <div className="mx-auto max-w-7xl px-4 py-20 text-center">
         <p className="mb-4 text-slate-300">Selecciona al menos 2 productos para comparar.</p>
         <button
-          onClick={() => navigate({ id: "search-products", query: "" })}
+          onClick={() =>
+            navigate({
+              id: "search-products",
+              query: "",
+              ...(comparisonCategory ? { category: comparisonCategory } : {}),
+            })
+          }
           style={{ background: "linear-gradient(135deg, #ff9878 0%, #fb7185 100%)", color: "#fff" }}
           className="rounded-xl px-5 py-2 text-sm font-semibold shadow-md shadow-rose-500/15 transition hover:brightness-105"
         >
@@ -381,6 +395,19 @@ export default function ProductComparisonPage({ productIds, navigate, onAddToCar
                         className="rounded-lg px-3 py-1.5 text-[11px] font-semibold shadow-md shadow-rose-500/15 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Agregar al carrito
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelected((products) =>
+                            products.filter((selectedProduct) => selectedProduct.id !== product.id),
+                          );
+                          onRemoveProduct(product.id, product.category);
+                        }}
+                        className="rounded-lg border border-rose-300/40 bg-rose-950/40 px-3 py-1.5 text-[11px] font-semibold text-rose-200 transition hover:border-rose-200 hover:bg-rose-900/60 hover:text-white"
+                      >
+                        Quitar producto
                       </button>
                     </div>
                   </th>

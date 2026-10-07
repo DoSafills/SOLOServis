@@ -185,7 +185,8 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                       <div className="flex items-center gap-2 rounded-xl border border-violet-300/25 bg-violet-950/70 px-2 py-1.5">
                         <button
                           onClick={() => onUpdateQuantity(cartItemId, quantity - 1)}
-                          className="h-8 w-8 rounded-lg text-xl font-bold text-violet-200 hover:bg-violet-800"
+                          disabled={quantity <= 1}
+                          className="h-8 w-8 rounded-lg text-xl font-bold text-violet-200 hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-40"
                           aria-label={`Disminuir cantidad de ${product.name}`}
                         >
                           −

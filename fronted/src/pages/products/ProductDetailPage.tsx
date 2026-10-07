@@ -197,7 +197,7 @@ export default function ProductDetailPage({
               <FavoriteButton active={isFavorite} onClick={() => onToggleFavorite(product.id)} />
             </div>
 
-            <h1 className="text-2xl md:text-3xl font-black text-slate-900 leading-tight tracking-[-0.04em]">
+            <h1 className="text-2xl md:text-3xl font-black text-white leading-tight tracking-[-0.04em]">
               {product.name}
             </h1>
 
@@ -262,7 +262,7 @@ export default function ProductDetailPage({
         </div>
       </div>
 
-      <PriceOfferComparison product={product} onAddToCart={onAddToCart} />
+      <PriceOfferComparison product={product} onAddToCart={onAddToCart} navigate={navigate} />
 
       <PriceHistory
         history={product.priceHistory}

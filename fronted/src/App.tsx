@@ -7,6 +7,7 @@ import ProductCategoriesPage from "./pages/products/ProductCategoriesPage";
 import SearchResultsPage from "./pages/search/SearchResultsPage";
 import ProductDetailPage from "./pages/products/ProductDetailPage";
 import ProductComparisonPage from "./pages/products/ProductComparisonPage";
+import PriceOfferComparison from "./pages/products/PriceOfferComparison";
 import ServicesPage from "./pages/services/ServicesPage";
 import ServiceDetailPage from "./pages/services/ServiceDetailPage";
 import ServiceComparisonPage from "./pages/services/ServiceComparisonPage";
@@ -117,6 +118,7 @@ export default function App() {
     let cancelled = false;
     localStorage.removeItem("soloservice.guest-key");
     localStorage.removeItem("soloservice.service-favorites");
+    localStorage.removeItem("soloservice.store-comparison");
 
     void restoreAuthSession()
       .then((session) => {
@@ -350,22 +352,20 @@ export default function App() {
   };
 
   const updateCartQuantity = async (cartItemId: number, quantity: number) => {
+    if (quantity < 1) return;
+
     if (!userId) {
       setCart((previous) => {
-        const updated =
-          quantity <= 0
-            ? previous.filter((item) => item.cartItemId !== cartItemId)
-            : previous.map((item) =>
-                item.cartItemId === cartItemId ? { ...item, quantity } : item,
-              );
+        const updated = previous.map((item) =>
+          item.cartItemId === cartItemId ? { ...item, quantity } : item,
+        );
         storeGuestCart(updated);
         return updated;
       });
       return;
     }
     try {
-      if (quantity <= 0) await removeCartItem(userId, cartItemId);
-      else await updateCartItem(userId, cartItemId, quantity);
+      await updateCartItem(userId, cartItemId, quantity);
       setCart(await getCartItems(userId));
       setPersistenceError(null);
     } catch (error) {
@@ -525,6 +525,19 @@ export default function App() {
             productIds={page.productIds}
             navigate={navigate}
             onAddToCart={addToCart}
+            onRemoveProduct={(productId, category) =>
+              toggleProductCompare(productId, category)
+            }
+          />
+        );
+      case "offer-comparison":
+        return (
+          <PriceOfferComparison
+            product={page.product}
+            onAddToCart={addToCart}
+            navigate={navigate}
+            comparisonOnly
+            initialSelectedStoreIds={page.storeIds}
           />
         );
       case "search-services":
