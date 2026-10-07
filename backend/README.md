@@ -1114,10 +1114,14 @@ El backend ejecuta APIs independientes en el mismo módulo Go y comparte Postgre
 
 La navegación, el carrito local y las comparaciones no requieren iniciar sesión. La autenticación se realiza mediante Auth API (registro, inicio, renovación y cierre de sesión); favoritos, historial de búsqueda, búsquedas guardadas y carrito sincronizado requieren una sesión válida. El frontend conserva la sesión en `localStorage` y renueva el token de acceso al vencerlo. Favorites, Cart y Search APIs validan el token y usan el usuario de la sesión, sin aceptar que el cliente elija otro `userId`.
 
-Las nuevas tablas se definen en `database/migrations/004_platform_apis.sql`. Docker ejecuta las migraciones automáticamente al inicializar un volumen PostgreSQL nuevo. Para un volumen ya creado, aplicar la migración una vez desde el root del proyecto:
+Las nuevas tablas se definen en `database/migrations/004_platform_apis.sql`. Docker ejecuta las migraciones automáticamente al inicializar un volumen PostgreSQL nuevo. La compatibilidad del carrito con ofertas de servicios se agrega en `database/migrations/008_service_cart.sql`. La migración `009_normalize_prices_to_clp.sql` etiqueta los precios existentes como CLP sin cambiar sus importes (conversión temporal 1:1) y deja triggers para normalizar la moneda de nuevas ofertas. Los valores que originalmente estaban en USD/EUR son referenciales y no representan una conversión real a pesos chilenos. `010_seed_all_services.sql` concentra en un único archivo las cargas de fibra, seguridad, educación y servicios técnicos; limita a tres los servicios activos por microcategoría y clasifica los 16 servicios técnicos en microcategorías específicas.
+
+Para un volumen existente que ya tiene aplicadas las migraciones anteriores, aplica las migraciones pendientes una vez desde el root del proyecto:
 
 ```powershell
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/004_platform_apis.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/008_service_cart.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/009_normalize_prices_to_clp.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/010_seed_all_services.sql
 ```
 
 Las integraciones entre servicios usan las URLs internas definidas en `docker/compose.yml`: Search, Comparison, Favorites y Cart consultan Product API; Comparison y Cart consultan Pricing API; Review valida producto/tienda/servicio; Watchlist consulta Pricing; Pricing genera notificaciones mediante Notification API; e Ingestion delega en Product, Store y Pricing APIs. User API solo expone el perfil asociado al token de sesión autenticado.

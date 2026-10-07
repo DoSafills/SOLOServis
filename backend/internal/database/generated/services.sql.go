@@ -94,6 +94,7 @@ FROM service_offer so
 JOIN provider p
     ON p.id = so.provider_id
 WHERE so.service_id = $1
+  AND so.available = true
   AND p.active = true
 ORDER BY so.price ASC, so.id ASC
 `

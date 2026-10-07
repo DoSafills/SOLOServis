@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import { formatPrice } from "../../services/utils/productUtils";
 import { Breadcrumb } from "../../components/common/ui";
 
 interface Props {
   product: Product;
-  onAddToCart: (product: Product, offer: StoreOffer) => void;
+  cartProductIds: ReadonlySet<string>;
+  onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
   navigate: (page: Page) => void;
   comparisonOnly?: boolean;
   initialSelectedStoreIds?: string[];
@@ -343,15 +344,33 @@ function SelectedOffersTable({
     </div>
   );
 }
-
 export default function PriceOfferComparison({
   product,
+  cartProductIds,
   onAddToCart,
   navigate,
   comparisonOnly = false,
   initialSelectedStoreIds = [],
 }: Props) {
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>(initialSelectedStoreIds);
+  const [addingProductIds, setAddingProductIds] = useState<Set<string>>(() => new Set());
+  const addingProductIdsRef = useRef(new Set<string>());
+
+  const addOfferToCart = async (offer: StoreOffer) => {
+    if (cartProductIds.has(product.id) || addingProductIdsRef.current.has(product.id)) return;
+    addingProductIdsRef.current.add(product.id);
+    setAddingProductIds((previous) => new Set(previous).add(product.id));
+    try {
+      await onAddToCart(product, offer);
+    } finally {
+      addingProductIdsRef.current.delete(product.id);
+      setAddingProductIds((previous) => {
+        const next = new Set(previous);
+        next.delete(product.id);
+        return next;
+      });
+    }
+  };
   const offers = product.offers;
   const selectedOffers = offers.filter((offer) => selectedStoreIds.includes(offer.storeId));
   const hasUnknownShipping = offers.some((offer) => offer.available && getTotal(offer) === null);
@@ -587,11 +606,25 @@ export default function PriceOfferComparison({
                     )}
                     <button
                       type="button"
-                      disabled={!offer.available}
-                      onClick={() => onAddToCart(product, offer)}
-                      className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-100 hover:border-violet-400 hover:text-violet-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={!offer.available && !cartProductIds.has(product.id)}
+                      onClick={() => void addOfferToCart(offer)}
+                      aria-live="polite"
+                      aria-disabled={
+                        cartProductIds.has(product.id) || addingProductIds.has(product.id)
+                      }
+                      className={`rounded-md px-3 py-2 text-sm font-semibold shadow-md transition ${
+                        cartProductIds.has(product.id)
+                          ? "bg-emerald-700 text-emerald-100 shadow-emerald-950/30"
+                          : addingProductIds.has(product.id)
+                            ? "bg-emerald-800 text-emerald-100 shadow-emerald-950/30"
+                            : "border border-slate-600 bg-slate-800 text-slate-100 hover:border-violet-400 hover:text-violet-200"
+                      } disabled:cursor-not-allowed disabled:opacity-40`}
                     >
-                      Agregar al carrito
+                      {cartProductIds.has(product.id)
+                        ? "Agregado en la cesta"
+                        : addingProductIds.has(product.id)
+                          ? "Agregando a la cesta..."
+                          : "Agregar al carrito"}
                     </button>
                   </div>
                 </article>
