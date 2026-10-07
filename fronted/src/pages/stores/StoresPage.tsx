@@ -55,11 +55,26 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
         items={[{ label: "Inicio", onClick: () => navigate({ id: "home" }) }, { label: "Tiendas" }]}
       />
 
-      <h1 className="text-2xl font-bold text-text mb-2">Tiendas y proveedores</h1>
+      <header className="mb-8">
+        <h1 className="text-2xl font-bold text-text mb-2">Tiendas y proveedores</h1>
 
-      <p className="text-sm text-muted mb-8">
-        Directorio de tiendas comparadas en nuestra plataforma
-      </p>
+        <p className="text-sm text-muted mb-2">
+          Directorio de tiendas comparadas en nuestra plataforma
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="search"
+            placeholder="Buscar tienda o proveedor..."
+            className="w-full sm:w-32 rounded-xl border border-slate-300/50 bg-slate-950/60 px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-prime focus:bg-slate-950/80 transition-colors"
+          />
+          <button
+            className="rounded-xl bg-prime px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-opacity"
+          >
+            Agregar tienda
+          </button>
+        </div>
+      </header>
 
       {loading ? (
         <div className="text-center py-20">
