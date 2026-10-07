@@ -1,11 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import type { Page, Product, Service } from "../../types";
 import { getProducts, getServices } from "../../services/api/api";
-import {
-  formatPrice,
-  getBillingPeriodText,
-  getMinPrice,
-} from "../../services/utils/productUtils";
+import { formatPrice, getBillingPeriodText, getMinPrice } from "../../services/utils/productUtils";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 
 interface Props {

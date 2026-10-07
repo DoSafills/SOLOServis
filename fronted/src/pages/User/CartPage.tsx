@@ -47,10 +47,7 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
       }, new Map<string, { name: string; billingPeriod: string; items: ServiceCartItem[] }>()),
   ).map(([, provider]) => ({
     ...provider,
-    total: provider.items.reduce(
-      (sum, item) => sum + item.service.monthlyPrice * item.quantity,
-      0,
-    ),
+    total: provider.items.reduce((sum, item) => sum + item.service.monthlyPrice * item.quantity, 0),
   }));
 
   const getDiscountPercent = (

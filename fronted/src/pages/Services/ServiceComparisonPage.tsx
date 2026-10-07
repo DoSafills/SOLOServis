@@ -148,8 +148,7 @@ export default function ServiceComparisonPage({
     {
       key: "totalPrice",
       label: "Instalación + precio del período",
-      getValue: (s) =>
-        `${formatPrice(getTotalPrice(s))} ${getBillingPeriodText(s.billingPeriod)}`,
+      getValue: (s) => `${formatPrice(getTotalPrice(s))} ${getBillingPeriodText(s.billingPeriod)}`,
     },
     {
       key: "installation",
