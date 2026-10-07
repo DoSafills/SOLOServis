@@ -417,7 +417,10 @@ export default function ProductComparisonPage({
 
             <tbody>
               <tr>
-                <th scope="row" className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200">
+                <th
+                  scope="row"
+                  className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                >
                   Precio del producto
                 </th>
                 {productOffers.map((result, index) => (
@@ -447,7 +450,10 @@ export default function ProductComparisonPage({
               </tr>
 
               <tr>
-                <th scope="row" className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200">
+                <th
+                  scope="row"
+                  className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                >
                   Valoración
                 </th>
                 {selected.map((product) => {
@@ -504,7 +510,8 @@ export default function ProductComparisonPage({
                         {selected.map((product, productIndex) => {
                           const rawValue = product.specs[name]?.trim();
                           const state = states[productIndex] ?? "default";
-                          const displayValue = rawValue && rawValue.length > 0 ? rawValue : "No informado";
+                          const displayValue =
+                            rawValue && rawValue.length > 0 ? rawValue : "No informado";
 
                           return (
                             <td
@@ -514,7 +521,9 @@ export default function ProductComparisonPage({
                               <div
                                 className={`flex min-h-16 flex-col items-center justify-center rounded-xl border px-3 py-2.5 transition duration-200 hover:-translate-y-0.5 ${getCellTone(state)}`}
                               >
-                                <span className="block text-sm font-bold leading-snug">{displayValue}</span>
+                                <span className="block text-sm font-bold leading-snug">
+                                  {displayValue}
+                                </span>
                                 {state === "best" && (
                                   <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-cyan-100/70 bg-cyan-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-slate-950 shadow-[0_0_14px_rgba(103,232,249,0.45)]">
                                     ✦ Mejor
@@ -529,7 +538,6 @@ export default function ProductComparisonPage({
                   })}
                 </Fragment>
               ))}
-
             </tbody>
           </table>
         </div>

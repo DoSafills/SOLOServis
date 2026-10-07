@@ -525,9 +525,7 @@ export default function App() {
             productIds={page.productIds}
             navigate={navigate}
             onAddToCart={addToCart}
-            onRemoveProduct={(productId, category) =>
-              toggleProductCompare(productId, category)
-            }
+            onRemoveProduct={(productId, category) => toggleProductCompare(productId, category)}
           />
         );
       case "offer-comparison":
