@@ -1,10 +1,14 @@
 import { useState } from "react";
-import type { Product, StoreOffer } from "../../types";
+import type { Page, Product, StoreOffer } from "../../types";
 import { formatPrice } from "../../services/utils/productUtils";
+import { Breadcrumb } from "../../components/common/ui";
 
 interface Props {
   product: Product;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
+  navigate: (page: Page) => void;
+  comparisonOnly?: boolean;
+  initialSelectedStoreIds?: string[];
 }
 
 const getTotal = (offer: StoreOffer): number | null => {
@@ -64,20 +68,290 @@ const relativeUpdate = (value: string | undefined): string => {
   return `Actualizado ${new Intl.RelativeTimeFormat("es", { numeric: "auto" }).format(-count, unit)}`;
 };
 
-const warrantyDurationMonths = (value: string | undefined): number | null => {
-  if (!value) return null;
+interface SelectedOffersTableProps {
+  product: Product;
+  offers: StoreOffer[];
+  bestOffers: StoreOffer[];
+  onAddToCart: (product: Product, offer: StoreOffer) => void;
+  onRemoveOffer: (storeId: string) => void;
+}
 
-  const normalized = value.toLowerCase();
-  const months = normalized.match(/(\d+)\s*mes(?:es)?/);
-  if (months) return Number(months[1]);
+function SelectedOffersTable({
+  product,
+  offers,
+  bestOffers,
+  onAddToCart,
+  onRemoveOffer,
+}: SelectedOffersTableProps) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[760px] border-separate border-spacing-1.5 text-left">
+        <thead>
+          <tr>
+            <th className="w-44 rounded-xl border border-slate-700 bg-slate-800/90 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
+              Tienda
+            </th>
+            {offers.map((offer) => {
+              const isBest = bestOffers.some((best) => best.storeId === offer.storeId);
+              return (
+                <th
+                  key={offer.storeId}
+                  className="min-w-40 rounded-xl border border-slate-700 bg-gradient-to-br from-slate-800/95 to-slate-900/95 px-4 py-5 text-center"
+                >
+                  <span className="block text-sm font-bold text-slate-100">{offer.storeName}</span>
+                  {isBest && (
+                    <span className="mt-2 inline-flex rounded-full border border-cyan-200/50 bg-cyan-200 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-950">
+                      Menor total
+                    </span>
+                  )}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+            >
+              Precio
+            </th>
+            {offers.map((offer) => {
+              const discounted =
+                offer.listPrice !== null &&
+                offer.listPrice !== undefined &&
+                offer.listPrice > offer.price;
+              const isBest = bestOffers.some((best) => best.storeId === offer.storeId);
+              return (
+                <td
+                  key={offer.storeId}
+                  className={`rounded-xl border p-3 text-center ${
+                    isBest
+                      ? "border-cyan-300/70 bg-gradient-to-br from-cyan-400/20 via-cyan-300/10 to-violet-500/20 shadow-[0_0_22px_rgba(34,211,238,0.18)]"
+                      : "border-slate-800 bg-slate-950/65"
+                  }`}
+                >
+                  {discounted ? (
+                    <>
+                      <span className="block text-[11px] font-medium text-cyan-200">
+                        Precio oferta
+                      </span>
+                      <span className="text-sm font-bold text-slate-100">
+                        {formatPrice(offer.price)}
+                      </span>
+                      <span className="block text-xs text-slate-400">
+                        Normal <span className="line-through">{formatPrice(offer.listPrice!)}</span>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="block text-[11px] text-slate-400">Precio normal</span>
+                      <span className="text-sm font-bold text-slate-100">
+                        {formatPrice(offer.price)}
+                      </span>
+                    </>
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+            >
+              Envío
+            </th>
+            {offers.map((offer) => (
+              <td
+                key={offer.storeId}
+                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-200"
+              >
+                {shippingLabel(offer)}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+            >
+              Total
+            </th>
+            {offers.map((offer) => {
+              const total = getTotal(offer);
+              const isBest = bestOffers.some((best) => best.storeId === offer.storeId);
+              return (
+                <td
+                  key={offer.storeId}
+                  className={`rounded-xl border p-3 text-center text-base font-extrabold ${
+                    isBest
+                      ? "border-cyan-300/70 bg-gradient-to-br from-cyan-400/20 via-cyan-300/10 to-violet-500/20 text-cyan-100 shadow-[0_0_22px_rgba(34,211,238,0.18)]"
+                      : "border-slate-800 bg-slate-950/65 text-slate-100"
+                  }`}
+                >
+                  {total === null ? "No informado" : formatPrice(total)}
+                </td>
+              );
+            })}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+            >
+              Entrega
+            </th>
+            {offers.map((offer) => (
+              <td
+                key={offer.storeId}
+                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-200"
+              >
+                {offer.deliveryTime || "No informado"}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+            >
+              Garantía
+            </th>
+            {offers.map((offer) => (
+              <td
+                key={offer.storeId}
+                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-200"
+              >
+                {offer.warranty || "No informado"}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+            >
+              Disponibilidad
+            </th>
+            {offers.map((offer) => (
+              <td
+                key={offer.storeId}
+                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm"
+              >
+                <span className={offer.available ? "text-emerald-300" : "text-slate-400"}>
+                  {offer.available ? "Disponible" : "No disponible"}
+                </span>
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+            >
+              Actualización
+            </th>
+            {offers.map((offer) => (
+              <td
+                key={offer.storeId}
+                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-400"
+              >
+                {relativeUpdate(offer.lastUpdated)}
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+            >
+              Comprar
+            </th>
+            {offers.map((offer) => {
+              const safeUrl = getSafeOfferUrl(offer.url);
+              return (
+                <td
+                  key={offer.storeId}
+                  className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center"
+                >
+                  {safeUrl ? (
+                    <a
+                      href={safeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-bold text-violet-300 hover:text-cyan-200 hover:underline"
+                    >
+                      Comprar oferta
+                    </a>
+                  ) : (
+                    <span className="text-sm text-slate-400">Enlace no disponible</span>
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+            >
+              Carrito
+            </th>
+            {offers.map((offer) => (
+              <td
+                key={offer.storeId}
+                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center"
+              >
+                <button
+                  type="button"
+                  disabled={!offer.available}
+                  onClick={() => onAddToCart(product, offer)}
+                  className="rounded-lg bg-gradient-to-r from-[#ff9878] to-[#fb7185] px-3 py-2 text-xs font-semibold text-white shadow-md shadow-rose-500/15 transition hover:brightness-105 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none"
+                >
+                  Agregar al carrito
+                </button>
+              </td>
+            ))}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+            >
+              Acciones
+            </th>
+            {offers.map((offer) => (
+              <td
+                key={offer.storeId}
+                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center"
+              >
+                <button
+                  type="button"
+                  onClick={() => onRemoveOffer(offer.storeId)}
+                  aria-label={`Quitar producto de ${offer.storeName}`}
+                  className="rounded-lg border border-rose-300/40 bg-rose-950/40 px-3 py-1.5 text-xs font-semibold text-rose-200 transition hover:border-rose-200 hover:bg-rose-900/60 hover:text-white"
+                >
+                  Quitar producto
+                </button>
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-  const years = normalized.match(/(\d+)\s*a[nñ]os?/);
-  return years ? Number(years[1]) * 12 : null;
-};
-
-export default function PriceOfferComparison({ product, onAddToCart }: Props) {
-  const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
-  const [comparisonVisible, setComparisonVisible] = useState(false);
+export default function PriceOfferComparison({
+  product,
+  onAddToCart,
+  navigate,
+  comparisonOnly = false,
+  initialSelectedStoreIds = [],
+}: Props) {
+  const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>(initialSelectedStoreIds);
   const offers = product.offers;
   const selectedOffers = offers.filter((offer) => selectedStoreIds.includes(offer.storeId));
   const hasUnknownShipping = offers.some((offer) => offer.available && getTotal(offer) === null);
@@ -98,28 +372,6 @@ export default function PriceOfferComparison({ product, onAddToCart }: Props) {
     : selectedAvailableTotals
         .filter((entry) => entry.total === selectedLowestTotal)
         .map((entry) => entry.offer);
-  const nextSelectedTotal =
-    selectedLowestTotal === null
-      ? null
-      : selectedAvailableTotals
-          .map((entry) => entry.total)
-          .filter((total) => total > selectedLowestTotal)
-          .reduce<number | null>(
-            (lowest, total) => (lowest === null || total < lowest ? total : lowest),
-            null,
-          );
-
-  const warranties = selectedAvailableOffers
-    .map((offer) => ({ offer, months: warrantyDurationMonths(offer.warranty) }))
-    .filter((entry): entry is { offer: StoreOffer; months: number } => entry.months !== null);
-  const longestWarranty = warranties.reduce<number | null>(
-    (longest, entry) => (longest === null || entry.months > longest ? entry.months : longest),
-    null,
-  );
-  const longestWarrantyOffers = warranties
-    .filter((entry) => entry.months === longestWarranty)
-    .map((entry) => entry.offer);
-
   const availableTotals = offers
     .filter((offer) => offer.available)
     .map((offer) => ({ offer, total: getTotal(offer) }))
@@ -133,13 +385,68 @@ export default function PriceOfferComparison({ product, onAddToCart }: Props) {
     : availableTotals.filter((entry) => entry.total === lowestTotal).map((entry) => entry.offer);
 
   const toggleOffer = (offer: StoreOffer) => {
-    setComparisonVisible(false);
     setSelectedStoreIds((current) =>
       current.includes(offer.storeId)
         ? current.filter((storeId) => storeId !== offer.storeId)
         : [...current, offer.storeId],
     );
   };
+
+  if (comparisonOnly) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8">
+        <Breadcrumb
+          items={[
+            { label: "Inicio", onClick: () => navigate({ id: "home" }) },
+            { label: "Productos", onClick: () => navigate({ id: "search-products", query: "" }) },
+            {
+              label: product.name,
+              onClick: () => navigate({ id: "product-detail", productId: product.id }),
+            },
+            { label: "Comparación" },
+          ]}
+        />
+
+        <h1 className="mb-2 mt-6 text-2xl font-bold text-slate-100">Comparación de ofertas</h1>
+        <p className="mb-8 text-sm text-slate-300">
+          Comparando {selectedOffers.length} ofertas de {product.name}
+        </p>
+
+        <section className="rounded-[28px] border border-slate-600/80 bg-gradient-to-br from-slate-900/95 via-slate-950/90 to-indigo-950/45 p-3 shadow-[0_24px_70px_rgba(2,6,23,0.55)] backdrop-blur-sm sm:p-5">
+          <p className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-950/45 px-3 py-2 text-[11px] text-slate-200">
+            <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200/50 bg-cyan-300 px-2 py-1 font-extrabold text-slate-950">
+              ✦ Menor total
+            </span>
+            La mejor oferta considera el precio del producto y su costo de envío.
+          </p>
+          {selectedOffers.length > 0 ? (
+            <SelectedOffersTable
+              product={product}
+              offers={selectedOffers}
+              bestOffers={selectedBestOffers}
+              onAddToCart={onAddToCart}
+              onRemoveOffer={(storeId) =>
+                setSelectedStoreIds((current) => current.filter((id) => id !== storeId))
+              }
+            />
+          ) : (
+            <div className="py-8 text-center">
+              <p className="mb-4 text-sm text-slate-300">
+                Ya no hay ofertas seleccionadas para comparar.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate({ id: "product-detail", productId: product.id })}
+                className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-cyan-400 hover:text-cyan-200"
+              >
+                Volver al producto
+              </button>
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 mb-6">
@@ -327,7 +634,13 @@ export default function PriceOfferComparison({ product, onAddToCart }: Props) {
             <button
               type="button"
               disabled={selectedOffers.length < 2}
-              onClick={() => setComparisonVisible(true)}
+              onClick={() =>
+                navigate({
+                  id: "offer-comparison",
+                  product,
+                  storeIds: selectedStoreIds,
+                })
+              }
               className="rounded-md bg-gradient-to-r from-[#ff7a59] to-[#8b5cf6] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Comparar seleccionadas
@@ -472,228 +785,6 @@ export default function PriceOfferComparison({ product, onAddToCart }: Props) {
               </tbody>
             </table>
           </div>
-        )}
-
-        {comparisonVisible && selectedOffers.length >= 2 && (
-          <section
-            aria-labelledby="selected-comparison-heading"
-            style={{
-              background: "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.9))",
-              border: "1px solid rgba(148, 163, 184, 0.2)",
-            }}
-            className="mt-5 rounded-xl p-4 sm:p-5"
-          >
-            <h3 id="selected-comparison-heading" className="text-base font-bold text-white">
-              Resultado de la comparación
-            </h3>
-
-            <div className="mt-3 space-y-1 text-sm text-slate-300">
-              {selectedAvailableOffers.length === 0 ? (
-                <p>No hay ofertas seleccionadas disponibles.</p>
-              ) : selectedHasUnknownShipping ? (
-                <p>
-                  No se puede determinar cuál tiene el menor total: falta el costo de envío de una o
-                  más ofertas disponibles.
-                </p>
-              ) : selectedBestOffers.length > 1 ? (
-                <p>
-                  Empate en el menor total ({formatPrice(selectedLowestTotal!)}):{" "}
-                  {selectedBestOffers.map((offer) => offer.storeName).join(" y ")}.
-                </p>
-              ) : selectedBestOffers.length === 1 && selectedAvailableOffers.length === 1 ? (
-                <p>
-                  {selectedBestOffers[0].storeName} es la única oferta seleccionada disponible, con
-                  un total de {formatPrice(selectedLowestTotal!)}.
-                </p>
-              ) : selectedBestOffers.length === 1 ? (
-                <p>
-                  {selectedBestOffers[0].storeName} tiene el menor total:{" "}
-                  {formatPrice(selectedLowestTotal!)}.
-                  {nextSelectedTotal !== null && (
-                    <>
-                      {" "}
-                      Cuesta {formatPrice(nextSelectedTotal - selectedLowestTotal!)} menos que la
-                      siguiente oferta.
-                    </>
-                  )}
-                </p>
-              ) : null}
-              {selectedBestOffers.some((offer) => offer.shippingFree) && (
-                <p>La oferta de menor total incluye despacho gratis.</p>
-              )}
-              {longestWarranty !== null && longestWarrantyOffers.length > 0 && (
-                <p>
-                  Mayor garantía informada:{" "}
-                  {longestWarrantyOffers.map((offer) => offer.storeName).join(" y ")} ·{" "}
-                  {longestWarranty} meses.
-                </p>
-              )}
-            </div>
-
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse text-left">
-                <thead>
-                  <tr className="border-b border-[#343434]">
-                    <th
-                      scope="col"
-                      className="py-3 pr-4 text-xs font-semibold uppercase text-muted"
-                    >
-                      Condición
-                    </th>
-                    {selectedOffers.map((offer) => (
-                      <th
-                        key={offer.storeId}
-                        scope="col"
-                        className="min-w-40 px-4 py-3 text-center"
-                      >
-                        <span className="block text-sm font-semibold text-text">
-                          {offer.storeName}
-                        </span>
-                        {selectedBestOffers.some((best) => best.storeId === offer.storeId) && (
-                          <span className="mt-1 block text-[11px] font-semibold text-prime">
-                            Menor total
-                          </span>
-                        )}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-b border-[#242424]">
-                    <th scope="row" className="py-3 pr-4 text-sm font-medium text-muted">
-                      Precio
-                    </th>
-                    {selectedOffers.map((offer) => {
-                      const discounted =
-                        offer.listPrice !== null &&
-                        offer.listPrice !== undefined &&
-                        offer.listPrice > offer.price;
-                      return (
-                        <td key={offer.storeId} className="px-4 py-3 text-center">
-                          {discounted ? (
-                            <>
-                              <span className="block text-[11px] text-prime">Precio oferta</span>
-                              <span className="text-sm font-semibold text-text">
-                                {formatPrice(offer.price)}
-                              </span>
-                              <span className="block text-xs text-muted">
-                                Normal{" "}
-                                <span className="line-through">
-                                  {formatPrice(offer.listPrice!)}
-                                </span>
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="block text-[11px] text-muted">Precio normal</span>
-                              <span className="text-sm font-semibold text-text">
-                                {formatPrice(offer.price)}
-                              </span>
-                            </>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  <tr className="border-b border-[#242424]">
-                    <th scope="row" className="py-3 pr-4 text-sm font-medium text-muted">
-                      Envío
-                    </th>
-                    {selectedOffers.map((offer) => (
-                      <td key={offer.storeId} className="px-4 py-3 text-center text-sm text-text">
-                        {shippingLabel(offer)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-[#242424] bg-[#181818]">
-                    <th scope="row" className="py-3 pr-4 text-sm font-semibold text-text">
-                      Total
-                    </th>
-                    {selectedOffers.map((offer) => {
-                      const total = getTotal(offer);
-                      const isBest = selectedBestOffers.some(
-                        (best) => best.storeId === offer.storeId,
-                      );
-                      return (
-                        <td
-                          key={offer.storeId}
-                          className={`px-4 py-3 text-center text-sm font-bold ${isBest ? "text-prime" : "text-text"}`}
-                        >
-                          {total === null ? "No informado" : formatPrice(total)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  <tr className="border-b border-[#242424]">
-                    <th scope="row" className="py-3 pr-4 text-sm font-medium text-muted">
-                      Entrega
-                    </th>
-                    {selectedOffers.map((offer) => (
-                      <td key={offer.storeId} className="px-4 py-3 text-center text-sm text-text">
-                        {offer.deliveryTime || "No informado"}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-[#242424]">
-                    <th scope="row" className="py-3 pr-4 text-sm font-medium text-muted">
-                      Garantía
-                    </th>
-                    {selectedOffers.map((offer) => (
-                      <td key={offer.storeId} className="px-4 py-3 text-center text-sm text-text">
-                        {offer.warranty || "No informado"}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-[#242424]">
-                    <th scope="row" className="py-3 pr-4 text-sm font-medium text-muted">
-                      Disponibilidad
-                    </th>
-                    {selectedOffers.map((offer) => (
-                      <td key={offer.storeId} className="px-4 py-3 text-center text-sm">
-                        <span className={offer.available ? "text-success" : "text-muted"}>
-                          {offer.available ? "Disponible" : "No disponible"}
-                        </span>
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-[#242424]">
-                    <th scope="row" className="py-3 pr-4 text-sm font-medium text-muted">
-                      Actualización
-                    </th>
-                    {selectedOffers.map((offer) => (
-                      <td key={offer.storeId} className="px-4 py-3 text-center text-sm text-muted">
-                        {relativeUpdate(offer.lastUpdated)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th scope="row" className="py-3 pr-4 text-sm font-medium text-muted">
-                      Comprar
-                    </th>
-                    {selectedOffers.map((offer) => {
-                      const safeUrl = getSafeOfferUrl(offer.url);
-                      return (
-                        <td key={offer.storeId} className="px-4 py-3 text-center">
-                          {safeUrl ? (
-                            <a
-                              href={safeUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm font-semibold text-prime hover:underline"
-                            >
-                              Comprar oferta
-                            </a>
-                          ) : (
-                            <span className="text-sm text-muted">Enlace no disponible</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
         )}
       </section>
     </div>

@@ -594,8 +594,7 @@ export default function SearchResultsPage({
                   productIds: [...productCompareList],
                 })
               }
-              style={{ background: "#E8001B", color: "#0A0A0A" }}
-              className="px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
+              className="rounded-xl bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 px-4 py-2 text-sm font-extrabold text-white shadow-lg shadow-violet-950/40 transition hover:brightness-110"
             >
               Comparar {productCompareList.size} productos
             </button>
