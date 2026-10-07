@@ -5,14 +5,19 @@ import { Badge, Breadcrumb, Rating } from "../../components/common/ui";
 
 interface Props {
   navigate: (page: Page) => void;
-  favorites: Set<string>;
-  compareList: Set<string>;
-  onToggleFavorite: (id: string) => void;
-  onToggleCompare: (id: string) => void;
   storeId?: string;
 }
 
-function StoreList({ navigate }: { navigate: (page: Page) => void }) {
+function getExternalWebsiteUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function StoreList({ navigate }: Pick<Props, "navigate">) {
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +60,7 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
       <h1 className="text-2xl font-bold text-text mb-2">Tiendas y proveedores</h1>
 
       <p className="text-sm text-muted mb-8">
-        Directorio de tiendas comparadas en nuestra plataforma
+        Directorio de tiendas disponibles en nuestra plataforma
       </p>
 
       {loading ? (
@@ -68,67 +73,89 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {stores.map((store) => (
-            <button
-              key={store.id}
-              onClick={() => navigate({ id: "store-detail", storeId: store.id })}
-              style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-              className="rounded-2xl p-5 text-left hover:border-prime transition-all duration-200 group"
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <div
-                  style={{
-                    background: "rgba(232,0,27,0.12)",
-                    border: "1px solid rgba(232,0,27,0.25)",
-                  }}
-                  className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden"
-                >
-                  {store.logo ? (
-                    <img
-                      src={store.logo}
-                      alt={store.name}
-                      className="w-full h-full object-contain"
-                    />
-                  ) : (
-                    <span className="text-sm font-bold text-prime">
-                      {store.name.slice(0, 2).toUpperCase()}
-                    </span>
-                  )}
-                </div>
+          {stores.map((store) => {
+            const websiteUrl = getExternalWebsiteUrl(store.website);
 
-                <div>
-                  <div className="text-sm font-bold text-text group-hover:text-prime transition-colors">
-                    {store.name}
+            return (
+              <div
+                key={store.id}
+                style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+                className="rounded-2xl p-5 hover:border-prime transition-all duration-200 group"
+              >
+                <button
+                  type="button"
+                  onClick={() => navigate({ id: "store-detail", storeId: store.id })}
+                  className="w-full text-left"
+                  aria-label={`Ver tienda ${store.name}`}
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <div
+                      style={{
+                        background: "rgba(232,0,27,0.12)",
+                        border: "1px solid rgba(232,0,27,0.25)",
+                      }}
+                      className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden"
+                    >
+                      {store.logo ? (
+                        <img
+                          src={store.logo}
+                          alt={store.name}
+                          className="w-full h-full object-contain"
+                        />
+                      ) : (
+                        <span className="text-sm font-bold text-prime">
+                          {store.name.slice(0, 2).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="text-sm font-bold text-text group-hover:text-prime transition-colors">
+                        {store.name}
+                      </div>
+
+                      <Badge variant={store.reputation === "Excelente" ? "best" : "available"}>
+                        {store.reputation}
+                      </Badge>
+                    </div>
                   </div>
 
-                  <Badge variant={store.reputation === "Excelente" ? "best" : "available"}>
-                    {store.reputation}
-                  </Badge>
-                </div>
+                  <Rating value={store.rating} count={store.reviewCount} />
+
+                  <div className="mt-4 space-y-1.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">Productos</span>
+                      <span className="text-muted-2 font-semibold">
+                        {store.productCount.toLocaleString("es-CL")}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">Despacho</span>
+                      <span className="text-muted-2 font-semibold">{store.dispatchTime}</span>
+                    </div>
+
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted">Sitio</span>
+                      <span className="text-prime font-semibold">{store.website}</span>
+                    </div>
+                  </div>
+                </button>
+                {websiteUrl && (
+                  <a
+                    href={websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Visitar el sitio oficial de ${store.name} (se abre en una nueva pestaña)`}
+                    className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-prime hover:underline"
+                  >
+                    Visitar sitio oficial
+                    <span aria-hidden="true">↗</span>
+                  </a>
+                )}
               </div>
-
-              <Rating value={store.rating} count={store.reviewCount} />
-
-              <div className="mt-4 space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted">Productos</span>
-                  <span className="text-muted-2 font-semibold">
-                    {store.productCount.toLocaleString("es-CL")}
-                  </span>
-                </div>
-
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted">Despacho</span>
-                  <span className="text-muted-2 font-semibold">{store.dispatchTime}</span>
-                </div>
-
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted">Sitio</span>
-                  <span className="text-prime font-semibold">{store.website}</span>
-                </div>
-              </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -201,7 +228,7 @@ function StoreProductCard({ product }: { product: StoreProduct }) {
   );
 }
 
-function StoreDetail({ storeId, navigate }: Required<Props>) {
+function StoreDetail({ storeId, navigate }: Required<Pick<Props, "storeId" | "navigate">>) {
   const [store, setStore] = useState<StoreDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -417,7 +444,7 @@ function StoreDetail({ storeId, navigate }: Required<Props>) {
 
 export default function StoresPage(props: Props) {
   if (props.storeId) {
-    return <StoreDetail {...props} storeId={props.storeId} />;
+    return <StoreDetail storeId={props.storeId} navigate={props.navigate} />;
   }
 
   return <StoreList navigate={props.navigate} />;

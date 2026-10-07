@@ -7,6 +7,7 @@ export type Page =
       productId: string;
     }
   | { id: "product-comparison"; productIds: string[] }
+  | { id: "offer-comparison"; product: Product; storeIds: string[] }
   | {
       id: "search-services";
       query: string;
