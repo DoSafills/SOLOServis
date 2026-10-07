@@ -174,6 +174,10 @@ export default function App() {
   const [compareList, setCompareList] = useState<Set<string>>(() =>
     readStoredIds(SERVICE_COMPARISON_KEY),
   );
+  const [serviceCompareCategories, setServiceCompareCategories] = useState<Record<string, string>>(
+    {},
+  );
+  const [serviceCompareError, setServiceCompareError] = useState<string | null>(null);
   const [productCompareList, setProductCompareList] = useState<Set<string>>(() =>
     readStoredIds(PRODUCT_COMPARISON_PRODUCTS_KEY),
   );
@@ -316,6 +320,31 @@ export default function App() {
       cancelled = true;
     };
   }, [productCompareList]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([...compareList].map((id) => getServiceById(id)))
+      .then((services) => {
+        if (cancelled) return;
+        setServiceCompareCategories(
+          Object.fromEntries(
+            services
+              .filter((service): service is Service => service !== null)
+              .map((service) => [service.id, service.category]),
+          ),
+        );
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setServiceCompareError(
+            `No se pudieron cargar los servicios comparados: ${error instanceof Error ? error.message : "error desconocido"}`,
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [compareList]);
 
   const navigate = (next: Page) => {
     setPage(next);
@@ -611,19 +640,59 @@ export default function App() {
     }
   };
 
-  const toggleCompare = async (id: string) => {
-    const isComparing = compareList.has(id);
-    if (!isComparing && compareList.size >= 3) {
-      setPersistenceError("Solo puedes comparar hasta 3 servicios a la vez.");
+  const toggleCompare = async (id: string, category?: string) => {
+    if (compareList.has(id)) {
+      setCompareList((previous) => {
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
+      setServiceCompareCategories((previous) => {
+        const next = { ...previous };
+        delete next[id];
+        return next;
+      });
+      setServiceCompareError(null);
       return;
     }
-    setCompareList((previous) => {
-      const next = new Set(previous);
-      if (isComparing) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-    setPersistenceError(null);
+
+    if (compareList.size >= 3) {
+      setServiceCompareError("Solo puedes comparar hasta 3 servicios a la vez.");
+      return;
+    }
+
+    let resolvedCategory = category;
+    if (!resolvedCategory) {
+      try {
+        resolvedCategory = (await getServiceById(id))?.category;
+      } catch (error) {
+        setServiceCompareError(
+          `No se pudo verificar la categoría del servicio: ${error instanceof Error ? error.message : "error desconocido"}`,
+        );
+        return;
+      }
+    }
+    if (!resolvedCategory) {
+      setServiceCompareError("No se pudo determinar la categoría de este servicio.");
+      return;
+    }
+
+    const incompatibleCategory = [...compareList]
+      .map((serviceId) => serviceCompareCategories[serviceId])
+      .find(
+        (selectedCategory) =>
+          !areServiceCategoriesCompatible(selectedCategory ?? "", resolvedCategory),
+      );
+    if (incompatibleCategory) {
+      setServiceCompareError(
+        `No se agregó el servicio: “${resolvedCategory}” es una categoría diferente de “${incompatibleCategory}”. Selecciona servicios de la misma categoría o compatibles.`,
+      );
+      return;
+    }
+
+    setCompareList((previous) => new Set(previous).add(id));
+    setServiceCompareCategories((previous) => ({ ...previous, [id]: resolvedCategory }));
+    setServiceCompareError(null);
   };
 
   const toggleProductCompare = async (id: string, category: string) => {
@@ -669,7 +738,8 @@ export default function App() {
 
   const clearServiceComparison = () => {
     setCompareList(new Set());
-    setPersistenceError(null);
+    setServiceCompareCategories({});
+    setServiceCompareError(null);
   };
 
   const cartProductIds = new Set(
@@ -858,6 +928,14 @@ export default function App() {
             onRemove={(service) => toggleCompare(service.id)}
             onNavigate={navigate}
           />
+          {serviceCompareError && (
+            <p
+              role="alert"
+              className="mt-2 max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-amber-300/25 bg-slate-950/95 px-3 py-2 text-[11px] font-medium text-amber-200 shadow-lg"
+            >
+              {serviceCompareError}
+            </p>
+          )}
         </div>
       )}
 
