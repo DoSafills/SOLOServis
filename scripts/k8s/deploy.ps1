@@ -26,7 +26,7 @@
 #>
 [CmdletBinding()]
 param(
-  # Vacio = $env:KUBECONFIG o el unico Downloads/estudiantes-*.kubeconfig
+  # Vacio = $env:KUBECONFIG, ~/.kube/config o el unico Downloads/estudiantes-*.kubeconfig
   [string]$Kubeconfig = '',
   # Vacio = contexto y namespace que trae el kubeconfig (student-<usuario>)
   [string]$Context = '',
@@ -56,6 +56,7 @@ $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
 # --- kubeconfig, contexto y namespace (cada estudiante usa el SUYO)
 if (-not $Kubeconfig) {
   if ($env:KUBECONFIG) { $Kubeconfig = $env:KUBECONFIG }
+  elseif (Test-Path (Join-Path $HOME '.kube/config')) { $Kubeconfig = Join-Path $HOME '.kube/config' }
   else {
     $found = @(Get-ChildItem (Join-Path $HOME 'Downloads') -Filter 'estudiantes-*.kubeconfig' -ErrorAction SilentlyContinue)
     if ($found.Count -eq 1) { $Kubeconfig = $found[0].FullName }
