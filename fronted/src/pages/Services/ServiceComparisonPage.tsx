@@ -7,6 +7,7 @@ import {
   getBillingPeriodText,
 } from "../../services/utils/productUtils";
 import { Breadcrumb } from "../../components/common/ui";
+import { areServiceCategoriesCompatible } from "./ServiceComparisonUtils"; // NUEVO
 
 interface Props {
   serviceIds: string[];
@@ -92,6 +93,30 @@ export default function ServiceComparisonPage({
       </div>
     );
   }
+
+  // NUEVO: restricción de categorías
+  const baseCategory = selected[0].category;
+  const incompatibleService = selected.find(
+    (service) => !areServiceCategoriesCompatible(baseCategory, service.category),
+  );
+
+  if (incompatibleService) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-20 text-center">
+        <p role="alert" className="mb-4 text-amber-300">
+          No se pueden comparar servicios de categorías diferentes: {baseCategory} y{" "}
+          {incompatibleService.category}.
+        </p>
+        <button
+          onClick={() => navigate({ id: "search-services", query: "" })}
+          className="rounded-xl bg-gradient-to-r from-cyan-500 via-violet-500 to-fuchsia-400 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-violet-950/40 transition hover:brightness-110"
+        >
+          Buscar servicios compatibles
+        </button>
+      </div>
+    );
+  }
+  // FIN NUEVO
 
   const getBillingPeriod = (service: Service) => service.billingPeriod ?? "monthly";
   const getLowestPrice = (service: Service) =>

@@ -16,6 +16,7 @@ import FavoritesPage from "./pages/user/FavoritesPage";
 import UserPage from "./pages/user/UserPage";
 import CartPage from "./pages/user/CartPage";
 import { areProductCategoriesCompatible } from "./pages/products/productComparisonUtils";
+import { areServiceCategoriesCompatible } from "./pages/Services/ServiceComparisonUtils";
 import ComparisonDock from "./components/products/ComparisonDock";
 import ServiceComparisonDock from "./components/services/ServiceComparisonDock";
 import { getProductById, getServiceById } from "./services/api/api";
