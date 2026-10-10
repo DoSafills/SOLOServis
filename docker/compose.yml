@@ -1,0 +1,361 @@
+﻿services:
+  postgres:
+    image: postgres:18
+    container_name: soloservis_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: soloservis
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ../backend/database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d soloservis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  product-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/product-api/Dockerfile
+    container_name: soloservis_product_api
+    restart: unless-stopped
+    environment:
+      PORT: "8081"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  store-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/store-api/Dockerfile
+    container_name: soloservis_store_api
+    restart: unless-stopped
+    environment:
+      PORT: "8082"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  service-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/service-api/Dockerfile
+    container_name: soloservis_service_api
+    restart: unless-stopped
+    environment:
+      PORT: "8083"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  user-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/user-api/Dockerfile
+    container_name: soloservis_user_api
+    restart: unless-stopped
+    environment:
+      PORT: "8084"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+    ports:
+      - "8084:8084"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  pricing-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/pricing-api/Dockerfile
+    container_name: soloservis_pricing_api
+    restart: unless-stopped
+    environment:
+      PORT: "8085"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+      NOTIFICATION_API_URL: http://notification-api:8093
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      notification-api:
+        condition: service_healthy
+
+  search-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/search-api/Dockerfile
+    container_name: soloservis_search_api
+    restart: unless-stopped
+    environment:
+      PORT: "8086"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+      PRODUCT_API_URL: http://product-api:8081
+    ports:
+      - "8086:8086"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8086/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      product-api:
+        condition: service_healthy
+
+  comparison-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/comparison-api/Dockerfile
+    container_name: soloservis_comparison_api
+    restart: unless-stopped
+    environment:
+      PORT: "8087"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+      PRODUCT_API_URL: http://product-api:8081
+      PRICING_API_URL: http://pricing-api:8085
+    ports:
+      - "8087:8087"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8087/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      product-api:
+        condition: service_healthy
+      pricing-api:
+        condition: service_healthy
+
+  auth-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/auth-api/Dockerfile
+    container_name: soloservis_auth_api
+    restart: unless-stopped
+    environment:
+      PORT: "8088"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+    ports:
+      - "8088:8088"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8088/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  favorites-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/favorites-api/Dockerfile
+    container_name: soloservis_favorites_api
+    restart: unless-stopped
+    environment:
+      PORT: "8089"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+      PRODUCT_API_URL: http://product-api:8081
+    ports:
+      - "8089:8089"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8089/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      product-api:
+        condition: service_healthy
+
+  cart-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/cart-api/Dockerfile
+    container_name: soloservis_cart_api
+    restart: unless-stopped
+    environment:
+      PORT: "8090"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+      PRODUCT_API_URL: http://product-api:8081
+      PRICING_API_URL: http://pricing-api:8085
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      product-api:
+        condition: service_healthy
+      pricing-api:
+        condition: service_healthy
+
+  review-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/review-api/Dockerfile
+    container_name: soloservis_review_api
+    restart: unless-stopped
+    environment:
+      PORT: "8091"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+      PRODUCT_API_URL: http://product-api:8081
+      STORE_API_URL: http://store-api:8082
+      SERVICE_API_URL: http://service-api:8083
+    ports:
+      - "8091:8091"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8091/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      product-api:
+        condition: service_healthy
+      store-api:
+        condition: service_healthy
+      service-api:
+        condition: service_healthy
+
+  watchlist-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/watchlist-api/Dockerfile
+    container_name: soloservis_watchlist_api
+    restart: unless-stopped
+    environment:
+      PORT: "8092"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+      PRICING_API_URL: http://pricing-api:8085
+      NOTIFICATION_API_URL: http://notification-api:8093
+    ports:
+      - "8092:8092"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8092/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pricing-api:
+        condition: service_healthy
+      notification-api:
+        condition: service_healthy
+
+  notification-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/notification-api/Dockerfile
+    container_name: soloservis_notification_api
+    restart: unless-stopped
+    environment:
+      PORT: "8093"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+    ports:
+      - "8093:8093"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8093/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ingestion-api:
+    build:
+      context: ../backend
+      dockerfile: ../docker/ingestion-api/Dockerfile
+    container_name: soloservis_ingestion_api
+    restart: unless-stopped
+    environment:
+      PORT: "8094"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+      FRONTEND_URL: http://localhost:8443
+      PRODUCT_API_URL: http://product-api:8081
+      STORE_API_URL: http://store-api:8082
+      PRICING_API_URL: http://pricing-api:8085
+    ports:
+      - "8094:8094"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8094/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      product-api:
+        condition: service_healthy
+      store-api:
+        condition: service_healthy
+      pricing-api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

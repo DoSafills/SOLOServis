@@ -1,115 +1,61 @@
 import { useState } from "react";
+import type { FormEvent } from "react";
 import type { Page } from "../../types";
-import { products, formatPrice, getMinPrice } from "../../data/mockData";
-import { Breadcrumb, Badge } from "../../components/ui";
+import type { AuthUser, SearchHistoryEntry } from "../../services/api/personalization";
+import { Breadcrumb } from "../../components/common/ui";
 
 interface Props {
   navigate: (page: Page) => void;
-  favorites: Set<string>;
+  user: AuthUser | null;
+  favoritesCount: number;
+  history: SearchHistoryEntry[];
+  onLogin: (email: string, password: string) => Promise<void>;
+  onRegister: (name: string, email: string, password: string) => Promise<void>;
+  onLogout: () => Promise<void>;
 }
 
-type Tab = "profile" | "favorites" | "history" | "watched" | "settings";
+type Tab = "profile" | "favorites" | "history";
 
-export default function UserPage({ navigate, favorites }: Props) {
+export default function UserPage({
+  navigate,
+  user,
+  favoritesCount,
+  history,
+  onLogin,
+  onRegister,
+  onLogout,
+}: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("profile");
-  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    {
-      id: "profile",
-      label: "Perfil",
-      icon: (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
-      ),
-    },
-    {
-      id: "favorites",
-      label: "Favoritos",
-      icon: (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-        </svg>
-      ),
-    },
-    {
-      id: "history",
-      label: "Historial",
-      icon: (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <circle cx="12" cy="12" r="10" />
-          <polyline points="12 6 12 12 16 14" />
-        </svg>
-      ),
-    },
-    {
-      id: "watched",
-      label: "Observados",
-      icon: (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-          <circle cx="12" cy="12" r="3" />
-        </svg>
-      ),
-    },
-    {
-      id: "settings",
-      label: "Configuración",
-      icon: (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-      ),
-    },
-  ];
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const searchHistory = [
-    "RTX 4060",
-    "iPhone 15",
-    "Notebook gaming",
-    "Internet hogar 500 Mbps",
-    "Samsung Galaxy S25",
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      if (mode === "register") await onRegister(name.trim(), email.trim(), password);
+      else await onLogin(email.trim(), password);
+      setPassword("");
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "No se pudo iniciar la sesión.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "profile", label: "Perfil" },
+    { id: "favorites", label: `Favoritos${favoritesCount ? ` (${favoritesCount})` : ""}` },
+    { id: "history", label: "Historial" },
   ];
-  const watched = products.slice(0, 3);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-8">
       <Breadcrumb
         items={[
           { label: "Inicio", onClick: () => navigate({ id: "home" }) },
@@ -117,254 +63,230 @@ export default function UserPage({ navigate, favorites }: Props) {
         ]}
       />
 
-      <div className="flex gap-6 flex-col lg:flex-row">
-        {/* Sidebar */}
-        <aside className="lg:w-56 shrink-0">
-          {/* Avatar */}
-          <div
-            style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-            className="rounded-2xl p-5 mb-4 flex flex-col items-center gap-3"
-          >
-            <div
-              style={{
-                background: "rgba(232,0,27,0.15)",
-                border: "2px solid rgba(232,0,27,0.4)",
-              }}
-              className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold text-prime"
-            >
-              JG
-            </div>
-            <div className="text-center">
-              <div className="text-sm font-bold text-text">Juan González</div>
-              <div className="text-xs text-muted">juan@email.cl</div>
-            </div>
-            <Badge variant="best">Pro</Badge>
+      {!user ? (
+        <section className="mx-auto mt-8 max-w-lg rounded-3xl border border-violet-200/15 bg-slate-950/75 p-6 shadow-xl shadow-violet-950/20 sm:p-8">
+          <div className="mb-6">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
+              SoloService
+            </p>
+            <h1 className="mt-2 text-2xl font-black text-white">
+              {mode === "login" ? "Inicia sesión" : "Crea tu cuenta"}
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Puedes explorar productos, servicios y tiendas sin una cuenta. Inicia sesión para
+              guardar favoritos y consultar tu historial.
+            </p>
           </div>
 
-          {/* Nav */}
-          <nav
-            style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-            className="rounded-2xl p-2"
-          >
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={
-                  activeTab === tab.id
-                    ? { background: "rgba(232,0,27,0.12)", color: "#E8001B" }
-                    : { color: "#64748B" }
-                }
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:text-prime hover:bg-prime-muted"
-              >
-                {tab.icon}
-                {tab.label}
-                {tab.id === "favorites" && favorites.size > 0 && (
-                  <span className="ml-auto text-xs bg-prime text-bg font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                    {favorites.size}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-        </aside>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          {activeTab === "profile" && (
-            <div
-              style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-              className="rounded-2xl p-6"
+          <div className="mb-5 grid grid-cols-2 rounded-xl border border-white/10 bg-slate-900/70 p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setMode("login");
+                setFormError(null);
+              }}
+              className={`rounded-lg px-3 py-2 text-sm font-bold transition ${
+                mode === "login" ? "bg-violet-500/25 text-white" : "text-slate-400"
+              }`}
             >
-              <h2 className="text-lg font-bold text-text mb-6">Información de perfil</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[
-                  { label: "Nombre", value: "Juan", placeholder: "Tu nombre" },
-                  {
-                    label: "Apellido",
-                    value: "González",
-                    placeholder: "Tu apellido",
-                  },
-                  {
-                    label: "Email",
-                    value: "juan@email.cl",
-                    placeholder: "tu@email.cl",
-                  },
-                  {
-                    label: "Teléfono",
-                    value: "+56 9 1234 5678",
-                    placeholder: "+56 9 xxxx xxxx",
-                  },
-                ].map((field) => (
-                  <div key={field.label}>
-                    <label className="text-xs font-semibold text-muted-2 uppercase tracking-wide mb-2 block">
-                      {field.label}
-                    </label>
-                    <input
-                      defaultValue={field.value}
-                      placeholder={field.placeholder}
-                      style={{
-                        background: "#1A1A1A",
-                        border: "1px solid #2A2A2A",
-                      }}
-                      className="w-full px-4 py-2.5 rounded-xl text-sm text-text placeholder-muted focus:outline-none focus:border-prime transition-colors"
-                    />
-                  </div>
-                ))}
+              Iniciar sesión
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("register");
+                setFormError(null);
+              }}
+              className={`rounded-lg px-3 py-2 text-sm font-bold transition ${
+                mode === "register" ? "bg-cyan-500/20 text-white" : "text-slate-400"
+              }`}
+            >
+              Crear cuenta
+            </button>
+          </div>
+
+          <form onSubmit={submit} className="space-y-4">
+            {mode === "register" && (
+              <label className="block text-sm font-semibold text-slate-200">
+                Nombre
+                <input
+                  required
+                  autoComplete="name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  minLength={2}
+                  maxLength={150}
+                  className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60"
+                  placeholder="Tu nombre"
+                />
+              </label>
+            )}
+            <label className="block text-sm font-semibold text-slate-200">
+              Correo electrónico
+              <input
+                required
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60"
+                placeholder="tu@correo.com"
+              />
+            </label>
+            <label className="block text-sm font-semibold text-slate-200">
+              Contraseña
+              <input
+                required
+                type="password"
+                autoComplete={mode === "register" ? "new-password" : "current-password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                minLength={mode === "register" ? 10 : undefined}
+                className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60"
+                placeholder={mode === "register" ? "Al menos 10 caracteres" : "Tu contraseña"}
+              />
+            </label>
+            {formError && (
+              <p
+                role="alert"
+                className="rounded-xl border border-rose-300/25 bg-rose-950/40 p-3 text-sm text-rose-200"
+              >
+                {formError}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-4 py-3 text-sm font-extrabold text-white shadow-lg shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60"
+            >
+              {submitting
+                ? "Un momento..."
+                : mode === "login"
+                  ? "Entrar a mi cuenta"
+                  : "Crear cuenta"}
+            </button>
+          </form>
+        </section>
+      ) : (
+        <div className="mt-6 flex flex-col gap-6 lg:flex-row">
+          <aside className="shrink-0 lg:w-60">
+            <div className="mb-4 flex flex-col items-center gap-3 rounded-2xl border border-violet-200/15 bg-slate-950/75 p-5">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-cyan-300/40 bg-gradient-to-br from-violet-500/30 to-cyan-400/20 text-xl font-black text-white">
+                {user.name.trim().slice(0, 2).toUpperCase()}
               </div>
-              <button
-                style={{ background: "#E8001B", color: "#0A0A0A" }}
-                className="mt-6 px-5 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
-              >
-                Guardar cambios
-              </button>
+              <div className="text-center">
+                <div className="text-sm font-bold text-white">{user.name}</div>
+                <div className="mt-1 text-xs text-slate-400">{user.email}</div>
+              </div>
             </div>
-          )}
-
-          {activeTab === "favorites" && (
-            <div
-              style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-              className="rounded-2xl p-6"
-            >
-              <h2 className="text-lg font-bold text-text mb-4">Mis favoritos</h2>
-              {favorites.size === 0 ? (
-                <p className="text-sm text-muted">No tienes favoritos aún.</p>
-              ) : (
-                <p className="text-sm text-muted">{favorites.size} items guardados.</p>
-              )}
+            <nav className="space-y-1 rounded-2xl border border-violet-200/15 bg-slate-950/75 p-2">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  aria-current={activeTab === tab.id ? "page" : undefined}
+                  className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
+                    activeTab === tab.id
+                      ? "bg-violet-500/20 text-cyan-100"
+                      : "text-slate-300 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
               <button
-                onClick={() => navigate({ id: "favorites" })}
-                style={{
-                  background: "#1A1A1A",
-                  border: "1px solid #2A2A2A",
-                  color: "#94A3B8",
-                }}
-                className="mt-4 px-4 py-2 rounded-xl text-sm hover:border-prime hover:text-prime transition-all"
+                onClick={() => void onLogout()}
+                className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-300 transition hover:bg-rose-400/10"
               >
-                Ver todos los favoritos →
+                Cerrar sesión
               </button>
-            </div>
-          )}
+            </nav>
+          </aside>
 
-          {activeTab === "history" && (
-            <div
-              style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-              className="rounded-2xl p-6"
-            >
-              <h2 className="text-lg font-bold text-text mb-4">Historial de búsquedas</h2>
-              <div className="space-y-2">
-                {searchHistory.map((q, i) => (
-                  <div
-                    key={i}
-                    style={{ background: "#1A1A1A" }}
-                    className="flex items-center justify-between px-4 py-3 rounded-xl"
-                  >
-                    <div className="flex items-center gap-3">
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="#64748B"
-                        strokeWidth="2"
+          <section className="min-h-64 flex-1 rounded-2xl border border-violet-200/15 bg-slate-950/75 p-6">
+            {activeTab === "profile" && (
+              <>
+                <h1 className="text-xl font-black text-white">Mi perfil</h1>
+                <p className="mt-2 text-sm text-slate-300">
+                  Esta es la cuenta activa para tus favoritos y tu historial.
+                </p>
+                <dl className="mt-6 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-xl border border-white/10 bg-slate-900/70 p-4">
+                    <dt className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Nombre
+                    </dt>
+                    <dd className="mt-1 text-sm font-semibold text-white">{user.name}</dd>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-slate-900/70 p-4">
+                    <dt className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Correo electrónico
+                    </dt>
+                    <dd className="mt-1 break-all text-sm font-semibold text-white">
+                      {user.email}
+                    </dd>
+                  </div>
+                </dl>
+              </>
+            )}
+            {activeTab === "favorites" && (
+              <>
+                <h2 className="text-xl font-black text-white">Mis favoritos</h2>
+                <p className="mt-2 text-sm text-slate-300">
+                  {favoritesCount === 0
+                    ? "Todavía no has guardado productos o servicios."
+                    : `Tienes ${favoritesCount} elementos guardados.`}
+                </p>
+                <button
+                  onClick={() => navigate({ id: "favorites" })}
+                  className="mt-5 rounded-xl border border-cyan-200/20 bg-cyan-400/10 px-4 py-2.5 text-sm font-bold text-cyan-100 transition hover:bg-cyan-400/20"
+                >
+                  Ver todos mis favoritos
+                </button>
+              </>
+            )}
+            {activeTab === "history" && (
+              <>
+                <h2 className="text-xl font-black text-white">Historial de búsquedas</h2>
+                {history.length === 0 ? (
+                  <p className="mt-3 text-sm text-slate-300">
+                    Tus búsquedas aparecerán aquí cuando explores productos o servicios con tu
+                    sesión iniciada.
+                  </p>
+                ) : (
+                  <ul className="mt-4 space-y-2">
+                    {history.map((entry) => (
+                      <li
+                        key={entry.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3"
                       >
-                        <circle cx="11" cy="11" r="8" />
-                        <path d="m21 21-4.35-4.35" />
-                      </svg>
-                      <span className="text-sm text-text">{q}</span>
-                    </div>
-                    <button
-                      onClick={() => navigate({ id: "search-products", query: q })}
-                      className="text-xs text-prime hover:text-prime-dark transition-colors"
-                    >
-                      Buscar →
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {activeTab === "watched" && (
-            <div
-              style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-              className="rounded-2xl p-6"
-            >
-              <h2 className="text-lg font-bold text-text mb-4">Productos observados</h2>
-              <div className="space-y-3">
-                {watched.map((p) => (
-                  <div
-                    key={p.id}
-                    style={{ background: "#1A1A1A" }}
-                    className="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-surface-3 transition-colors"
-                    onClick={() => navigate({ id: "product-detail", productId: p.id })}
-                  >
-                    <img src={p.image} alt={p.name} className="w-14 h-10 rounded-lg object-cover" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs text-prime">{p.brand}</div>
-                      <div className="text-sm font-semibold text-text truncate">{p.name}</div>
-                    </div>
-                    <div className="price text-sm font-bold text-prime shrink-0">
-                      {formatPrice(getMinPrice(p))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {activeTab === "settings" && (
-            <div
-              style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-              className="rounded-2xl p-6"
-            >
-              <h2 className="text-lg font-bold text-text mb-6">Configuración</h2>
-              <div className="space-y-4">
-                {[
-                  {
-                    label: "Notificaciones de bajada de precio",
-                    desc: "Recibe alertas cuando un favorito baje de precio",
-                  },
-                  {
-                    label: "Alertas de disponibilidad",
-                    desc: "Aviso cuando un producto agotado vuelva a estar disponible",
-                  },
-                  {
-                    label: "Resumen semanal",
-                    desc: "Email con las mejores ofertas de la semana",
-                  },
-                ].map((setting, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      background: "#1A1A1A",
-                      border: "1px solid #2A2A2A",
-                    }}
-                    className="flex items-center justify-between p-4 rounded-xl"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold text-text">{setting.label}</div>
-                      <div className="text-xs text-muted mt-0.5">{setting.desc}</div>
-                    </div>
-                    <div
-                      style={{ background: i === 0 ? "#E8001B" : "#2A2A2A" }}
-                      className="w-10 h-5 rounded-full relative cursor-pointer transition-colors"
-                    >
-                      <div
-                        style={{
-                          background: "white",
-                          left: i === 0 ? "20px" : "2px",
-                        }}
-                        className="absolute top-0.5 w-4 h-4 rounded-full transition-all"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+                        <div>
+                          <div className="text-sm font-semibold text-white">{entry.query}</div>
+                          <div className="mt-1 text-xs text-slate-400">
+                            {entry.type === "service" ? "Servicios" : "Productos"} ·{" "}
+                            {new Date(entry.createdAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() =>
+                            navigate(
+                              entry.type === "service"
+                                ? { id: "search-services", query: entry.query }
+                                : { id: "search-products", query: entry.query },
+                            )
+                          }
+                          className="text-xs font-bold text-cyan-200 hover:text-white"
+                        >
+                          Buscar de nuevo
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </section>
         </div>
-      </div>
+      )}
     </div>
   );
 }
