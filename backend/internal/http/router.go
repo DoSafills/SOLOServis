@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/DoSafills/SOLOServis/backend/internal/services"
 	"github.com/DoSafills/SOLOServis/backend/internal/stores"
@@ -39,8 +41,16 @@ func corsMiddleware(frontendURL string) func(next http.Handler) http.Handler {
 	}
 }
 
+// useStandardMiddleware aplica el estándar TAL-78: RequestID → AccessLog → Recover.
+// Debe registrarse antes que cualquier otro middleware.
+func useStandardMiddleware(r chi.Router) {
+	logger := httpx.NewLogger(os.Stdout, httpx.ParseLevel(os.Getenv("LOG_LEVEL")))
+	r.Use(httpx.RequestID, httpx.AccessLog(logger), httpx.Recover(logger))
+}
+
 func NewProductRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	r := chi.NewRouter()
+	useStandardMiddleware(r)
 	r.Use(corsMiddleware(frontendURL))
 	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
 		healthHandler(w, db)
@@ -76,6 +86,7 @@ func NewServiceRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 
 func NewStoreRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	r := chi.NewRouter()
+	useStandardMiddleware(r)
 	r.Use(corsMiddleware(frontendURL))
 	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
 		healthHandler(w, db)
