@@ -1206,3 +1206,5 @@ PostgreSQL
 ```
 
 Esta estructura permite que cada capa tenga una responsabilidad concreta y facilita la expansión futura del sistema hacia servicios, usuarios, scraping, historial de precios, favoritos, comparaciones y otras funcionalidades.
+
+Docker Compose monta los SQL de `backend/database/migrations` en `/docker-entrypoint-initdb.d`, que PostgreSQL procesa al inicializar un directorio de datos vacío. Kubernetes usa `k8s/base/migrations/migrate.sh`, ordena los `.sql` por nombre y registra cada basename en `schema_migrations`. Aunque este README menciona `009_normalize_prices_to_clp.sql` y `010_seed_all_services.sql`, ninguno existe en las ramas remotas conocidas revisadas al 18-10-2026. El directorio actual también repite los prefijos `006`, `007` y `008`.
