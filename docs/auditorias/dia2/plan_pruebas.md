@@ -38,8 +38,14 @@ a una base de datos. En la inspección no aparecieron archivos `*_test.go` bajo
 6. En un conjunto sin duplicados, verificar que el índice único opcional se crea y que su rollback lo elimina.
 7. Aplicar las migraciones originales en el orden explicitado en la instrucción de auditoría y ejecutar la copia de las 20 consultas; comparar con los conteos de referencia del Día 1.
 
-**Todos los casos SQL anteriores están NO EJECUTADOS.** El daemon Docker no está
-disponible y por instrucción se omitió el Paso D completo.
+**Nota de estado e historial:** esta nota fue escrita el 18-10-2026 antes de la
+validación posterior. `resultados_dia2.txt` registra la ejecución SQL del Día 2
+y `decisiones_v2.md` la confirma en su sección «Pruebas y equivalencia». Por
+tanto, las frases «NO EJECUTADOS» y «se omitió el Paso D completo» de esta
+versión son un estado preliminar obsoleto, no el resultado final del Día 2.
+La reejecución reproducible del 23-10-2026 en una base desechable se registra
+en `resultados_reejecucion.txt`; no demuestra por sí sola lo ocurrido el
+18-10-2026.
 
 ## Estrategias posibles para integración
 

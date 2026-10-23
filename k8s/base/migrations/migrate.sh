@@ -1,6 +1,6 @@
 #!/bin/bash
-# Aplica backend/database/migrations/*.sql en orden, una sola vez cada una.
-# Registro en la tabla schema_migrations (version + checksum).
+# Aplica backend/database/migrations/*.sql en orden, una sola vez cada archivo.
+# Registra cada archivo en la tabla schema_migrations (version + suma de verificacion).
 set -euo pipefail
 
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
@@ -34,12 +34,12 @@ if [ "${#files[@]}" -eq 0 ]; then
   exit 1
 fi
 
-IFS=$'\n' sorted=($(printf '%s\n' "${files[@]}" | sort))
+IFS=$'\n' sorted=($(printf '%s\n' "${files[@]}" | LC_ALL=C sort))
 unset IFS
 
 for f in "${sorted[@]}"; do
   version="$(basename "$f")"
-  # Checksum sin CR: igual en checkouts Windows (CRLF) y Linux (LF).
+  # Suma de verificacion sin CR: igual en copias Windows (CRLF) y Linux (LF).
   checksum="$(tr -d '\r' < "$f" | sha256sum | cut -d' ' -f1)"
   current="$(psql -tAc "SELECT checksum FROM schema_migrations WHERE version = '${version}'")"
 
@@ -52,10 +52,12 @@ for f in "${sorted[@]}"; do
   fi
 
   echo "APPLY ${version}"
-  # Archivo + registro en la misma transaccion (si falla, no queda a medias).
-  psql -q -v ON_ERROR_STOP=1 --single-transaction \
+  # Archivo y registro en la misma transaccion (si falla, no queda a medias).
+  psql -q -v ON_ERROR_STOP=1 -v v="$version" -v checksum="$checksum" -1 \
     -f "$f" \
-    -c "INSERT INTO schema_migrations (version, checksum) VALUES ('${version}', '${checksum}')"
+    -f - <<'SQL'
+INSERT INTO schema_migrations (version, checksum) VALUES (:'v', :'checksum');
+SQL
 done
 
 echo "Migraciones aplicadas:"

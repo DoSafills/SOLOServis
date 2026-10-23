@@ -77,3 +77,71 @@ La evidencia actual soporta que:
 - la propuesta de índice requiere decidir si es un cambio de esquema adicional y si el equipo quiere mantener `product_url` como atributo o como parte de la identidad de una oferta.
 
 Todo esto permanece en estado de propuesta, pendiente de la confirmación del equipo.
+
+## Decisiones aprobadas 19-10-2026
+
+### Implementación y commits por fase
+
+| Fase | Resultado | Hash del commit |
+|---|---|---|
+| A | Conflictos de unicidad responden 409, creación de ofertas responde 201, precio obligatorio y `is_promotional` en historial. | `d2d8251bfc204f5540eb5c7d118585286c46c863` |
+| B | Normalización de `product_url`, URL vacía como `NULL`, pruebas de casos. | `61e437dd83e1a8f6366ffdaace38b0f36efd1071` |
+| C | Ingesta de productos delegada al Product API; `imageUrl` opcional. | `fd266bdc44580ff9a23928e8b64758c68a64c154` (checkpoint que incluye el trabajo de C) |
+| D | Autenticación/rol admin se pospuso por decisión del usuario. Las escrituras continúan públicas y se dejaron comentarios TODO; no se implementó reenvío de Authorization. | Sin commit |
+| E | Índices de identidad de oferta, tienda y categoría; pruebas de caracterización. Cambios pendientes de commit. | Sin commit |
+| F | Renumeración, separación de seeds, backfill, runner y README. Equivalencia verificada en base desechable; cambios pendientes de commit. | Sin commit |
+| G | Protección de `deploy.ps1` no implementada. | Sin commit |
+
+Los commits de A, B y C son los hashes históricos de esta rama; no se crearon commits para D-G en esta serie de trabajo.
+
+### Supuestos aprobados para las decisiones 11-15
+
+- **11, identidad de oferta:** identidad por `(product_id, store_id, product_url normalizada)`. La URL ausente se representa como `NULL` en código y como cadena vacía en la expresión única; por tanto, se permite una sola oferta sin URL por producto y tienda. Se añade un índice único sobre `(product_id, store_id, COALESCE(product_url, ''))` y un índice no único parcial sobre `(store_id, product_url)` para URLs no vacías. No se reescriben filas existentes.
+- **12, nombres normalizados:** tienda única por `LOWER(BTRIM(name))`; categoría única por `(COALESCE(parent_category_id, 0), LOWER(BTRIM(name)))`. Los bloques de validación de duplicados detienen la migración con una excepción y su conteo.
+- **13, transacciones:** los SQL de migración no deben incluir transacciones explícitas de nivel superior; el runner aplica cada archivo y registra su basename en `schema_migrations` en una única transacción.
+- **14, numeración:** nombres en minúsculas y prefijos consecutivos sin duplicados. Migraciones finales: `001_schema.sql`, `002_views.sql`, `003_platform_apis.sql`, `004_service_cart.sql`, `005_normalize_prices_to_clp.sql`, `006_offer_identity_and_url_index.sql`, `007_store_and_category_name_unique.sql`.
+- **15, seeds:** los datos iniciales y de ejemplo se separan de las migraciones y se cargan manualmente en orden. Seeds finales: `001_seed.sql`, `002_demo_catalog.sql`, `003_demo_catalog_services.sql`, `004_refrigeradores.sql`, `005_computacion.sql`, `006_telefonia.sql`, `007_history_backfill.sql`. La carga indicada es `psql -v ON_ERROR_STOP=1 -1 -f`; el backfill inserta historial solo para ofertas sin historial.
+
+Los nombres de archivos anteriores son los adoptados en F-2. Los cuatro seeds que tenían `ON CONFLICT (product_id, store_id)` se ajustaron para inferir el índice de expresión de la nueva identidad de oferta.
+
+### Correcciones de citas de Fase 0
+
+- `001_schema.sql` tiene 469 líneas, no aproximadamente 330. La restricción `UNIQUE (product_id, store_id)` estaba en la línea 134; las líneas 459-460 corresponden a los índices `idx_product_offer_product` e `idx_product_offer_store`, no a esa restricción.
+- `requireSession` se implementa en `backend/internal/features/handler.go:24-45`. La cita `backend/internal/features/router.go:25-31` no identifica esa implementación: allí se registran rutas de búsqueda, incluida la aplicación del middleware en la línea 29.
+- Los nombres `009_normalize_prices_to_clp.sql` y `010_seed_all_services.sql` que aparecían en el README eran incorrectos para los archivos existentes; los nombres aprobados están en el inventario de la decisión 14.
+
+### Pruebas y equivalencia
+
+Los casos SQL del plan de pruebas **sí se ejecutaron el 18-10-2026 en una base desechable**. Los casos de API seguían sin ejecutar hasta las pruebas de caracterización del Día 3. No se creó `plan_pruebas_v2.md`.
+
+SQL de migración de versiones antiguas para las tres migraciones renombradas:
+
+```sql
+UPDATE schema_migrations
+SET version = CASE version
+    WHEN '004_platform_apis.sql' THEN '003_platform_apis.sql'
+    WHEN '007_service_cart.sql' THEN '004_service_cart.sql'
+    WHEN '008_normalize_prices_to_clp.sql' THEN '005_normalize_prices_to_clp.sql'
+    ELSE version
+END
+WHERE version IN (
+    '004_platform_apis.sql',
+    '007_service_cart.sql',
+    '008_normalize_prices_to_clp.sql'
+);
+```
+
+**Advertencia:** ejecutar el mapeo **antes de desplegar el runner nuevo en una base existente**; de lo contrario, reaplicaría archivos renombrados. El SQL se verificó únicamente en una base desechable, no en otra base.
+
+### Pendientes no implementados
+
+- Crear el Secret real fuera del repositorio; no subir credenciales al repo.
+- Separar usuarios/permisos de base de datos por componente.
+- Configurar TLS.
+- Definir backups, StorageClass y `reclaimPolicy` del PVC.
+- Validar especificaciones de producto (`data_type`, `required` y categoría).
+- Evaluar Flyway.
+- Reconciliar `develop` con `platform-apis` y resolver `user_email_verified`.
+- Kubernetes despliega solo `product-api` y `store-api`; los cambios de ingesta y autenticación están en Compose, no en Kubernetes.
+- No hay CI de pruebas.
+- Persiste el riesgo de que clientes o integraciones asuman una sola oferta por producto y tienda, sin considerar la URL como parte de la identidad.
