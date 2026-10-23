@@ -85,6 +85,24 @@ func (r *Repository) ListOffers(ctx context.Context, productID int32) ([]generat
 	return r.queries.ListProductOffers(ctx, productID)
 }
 
+func (r *Repository) GetOfferByID(ctx context.Context, offerID int32) (generated.ProductOffer, error) {
+	return r.queries.GetOfferByID(ctx, offerID)
+}
+
+func (r *Repository) UpsertOffer(ctx context.Context, params generated.UpsertProductOfferParams) (generated.ProductOffer, error) {
+	if err := ValidateCurrencyCode(params.Currency); err != nil {
+		return generated.ProductOffer{}, err
+	}
+	if params.ProductUrl.Valid {
+		params.ProductUrl.String = NormalizeProductOfferURL(params.ProductUrl.String)
+	}
+	return r.queries.UpsertProductOffer(ctx, params)
+}
+
+func (r *Repository) UpdateOfferPriceAvailability(ctx context.Context, params generated.UpdateProductOfferPriceAvailabilityParams) (generated.ProductOffer, error) {
+	return r.queries.UpdateProductOfferPriceAvailability(ctx, params)
+}
+
 func (r *Repository) ListImages(ctx context.Context, productID int32) ([]generated.ProductImage, error) {
 	return r.queries.ListProductImages(ctx, productID)
 }

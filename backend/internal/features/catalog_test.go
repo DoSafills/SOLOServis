@@ -344,6 +344,15 @@ func TestCharacterization_CreateOfferRejectsInvalidInputWithoutDatabase(t *testi
 				"price":     1,
 			},
 		},
+		{
+			name: "invalid currency format",
+			payload: map[string]any{
+				"productId": "unused",
+				"storeId":   1,
+				"price":     1,
+				"currency":  "US1",
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			response := characterizationRequest(t, http.HandlerFunc(handler.CreateOffer), http.MethodPost, "/offers", test.payload)

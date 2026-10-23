@@ -74,6 +74,19 @@ type Brand struct {
 	Active     bool        `json:"active"`
 }
 
+type CartItem struct {
+	ID                int32            `json:"id"`
+	UserID            int32            `json:"user_id"`
+	ProductID         pgtype.Int4      `json:"product_id"`
+	OfferID           pgtype.Int4      `json:"offer_id"`
+	Quantity          int32            `json:"quantity"`
+	SavedPrice        pgtype.Numeric   `json:"saved_price"`
+	SavedShippingCost pgtype.Numeric   `json:"saved_shipping_cost"`
+	CreatedAt         pgtype.Timestamp `json:"created_at"`
+	UpdatedAt         pgtype.Timestamp `json:"updated_at"`
+	ServiceOfferID    pgtype.Int4      `json:"service_offer_id"`
+}
+
 type DataSource struct {
 	ID         int32            `json:"id"`
 	Name       string           `json:"name"`
@@ -84,6 +97,15 @@ type DataSource struct {
 	UpdatedAt  pgtype.Timestamp `json:"updated_at"`
 }
 
+type IngestionRun struct {
+	ID          int64            `json:"id"`
+	Source      string           `json:"source"`
+	Status      string           `json:"status"`
+	Details     []byte           `json:"details"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	CompletedAt pgtype.Timestamp `json:"completed_at"`
+}
+
 type Location struct {
 	ID        int32          `json:"id"`
 	Country   string         `json:"country"`
@@ -92,6 +114,17 @@ type Location struct {
 	Commune   pgtype.Text    `json:"commune"`
 	Latitude  pgtype.Numeric `json:"latitude"`
 	Longitude pgtype.Numeric `json:"longitude"`
+}
+
+type Notification struct {
+	ID        int64            `json:"id"`
+	UserID    int32            `json:"user_id"`
+	Type      string           `json:"type"`
+	Title     string           `json:"title"`
+	Message   string           `json:"message"`
+	Data      []byte           `json:"data"`
+	ReadAt    pgtype.Timestamp `json:"read_at"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
 }
 
 type Product struct {
@@ -156,19 +189,19 @@ type ProductImage struct {
 }
 
 type ProductOffer struct {
-	ID           int32            `json:"id"`
-	ProductID    int32            `json:"product_id"`
-	StoreID      int32            `json:"store_id"`
-	Price        pgtype.Numeric   `json:"price"`
-	ListPrice    pgtype.Numeric   `json:"list_price"`
-	Currency     string           `json:"currency"`
-	ShippingCost pgtype.Numeric   `json:"shipping_cost"`
-	ShippingFree bool             `json:"shipping_free"`
-	Available    bool             `json:"available"`
-	Stock        pgtype.Int4      `json:"stock"`
-	Condition    string           `json:"condition"`
-	ProductUrl   pgtype.Text      `json:"product_url"`
-	LastUpdated  pgtype.Timestamp `json:"last_updated"`
+	ID           int32              `json:"id"`
+	ProductID    int32              `json:"product_id"`
+	StoreID      int32              `json:"store_id"`
+	Price        pgtype.Numeric     `json:"price"`
+	ListPrice    pgtype.Numeric     `json:"list_price"`
+	Currency     string             `json:"currency"`
+	ShippingCost pgtype.Numeric     `json:"shipping_cost"`
+	ShippingFree bool               `json:"shipping_free"`
+	Available    bool               `json:"available"`
+	Stock        pgtype.Int4        `json:"stock"`
+	Condition    string             `json:"condition"`
+	ProductUrl   pgtype.Text        `json:"product_url"`
+	LastUpdated  pgtype.Timestamptz `json:"last_updated"`
 }
 
 type ProductPriceHistory struct {
@@ -236,6 +269,16 @@ type ProviderLocation struct {
 	PostalCode    pgtype.Text `json:"postal_code"`
 	ServiceRadius pgtype.Text `json:"service_radius"`
 	Active        bool        `json:"active"`
+}
+
+type SavedSearch struct {
+	ID        int32            `json:"id"`
+	UserID    int32            `json:"user_id"`
+	Name      string           `json:"name"`
+	Query     string           `json:"query"`
+	Filters   []byte           `json:"filters"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+	UpdatedAt pgtype.Timestamp `json:"updated_at"`
 }
 
 type ScrapeRun struct {
@@ -381,6 +424,27 @@ type ServiceReview struct {
 	UpdatedAt pgtype.Timestamp `json:"updated_at"`
 }
 
+type ServiceSeed struct {
+	CategoryName    string         `json:"category_name"`
+	Name            string         `json:"name"`
+	Description     string         `json:"description"`
+	ProviderName    string         `json:"provider_name"`
+	WebsiteUrl      string         `json:"website_url"`
+	Price           pgtype.Numeric `json:"price"`
+	Currency        string         `json:"currency"`
+	BillingPeriod   string         `json:"billing_period"`
+	ContractPeriod  string         `json:"contract_period"`
+	Coverage        string         `json:"coverage"`
+	AdditionalCosts string         `json:"additional_costs"`
+}
+
+type ServiceSpecSeed struct {
+	CategoryName      string `json:"category_name"`
+	ServiceName       string `json:"service_name"`
+	SpecificationName string `json:"specification_name"`
+	Value             string `json:"value"`
+}
+
 type ServiceSpecificationValue struct {
 	ID              int32  `json:"id"`
 	ServiceID       int32  `json:"service_id"`
@@ -427,6 +491,35 @@ type StoreLocation struct {
 	Active     bool        `json:"active"`
 }
 
+type StoreReview struct {
+	ID        int32            `json:"id"`
+	UserID    int32            `json:"user_id"`
+	StoreID   int32            `json:"store_id"`
+	Rating    int32            `json:"rating"`
+	Title     pgtype.Text      `json:"title"`
+	Content   pgtype.Text      `json:"content"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+	UpdatedAt pgtype.Timestamp `json:"updated_at"`
+}
+
+type TechnicalCategorySeed struct {
+	ServiceName  string `json:"service_name"`
+	CategoryName string `json:"category_name"`
+}
+
+type TechnicalServiceSeed struct {
+	Name            string         `json:"name"`
+	Description     string         `json:"description"`
+	ProviderName    string         `json:"provider_name"`
+	WebsiteUrl      string         `json:"website_url"`
+	Price           pgtype.Numeric `json:"price"`
+	BillingPeriod   string         `json:"billing_period"`
+	ContractPeriod  string         `json:"contract_period"`
+	Coverage        string         `json:"coverage"`
+	AdditionalCosts string         `json:"additional_costs"`
+	Specifications  []byte         `json:"specifications"`
+}
+
 type UserAccount struct {
 	ID           int32            `json:"id"`
 	PublicID     pgtype.UUID      `json:"public_id"`
@@ -437,4 +530,14 @@ type UserAccount struct {
 	Active       bool             `json:"active"`
 	CreatedAt    pgtype.Timestamp `json:"created_at"`
 	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
+}
+
+type UserSession struct {
+	ID               int64            `json:"id"`
+	UserID           int32            `json:"user_id"`
+	AccessTokenHash  []byte           `json:"access_token_hash"`
+	RefreshTokenHash []byte           `json:"refresh_token_hash"`
+	AccessExpiresAt  pgtype.Timestamp `json:"access_expires_at"`
+	RefreshExpiresAt pgtype.Timestamp `json:"refresh_expires_at"`
+	CreatedAt        pgtype.Timestamp `json:"created_at"`
 }

@@ -103,6 +103,89 @@ JOIN store s ON s.id = po.store_id
 WHERE po.product_id = $1
 ORDER BY po.price ASC;
 
+-- name: GetOfferByID :one
+SELECT
+    id,
+    product_id,
+    store_id,
+    price,
+    list_price,
+    currency,
+    shipping_cost,
+    shipping_free,
+    available,
+    stock,
+    condition,
+    product_url,
+    last_updated
+FROM product_offer
+WHERE id = $1;
+
+-- name: UpsertProductOffer :one
+INSERT INTO product_offer (
+    product_id,
+    store_id,
+    price,
+    currency,
+    product_url,
+    available
+)
+VALUES (
+    sqlc.arg(product_id),
+    sqlc.arg(store_id),
+    sqlc.arg(price),
+    sqlc.arg(currency),
+    normalize_product_offer_url(sqlc.narg(product_url)::text),
+    sqlc.arg(available)
+)
+ON CONFLICT (
+    product_id,
+    store_id,
+    (COALESCE(normalize_product_offer_url(product_url), ''))
+)
+DO UPDATE SET
+    price = EXCLUDED.price,
+    currency = EXCLUDED.currency,
+    product_url = EXCLUDED.product_url,
+    available = EXCLUDED.available,
+    last_updated = NOW()
+RETURNING
+    id,
+    product_id,
+    store_id,
+    price,
+    list_price,
+    currency,
+    shipping_cost,
+    shipping_free,
+    available,
+    stock,
+    condition,
+    product_url,
+    last_updated;
+
+-- name: UpdateProductOfferPriceAvailability :one
+UPDATE product_offer
+SET
+    price = sqlc.arg(price),
+    available = sqlc.arg(available),
+    last_updated = NOW()
+WHERE id = sqlc.arg(id)
+RETURNING
+    id,
+    product_id,
+    store_id,
+    price,
+    list_price,
+    currency,
+    shipping_cost,
+    shipping_free,
+    available,
+    stock,
+    condition,
+    product_url,
+    last_updated;
+
 
 -- name: ListProductImages :many
 SELECT

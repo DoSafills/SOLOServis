@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -74,13 +75,18 @@ func (h *Handler) CreateOffer(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "productId, storeId and a non-negative price are required")
 		return
 	}
+	if input.Currency == "" {
+		input.Currency = "CLP"
+	}
+	if products.ValidateCurrencyCode(input.Currency) != nil {
+		badRequest(w, "currency must contain exactly three uppercase letters")
+		return
+	}
+	input.ProductURL = products.NormalizeProductOfferURL(input.ProductURL)
 	productID, err := h.service.ProductID(r.Context(), input.ProductID)
 	if err != nil {
 		apiutil.WriteError(w, http.StatusNotFound, "product not found")
 		return
-	}
-	if input.Currency == "" {
-		input.Currency = "CLP"
 	}
 	if input.Condition == "" {
 		input.Condition = "new"
@@ -127,6 +133,11 @@ func (h *Handler) UpdateOffer(w http.ResponseWriter, r *http.Request) {
 	if input.Currency == "" {
 		input.Currency = "CLP"
 	}
+	if products.ValidateCurrencyCode(input.Currency) != nil {
+		badRequest(w, "currency must contain exactly three uppercase letters")
+		return
+	}
+	input.ProductURL = products.NormalizeProductOfferURL(input.ProductURL)
 	if input.Condition == "" {
 		input.Condition = "new"
 	}
