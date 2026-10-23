@@ -102,7 +102,7 @@ func TestCharacterization_CreateOffer(t *testing.T) {
 	productID, _, storeID := characterizationIDs(t, pool)
 	router := NewRouter("pricing-api", pool, "")
 
-	// CreateOffer currently responds 200 and records the initial price history.
+	// CreateOffer responds 200 and records the initial price history.
 	offerID := createCharacterizationOffer(t, pool, router,
 		characterizationOfferPayload(productID, storeID, 123.45))
 

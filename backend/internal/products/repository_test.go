@@ -73,7 +73,7 @@ func TestNormalizeProductOfferURLMatchesDatabase(t *testing.T) {
 	}
 }
 
-func TestUpsertOfferUpdatesWithoutWritingHistory(t *testing.T) {
+func TestUpsertOfferRecordsOnlyChangedPrices(t *testing.T) {
 	ctx := context.Background()
 	pool := repositoryTestPool(t)
 	productID, storeIDs := repositoryTestProductAndStores(t, pool)
@@ -89,7 +89,19 @@ func TestUpsertOfferUpdatesWithoutWritingHistory(t *testing.T) {
 			t.Errorf("delete test offer %d: %v", first.ID, err)
 		}
 	})
+
+	assertOfferHistory(t, pool, first.ID, []string{"10.25"})
+
 	time.Sleep(20 * time.Millisecond)
+
+	samePrice, err := repository.UpsertOffer(ctx, repositoryTestUpsertParams(t, productID, storeIDs[0], "10.25", "USD", " HTTPS://EXAMPLE.TEST/tal64-"+url[strings.LastIndex(url, "-")+1:], false))
+	if err != nil {
+		t.Fatalf("upsert offer without price change: %v", err)
+	}
+	if samePrice.ID != first.ID || samePrice.Available {
+		t.Fatalf("same-price upsert = %+v, want existing unavailable offer", samePrice)
+	}
+	assertOfferHistory(t, pool, first.ID, []string{"10.25"})
 
 	second, err := repository.UpsertOffer(ctx, repositoryTestUpsertParams(t, productID, storeIDs[0], "20.50", "USD", " HTTPS://EXAMPLE.TEST/tal64-"+url[strings.LastIndex(url, "-")+1:], false))
 	if err != nil {
@@ -101,6 +113,7 @@ func TestUpsertOfferUpdatesWithoutWritingHistory(t *testing.T) {
 	if !second.LastUpdated.Valid || !second.LastUpdated.Time.After(first.LastUpdated.Time) {
 		t.Fatalf("last_updated did not advance: before %v, after %v", first.LastUpdated, second.LastUpdated)
 	}
+	assertOfferHistory(t, pool, first.ID, []string{"10.25", "20.50"})
 
 	var price, currency string
 	var historyCount int
@@ -115,8 +128,8 @@ func TestUpsertOfferUpdatesWithoutWritingHistory(t *testing.T) {
 	if price != "20.50" || currency != "CLP" {
 		t.Fatalf("stored price/currency = %s/%s, want 20.50/CLP", price, currency)
 	}
-	if historyCount != 0 {
-		t.Fatalf("upsert wrote %d price-history rows, want none", historyCount)
+	if historyCount != 2 {
+		t.Fatalf("upsert wrote %d price-history rows, want 2", historyCount)
 	}
 	if second.Available {
 		t.Fatal("updated offer is available, want unavailable")
@@ -136,8 +149,63 @@ func TestUpsertOfferUpdatesWithoutWritingHistory(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM product_price_history WHERE product_offer_id = $1`, updated.ID).Scan(&historyCount); err != nil {
 		t.Fatalf("count history after price/availability update: %v", err)
 	}
-	if historyCount != 0 {
-		t.Fatalf("price/availability update wrote %d price-history rows, want none", historyCount)
+	if historyCount != 3 {
+		t.Fatalf("price update wrote %d price-history rows, want 3", historyCount)
+	}
+	assertOfferHistory(t, pool, first.ID, []string{"10.25", "20.50", "25.75"})
+
+	availabilityOnly, err := repository.UpdateOfferPriceAvailability(ctx, generated.UpdateProductOfferPriceAvailabilityParams{
+		Price:     repositoryTestNumeric(t, "25.75"),
+		Available: false,
+		ID:        updated.ID,
+	})
+	if err != nil {
+		t.Fatalf("update availability without price change: %v", err)
+	}
+	if availabilityOnly.Available {
+		t.Fatal("availability-only update did not persist")
+	}
+	assertOfferHistory(t, pool, first.ID, []string{"10.25", "20.50", "25.75"})
+}
+
+func assertOfferHistory(t *testing.T, pool *pgxpool.Pool, offerID int32, wantPrices []string) {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `
+		SELECT id, price::text, recorded_at
+		FROM product_price_history
+		WHERE product_offer_id = $1
+		ORDER BY recorded_at, id`, offerID)
+	if err != nil {
+		t.Fatalf("query offer history: %v", err)
+	}
+	defer rows.Close()
+
+	type historyEntry struct {
+		id         int32
+		price      string
+		recordedAt time.Time
+	}
+	var entries []historyEntry
+	for rows.Next() {
+		var entry historyEntry
+		if err := rows.Scan(&entry.id, &entry.price, &entry.recordedAt); err != nil {
+			t.Fatalf("scan offer history: %v", err)
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate offer history: %v", err)
+	}
+	if len(entries) != len(wantPrices) {
+		t.Fatalf("history count = %d, want %d", len(entries), len(wantPrices))
+	}
+	for i, price := range wantPrices {
+		if entries[i].price != price {
+			t.Fatalf("history[%d].price = %s, want %s", i, entries[i].price, price)
+		}
+		if i > 0 && !entries[i].recordedAt.After(entries[i-1].recordedAt) {
+			t.Fatalf("history timestamps are not increasing: %v then %v", entries[i-1].recordedAt, entries[i].recordedAt)
+		}
 	}
 }
 
