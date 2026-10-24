@@ -1,0 +1,81 @@
+# Job único de migraciones: PostgreSQL -> Migration Job -> APIs.
+# Es inmutable: deploy.ps1 lo borra y lo recrea en cada despliegue.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: soloservis-migrate
+  labels:
+    app.kubernetes.io/name: soloservis-migrate
+    app.kubernetes.io/component: migrations
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: soloservis-migrate
+        app.kubernetes.io/component: migrations
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: postgres:18
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/scripts/migrate.sh"]
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}
+            - name: MIGRATIONS_DIR
+              value: /migrations
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Limites bajos: la plataforma tiene una cuota COMPARTIDA entre todos
+          # los estudiantes (students-host-envelope, 20 CPU de limits en total).
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: scripts
+          configMap:
+            name: soloservis-migrate-script
+        - name: migrations
+          configMap:
+            name: soloservis-migrations
+        - name: tmp
+          emptyDir: {}

@@ -1,4 +1,5 @@
 import type { Product, PricePoint } from "../../types";
+import { API_URLS, getJson } from "./config";
 
 interface ApiImage {
   url: string;
@@ -7,17 +8,21 @@ interface ApiImage {
 }
 
 interface ApiOffer {
+  offerId: number;
   storeId: string;
   storeName: string;
   price: string;
-  listPrice: string;
+  listPrice: string | number | null;
   currency: string;
-  shippingCost: string;
+  shippingCost: string | number | null;
   shippingFree: boolean;
   available: boolean;
   stock: number | null;
   condition: string;
   productUrl: string;
+  deliveryTime?: string | null;
+  warranty?: string | null;
+  lastUpdated?: string | null;
 }
 
 interface ApiPricePoint {
@@ -61,11 +66,9 @@ export interface ApiProduct {
   offerPriceHistory?: ApiPricePoint[];
 }
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
-
-const parseAmount = (value: string | undefined): number => {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? amount : 0;
+export const parseAmount = (value: string | number | null | undefined, fallback = 0): number => {
+  const amount = Number(value ?? fallback);
+  return Number.isFinite(amount) ? amount : fallback;
 };
 
 const toPricePoints = (points: ApiPricePoint[] | undefined): PricePoint[] =>
@@ -77,14 +80,31 @@ const toPricePoints = (points: ApiPricePoint[] | undefined): PricePoint[] =>
 export const toProduct = (product: ApiProduct): Product => {
   const images = (product.images ?? []).map((image) => image.url).filter(Boolean);
 
-  const offers = (product.offers ?? []).map((offer) => ({
-    storeId: String(offer.storeId),
-    storeName: offer.storeName,
-    price: parseAmount(offer.price),
-    available: offer.available,
-    shipping: offer.shippingFree ? 0 : parseAmount(offer.shippingCost),
-    url: offer.productUrl || undefined,
-  }));
+  const offers = (product.offers ?? []).map((offer) => {
+    const shipping =
+      offer.shippingCost === null || offer.shippingCost === ""
+        ? null
+        : parseAmount(offer.shippingCost);
+    const listPrice =
+      offer.listPrice === null || offer.listPrice === "" ? null : parseAmount(offer.listPrice);
+
+    return {
+      offerId: offer.offerId,
+      storeId: String(offer.storeId),
+      storeName: offer.storeName,
+      price: parseAmount(offer.price),
+      listPrice,
+      available: offer.available,
+      shipping: offer.shippingFree ? 0 : shipping,
+      shippingFree: offer.shippingFree,
+      stock: offer.stock,
+      condition: offer.condition,
+      url: offer.productUrl || undefined,
+      deliveryTime: offer.deliveryTime ?? undefined,
+      warranty: offer.warranty ?? undefined,
+      lastUpdated: offer.lastUpdated ?? undefined,
+    };
+  });
 
   const priceHistory = toPricePoints(product.priceHistory);
   const offerPriceHistory = toPricePoints(product.offerPriceHistory);
@@ -119,37 +139,19 @@ export const toProduct = (product: ApiProduct): Product => {
 /** Filtrar por una categoría incluye los productos de sus subcategorías. */
 export async function getProducts(categoryId?: number): Promise<ApiProduct[]> {
   const query = categoryId ? `?category=${categoryId}` : "";
-  const response = await fetch(`${API_URL}/products${query}`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch products: ${response.status}`);
-  }
-
-  return response.json();
+  return getJson<ApiProduct[]>(`${API_URLS.products}/products${query}`);
 }
 
 export async function getCategories(): Promise<ApiProductCategory[]> {
-  const response = await fetch(`${API_URL}/categories`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch categories: ${response.status}`);
-  }
-
-  return response.json();
+  return getJson<ApiProductCategory[]>(`${API_URLS.products}/categories`);
 }
 
 export async function getProductReviews(id: string): Promise<ApiProductReview[]> {
-  const response = await fetch(`${API_URL}/products/${id}/reviews`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch reviews: ${response.status}`);
-  }
-
-  return response.json();
+  return getJson<ApiProductReview[]>(`${API_URLS.products}/products/${id}/reviews`);
 }
 
 export async function getProductById(id: string): Promise<Product | null> {
-  const response = await fetch(`${API_URL}/products/${id}`);
+  const response = await fetch(`${API_URLS.products}/products/${id}`);
 
   if (response.status === 404) return null;
 
@@ -159,4 +161,3 @@ export async function getProductById(id: string): Promise<Product | null> {
 
   return toProduct((await response.json()) as ApiProduct);
 }
-
