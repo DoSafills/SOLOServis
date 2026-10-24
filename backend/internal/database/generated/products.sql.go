@@ -337,6 +337,97 @@ func (q *Queries) GetProductDetailByPublicID(ctx context.Context, publicID pgtyp
 	return i, err
 }
 
+const getServiceDetail = `-- name: GetServiceDetail :one
+SELECT
+        s.id,
+        s.public_id,
+        s.name,
+        s.description,
+        s.image_url,
+        sc.name AS category_name,
+        COALESCE(srs.derived_average_rating, 0) AS rating,
+        COALESCE(srs.derived_review_count, 0) AS review_count
+FROM service s
+JOIN service_category sc ON sc.id = s.category_id
+LEFT JOIN service_rating_summary srs ON srs.service_id = s.id
+WHERE s.public_id = $1
+    AND s.active = TRUE
+`
+
+type GetServiceDetailRow struct {
+	ID           int32          `json:"id"`
+	PublicID     pgtype.UUID    `json:"public_id"`
+	Name         string         `json:"name"`
+	Description  pgtype.Text    `json:"description"`
+	ImageUrl     pgtype.Text    `json:"image_url"`
+	CategoryName string         `json:"category_name"`
+	Rating       pgtype.Numeric `json:"rating"`
+	ReviewCount  int64          `json:"review_count"`
+}
+
+func (q *Queries) GetServiceDetail(ctx context.Context, publicID pgtype.UUID) (GetServiceDetailRow, error) {
+	row := q.db.QueryRow(ctx, getServiceDetail, publicID)
+	var i GetServiceDetailRow
+	err := row.Scan(
+		&i.ID,
+		&i.PublicID,
+		&i.Name,
+		&i.Description,
+		&i.ImageUrl,
+		&i.CategoryName,
+		&i.Rating,
+		&i.ReviewCount,
+	)
+	return i, err
+}
+
+const getStore = `-- name: GetStore :one
+SELECT
+        s.id,
+        s.name,
+        s.website_url,
+        s.logo_url,
+        s.rating,
+        s.reputation,
+        s.shipping_information,
+        s.general_conditions,
+        COUNT(po.id)::BIGINT AS product_count
+FROM store s
+LEFT JOIN product_offer po ON po.store_id = s.id
+WHERE s.id = $1
+    AND s.active = TRUE
+GROUP BY s.id
+`
+
+type GetStoreRow struct {
+	ID                  int32          `json:"id"`
+	Name                string         `json:"name"`
+	WebsiteUrl          pgtype.Text    `json:"website_url"`
+	LogoUrl             pgtype.Text    `json:"logo_url"`
+	Rating              pgtype.Numeric `json:"rating"`
+	Reputation          pgtype.Text    `json:"reputation"`
+	ShippingInformation pgtype.Text    `json:"shipping_information"`
+	GeneralConditions   pgtype.Text    `json:"general_conditions"`
+	ProductCount        int64          `json:"product_count"`
+}
+
+func (q *Queries) GetStore(ctx context.Context, id int32) (GetStoreRow, error) {
+	row := q.db.QueryRow(ctx, getStore, id)
+	var i GetStoreRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.WebsiteUrl,
+		&i.LogoUrl,
+		&i.Rating,
+		&i.Reputation,
+		&i.ShippingInformation,
+		&i.GeneralConditions,
+		&i.ProductCount,
+	)
+	return i, err
+}
+
 const listProductCategories = `-- name: ListProductCategories :many
 SELECT
     c.id,
