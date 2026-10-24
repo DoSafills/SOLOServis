@@ -521,11 +521,11 @@ type TechnicalServiceSeed struct {
 }
 
 type UserAccount struct {
-	ID           int32            `json:"id"`
-	PublicID     pgtype.UUID      `json:"public_id"`
-	Role         UserRole         `json:"role"`
-	Name         string           `json:"name"`
-	Email        string           `json:"email"`
+	ID            int32            `json:"id"`
+	PublicID      pgtype.UUID      `json:"public_id"`
+	Role          UserRole         `json:"role"`
+	Name          string           `json:"name"`
+	Email         string           `json:"email"`
 	PasswordHash  string           `json:"password_hash"`
 	Active        bool             `json:"active"`
 	CreatedAt     pgtype.Timestamp `json:"created_at"`
