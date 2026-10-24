@@ -1,0 +1,27 @@
+# Browser -> Ingress (/) -> frontend (nginx) -> product-api / store-api
+# La plataforma UCT (ValidatingAdmissionPolicy rke2-edu-ingress-hostname) exige
+# que cada hostname use SOLO el path "/". Por eso /products y /stores los enruta
+# el nginx del frontend hacia los Services internos (docker/frontend/nginx.conf).
+# El host (*.dev.censei.cl) lo agrega el overlay generado por deploy.ps1.
+# Clase y anotacion exigidas por el manual de la plataforma UCT.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: soloservis
+  labels:
+    app.kubernetes.io/name: soloservis-ingress
+    app.kubernetes.io/component: ingress
+  annotations:
+    external-dns.alpha.kubernetes.io/target: proxy.inf.uct.cl
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  name: http

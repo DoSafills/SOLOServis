@@ -156,6 +156,46 @@ func (q *Queries) DeactivateProductByPublicID(ctx context.Context, publicID pgty
 	return i, err
 }
 
+const getOfferByID = `-- name: GetOfferByID :one
+SELECT
+    id,
+    product_id,
+    store_id,
+    price,
+    list_price,
+    currency,
+    shipping_cost,
+    shipping_free,
+    available,
+    stock,
+    condition,
+    product_url,
+    last_updated
+FROM product_offer
+WHERE id = $1
+`
+
+func (q *Queries) GetOfferByID(ctx context.Context, id int32) (ProductOffer, error) {
+	row := q.db.QueryRow(ctx, getOfferByID, id)
+	var i ProductOffer
+	err := row.Scan(
+		&i.ID,
+		&i.ProductID,
+		&i.StoreID,
+		&i.Price,
+		&i.ListPrice,
+		&i.Currency,
+		&i.ShippingCost,
+		&i.ShippingFree,
+		&i.Available,
+		&i.Stock,
+		&i.Condition,
+		&i.ProductUrl,
+		&i.LastUpdated,
+	)
+	return i, err
+}
+
 const getProductByID = `-- name: GetProductByID :one
 SELECT
     id,
@@ -404,20 +444,20 @@ ORDER BY po.price ASC
 `
 
 type ListProductOffersRow struct {
-	ID           int32            `json:"id"`
-	ProductID    int32            `json:"product_id"`
-	StoreID      int32            `json:"store_id"`
-	StoreName    string           `json:"store_name"`
-	Price        pgtype.Numeric   `json:"price"`
-	ListPrice    pgtype.Numeric   `json:"list_price"`
-	Currency     string           `json:"currency"`
-	ShippingCost pgtype.Numeric   `json:"shipping_cost"`
-	ShippingFree bool             `json:"shipping_free"`
-	Available    bool             `json:"available"`
-	Stock        pgtype.Int4      `json:"stock"`
-	Condition    string           `json:"condition"`
-	ProductUrl   pgtype.Text      `json:"product_url"`
-	LastUpdated  pgtype.Timestamp `json:"last_updated"`
+	ID           int32              `json:"id"`
+	ProductID    int32              `json:"product_id"`
+	StoreID      int32              `json:"store_id"`
+	StoreName    string             `json:"store_name"`
+	Price        pgtype.Numeric     `json:"price"`
+	ListPrice    pgtype.Numeric     `json:"list_price"`
+	Currency     string             `json:"currency"`
+	ShippingCost pgtype.Numeric     `json:"shipping_cost"`
+	ShippingFree bool               `json:"shipping_free"`
+	Available    bool               `json:"available"`
+	Stock        pgtype.Int4        `json:"stock"`
+	Condition    string             `json:"condition"`
+	ProductUrl   pgtype.Text        `json:"product_url"`
+	LastUpdated  pgtype.Timestamptz `json:"last_updated"`
 }
 
 func (q *Queries) ListProductOffers(ctx context.Context, productID int32) ([]ListProductOffersRow, error) {
@@ -881,6 +921,137 @@ func (q *Queries) UpdateProductByPublicID(ctx context.Context, arg UpdateProduct
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateProductOfferPriceAvailability = `-- name: UpdateProductOfferPriceAvailability :one
+UPDATE product_offer
+SET
+    price = $1,
+    available = $2,
+    last_updated = NOW()
+WHERE id = $3
+RETURNING
+    id,
+    product_id,
+    store_id,
+    price,
+    list_price,
+    currency,
+    shipping_cost,
+    shipping_free,
+    available,
+    stock,
+    condition,
+    product_url,
+    last_updated
+`
+
+type UpdateProductOfferPriceAvailabilityParams struct {
+	Price     pgtype.Numeric `json:"price"`
+	Available bool           `json:"available"`
+	ID        int32          `json:"id"`
+}
+
+func (q *Queries) UpdateProductOfferPriceAvailability(ctx context.Context, arg UpdateProductOfferPriceAvailabilityParams) (ProductOffer, error) {
+	row := q.db.QueryRow(ctx, updateProductOfferPriceAvailability, arg.Price, arg.Available, arg.ID)
+	var i ProductOffer
+	err := row.Scan(
+		&i.ID,
+		&i.ProductID,
+		&i.StoreID,
+		&i.Price,
+		&i.ListPrice,
+		&i.Currency,
+		&i.ShippingCost,
+		&i.ShippingFree,
+		&i.Available,
+		&i.Stock,
+		&i.Condition,
+		&i.ProductUrl,
+		&i.LastUpdated,
+	)
+	return i, err
+}
+
+const upsertProductOffer = `-- name: UpsertProductOffer :one
+INSERT INTO product_offer (
+    product_id,
+    store_id,
+    price,
+    currency,
+    product_url,
+    available
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    normalize_product_offer_url($5::text),
+    $6
+)
+ON CONFLICT (
+    product_id,
+    store_id,
+    (COALESCE(normalize_product_offer_url(product_url), ''))
+)
+DO UPDATE SET
+    price = EXCLUDED.price,
+    currency = EXCLUDED.currency,
+    product_url = EXCLUDED.product_url,
+    available = EXCLUDED.available,
+    last_updated = NOW()
+RETURNING
+    id,
+    product_id,
+    store_id,
+    price,
+    list_price,
+    currency,
+    shipping_cost,
+    shipping_free,
+    available,
+    stock,
+    condition,
+    product_url,
+    last_updated
+`
+
+type UpsertProductOfferParams struct {
+	ProductID  int32          `json:"product_id"`
+	StoreID    int32          `json:"store_id"`
+	Price      pgtype.Numeric `json:"price"`
+	Currency   string         `json:"currency"`
+	ProductUrl pgtype.Text    `json:"product_url"`
+	Available  bool           `json:"available"`
+}
+
+func (q *Queries) UpsertProductOffer(ctx context.Context, arg UpsertProductOfferParams) (ProductOffer, error) {
+	row := q.db.QueryRow(ctx, upsertProductOffer,
+		arg.ProductID,
+		arg.StoreID,
+		arg.Price,
+		arg.Currency,
+		arg.ProductUrl,
+		arg.Available,
+	)
+	var i ProductOffer
+	err := row.Scan(
+		&i.ID,
+		&i.ProductID,
+		&i.StoreID,
+		&i.Price,
+		&i.ListPrice,
+		&i.Currency,
+		&i.ShippingCost,
+		&i.ShippingFree,
+		&i.Available,
+		&i.Stock,
+		&i.Condition,
+		&i.ProductUrl,
+		&i.LastUpdated,
 	)
 	return i, err
 }
