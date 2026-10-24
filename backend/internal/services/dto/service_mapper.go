@@ -48,7 +48,12 @@ func FromService(
 	if len(offers) > 0 {
 		offer := offers[0]
 
+		result.OfferID = offer.ID
 		result.Provider = offer.ProviderName
+
+		if offer.BillingPeriod.Valid {
+			result.BillingPeriod = offer.BillingPeriod.String
+		}
 
 		if offer.Price.Valid {
 			if value, err := offer.Price.Float64Value(); err == nil && value.Valid {

@@ -1,0 +1,74 @@
+Día 2 - resultados de validación de migración borrador y pruebas de diagnóstico
+
+Paso A
+git status --short: vacío
+git branch --show-current: feature/offer-url-index-design
+git log -1 --oneline: 2738771 Merge branch 'main' into feature/platform-apis-and-product-comparison
+
+Paso B
+Archivo: C:\Users\cc077\Documents\SOLOServis_auditoria\dia2\decisiones.md
+Estado: propuesta, pendiente de confirmación del equipo.
+
+Paso C
+Archivos creados:
+- C:\Users\cc077\Documents\SOLOServis_auditoria\dia2\proposed_offer_url_index.sql
+- C:\Users\cc077\Documents\SOLOServis_auditoria\dia2\proposed_offer_url_index_rollback.sql
+- C:\Users\cc077\Documents\SOLOServis_auditoria\dia2\proposed_unique_store_url_OPCIONAL.sql
+- C:\Users\cc077\Documents\SOLOServis_auditoria\dia2\proposed_unique_store_url_OPCIONAL_rollback.sql
+Se verificaron columnas de product_offer en backend/database/migrations/001_schema.sql:118-145.
+
+Paso D
+D4.1: proposed_offer_url_index.sql -> exit 0
+D4.2: reaplicación -> exit 0 (NOTICE: relation already exists, skipping)
+D4.3: pg_indexes muestra idx_product_offer_store_url_nonempty en public.product_offer usando (store_id, product_url) WHERE product_url IS NOT NULL AND btrim(product_url) <> ''
+D4.3: EXPLAIN ejecuta un scan con filtro por store_id + product_url (sin error).
+D4.4: rollback del índice -> exit 0; confirmación posterior: count = 0; re-aplicación -> exit 0.
+D4.5: con duplicados válidos (product_id 21,22 en store_id 7, misma URL), el bloque DO aborta con: "No se puede crear el indice unico: hay 1 filas duplicadas adicionales por (store_id, product_url)"; la transacción termina en ROLLBACK y la cuenta final es 0 filas.
+D4.6: opción B sin duplicados -> exit 0, luego rollback -> exit 0.
+D4.7: 20 consultas de diagnóstico ejecutadas -> exit 0.
+Conteos principales del Día 1 vs base temporal:
+product = 35
+product_offer = 71
+store = 7
+product_price_history = 115
+product_specification_value = 98
+ofertas CLP = 71
+duplicados por URL/tienda = 0
+Sin diferencias relevantes respecto del Día 1.
+
+Paso E
+Archivo: C:\Users\cc077\Documents\SOLOServis_auditoria\dia2\plan_pruebas.md
+Estado: propuesta, pendiente de confirmación.
+
+Paso F
+git status --short: vacío
+git diff --stat: vacío
+git branch --show-current: feature/offer-url-index-design
+git log -1 --oneline: 2738771 Merge branch 'main' into feature/platform-apis-and-product-comparison
+
+Limpieza Docker
+Se ejecutó docker rm -f -v soloservis_audit_tmp y luego docker ps -a --format "{{.Names}}"; el contenedor temporal ya no aparece.
+
+Confirmación final:
+- No se modificó ningún archivo del repositorio.
+- No hubo commits ni push.
+- No se usó docker compose ni se tocaron soloservis_postgres ni los contenedores soloservis_*_api.
+- No se consultó ninguna base real o compartida.
+- Salida final de git status --short: sin salida.
+
+Salida final de docker ps -a --format "{{.Names}}":
+soloservis_cart_api
+soloservis_pricing_api
+soloservis_service_api
+soloservis_product_api
+soloservis_notification_api
+soloservis_watchlist_api
+soloservis_ingestion_api
+soloservis_comparison_api
+soloservis_review_api
+soloservis_search_api
+soloservis_favorites_api
+soloservis_store_api
+soloservis_auth_api
+soloservis_user_api
+soloservis_postgres
