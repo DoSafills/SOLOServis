@@ -24,7 +24,10 @@ export interface ApiProductSpecification {
   comparable: boolean;
 }
 
-function buildSpecs(model: string, specifications: ApiProductSpecification[]): Record<string, string> {
+function buildSpecs(
+  model: string,
+  specifications: ApiProductSpecification[],
+): Record<string, string> {
   const specs: Record<string, string> = {};
   if (model) specs.Modelo = model;
   for (const spec of specifications) {
@@ -50,14 +53,15 @@ export function toProduct(product: ApiProduct | ApiProductDetail): Product {
     rating: product.rating,
     reviewCount: product.reviewCount,
     specs: buildSpecs(product.model, detail?.specifications ?? []),
-    offers: detail?.offers.map((offer) => ({
-      storeId: String(offer.storeId),
-      storeName: offer.storeName,
-      price: Number(offer.price) || 0,
-      available: offer.available,
-      shipping: offer.shippingFree ? 0 : Number(offer.shippingCost) || null,
-      url: offer.productUrl,
-    })) ?? [],
+    offers:
+      detail?.offers.map((offer) => ({
+        storeId: String(offer.storeId),
+        storeName: offer.storeName,
+        price: Number(offer.price) || 0,
+        available: offer.available,
+        shipping: offer.shippingFree ? 0 : Number(offer.shippingCost) || null,
+        url: offer.productUrl,
+      })) ?? [],
     priceHistory: [],
     offerPriceHistory: [],
     tags: [],
