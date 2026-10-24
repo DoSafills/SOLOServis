@@ -1,11 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServiceById } from "../../services/api/api";
-import {
-  formatPrice,
-  getBillingPeriodName,
-  getBillingPeriodText,
-} from "../../services/utils/productUtils";
+import { formatPrice, getBillingPeriodText } from "../../services/utils/productUtils";
 import { Breadcrumb } from "../../components/common/ui";
 import { areServiceCategoriesCompatible } from "./ServiceComparisonUtils"; // NUEVO
 

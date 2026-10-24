@@ -774,11 +774,12 @@ export default function App() {
       case "search-products":
         return (
           <SearchResultsPage
-            key={`${page.category ?? ""}:${page.productGroup ?? ""}:${page.query}`}
+            key={`${page.categoryId ?? ""}:${page.category ?? ""}:${page.productGroup ?? ""}:${page.query}`}
             {...sharedProps}
             query={page.query}
             category={page.category}
             productGroup={page.productGroup}
+            categoryId={page.categoryId}
           />
         );
       case "product-detail":
