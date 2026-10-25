@@ -132,10 +132,14 @@ func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) 
 	r.Get("/categories/{slug}", categoryHandler.GetBySlug)
 }
 
-func registerStoreRoutes(r chi.Router, db *pgxpool.Pool, _ *slog.Logger) {
-	handler := stores.NewHandler(stores.NewRepository(db))
+func registerStoreRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	handler := stores.NewHandler(stores.NewRepository(db), logger)
 	r.Get("/stores", handler.List)
+	// Ofertas de un producto en todas las tiendas (TAL-73). Ruta estática:
+	// chi la prioriza sobre /stores/{id}.
+	r.Get("/stores/offers", handler.ListProductOffers)
 	r.Get("/stores/{id}", handler.GetByID)
+	r.Get("/stores/{id}/offers", handler.ListStoreOffers)
 }
 
 func registerServiceRoutes(r chi.Router, db *pgxpool.Pool, _ *slog.Logger) {

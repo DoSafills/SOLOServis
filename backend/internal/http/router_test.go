@@ -12,9 +12,9 @@ import (
 )
 
 // Los casos usan rutas que responden antes de consultar la base de datos,
-// por eso los routers se construyen con un pool nil. wantBody fija respuestas
-// en texto plano (Store API aún no migra al estándar); wantCode, el code del
-// problem+json de los endpoints ya migrados (Product API desde TAL-70).
+// por eso los routers se construyen con un pool nil. wantCode es el code del
+// problem+json (Product API desde TAL-70, Store API desde TAL-73); wantBody
+// fija el body exacto cuando no hay problem+json (p. ej. preflight vacío).
 func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 	const frontendURL = "http://localhost:5173"
 
@@ -35,7 +35,9 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 		{"product update sin token", NewProductRouter(nil, frontendURL), http.MethodPut, "/products/x", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
 		{"product delete sin token", NewProductRouter(nil, frontendURL), http.MethodDelete, "/products/x", "", "", 401, "", httpx.CodeUnauthorized},
 		{"store preflight CORS", NewStoreRouter(nil, frontendURL), http.MethodOptions, "/stores", "", "", 204, "", ""},
-		{"store id inválido", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/abc", "", "", 400, "invalid store id\n", ""},
+		{"store id inválido", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/abc", "", "", 400, "", httpx.CodeInvalidParameter},
+		{"store offers sin product", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/offers", "", "", 400, "", httpx.CodeInvalidParameter},
+		{"store escritura no existe", NewStoreRouter(nil, frontendURL), http.MethodPost, "/stores", `{}`, "application/json", 405, "", ""},
 	}
 
 	for _, tc := range tests {
@@ -140,6 +142,35 @@ func TestProductRouter_RutasRegistradas(t *testing.T) {
 		return nil
 	}
 	if err := chi.Walk(NewProductRouter(nil, "http://localhost:5173"), walk); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range want {
+		if !got[route] {
+			t.Errorf("falta la ruta %s", route)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
+	}
+}
+
+// Store API (TAL-73): solo lectura, con las ofertas por producto y por tienda.
+func TestStoreRouter_RutasRegistradas(t *testing.T) {
+	want := []string{
+		"GET /health",
+		"GET /stores",
+		"GET /stores/offers",
+		"GET /stores/{id}",
+		"GET /stores/{id}/offers",
+	}
+
+	got := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		got[method+" "+route] = true
+		return nil
+	}
+	if err := chi.Walk(NewStoreRouter(nil, "http://localhost:5173"), walk); err != nil {
 		t.Fatal(err)
 	}
 
