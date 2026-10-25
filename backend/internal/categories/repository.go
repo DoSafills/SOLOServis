@@ -72,7 +72,7 @@ FROM categories
 WHERE slug = $1 AND active`
 
 const listAttributesSQL = `
-SELECT key, label, data_type, unit, required, comparable, filterable,
+SELECT id, key, label, data_type, unit, required, comparable, filterable,
        min_value::float8, max_value::float8, max_length, allowed_values, display_order
 FROM category_attributes
 WHERE category_id = $1
@@ -102,7 +102,7 @@ func (r *PostgresRepository) GetBySlug(ctx context.Context, slug string) (Catego
 	detail.Attributes = make([]Attribute, 0)
 	for rows.Next() {
 		var a Attribute
-		if err := rows.Scan(&a.Key, &a.Label, &a.DataType, &a.Unit, &a.Required, &a.Comparable,
+		if err := rows.Scan(&a.ID, &a.Key, &a.Label, &a.DataType, &a.Unit, &a.Required, &a.Comparable,
 			&a.Filterable, &a.Min, &a.Max, &a.MaxLength, &a.AllowedValues, &a.DisplayOrder); err != nil {
 			return CategoryDetail{}, err
 		}
