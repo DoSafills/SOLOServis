@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/DoSafills/SOLOServis/backend/internal/services"
@@ -42,15 +44,17 @@ func corsMiddleware(frontendURL string) func(next http.Handler) http.Handler {
 }
 
 // useStandardMiddleware aplica el estándar TAL-78: RequestID → AccessLog → Recover.
-// Debe registrarse antes que cualquier otro middleware.
-func useStandardMiddleware(r chi.Router) {
+// Debe registrarse antes que cualquier otro middleware. Devuelve el logger
+// para que los handlers registren sus errores 5xx (httpx.WriteInternal).
+func useStandardMiddleware(r chi.Router) *slog.Logger {
 	logger := httpx.NewLogger(os.Stdout, httpx.ParseLevel(os.Getenv("LOG_LEVEL")))
 	r.Use(httpx.RequestID, httpx.AccessLog(logger), httpx.Recover(logger))
+	return logger
 }
 
 func NewProductRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	r := chi.NewRouter()
-	useStandardMiddleware(r)
+	logger := useStandardMiddleware(r)
 	r.Use(corsMiddleware(frontendURL))
 	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
 		healthHandler(w, db)
@@ -64,6 +68,11 @@ func NewProductRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	r.Post("/products", productHandler.Create)
 	r.Put("/products/{publicID}", productHandler.Update)
 	r.Delete("/products/{publicID}", productHandler.Deactivate)
+
+	// Categorías y definiciones de atributos (TAL-71): solo lectura.
+	categoryHandler := categories.NewHandler(categories.NewRepository(db), logger)
+	r.Get("/categories", categoryHandler.List)
+	r.Get("/categories/{slug}", categoryHandler.GetBySlug)
 
 	return r
 }

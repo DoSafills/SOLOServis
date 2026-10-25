@@ -74,3 +74,32 @@ func TestRouters_PropaganRequestIDValido(t *testing.T) {
 		})
 	}
 }
+
+// Las rutas de categorías (TAL-71) están cableadas en Product API y son
+// solo de lectura. Los casos responden antes de consultar la base de datos.
+func TestProductRouter_CategoriasSoloLectura(t *testing.T) {
+	router := NewProductRouter(nil, "http://localhost:5173")
+
+	req := httptest.NewRequest(http.MethodGet, "/categories/Slug_Invalido", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || rec.Header().Get("Content-Type") != httpx.ProblemContentType {
+		t.Fatalf("GET slug inválido = %d %q, quiero 400 problem+json", rec.Code, rec.Header().Get("Content-Type"))
+	}
+
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/categories"},
+		{http.MethodPut, "/categories/refrigeradores"},
+		{http.MethodPatch, "/categories/refrigeradores"},
+		{http.MethodDelete, "/categories/refrigeradores"},
+		{http.MethodPost, "/categories/refrigeradores"},
+	} {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`)))
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("status = %d, quiero 405", rec.Code)
+			}
+		})
+	}
+}
