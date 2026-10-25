@@ -1002,6 +1002,183 @@ GET /products?category=Refri_Geradores&limit=500
 ---
 
 
+# 12.3. Store API: tiendas y ofertas por producto (TAL-73)
+
+Store API (`cmd/store-api`, puerto 8082, código en `internal/stores`) es **solo lectura**. Nginx ya enruta `/stores` (solo GET), así que los endpoints nuevos quedan expuestos sin cambios de infraestructura.
+
+| Método | Ruta | Respuesta |
+| --- | --- | --- |
+| GET | `/stores?limit=&offset=` | arreglo de tiendas + `X-Total-Count` |
+| GET | `/stores/{id}` | tienda con `products` (ofertas disponibles de productos activos) y `locations` |
+| GET | `/stores/offers?product={publicID}&available=&limit=&offset=` | **ofertas de un producto en todas las tiendas**, cada una con su tienda resumida |
+| GET | `/stores/{id}/offers?available=&limit=&offset=` | ofertas de una tienda (disponibles o no) |
+
+Límite con Pricing API (TAL-74): Store API **lee** ofertas agrupadas por tienda; Pricing **registra** precios y su historial.
+
+## Parámetros
+
+| Parámetro | Regla |
+| --- | --- |
+| `product` | obligatorio en `/stores/offers`; UUID de un producto activo |
+| `available` | opcional, `true` o `false` (sin él, todas) |
+| `limit` | 1–100, por defecto 100 |
+| `offset` | ≥ 0, por defecto 0 |
+| `{id}` | entero positivo |
+
+## Reglas
+
+- Solo se consideran **tiendas activas** y **productos activos**.
+- `GET /stores/offers` ordena **disponibles primero, luego por precio ascendente** y nombre de tienda: lo que necesita el comparador.
+- `GET /stores/{id}/offers` ordena disponibles primero y luego por nombre de producto.
+- Una tienda puede tener **varias ofertas del mismo producto** (la unicidad es producto + tienda + URL normalizada, TAL-63/64).
+- `productCount` cuenta productos **activos** con oferta disponible y vale lo mismo en el listado y en el detalle (antes el detalle contaba productos inactivos).
+- `reviewCount` sale de `store_review` (antes siempre valía 0). `rating` sigue siendo el valor guardado en `store.rating`.
+- Montos como string, igual que en Product API. `lastUpdated` en RFC 3339 (UTC).
+
+## Ejemplos (respuestas reales)
+
+```http
+GET /stores/offers?product=14159cb1-e5d2-4fa7-88c7-a70f29d233f5&limit=2
+X-Total-Count: 3
+```
+
+```json
+[
+  {
+    "offerId": 64,
+    "productId": "14159cb1-e5d2-4fa7-88c7-a70f29d233f5",
+    "productName": "Refrigerador Midea Side by Side No Frost 555 L",
+    "price": "332991.00",
+    "listPrice": "",
+    "currency": "CLP",
+    "shippingCost": "0",
+    "shippingFree": true,
+    "available": true,
+    "stock": null,
+    "condition": "new",
+    "productUrl": "https://simple.ripley.cl/refrigerador-side-by-side-midea-mdrs710fge50in-555l-no-frost-gris-2000406824253p?color_80=Gris",
+    "lastUpdated": "2026-10-25T21:44:42Z",
+    "store": {
+      "id": "4",
+      "name": "Ripley",
+      "logo": "https://placehold.co/128x128?text=Ripley",
+      "rating": 4.1,
+      "reviewCount": 0,
+      "website": "https://simple.ripley.cl"
+    }
+  },
+  {
+    "offerId": 60,
+    "productId": "14159cb1-e5d2-4fa7-88c7-a70f29d233f5",
+    "productName": "Refrigerador Midea Side by Side No Frost 555 L",
+    "price": "379990.00",
+    "listPrice": "",
+    "currency": "CLP",
+    "shippingCost": "8990.00",
+    "shippingFree": false,
+    "available": true,
+    "stock": null,
+    "condition": "new",
+    "productUrl": "https://www.falabella.com/falabella-cl/product/80526705/refrigerador-side-by-side-no-frost-555-litros-mdrs710fge50in-midea/80526705",
+    "lastUpdated": "2026-10-25T21:44:42Z",
+    "store": {
+      "id": "1",
+      "name": "Falabella",
+      "logo": "https://www.falabella.com/static/site/common/Falabella-Chile.jpg",
+      "rating": 4.2,
+      "reviewCount": 0,
+      "website": "https://falabella.com"
+    }
+  }
+]
+```
+
+```http
+GET /stores/1/offers?available=true&limit=1
+X-Total-Count: 22
+```
+
+```json
+[
+  {
+    "offerId": 13,
+    "productId": "163ef4e4-529a-4a66-a263-076c3eddbb72",
+    "productName": "Apple iPhone 15 128 GB",
+    "price": "699990.00",
+    "listPrice": "799990.00",
+    "currency": "CLP",
+    "shippingCost": "0",
+    "shippingFree": true,
+    "available": true,
+    "stock": 10,
+    "condition": "new",
+    "productUrl": "https://demo.soloservis.cl/products/DEMO-APPLE-IPHONE15-128?store=falabella",
+    "lastUpdated": "2026-10-25T21:44:41Z"
+  }
+]
+```
+
+En `/stores/{id}/offers` no se repite `store`: es la tienda de la ruta.
+
+`GET /stores` conserva su forma (la consumen el frontend e Ingestion API):
+
+```json
+[
+  {
+    "id": "1",
+    "name": "Falabella",
+    "logo": "https://www.falabella.com/static/site/common/Falabella-Chile.jpg",
+    "rating": 4.2,
+    "reviewCount": 0,
+    "productCount": 22,
+    "reputation": "Buena",
+    "dispatchTime": "Envío en 3-5 días hábiles",
+    "conditions": "Garantía de 12 meses",
+    "website": "https://falabella.com"
+  }
+]
+```
+
+## Errores
+
+| Caso | Status | `code` / `errors[]` |
+| --- | --- | --- |
+| `{id}` no es un entero positivo | 400 | `invalid_parameter` / `id` `format` |
+| Falta `product` o no es UUID | 400 | `invalid_parameter` / `product` `required` o `format` |
+| `available`, `limit` u `offset` inválidos | 400 | `invalid_parameter` / `one_of`, `min`, `max`, `invalid_type` |
+| Producto inexistente o inactivo | 404 | `not_found` |
+| Tienda inexistente o inactiva | 404 | `not_found` |
+| Error de base de datos | 500 | `internal_error` (antes se respondía 404 ante cualquier error) |
+| Método distinto de GET | 405 | respuesta de chi |
+
+```http
+GET /stores/offers?product=abc&available=si
+```
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Los parámetros de la consulta no son válidos.",
+  "instance": "/stores/offers",
+  "code": "invalid_parameter",
+  "request_id": "ejemplo-tal73",
+  "errors": [
+    { "field": "product", "code": "format", "message": "product debe ser un UUID" },
+    { "field": "available", "code": "one_of", "message": "available debe ser true o false" }
+  ]
+}
+```
+
+## Tests
+
+- Unitarios sin BD: `internal/stores/handler_test.go` e `internal/http/router_test.go` (rutas registradas, solo lectura).
+- Integración con `TEST_DATABASE_URL`: `internal/stores/repository_integration_test.go` (orden y filtros de ofertas, tiendas y productos inactivos, contadores coherentes entre listado y detalle, `reviewCount` real).
+
+---
+
+
 # 13. Handlers
 
 Los handlers se encuentran en:
