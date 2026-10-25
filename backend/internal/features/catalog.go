@@ -1,15 +1,12 @@
 package features
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
-	"github.com/DoSafills/SOLOServis/backend/internal/products"
-	"github.com/go-chi/chi/v5"
 )
 
 type offerInput struct {
@@ -24,179 +21,6 @@ type offerInput struct {
 	Stock        *int32   `json:"stock"`
 	Condition    string   `json:"condition"`
 	ProductURL   string   `json:"productUrl"`
-}
-
-func (h *Handler) OffersByProduct(w http.ResponseWriter, r *http.Request) {
-	productID, err := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
-	if err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "product not found")
-		return
-	}
-	h.rows(w, r, `SELECT jsonb_build_object(
-		'id', o.id, 'productId', p.public_id, 'storeId', o.store_id, 'storeName', s.name,
-		'price', o.price, 'listPrice', o.list_price, 'currency', o.currency,
-		'shippingCost', o.shipping_cost, 'shippingFree', o.shipping_free,
-		'available', o.available, 'stock', o.stock, 'condition', o.condition,
-		'productUrl', o.product_url, 'lastUpdated', o.last_updated)
-		FROM product_offer o JOIN product p ON p.id = o.product_id
-		JOIN store s ON s.id = o.store_id WHERE o.product_id = $1 ORDER BY o.price`, productID)
-}
-
-func (h *Handler) GetOffer(w http.ResponseWriter, r *http.Request) {
-	offerID, ok := intParam(r, "id")
-	if !ok {
-		badRequest(w, "invalid offer id")
-		return
-	}
-	h.one(w, r, `SELECT jsonb_build_object(
-		'id', o.id, 'productId', p.public_id, 'storeId', o.store_id, 'storeName', s.name,
-		'price', o.price, 'listPrice', o.list_price, 'currency', o.currency,
-		'shippingCost', o.shipping_cost, 'shippingFree', o.shipping_free,
-		'available', o.available, 'stock', o.stock, 'condition', o.condition,
-		'productUrl', o.product_url, 'lastUpdated', o.last_updated)
-		FROM product_offer o JOIN product p ON p.id = o.product_id
-		JOIN store s ON s.id = o.store_id WHERE o.id = $1`, offerID)
-}
-
-func (h *Handler) PriceHistory(w http.ResponseWriter, r *http.Request) {
-	offerID, ok := intParam(r, "id")
-	if !ok {
-		badRequest(w, "invalid offer id")
-		return
-	}
-	h.rows(w, r, `SELECT jsonb_build_object('id', id, 'price', price,
-		'isPromotional', is_promotional, 'recordedAt', recorded_at)
-		FROM product_price_history WHERE product_offer_id = $1 ORDER BY recorded_at DESC`, offerID)
-}
-
-func (h *Handler) CreateOffer(w http.ResponseWriter, r *http.Request) {
-	var input offerInput
-	if !decode(r, &input) || input.StoreID <= 0 || input.Price < 0 {
-		badRequest(w, "productId, storeId and a non-negative price are required")
-		return
-	}
-	if input.Currency == "" {
-		input.Currency = "CLP"
-	}
-	if products.ValidateCurrencyCode(input.Currency) != nil {
-		badRequest(w, "currency must contain exactly three uppercase letters")
-		return
-	}
-	input.ProductURL = products.NormalizeProductOfferURL(input.ProductURL)
-	productID, err := h.service.ProductID(r.Context(), input.ProductID)
-	if err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "product not found")
-		return
-	}
-	if input.Condition == "" {
-		input.Condition = "new"
-	}
-	tx, err := h.db.Begin(r.Context())
-	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not start offer transaction")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	var offerID int32
-	err = tx.QueryRow(r.Context(), `INSERT INTO product_offer
-		(product_id, store_id, price, list_price, currency, shipping_cost, shipping_free, available, stock, condition, product_url)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`, productID, input.StoreID,
-		input.Price, input.ListPrice, input.Currency, input.ShippingCost, input.ShippingFree,
-		input.Available, input.Stock, input.Condition, input.ProductURL).Scan(&offerID)
-	if err != nil {
-		apiutil.WriteError(w, http.StatusBadRequest, "invalid store or offer data")
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not save offer")
-		return
-	}
-	h.one(w, r, `SELECT jsonb_build_object('id', o.id, 'productId', p.public_id,
-		'storeId', o.store_id, 'price', o.price, 'listPrice', o.list_price,
-		'currency', o.currency, 'shippingCost', o.shipping_cost, 'shippingFree', o.shipping_free,
-		'available', o.available, 'stock', o.stock, 'condition', o.condition,
-		'productUrl', o.product_url, 'lastUpdated', o.last_updated)
-		FROM product_offer o JOIN product p ON p.id = o.product_id WHERE o.id = $1`, offerID)
-}
-
-func (h *Handler) UpdateOffer(w http.ResponseWriter, r *http.Request) {
-	offerID, ok := intParam(r, "id")
-	var input offerInput
-	if !ok || !decode(r, &input) || input.Price < 0 {
-		badRequest(w, "invalid offer id or payload")
-		return
-	}
-	if input.Currency == "" {
-		input.Currency = "CLP"
-	}
-	if products.ValidateCurrencyCode(input.Currency) != nil {
-		badRequest(w, "currency must contain exactly three uppercase letters")
-		return
-	}
-	input.ProductURL = products.NormalizeProductOfferURL(input.ProductURL)
-	if input.Condition == "" {
-		input.Condition = "new"
-	}
-	tx, err := h.db.Begin(r.Context())
-	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not start offer transaction")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	var oldPrice float64
-	err = tx.QueryRow(r.Context(), `SELECT price FROM product_offer WHERE id = $1 FOR UPDATE`, offerID).Scan(&oldPrice)
-	if err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "offer not found")
-		return
-	}
-	var currentPrice float64
-	err = tx.QueryRow(r.Context(), `UPDATE product_offer SET price=$2, list_price=$3, currency=$4,
-		shipping_cost=$5, shipping_free=$6, available=$7, stock=$8, condition=$9,
-		product_url=$10, last_updated=NOW() WHERE id=$1 RETURNING price`, offerID, input.Price, input.ListPrice,
-		input.Currency, input.ShippingCost, input.ShippingFree, input.Available, input.Stock,
-		input.Condition, input.ProductURL).Scan(&currentPrice)
-	if err != nil {
-		apiutil.WriteError(w, http.StatusBadRequest, "could not update offer")
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not commit offer update")
-		return
-	}
-	if currentPrice < oldPrice {
-		h.notifyPriceDrop(r.Context(), offerID, oldPrice, currentPrice)
-	}
-	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"id": offerID, "price": currentPrice, "currency": "CLP", "updated": true})
-}
-
-func (h *Handler) notifyPriceDrop(ctx context.Context, offerID int32, oldPrice, newPrice float64) {
-	watchers, err := h.repo.QueryJSON(ctx, `SELECT jsonb_build_object('userId',i.user_id,'productId',p.public_id,
-		'productName',p.name,'targetPrice',i.target_price) FROM product_offer o
-		JOIN product p ON p.id=o.product_id JOIN product_user_interest i ON i.product_id=p.id
-		WHERE o.id=$1 AND i.notify_price_drop AND i.target_price IS NOT NULL
-		AND $2 > i.target_price AND $3 <= i.target_price`, offerID, oldPrice, newPrice)
-	if err != nil {
-		return
-	}
-	for _, watcher := range watchers {
-		var item struct {
-			UserID      int32   `json:"userId"`
-			ProductID   string  `json:"productId"`
-			ProductName string  `json:"productName"`
-			TargetPrice float64 `json:"targetPrice"`
-		}
-		if json.Unmarshal(watcher, &item) != nil {
-			continue
-		}
-		payload := map[string]any{
-			"userId":  item.UserID,
-			"type":    "price_drop",
-			"title":   "Bajó el precio de " + item.ProductName,
-			"message": "El precio llegó al objetivo configurado.",
-			"data":    map[string]any{"productId": item.ProductID, "offerId": offerID, "oldPrice": oldPrice, "price": newPrice, "targetPrice": item.TargetPrice},
-		}
-		_ = remoteJSON(ctx, "NOTIFICATION_API_URL", "http://localhost:8093", http.MethodPost, "/notifications", payload, nil)
-	}
 }
 
 func (h *Handler) SearchProducts(w http.ResponseWriter, r *http.Request) {

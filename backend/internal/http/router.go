@@ -14,6 +14,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
+	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/DoSafills/SOLOServis/backend/internal/services"
 	"github.com/DoSafills/SOLOServis/backend/internal/stores"
@@ -61,6 +62,16 @@ func NewStoreRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 
 func NewUserRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	return newRouter(db, frontendURL, registerUserRoutes)
+}
+
+// NewPricingRouter es el router de Pricing API (TAL-74); cmd/pricing-api lo usa.
+func NewPricingRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	return newRouter(db, frontendURL, registerPricingRoutes)
+}
+
+// adminOnly protege escrituras: sesión con rol admin o INTERNAL_API_TOKEN (TAL-70).
+func adminOnly(db *pgxpool.Pool, logger *slog.Logger) func(http.Handler) http.Handler {
+	return authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
 }
 
 func newRouter(db *pgxpool.Pool, frontendURL string, registrars ...routeRegistrar) *chi.Mux {
@@ -114,7 +125,7 @@ func registerHealth(r chi.Router, db *pgxpool.Pool) {
 func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	handler := products.NewHandler(products.NewRepository(db), logger)
 	// Escrituras (TAL-70): solo admin o servicios internos con INTERNAL_API_TOKEN.
-	admin := authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
+	admin := adminOnly(db, logger)
 
 	// Árbol de product_category (modelo anterior). Transitorio: el frontend
 	// debe migrar a /categories (TAL-51) y luego se elimina.
@@ -140,6 +151,19 @@ func registerStoreRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	r.Get("/stores/offers", handler.ListProductOffers)
 	r.Get("/stores/{id}", handler.GetByID)
 	r.Get("/stores/{id}/offers", handler.ListStoreOffers)
+}
+
+func registerPricingRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	handler := pricing.NewHandler(pricing.NewRepository(db), pricing.NewHTTPNotifier(), logger)
+	admin := adminOnly(db, logger)
+
+	r.Get("/offers/product/{productId}", handler.ListProductOffers)
+	r.Get("/offers/product/{productId}/best", handler.BestOffer)
+	r.Get("/offers/product/{productId}/price-history", handler.ProductHistory)
+	r.Get("/offers/{id}", handler.GetOffer)
+	r.Get("/offers/{id}/price-history", handler.OfferHistory)
+	r.With(admin).Post("/offers", handler.CreateOffer)
+	r.With(admin).Put("/offers/{id}", handler.UpdateOffer)
 }
 
 func registerServiceRoutes(r chi.Router, db *pgxpool.Pool, _ *slog.Logger) {

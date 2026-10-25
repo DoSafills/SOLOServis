@@ -14,12 +14,7 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	r.Get("/health", h.Health)
 
 	switch name {
-	case "pricing-api":
-		r.Get("/offers/product/{productId}", h.OffersByProduct)
-		r.Get("/offers/{id}/price-history", h.PriceHistory)
-		r.Get("/offers/{id}", h.GetOffer)
-		r.Post("/offers", h.CreateOffer)
-		r.Put("/offers/{id}", h.UpdateOffer)
+	// pricing-api se movió a internal/pricing (TAL-74).
 	case "search-api":
 		r.Get("/search/products", h.SearchProducts)
 		r.Get("/search/categories", h.SearchCategories)
