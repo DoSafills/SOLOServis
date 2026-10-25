@@ -296,6 +296,14 @@ Actualmente:
 003_seed.sql
 004_platform_apis.sql
 005_demo_catalog.sql
+006_demo_catalog_services.sql
+006_refrigeradores.sql
+007_Computacion.sql
+007_service_cart.sql
+008_normalize_prices_to_clp.sql
+008_Telefonia.sql
+009_categories.sql
+010_categories_seed.sql
 ```
 
 ## `001_schema.sql`
@@ -538,6 +546,203 @@ envío
 y se construye el DTO final.
 
 ---
+
+# 12.1. Endpoints `/categories` (TAL-71)
+
+Categorías unificadas de productos y servicios con sus **definiciones de atributos dinámicos**. Son la base de la validación de atributos (TAL-72), los filtros (TAL-75, `filterable`) y la comparación (TAL-76, `comparable`).
+
+- Servicio: **Product API** (`cmd/product-api`, puerto 8081). Código en `internal/categories`.
+- Solo lectura: `POST`/`PUT`/`PATCH`/`DELETE` responden `405`. No hay endpoints de escritura (requerirían autenticación).
+- Errores con el estándar TAL-78 (`application/problem+json`, ver `docs/estandares/TAL-78-estandar-api.md`).
+- Solo se exponen categorías con `active = TRUE`.
+
+## Esquema (migraciones `009_categories.sql` y `010_categories_seed.sql`)
+
+| Tabla | Columnas principales | Restricciones en BD |
+| --- | --- | --- |
+| `categories` | `slug`, `name`, `item_type` (`product`/`service`), `description`, `active`, `legacy_product_category_id`, `legacy_service_category_id`, timestamps | `slug` UNIQUE + CHECK `^[a-z0-9-]{1,64}$`; CHECK de `item_type`; enlace legado UNIQUE, FK `ON DELETE SET NULL` y del mismo tipo de ítem |
+| `category_attributes` | `key`, `label`, `data_type`, `unit`, `required`, `comparable`, `filterable`, `min_value`, `max_value`, `max_length`, `allowed_values`, `display_order` | FK a `categories` `ON DELETE CASCADE`; UNIQUE `(category_id, key)`; CHECK `key ^[a-z][a-z0-9_]{0,63}$`; `data_type` ∈ `string`, `integer`, `decimal`, `boolean`, `enum`; `allowed_values` solo y obligatorio en `enum`; `min`/`max` solo numéricos (enteros en `integer`, `min <= max`); `max_length` solo `string` (1–255); `unit` solo numéricos |
+
+Las tablas antiguas (`product_category`, `service_category` y sus `*_specification`) **no se modificaron**. Las columnas `legacy_*` enlazan cada categoría nueva con su equivalente antigua para migrar productos y servicios en TAL-70/72.
+
+Seeds: `refrigeradores`, `notebooks`, `televisores` (producto) e `internet-fibra-optica` (servicio), con atributos de los cinco `data_type`.
+
+## `GET /categories`
+
+| Parámetro | Tipo | Defecto | Regla |
+| --- | --- | --- | --- |
+| `itemType` | query | (todos) | `product` o `service` |
+| `limit` | query | 20 | entero entre 1 y **100** |
+| `offset` | query | 0 | entero ≥ 0 |
+
+Orden: por `name`. Un `limit` mayor a 100 **no se recorta**: responde 400. El listado usa 2 consultas fijas (conteo y página), sin N+1.
+
+```http
+GET /categories?limit=2
+```
+
+```json
+{
+  "items": [
+    {
+      "slug": "internet-fibra-optica",
+      "name": "Internet Fibra Óptica",
+      "itemType": "service",
+      "description": "Planes de internet hogar por fibra óptica",
+      "attributeCount": 5
+    },
+    {
+      "slug": "notebooks",
+      "name": "Notebooks",
+      "itemType": "product",
+      "description": "Notebooks y computadores portátiles",
+      "attributeCount": 6
+    }
+  ],
+  "total": 4,
+  "limit": 2,
+  "offset": 0
+}
+```
+
+Sin resultados (por ejemplo, `offset` mayor que `total`), `items` es `[]`.
+
+## `GET /categories/{slug}`
+
+El `slug` se valida contra `^[a-z0-9-]{1,64}$` **antes** de consultar la base. Los atributos vienen ordenados por `displayOrder`. Las restricciones que no aplican al `dataType` van como `null` (el contrato siempre trae todas las claves). El detalle usa 2 consultas fijas.
+
+```http
+GET /categories/internet-fibra-optica
+```
+
+```json
+{
+  "slug": "internet-fibra-optica",
+  "name": "Internet Fibra Óptica",
+  "itemType": "service",
+  "description": "Planes de internet hogar por fibra óptica",
+  "attributes": [
+    { "key": "velocidad_bajada_mbps", "label": "Velocidad de bajada", "dataType": "integer", "unit": "Mbps", "required": true, "comparable": true, "filterable": true, "min": 1, "max": 10000, "maxLength": null, "allowedValues": null, "displayOrder": 1 },
+    { "key": "velocidad_subida_mbps", "label": "Velocidad de subida", "dataType": "integer", "unit": "Mbps", "required": true, "comparable": true, "filterable": true, "min": 1, "max": 10000, "maxLength": null, "allowedValues": null, "displayOrder": 2 },
+    { "key": "tipo_contrato", "label": "Tipo de contrato", "dataType": "enum", "unit": null, "required": false, "comparable": true, "filterable": true, "min": null, "max": null, "maxLength": null, "allowedValues": ["Sin permanencia", "12 meses", "24 meses"], "displayOrder": 3 },
+    { "key": "ip_fija", "label": "IP fija", "dataType": "boolean", "unit": null, "required": false, "comparable": true, "filterable": true, "min": null, "max": null, "maxLength": null, "allowedValues": null, "displayOrder": 4 },
+    { "key": "router_incluido", "label": "Router incluido", "dataType": "string", "unit": null, "required": false, "comparable": true, "filterable": false, "min": null, "max": null, "maxLength": 60, "allowedValues": null, "displayOrder": 5 }
+  ]
+}
+```
+
+## Errores
+
+| Caso | Status | `code` | `errors[]` |
+| --- | --- | --- | --- |
+| `itemType` inválido | 400 | `invalid_parameter` | `itemType` / `one_of` |
+| `limit` no entero / < 1 / > 100 | 400 | `invalid_parameter` | `limit` / `invalid_type`, `min`, `max` |
+| `offset` no entero / < 0 | 400 | `invalid_parameter` | `offset` / `invalid_type`, `min` |
+| `slug` con formato inválido | 400 | `invalid_parameter` | `slug` / `format` |
+| Categoría inexistente o inactiva | 404 | `not_found` | — |
+| Error de base de datos | 500 | `internal_error` | — (el detalle solo va al log, con el `request_id`) |
+| Método distinto de GET | 405 | — (respuesta de chi en texto plano; pendiente de TAL-78) | — |
+
+Los parámetros de query inválidos se reportan todos juntos:
+
+```http
+GET /categories?limit=1000000&itemType=foo
+```
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Los parámetros de la consulta no son válidos.",
+  "instance": "/categories",
+  "code": "invalid_parameter",
+  "request_id": "ejemplo-123",
+  "errors": [
+    { "field": "itemType", "code": "one_of", "message": "itemType debe ser product o service" },
+    { "field": "limit", "code": "max", "message": "limit no puede superar 100" }
+  ]
+}
+```
+
+```http
+GET /categories/Refri_Geradores
+```
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "El slug de la categoría no es válido.",
+  "instance": "/categories/Refri_Geradores",
+  "code": "invalid_parameter",
+  "request_id": "ejemplo-123",
+  "errors": [
+    { "field": "slug", "code": "format", "message": "slug debe tener entre 1 y 64 caracteres: minúsculas, dígitos o guiones" }
+  ]
+}
+```
+
+```http
+GET /categories/no-existe
+```
+
+```json
+{
+  "type": "about:blank",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "La categoría no existe.",
+  "instance": "/categories/no-existe",
+  "code": "not_found",
+  "request_id": "ejemplo-123"
+}
+```
+
+Con la base de datos caída:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Internal Server Error",
+  "status": 500,
+  "detail": "Ocurrió un error interno. Repórtalo indicando el request_id.",
+  "instance": "/categories/notebooks",
+  "code": "internal_error",
+  "request_id": "ejemplo-500"
+}
+```
+
+## Exposición por nginx (pendiente de aprobación)
+
+Hoy `docker/frontend/nginx.conf` solo enruta `/products` y `/stores`, así que en k8s `/categories` cae en la SPA. Para exponerlo (solo GET) haría falta un bloque igual al de `/products`:
+
+```nginx
+location ~ ^/categories(/.*)?$ {
+    limit_except GET { deny all; }
+    proxy_pass http://product-api:8081;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 30s;
+}
+```
+
+## Tests
+
+- Unitarios, sin BD (`internal/categories/handler_test.go`, `internal/http/router_test.go`): `cd backend && go test ./...`.
+- Integración: migraciones sobre base limpia, seeds, CHECK y repositorio (`internal/categories/repository_integration_test.go`). Se omiten si no existe `TEST_DATABASE_URL`:
+
+```bash
+docker run -d --name soloservis-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=soloservis -p 55432:5432 postgres:18
+# aplicar backend/database/migrations/*.sql en orden, igual que k8s/base/migrations/migrate.sh
+cd backend && TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/soloservis go test -run Integration ./internal/categories/
+```
+
+---
+
 
 # 13. Handlers
 
@@ -1114,14 +1319,15 @@ El backend ejecuta APIs independientes en el mismo módulo Go y comparte Postgre
 
 La navegación, el carrito local y las comparaciones no requieren iniciar sesión. La autenticación se realiza mediante Auth API (registro, inicio, renovación y cierre de sesión); favoritos, historial de búsqueda, búsquedas guardadas y carrito sincronizado requieren una sesión válida. El frontend conserva la sesión en `localStorage` y renueva el token de acceso al vencerlo. Favorites, Cart y Search APIs validan el token y usan el usuario de la sesión, sin aceptar que el cliente elija otro `userId`.
 
-Las nuevas tablas se definen en `database/migrations/004_platform_apis.sql`. Docker ejecuta las migraciones automáticamente al inicializar un volumen PostgreSQL nuevo. La compatibilidad del carrito con ofertas de servicios se agrega en `database/migrations/008_service_cart.sql`. La migración `009_normalize_prices_to_clp.sql` etiqueta los precios existentes como CLP sin cambiar sus importes (conversión temporal 1:1) y deja triggers para normalizar la moneda de nuevas ofertas. Los valores que originalmente estaban en USD/EUR son referenciales y no representan una conversión real a pesos chilenos. `010_seed_all_services.sql` concentra en un único archivo las cargas de fibra, seguridad, educación y servicios técnicos; limita a tres los servicios activos por microcategoría y clasifica los 16 servicios técnicos en microcategorías específicas.
+Las nuevas tablas se definen en `database/migrations/004_platform_apis.sql`. Docker ejecuta las migraciones automáticamente al inicializar un volumen PostgreSQL nuevo. La compatibilidad del carrito con ofertas de servicios se agrega en `database/migrations/007_service_cart.sql`. La migración `008_normalize_prices_to_clp.sql` etiqueta los precios existentes como CLP sin cambiar sus importes (conversión temporal 1:1) y deja triggers para normalizar la moneda de nuevas ofertas. Los valores que originalmente estaban en USD/EUR son referenciales y no representan una conversión real a pesos chilenos. Las categorías unificadas y sus definiciones de atributos (TAL-71) se crean en `009_categories.sql` y se cargan en `010_categories_seed.sql` (ver sección 12.1).
 
 Para un volumen existente que ya tiene aplicadas las migraciones anteriores, aplica las migraciones pendientes una vez desde el root del proyecto:
 
 ```powershell
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/008_service_cart.sql
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/009_normalize_prices_to_clp.sql
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/010_seed_all_services.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/007_service_cart.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/008_normalize_prices_to_clp.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/009_categories.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/010_categories_seed.sql
 ```
 
 Las integraciones entre servicios usan las URLs internas definidas en `docker/compose.yml`: Search, Comparison, Favorites y Cart consultan Product API; Comparison y Cart consultan Pricing API; Review valida producto/tienda/servicio; Watchlist consulta Pricing; Pricing genera notificaciones mediante Notification API; e Ingestion delega en Product, Store y Pricing APIs. User API solo expone el perfil asociado al token de sesión autenticado.
