@@ -24,6 +24,11 @@ const (
 // slugPattern replica el CHECK de categories.slug.
 var slugPattern = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 
+// ValidSlug indica si s cumple el formato de categories.slug.
+func ValidSlug(s string) bool {
+	return slugPattern.MatchString(s)
+}
+
 // Repository es lo que el handler necesita de la capa de datos (TAL-78 §5).
 type Repository interface {
 	List(ctx context.Context, params ListParams) ([]CategorySummary, int64, error)
