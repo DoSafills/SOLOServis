@@ -35,6 +35,10 @@ func remoteJSON(ctx context.Context, envName, defaultURL, method, path string, i
 	if input != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	// Token de servicio para endpoints protegidos (p. ej. POST /products, TAL-70).
+	if token := os.Getenv("INTERNAL_API_TOKEN"); token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
 	response, err := serviceHTTPClient.Do(request)
 	if err != nil {
 		return err
