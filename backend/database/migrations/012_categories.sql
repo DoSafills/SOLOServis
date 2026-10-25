@@ -3,6 +3,10 @@
 -- atributos dinámicos. Base para TAL-72 (validación), TAL-75 (filtros)
 -- y TAL-76 (comparación).
 --
+-- Numerada 012 (y su seed 013) porque 009-011 los usa TAL-67/68 (PR #30).
+-- Si ese PR introduce backend/database/migration_order.txt, agregar
+-- 012_categories.sql y 013_categories_seed.sql al final del manifiesto.
+--
 -- Sin BEGIN/COMMIT propio: migrate.sh ejecuta cada archivo con
 -- --single-transaction junto al registro en schema_migrations.
 --

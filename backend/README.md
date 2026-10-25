@@ -302,8 +302,8 @@ Actualmente:
 007_service_cart.sql
 008_normalize_prices_to_clp.sql
 008_Telefonia.sql
-009_categories.sql
-010_categories_seed.sql
+012_categories.sql
+013_categories_seed.sql
 ```
 
 ## `001_schema.sql`
@@ -556,7 +556,9 @@ Categorías unificadas de productos y servicios con sus **definiciones de atribu
 - Errores con el estándar TAL-78 (`application/problem+json`, ver `docs/estandares/TAL-78-estandar-api.md`).
 - Solo se exponen categorías con `active = TRUE`.
 
-## Esquema (migraciones `009_categories.sql` y `010_categories_seed.sql`)
+## Esquema (migraciones `012_categories.sql` y `013_categories_seed.sql`)
+
+Los números 009–011 quedan reservados para las migraciones de TAL-67/68 (PR #30). Si ese PR agrega `backend/database/migration_order.txt`, estas dos migraciones deben sumarse al final del manifiesto.
 
 | Tabla | Columnas principales | Restricciones en BD |
 | --- | --- | --- |
@@ -1319,15 +1321,15 @@ El backend ejecuta APIs independientes en el mismo módulo Go y comparte Postgre
 
 La navegación, el carrito local y las comparaciones no requieren iniciar sesión. La autenticación se realiza mediante Auth API (registro, inicio, renovación y cierre de sesión); favoritos, historial de búsqueda, búsquedas guardadas y carrito sincronizado requieren una sesión válida. El frontend conserva la sesión en `localStorage` y renueva el token de acceso al vencerlo. Favorites, Cart y Search APIs validan el token y usan el usuario de la sesión, sin aceptar que el cliente elija otro `userId`.
 
-Las nuevas tablas se definen en `database/migrations/004_platform_apis.sql`. Docker ejecuta las migraciones automáticamente al inicializar un volumen PostgreSQL nuevo. La compatibilidad del carrito con ofertas de servicios se agrega en `database/migrations/007_service_cart.sql`. La migración `008_normalize_prices_to_clp.sql` etiqueta los precios existentes como CLP sin cambiar sus importes (conversión temporal 1:1) y deja triggers para normalizar la moneda de nuevas ofertas. Los valores que originalmente estaban en USD/EUR son referenciales y no representan una conversión real a pesos chilenos. Las categorías unificadas y sus definiciones de atributos (TAL-71) se crean en `009_categories.sql` y se cargan en `010_categories_seed.sql` (ver sección 12.1).
+Las nuevas tablas se definen en `database/migrations/004_platform_apis.sql`. Docker ejecuta las migraciones automáticamente al inicializar un volumen PostgreSQL nuevo. La compatibilidad del carrito con ofertas de servicios se agrega en `database/migrations/007_service_cart.sql`. La migración `008_normalize_prices_to_clp.sql` etiqueta los precios existentes como CLP sin cambiar sus importes (conversión temporal 1:1) y deja triggers para normalizar la moneda de nuevas ofertas. Los valores que originalmente estaban en USD/EUR son referenciales y no representan una conversión real a pesos chilenos. Las categorías unificadas y sus definiciones de atributos (TAL-71) se crean en `012_categories.sql` y se cargan en `013_categories_seed.sql` (ver sección 12.1).
 
 Para un volumen existente que ya tiene aplicadas las migraciones anteriores, aplica las migraciones pendientes una vez desde el root del proyecto:
 
 ```powershell
 docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/007_service_cart.sql
 docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/008_normalize_prices_to_clp.sql
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/009_categories.sql
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/010_categories_seed.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/012_categories.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/013_categories_seed.sql
 ```
 
 Las integraciones entre servicios usan las URLs internas definidas en `docker/compose.yml`: Search, Comparison, Favorites y Cart consultan Product API; Comparison y Cart consultan Pricing API; Review valida producto/tienda/servicio; Watchlist consulta Pricing; Pricing genera notificaciones mediante Notification API; e Ingestion delega en Product, Store y Pricing APIs. User API solo expone el perfil asociado al token de sesión autenticado.
