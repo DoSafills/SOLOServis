@@ -144,7 +144,9 @@ func (h *Handler) UpdateOffer(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
-	h.notifyPriceDrop(r.Context(), saved, previous)
+	if previous != "" {
+		h.notifyPriceDrop(r.Context(), saved, previous)
+	}
 	writeJSON(w, http.StatusOK, saved)
 }
 

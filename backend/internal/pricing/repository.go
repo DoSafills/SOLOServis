@@ -148,11 +148,13 @@ func (r *Repository) UpsertOffer(ctx context.Context, w OfferWrite) (int32, bool
 }
 
 // UpdateOffer reemplaza los datos de una oferta y devuelve el precio anterior,
-// o ErrOfferNotFound.
+// o ErrOfferNotFound. El CTE lee la fila con el snapshot de la sentencia (el
+// valor previo); con FOR UPDATE devolvería NULL porque la misma sentencia la
+// modifica. El UPDATE ya bloquea la fila.
 func (r *Repository) UpdateOffer(ctx context.Context, offerID int32, w OfferWrite) (string, error) {
-	var previous string
+	var previous *string
 	err := r.db.QueryRow(ctx, `
-		WITH previous AS (SELECT price FROM product_offer WHERE id = $1 FOR UPDATE)
+		WITH previous AS (SELECT price FROM product_offer WHERE id = $1)
 		UPDATE product_offer
 		SET price = $2::numeric, list_price = $3::numeric, currency = $4, shipping_cost = $5::numeric,
 		    shipping_free = $6, available = $7, stock = $8, condition = $9,
@@ -164,7 +166,10 @@ func (r *Repository) UpdateOffer(ctx context.Context, offerID int32, w OfferWrit
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrOfferNotFound
 	}
-	return previous, err
+	if err != nil || previous == nil {
+		return "", err
+	}
+	return *previous, nil
 }
 
 // Watcher es un usuario que pidió aviso cuando el producto baje de su precio objetivo.
