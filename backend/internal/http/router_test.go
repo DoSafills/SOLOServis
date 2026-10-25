@@ -38,6 +38,9 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 		{"store id inválido", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/abc", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"store offers sin product", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/offers", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"store escritura no existe", NewStoreRouter(nil, frontendURL), http.MethodPost, "/stores", `{}`, "application/json", 405, "", ""},
+		{"pricing id inválido", NewPricingRouter(nil, frontendURL), http.MethodGet, "/offers/abc", "", "", 400, "", httpx.CodeInvalidParameter},
+		{"pricing POST sin token", NewPricingRouter(nil, frontendURL), http.MethodPost, "/offers", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
+		{"pricing PUT sin token", NewPricingRouter(nil, frontendURL), http.MethodPut, "/offers/1", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
 	}
 
 	for _, tc := range tests {
@@ -171,6 +174,38 @@ func TestStoreRouter_RutasRegistradas(t *testing.T) {
 		return nil
 	}
 	if err := chi.Walk(NewStoreRouter(nil, "http://localhost:5173"), walk); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range want {
+		if !got[route] {
+			t.Errorf("falta la ruta %s", route)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
+	}
+}
+
+// Pricing API (TAL-74): rutas propias con el estándar; escrituras protegidas.
+func TestPricingRouter_RutasRegistradas(t *testing.T) {
+	want := []string{
+		"GET /health",
+		"GET /offers/product/{productId}",
+		"GET /offers/product/{productId}/best",
+		"GET /offers/product/{productId}/price-history",
+		"GET /offers/{id}",
+		"GET /offers/{id}/price-history",
+		"POST /offers",
+		"PUT /offers/{id}",
+	}
+
+	got := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		got[method+" "+route] = true
+		return nil
+	}
+	if err := chi.Walk(NewPricingRouter(nil, "http://localhost:5173"), walk); err != nil {
 		t.Fatal(err)
 	}
 
