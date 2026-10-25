@@ -7,11 +7,19 @@
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: soloservis
+      PGHOST: /var/run/postgresql
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGDATABASE: soloservis
+      MIGRATIONS_DIR: /migrations
+      MIGRATION_ORDER_FILE: /migration_order.txt
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
-      - ../backend/database/migrations:/docker-entrypoint-initdb.d:ro
+      - ../backend/database/migrations:/migrations:ro
+      - ../backend/database/migration_order.txt:/migration_order.txt:ro
+      - ../k8s/base/migrations/migrate.sh:/docker-entrypoint-initdb.d/001_migrations.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d soloservis"]
       interval: 5s

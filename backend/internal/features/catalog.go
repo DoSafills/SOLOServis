@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -74,13 +75,18 @@ func (h *Handler) CreateOffer(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "productId, storeId and a non-negative price are required")
 		return
 	}
+	if input.Currency == "" {
+		input.Currency = "CLP"
+	}
+	if products.ValidateCurrencyCode(input.Currency) != nil {
+		badRequest(w, "currency must contain exactly three uppercase letters")
+		return
+	}
+	input.ProductURL = products.NormalizeProductOfferURL(input.ProductURL)
 	productID, err := h.service.ProductID(r.Context(), input.ProductID)
 	if err != nil {
 		apiutil.WriteError(w, http.StatusNotFound, "product not found")
 		return
-	}
-	if input.Currency == "" {
-		input.Currency = "CLP"
 	}
 	if input.Condition == "" {
 		input.Condition = "new"
@@ -92,15 +98,11 @@ func (h *Handler) CreateOffer(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var offerID int32
-	var savedPrice float64
 	err = tx.QueryRow(r.Context(), `INSERT INTO product_offer
 		(product_id, store_id, price, list_price, currency, shipping_cost, shipping_free, available, stock, condition, product_url)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, price`, productID, input.StoreID,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`, productID, input.StoreID,
 		input.Price, input.ListPrice, input.Currency, input.ShippingCost, input.ShippingFree,
-		input.Available, input.Stock, input.Condition, input.ProductURL).Scan(&offerID, &savedPrice)
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO product_price_history (product_offer_id, price) VALUES ($1,$2)`, offerID, savedPrice)
-	}
+		input.Available, input.Stock, input.Condition, input.ProductURL).Scan(&offerID)
 	if err != nil {
 		apiutil.WriteError(w, http.StatusBadRequest, "invalid store or offer data")
 		return
@@ -127,6 +129,11 @@ func (h *Handler) UpdateOffer(w http.ResponseWriter, r *http.Request) {
 	if input.Currency == "" {
 		input.Currency = "CLP"
 	}
+	if products.ValidateCurrencyCode(input.Currency) != nil {
+		badRequest(w, "currency must contain exactly three uppercase letters")
+		return
+	}
+	input.ProductURL = products.NormalizeProductOfferURL(input.ProductURL)
 	if input.Condition == "" {
 		input.Condition = "new"
 	}
@@ -148,9 +155,6 @@ func (h *Handler) UpdateOffer(w http.ResponseWriter, r *http.Request) {
 		product_url=$10, last_updated=NOW() WHERE id=$1 RETURNING price`, offerID, input.Price, input.ListPrice,
 		input.Currency, input.ShippingCost, input.ShippingFree, input.Available, input.Stock,
 		input.Condition, input.ProductURL).Scan(&currentPrice)
-	if err == nil && oldPrice != currentPrice {
-		_, err = tx.Exec(r.Context(), `INSERT INTO product_price_history (product_offer_id, price) VALUES ($1,$2)`, offerID, currentPrice)
-	}
 	if err != nil {
 		apiutil.WriteError(w, http.StatusBadRequest, "could not update offer")
 		return

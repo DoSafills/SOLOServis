@@ -52,12 +52,6 @@ func (h *Handler) IngestProduct(w http.ResponseWriter, r *http.Request) {
 		apiutil.WriteError(w, http.StatusBadRequest, "could not ingest product; check category, brand, and SKU")
 		return
 	}
-	if input.ImageURL != "" {
-		if _, err := h.db.Exec(r.Context(), `INSERT INTO product_image(product_id,image_url,alt_text) SELECT id,$2,$3 FROM product WHERE public_id=$1::uuid`, publicID, input.ImageURL, input.Name); err != nil {
-			apiutil.WriteError(w, http.StatusInternalServerError, "product was saved but image could not be saved")
-			return
-		}
-	}
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{"productId": publicID, "name": input.Name, "source": defaultSource(input.Source)})
 }
 

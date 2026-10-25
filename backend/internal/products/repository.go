@@ -73,6 +73,14 @@ func (r *Repository) List(ctx context.Context) ([]generated.ListProductsRow, err
 	return r.queries.ListProducts(ctx)
 }
 
+func (r *Repository) ListByCategory(ctx context.Context, categoryID int32) ([]generated.ListProductsByCategoryRow, error) {
+	return r.queries.ListProductsByCategory(ctx, categoryID)
+}
+
+func (r *Repository) ListCategories(ctx context.Context) ([]generated.ListProductCategoriesRow, error) {
+	return r.queries.ListProductCategories(ctx)
+}
+
 func (r *Repository) GetByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.Product, error) {
 	return r.queries.GetProductByPublicID(ctx, publicID)
 }
@@ -85,8 +93,30 @@ func (r *Repository) ListOffers(ctx context.Context, productID int32) ([]generat
 	return r.queries.ListProductOffers(ctx, productID)
 }
 
+func (r *Repository) GetOfferByID(ctx context.Context, offerID int32) (generated.ProductOffer, error) {
+	return r.queries.GetOfferByID(ctx, offerID)
+}
+
+func (r *Repository) UpsertOffer(ctx context.Context, params generated.UpsertProductOfferParams) (generated.ProductOffer, error) {
+	if err := ValidateCurrencyCode(params.Currency); err != nil {
+		return generated.ProductOffer{}, err
+	}
+	if params.ProductUrl.Valid {
+		params.ProductUrl.String = NormalizeProductOfferURL(params.ProductUrl.String)
+	}
+	return r.queries.UpsertProductOffer(ctx, params)
+}
+
+func (r *Repository) UpdateOfferPriceAvailability(ctx context.Context, params generated.UpdateProductOfferPriceAvailabilityParams) (generated.ProductOffer, error) {
+	return r.queries.UpdateProductOfferPriceAvailability(ctx, params)
+}
+
 func (r *Repository) ListImages(ctx context.Context, productID int32) ([]generated.ProductImage, error) {
 	return r.queries.ListProductImages(ctx, productID)
+}
+
+func (r *Repository) ListReviews(ctx context.Context, productID int32) ([]generated.ListProductReviewsRow, error) {
+	return r.queries.ListProductReviews(ctx, productID)
 }
 
 func (r *Repository) ListSpecifications(ctx context.Context, productID int32) ([]generated.ListProductSpecificationsRow, error) {

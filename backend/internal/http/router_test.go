@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
+	"github.com/go-chi/chi/v5"
 )
 
 // Los casos usan rutas que responden antes de consultar la base de datos,
@@ -101,5 +102,40 @@ func TestProductRouter_CategoriasSoloLectura(t *testing.T) {
 				t.Fatalf("status = %d, quiero 405", rec.Code)
 			}
 		})
+	}
+}
+
+// Product API expone el modelo nuevo de categorías (TAL-71) en /categories y
+// conserva el árbol anterior en /product-categories mientras migra el frontend.
+func TestProductRouter_RutasRegistradas(t *testing.T) {
+	want := []string{
+		"GET /categories",
+		"GET /categories/{slug}",
+		"GET /health",
+		"GET /product-categories",
+		"GET /products",
+		"GET /products/{publicID}",
+		"GET /products/{publicID}/reviews",
+		"POST /products",
+		"PUT /products/{publicID}",
+		"DELETE /products/{publicID}",
+	}
+
+	got := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		got[method+" "+route] = true
+		return nil
+	}
+	if err := chi.Walk(NewProductRouter(nil, "http://localhost:5173"), walk); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range want {
+		if !got[route] {
+			t.Errorf("falta la ruta %s", route)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
 	}
 }

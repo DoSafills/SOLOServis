@@ -425,11 +425,13 @@ export default function ProductComparisonPage({
                               ? "Agregando a la cesta..."
                               : "Agregar al carrito"}
                         </button>
-                                              <button
+                        <button
                           type="button"
                           onClick={() => {
                             setSelected((products) =>
-                              products.filter((selectedProduct) => selectedProduct.id !== product.id),
+                              products.filter(
+                                (selectedProduct) => selectedProduct.id !== product.id,
+                              ),
                             );
                             onRemoveProduct(product.id, product.category);
                           }}

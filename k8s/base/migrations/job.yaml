@@ -47,6 +47,8 @@ spec:
                 secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}
             - name: MIGRATIONS_DIR
               value: /migrations
+            - name: MIGRATION_ORDER_FILE
+              value: /migrations/migration_order.txt
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

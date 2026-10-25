@@ -420,7 +420,15 @@ Actualmente existen las siguientes rutas:
 GET /health
 GET /products
 GET /products/{publicID}
+GET /stores
+GET /stores/{id}
+GET /services
+GET /services/{publicID}
 ```
+
+Las tiendas se consultan por id numérico. Los servicios se consultan por UUID
+público y aceptan el filtro opcional `?category=`. El detalle de un servicio
+incluye sus ofertas y proveedores.
 
 ---
 
@@ -559,7 +567,7 @@ Categorías unificadas de productos y servicios con sus **definiciones de atribu
 
 ## Esquema (migraciones `012_categories.sql` y `013_categories_seed.sql`)
 
-Los números 009–011 quedan reservados para las migraciones de TAL-67/68 (PR #30). Si ese PR agrega `backend/database/migration_order.txt`, estas dos migraciones deben sumarse al final del manifiesto.
+Se numeran 012 y 013 porque 009–011 son de TAL-67/68. Están registradas al final de `backend/database/migration_order.txt`: el runner rechaza cualquier `.sql` que no figure en ese manifiesto.
 
 | Tabla | Columnas principales | Restricciones en BD |
 | --- | --- | --- |
@@ -805,7 +813,7 @@ location ~ ^/categories(/.*)?$ {
 
 ```bash
 docker run -d --name soloservis-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=soloservis -p 55432:5432 postgres:18
-# aplicar backend/database/migrations/*.sql en orden, igual que k8s/base/migrations/migrate.sh
+# aplicar las migraciones en el orden de backend/database/migration_order.txt, igual que k8s/base/migrations/migrate.sh
 cd backend && TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/soloservis go test -run Integration ./internal/categories/
 ```
 
@@ -1480,3 +1488,7 @@ PostgreSQL
 ```
 
 Esta estructura permite que cada capa tenga una responsabilidad concreta y facilita la expansión futura del sistema hacia servicios, usuarios, scraping, historial de precios, favoritos, comparaciones y otras funcionalidades.
+
+Docker Compose y Kubernetes ejecutan `k8s/base/migrations/migrate.sh` con el orden explícito de `backend/database/migration_order.txt`. El runner valida que el manifiesto incluya todos los archivos SQL, registra cada basename y checksum en `schema_migrations`, y no vuelve a aplicar versiones ya registradas. El manifiesto conserva los nombres y contenidos existentes; los prefijos pueden repetirse, pero el orden ya no depende del locale.
+
+Docker aplica el runner automáticamente al inicializar un volumen PostgreSQL vacío. Para un volumen existente con `schema_migrations`, ejecuta el runner para aplicar versiones pendientes. Una base antigua con esquema pero sin registro se rechaza intencionalmente: primero requiere establecer un baseline verificado; el runner no asume que migraciones o seeds se hayan aplicado.

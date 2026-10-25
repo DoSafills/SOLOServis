@@ -29,6 +29,10 @@ func (r *Repository) ListProducts(ctx context.Context, storeID int32) ([]generat
 	return r.queries.ListStoreProducts(ctx, storeID)
 }
 
+func (r *Repository) ListOffers(ctx context.Context, storeID int32) ([]generated.ListStoreOffersRow, error) {
+	return r.queries.ListStoreOffers(ctx, storeID)
+}
+
 func (r *Repository) ListLocations(ctx context.Context, storeID int32) ([]generated.ListStoreLocationsRow, error) {
 	return r.queries.ListStoreLocations(ctx, storeID)
 }
