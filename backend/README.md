@@ -469,6 +469,8 @@ Si PostgreSQL no responde:
 
 # 11. Endpoint `/products`
 
+> Contrato vigente desde TAL-70 (atributos, autorización, paginación y errores): ver sección 12.2.
+
 Petición:
 
 ```http
@@ -513,6 +515,8 @@ Ejemplo:
 ---
 
 # 12. Endpoint `/products/{publicID}`
+
+> Contrato vigente desde TAL-70 (atributos, autorización, paginación y errores): ver sección 12.2.
 
 Permite obtener el detalle completo de un producto.
 
@@ -816,6 +820,184 @@ docker run -d --name soloservis-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRE
 # aplicar las migraciones en el orden de backend/database/migration_order.txt, igual que k8s/base/migrations/migrate.sh
 cd backend && TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/soloservis go test -run Integration ./internal/categories/
 ```
+
+---
+
+
+# 12.2. Productos con categoría y atributos dinámicos (TAL-70)
+
+Desde TAL-70, Product API crea, consulta, edita y lista productos usando la categoría del modelo nuevo (`categories`, TAL-71) y sus atributos validados por TAL-72. Las secciones 11 y 12 describen la forma básica; esta sección es el contrato vigente.
+
+| Método | Ruta | Autorización | Éxito |
+| --- | --- | --- | --- |
+| GET | `/products?category=&limit=&offset=` | pública | 200, arreglo + `X-Total-Count` |
+| GET | `/products/{publicID}` | pública | 200 |
+| POST | `/products` | **admin** o token de servicio | 201 + `Location`, misma forma que el GET |
+| PUT | `/products/{publicID}` | **admin** o token de servicio | 200, misma forma que el GET |
+| DELETE | `/products/{publicID}` | **admin** o token de servicio | 204 (baja lógica) |
+| GET | `/products/{publicID}/reviews` | pública | 200 |
+| GET | `/product-categories` | pública | 200 (árbol de `product_category`; transitorio hasta TAL-51) |
+
+## Modelo de datos (`014_product_attributes.sql`)
+
+- `product.category_ref` → `categories(id)` (`ON DELETE RESTRICT`). Se cargó desde `categories.legacy_product_category_id`. `product.category_id` (`product_category`) **no cambia**: lo siguen usando Search, Comparison y el frontend.
+- `product_attribute_value (product_id, category_id, attribute_id, value, value_numeric)`, PK `(product_id, attribute_id)`:
+  - `value`: forma canónica del validador (`"350"`, `"65.5"`, `"true"`, `"A+"`).
+  - `value_numeric`: solo para `integer`/`decimal`, para los filtros por rango de TAL-75.
+  - **FK compuestas**: `(product_id, category_id) → product(id, category_ref)` y `(attribute_id, category_id) → category_attributes(id, category_id)`. La base de datos impide guardar un atributo de otra categoría, cambiar la categoría de un producto sin reemplazar sus valores y borrar un atributo que tenga valores (`RESTRICT`).
+- Los productos existentes conservan sus especificaciones antiguas en `specs`; `attributes` se llena al crear o editar con este contrato.
+
+## Autorización de escrituras (`internal/authz`)
+
+`POST`, `PUT` y `DELETE` exigen `Authorization: Bearer <token>`:
+
+- **Sesión de Auth API** de un usuario con `role = 'admin'` (tabla `user_session`, se compara el SHA-256 del token).
+- **Token de servicio** `INTERNAL_API_TOKEN` (mínimo 32 caracteres; si es más corto se ignora). Ingestion API lo reenvía automáticamente (`features.remoteJSON`). En `docker/compose.yml` hay un valor de desarrollo que se reemplaza con la variable de entorno `INTERNAL_API_TOKEN`.
+
+| Caso | Status | `code` |
+| --- | --- | --- |
+| Sin header, esquema distinto de Bearer o token desconocido/vencido | 401 (+ `WWW-Authenticate: Bearer`) | `unauthorized` |
+| Usuario autenticado sin rol admin | 403 | `forbidden` |
+
+Nginx sigue bloqueando desde internet todo lo que no sea GET (`limit_except GET`).
+
+## Body de `POST /products` y `PUT /products/{publicID}`
+
+```json
+{
+  "categorySlug": "refrigeradores",
+  "brandId": 2,
+  "name": "Refrigerador LG 350L No Frost",
+  "model": "GT35",
+  "sku": "LG-GT35",
+  "description": "Refrigerador no frost de 350 litros",
+  "imageUrl": "https://example.test/lg.png",
+  "attributes": {
+    "capacidad_litros": 350,
+    "eficiencia_energetica": "A++",
+    "no_frost": true,
+    "peso_kg": 65.5,
+    "color": "Gris"
+  }
+}
+```
+
+| Campo | Regla |
+| --- | --- |
+| `categorySlug` / `categoryId` | **Exactamente uno**. `categorySlug` es el modelo nuevo (recomendado). `categoryId` (id de `product_category`) se mantiene para Ingestion API hasta TAL-77; si esa categoría tiene equivalente nueva, se aplican sus atributos. La categoría debe ser de tipo `product`, estar activa y tener equivalente en `product_category`. |
+| `name` | obligatorio, máximo 255 caracteres |
+| `model` / `sku` / `description` | opcionales; máximo 150 / 100 / 5000 caracteres. `sku` es único. |
+| `brandId` | opcional, mayor que 0 y existente |
+| `imageUrl` | **obligatorio en POST**, URL http(s). En PUT no se acepta (las imágenes no se editan con PUT). |
+| `attributes` | se valida con `categories.ValidateAttributes` (sección 12.1): tipos sin conversión implícita, obligatorios, rangos, largos, enum y keys desconocidas. |
+
+**PUT reemplaza el producto completo**: un campo opcional omitido queda vacío y los atributos se reemplazan por los enviados.
+
+Orden de validación (TAL-78 §3): id de ruta (400) → decodificación (400/413/415) → reglas de campos (422) → categoría (422) → atributos (422) → base de datos (404/409/422/500). Todo se guarda en **una transacción**: producto, imagen y atributos.
+
+## Respuestas
+
+`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (`null` si la categoría antigua no tiene equivalente) y `attributes` con valores tipados. Respuesta real del `PUT` con el body de arriba:
+
+```http
+PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
+```
+
+```json
+{
+  "id": "f670f409-4430-4758-b587-6b05153eb5e4",
+  "name": "Refrigerador LG 350L No Frost",
+  "brand": "LG",
+  "model": "GT35",
+  "categoryId": 5,
+  "category": "Refrigeracion",
+  "subcategory": "",
+  "description": "Refrigerador no frost de 350 litros",
+  "rating": 0,
+  "reviewCount": 0,
+  "specs": {},
+  "images": [{ "url": "https://example.test/lg.png", "altText": "Refrigerador LG 350L", "sortOrder": 0 }],
+  "offers": [],
+  "priceHistory": [],
+  "offerPriceHistory": [],
+  "categorySlug": "refrigeradores",
+  "attributes": {
+    "capacidad_litros": 350,
+    "color": "Gris",
+    "eficiencia_energetica": "A++",
+    "no_frost": true,
+    "peso_kg": 65.5
+  }
+}
+```
+
+`GET /products` mantiene el **cuerpo como arreglo** (lo consumen Search API y el frontend) con los mismos campos por producto, más `categorySlug` y `attributes`:
+
+| Parámetro | Regla |
+| --- | --- |
+| `category` | id numérico de `product_category` (incluye subcategorías) **o** slug de `categories` |
+| `limit` | 1–100, por defecto 100 (el catálogo actual tiene 38 productos) |
+| `offset` | ≥ 0, por defecto 0 |
+
+El total sin paginar va en el header `X-Total-Count`. El listado usa 6 consultas fijas (conteo, página, imágenes, ofertas, specs y atributos), sin N+1. Un producto dado de baja no aparece en el listado y su detalle responde 404.
+
+## Errores
+
+```json
+{
+  "type": "about:blank",
+  "title": "Unprocessable Entity",
+  "status": 422,
+  "detail": "La solicitud no cumple las reglas de validación.",
+  "instance": "/products",
+  "code": "validation_failed",
+  "request_id": "ejemplo-tal70",
+  "errors": [
+    { "field": "attributes.capacidad_litros", "code": "invalid_type", "message": "attributes.capacidad_litros debe ser un número entero" },
+    { "field": "attributes.eficiencia_energetica", "code": "one_of", "message": "attributes.eficiencia_energetica debe ser uno de: A+++, A++, A+, A, B, C, D" }
+  ]
+}
+```
+
+| Caso | Status | `code` / `errors[]` |
+| --- | --- | --- |
+| `publicID` no es UUID | 400 | `invalid_parameter` / `publicID` `format` |
+| `category`, `limit` u `offset` inválidos | 400 | `invalid_parameter` / `format`, `min`, `max`, `invalid_type` |
+| JSON malformado, campo desconocido, tipo incorrecto | 400 | `malformed_json`, `unknown_field`, `invalid_type` |
+| `Content-Type` distinto de JSON | 415 | `unsupported_media_type` |
+| Sin token / sin rol admin | 401 / 403 | `unauthorized` / `forbidden` |
+| Reglas de campos | 422 | `name` `required`/`max_length`, `categorySlug` `required`/`format`, `categoryId` `one_of`/`min`, `imageUrl` `required`/`format`, `brandId` `min` |
+| Categoría inexistente, de servicios o sin equivalente | 422 | `categorySlug`/`categoryId` `not_found` o `one_of` |
+| Atributos inválidos | 422 | `attributes.<key>` con `required`, `invalid_type`, `min`, `max`, `max_length`, `one_of`, `unknown_field` |
+| Marca inexistente | 422 | `brandId` `not_found` |
+| SKU duplicado | 409 | `conflict` |
+| Producto inexistente o dado de baja | 404 | `not_found` |
+| Error de base de datos | 500 | `internal_error` (el detalle solo va al log con el `request_id`) |
+
+```http
+GET /products?category=Refri_Geradores&limit=500
+```
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Los parámetros de la consulta no son válidos.",
+  "instance": "/products",
+  "code": "invalid_parameter",
+  "request_id": "ejemplo-tal70",
+  "errors": [
+    { "field": "category", "code": "format", "message": "category debe ser un id numérico o un slug de categoría" },
+    { "field": "limit", "code": "max", "message": "limit no puede superar 100" }
+  ]
+}
+```
+
+## Tests
+
+- Unitarios sin BD: `internal/products/handler_test.go`, `internal/authz/authz_test.go`, `internal/http/router_test.go`.
+- Integración con `TEST_DATABASE_URL`: `internal/products/catalog_integration_test.go` (ciclo de vida, filtros, paginación y FK compuestas) e `internal/http/router_integration_test.go` (router real con sesiones admin/cliente y token de servicio).
 
 ---
 
