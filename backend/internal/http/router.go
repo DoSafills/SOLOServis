@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
@@ -111,15 +112,18 @@ func registerHealth(r chi.Router, db *pgxpool.Pool) {
 }
 
 func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
-	handler := products.NewHandler(products.NewRepository(db))
+	handler := products.NewHandler(products.NewRepository(db), logger)
+	// Escrituras (TAL-70): solo admin o servicios internos con INTERNAL_API_TOKEN.
+	admin := authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
+
 	// Árbol de product_category (modelo anterior). Transitorio: el frontend
 	// debe migrar a /categories (TAL-51) y luego se elimina.
 	r.Get("/product-categories", handler.ListCategories)
 	r.Get("/products", handler.List)
 	r.Get("/products/{publicID}", handler.GetByPublicID)
-	r.Post("/products", handler.Create)
-	r.Put("/products/{publicID}", handler.Update)
-	r.Delete("/products/{publicID}", handler.Deactivate)
+	r.With(admin).Post("/products", handler.Create)
+	r.With(admin).Put("/products/{publicID}", handler.Update)
+	r.With(admin).Delete("/products/{publicID}", handler.Deactivate)
 	r.Get("/products/{publicID}/reviews", handler.ListReviews)
 
 	// Categorías y definiciones de atributos (TAL-71): solo lectura.

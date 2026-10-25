@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +12,9 @@ import (
 )
 
 // Los casos usan rutas que responden antes de consultar la base de datos,
-// por eso los routers se construyen con un pool nil.
+// por eso los routers se construyen con un pool nil. wantBody fija respuestas
+// en texto plano (Store API aún no migra al estándar); wantCode, el code del
+// problem+json de los endpoints ya migrados (Product API desde TAL-70).
 func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 	const frontendURL = "http://localhost:5173"
 
@@ -24,14 +27,15 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 		contentType string
 		wantStatus  int
 		wantBody    string
+		wantCode    string
 	}{
-		{"product preflight CORS", NewProductRouter(nil, frontendURL), http.MethodOptions, "/products", "", "", 204, ""},
-		{"product id inválido", NewProductRouter(nil, frontendURL), http.MethodGet, "/products/no-es-uuid", "", "", 400, "invalid product id\n"},
-		{"product create con payload inválido", NewProductRouter(nil, frontendURL), http.MethodPost, "/products", `{"nombre":"x"}`, "application/json", 400, "invalid product payload\n"},
-		{"product update con id inválido", NewProductRouter(nil, frontendURL), http.MethodPut, "/products/x", `{}`, "application/json", 400, "invalid product id\n"},
-		{"product delete con id inválido", NewProductRouter(nil, frontendURL), http.MethodDelete, "/products/x", "", "", 400, "invalid product id\n"},
-		{"store preflight CORS", NewStoreRouter(nil, frontendURL), http.MethodOptions, "/stores", "", "", 204, ""},
-		{"store id inválido", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/abc", "", "", 400, "invalid store id\n"},
+		{"product preflight CORS", NewProductRouter(nil, frontendURL), http.MethodOptions, "/products", "", "", 204, "", ""},
+		{"product id inválido", NewProductRouter(nil, frontendURL), http.MethodGet, "/products/no-es-uuid", "", "", 400, "", httpx.CodeInvalidParameter},
+		{"product create sin token", NewProductRouter(nil, frontendURL), http.MethodPost, "/products", `{"nombre":"x"}`, "application/json", 401, "", httpx.CodeUnauthorized},
+		{"product update sin token", NewProductRouter(nil, frontendURL), http.MethodPut, "/products/x", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
+		{"product delete sin token", NewProductRouter(nil, frontendURL), http.MethodDelete, "/products/x", "", "", 401, "", httpx.CodeUnauthorized},
+		{"store preflight CORS", NewStoreRouter(nil, frontendURL), http.MethodOptions, "/stores", "", "", 204, "", ""},
+		{"store id inválido", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/abc", "", "", 400, "invalid store id\n", ""},
 	}
 
 	for _, tc := range tests {
@@ -44,8 +48,17 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 
 			tc.router.ServeHTTP(rec, req)
 
-			if rec.Code != tc.wantStatus || rec.Body.String() != tc.wantBody {
-				t.Fatalf("respuesta = %d %q, quiero %d %q", rec.Code, rec.Body.String(), tc.wantStatus, tc.wantBody)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, quiero %d (%s)", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			if tc.wantCode != "" {
+				var p httpx.Problem
+				if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil || p.Code != tc.wantCode ||
+					rec.Header().Get("Content-Type") != httpx.ProblemContentType {
+					t.Fatalf("problem = %+v (%v), quiero code %q", p, err, tc.wantCode)
+				}
+			} else if rec.Body.String() != tc.wantBody {
+				t.Fatalf("body = %q, quiero %q", rec.Body.String(), tc.wantBody)
 			}
 			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != frontendURL {
 				t.Fatalf("CORS alterado: Access-Control-Allow-Origin = %q", got)
