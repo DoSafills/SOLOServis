@@ -1179,6 +1179,159 @@ GET /stores/offers?product=abc&available=si
 ---
 
 
+# 12.4. Pricing API: precio actual e historial (TAL-74)
+
+Pricing API (`cmd/pricing-api`, puerto 8085) tiene ahora su propio paquete, `internal/pricing`, con el estándar TAL-78 (antes vivía en `internal/features` con `apiutil`). Usa `apphttp.NewPricingRouter`: RequestID → AccessLog → Recover → CORS.
+
+| Método | Ruta | Autorización | Respuesta |
+| --- | --- | --- | --- |
+| POST | `/offers` | admin o token de servicio | **registra el precio actual**: 201 + `Location` si la oferta es nueva, 200 si ya existía |
+| PUT | `/offers/{id}` | admin o token de servicio | 200, reemplaza los datos de la oferta |
+| GET | `/offers/{id}` | pública | oferta |
+| GET | `/offers/product/{productId}` | pública | ofertas del producto (disponibles primero, luego por precio) |
+| GET | `/offers/product/{productId}/best` | pública | **mejor precio actual**: oferta disponible con menor `totalPrice` |
+| GET | `/offers/{id}/price-history?from=&to=&limit=&offset=` | pública | historial de la oferta + `X-Total-Count` |
+| GET | `/offers/product/{productId}/price-history?from=&to=&limit=&offset=` | pública | historial del producto en todas sus tiendas + `X-Total-Count` |
+
+`{productId}` acepta el UUID público o el id numérico (como antes). Límite con Store API (TAL-73): Store **lee** ofertas por tienda; Pricing **registra** precios y su historial.
+
+## Cómo se registra el precio actual
+
+- `POST /offers` hace **upsert** sobre el índice único de TAL-63/64 (producto + tienda + URL normalizada): el scraper/Ingestion puede reenviar la misma oferta y solo se actualiza.
+- El **historial lo escribe el trigger** `record_product_offer_price_history` (migración 010) en el alta y cuando cambia el precio. Reenviar el mismo precio no agrega historial.
+- Si el precio baja, se avisa a los usuarios cuyo precio objetivo quedó cruzado (`product_user_interest`) mediante Notification API (`NOTIFICATION_API_URL`). Un fallo del aviso queda en el log y no afecta la respuesta.
+- La moneda la normaliza el trigger de la migración 008 (hoy todo se guarda como CLP).
+
+## Body de `POST /offers` / `PUT /offers/{id}`
+
+```json
+{
+  "productId": "cdb7b0a4-aaff-412d-9147-8b2a2465d6af",
+  "storeId": 2,
+  "price": 329990,
+  "listPrice": 399990,
+  "shippingCost": 0,
+  "shippingFree": true,
+  "available": true,
+  "stock": 10,
+  "condition": "new",
+  "currency": "CLP",
+  "productUrl": "https://example.test/midea-scraper"
+}
+```
+
+`productId` y `storeId` solo van en POST (en PUT son `unknown_field`).
+
+| Campo | Regla | Si se omite |
+| --- | --- | --- |
+| `price` | **obligatorio**, ≥ 0, hasta 10 enteros y 2 decimales | 422 `required` (antes se guardaba 0) |
+| `listPrice` | ≥ 0, mismo formato | `null` |
+| `shippingCost` | ≥ 0, mismo formato | `0` |
+| `shippingFree` | booleano | `false` |
+| `available` | booleano | `true` (antes un PUT sin este campo apagaba la oferta) |
+| `stock` | ≥ 0 | `null` |
+| `condition` | `new`, `used` o `refurbished` | `new` |
+| `currency` | 3 letras mayúsculas | `CLP` |
+| `productUrl` | URL http(s), máximo 2048 | `null` |
+
+Los montos aceptan número JSON o string numérico y **no pasan por `float64`**: viajan como texto decimal a `NUMERIC(12,2)`. En las respuestas van como string con 2 decimales.
+
+## Respuestas (reales)
+
+`POST /offers` con un precio nuevo para una oferta existente → **200**:
+
+```json
+{
+  "id": 125,
+  "productId": "cdb7b0a4-aaff-412d-9147-8b2a2465d6af",
+  "storeId": 2,
+  "storeName": "Paris",
+  "price": "329990.00",
+  "listPrice": null,
+  "currency": "CLP",
+  "shippingCost": "0.00",
+  "shippingFree": true,
+  "totalPrice": "329990.00",
+  "available": true,
+  "stock": null,
+  "condition": "new",
+  "productUrl": "https://example.test/midea-scraper",
+  "lastUpdated": "2026-10-25T22:14:13Z"
+}
+```
+
+`totalPrice` = `price` + `shippingCost` (0 si `shippingFree`). `GET /offers/product/{productId}/best` devuelve la misma forma; sin ofertas disponibles responde 404.
+
+`GET /offers/125/price-history` (`X-Total-Count: 2`), más reciente primero:
+
+```json
+[
+  { "id": 173, "price": "329990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:13.846796Z" },
+  { "id": 172, "price": "349990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:04.554457Z" }
+]
+```
+
+`GET /offers/product/{productId}/price-history?limit=3` (`X-Total-Count: 5`) agrega la oferta y la tienda de cada punto:
+
+```json
+[
+  { "id": 173, "price": "329990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:13.846796Z", "offerId": 125, "storeId": 2, "storeName": "Paris" },
+  { "id": 172, "price": "349990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:04.554457Z", "offerId": 125, "storeId": 2, "storeName": "Paris" },
+  { "id": 108, "price": "379990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:11:55.34416Z", "offerId": 66, "storeId": 7, "storeName": "Lider" }
+]
+```
+
+Parámetros del historial: `from`/`to` en `YYYY-MM-DD` (inclusivas, `to` ≥ `from`), `limit` 1–500 (por defecto 100), `offset` ≥ 0.
+
+## Errores
+
+| Caso | Status | `code` / `errors[]` |
+| --- | --- | --- |
+| `{id}` o `{productId}` con formato inválido | 400 | `invalid_parameter` / `id` o `productId` `format` |
+| `from`, `to`, `limit`, `offset` inválidos | 400 | `invalid_parameter` / `format`, `min`, `max`, `invalid_type` |
+| JSON malformado, campo desconocido, tipo incorrecto | 400 | `malformed_json`, `unknown_field`, `invalid_type` |
+| Sin token / sin rol admin | 401 / 403 | `unauthorized` / `forbidden` |
+| Reglas de campos | 422 | `price`/`listPrice`/`shippingCost` `required`, `min`, `format`; `currency` `format`; `condition` `one_of`; `stock` `min`; `productUrl` `format`/`max_length`; `productId` `required`/`format`; `storeId` `min` |
+| Producto o tienda inexistente (en el body) | 422 | `productId` / `storeId` `not_found` |
+| Otra oferta con la misma URL (PUT) | 409 | `conflict` |
+| Oferta inexistente (también su historial; antes respondía `[]`) | 404 | `not_found` |
+| Producto inexistente o inactivo (ruta) | 404 | `not_found` |
+| Error de base de datos | 500 | `internal_error` |
+
+```json
+{
+  "type": "about:blank",
+  "title": "Unprocessable Entity",
+  "status": 422,
+  "detail": "La solicitud no cumple las reglas de validación.",
+  "instance": "/offers",
+  "code": "validation_failed",
+  "request_id": "ejemplo-tal74",
+  "errors": [
+    { "field": "price", "code": "min", "message": "price debe ser mayor o igual a 0" },
+    { "field": "listPrice", "code": "format", "message": "listPrice debe ser un monto con hasta 10 enteros y 2 decimales" },
+    { "field": "condition", "code": "one_of", "message": "condition debe ser new, used o refurbished" }
+  ]
+}
+```
+
+## Consumidores
+
+Los nombres de los campos se mantienen. Cart lee `productId` de `GET /offers/{id}`; Comparison y Watchlist reenvían `GET /offers/product/{productId}` sin interpretarlo; Ingestion usa `POST /offers` y reenvía `INTERNAL_API_TOKEN` (configurado para `pricing-api` e `ingestion-api` en `docker/compose.yml`).
+
+## Tests
+
+- Unitarios sin BD: `internal/pricing/handler_test.go`, `internal/http/router_test.go`.
+- Integración con `TEST_DATABASE_URL`: `internal/pricing/integration_test.go` (upsert, historial por trigger, PUT sin apagar ofertas, mejor precio, filtros, avisos de bajada). Reemplaza a los tests de caracterización de Pricing de `internal/features`, actualizados al comportamiento corregido.
+
+## Pendiente (fuera de TAL-74)
+
+- Pricing no se despliega en k8s ni está enrutado en nginx (requiere aprobación).
+- `is_promotional` siempre es `false`: el trigger de la 010 no lo calcula.
+
+---
+
+
 # 13. Handlers
 
 Los handlers se encuentran en:
