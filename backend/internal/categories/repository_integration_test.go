@@ -2,6 +2,7 @@ package categories
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"reflect"
@@ -235,5 +236,74 @@ func TestIntegration_RepositoryGetBySlug(t *testing.T) {
 	})
 	if _, err := repo.GetBySlug(ctx, "tmp-inactiva"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("categoría inactiva: error = %v, quiero ErrNotFound", err)
+	}
+}
+
+// TAL-72: el validador funciona con las definiciones sembradas tal como las
+// devuelve el repositorio (incluido el id real de cada atributo).
+func TestIntegration_ValidateAttributesConDefinicionesReales(t *testing.T) {
+	pool := integrationPool(t)
+	repo := NewRepository(pool)
+	ctx := context.Background()
+
+	attributeID := func(slug, key string) int32 {
+		t.Helper()
+		var id int32
+		if err := pool.QueryRow(ctx, `
+			SELECT a.id FROM category_attributes a JOIN categories c ON c.id = a.category_id
+			WHERE c.slug = $1 AND a.key = $2`, slug, key).Scan(&id); err != nil {
+			t.Fatalf("id de %s.%s: %v", slug, key, err)
+		}
+		return id
+	}
+
+	refrigeradores, err := repo.GetBySlug(ctx, "refrigeradores")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, errs := ValidateAttributes(refrigeradores.Attributes, map[string]json.RawMessage{
+		"capacidad_litros":      json.RawMessage(`350`),
+		"eficiencia_energetica": json.RawMessage(`"A+"`),
+		"no_frost":              json.RawMessage(`true`),
+		"peso_kg":               json.RawMessage(`65.5`),
+		"color":                 json.RawMessage(`"Gris"`),
+	})
+	if len(errs) != 0 {
+		t.Fatalf("payload válido rechazado: %+v", errs)
+	}
+	want := []Value{
+		{AttributeID: attributeID("refrigeradores", "capacidad_litros"), Key: "capacidad_litros", DataType: "integer", Text: "350"},
+		{AttributeID: attributeID("refrigeradores", "eficiencia_energetica"), Key: "eficiencia_energetica", DataType: "enum", Text: "A+"},
+		{AttributeID: attributeID("refrigeradores", "no_frost"), Key: "no_frost", DataType: "boolean", Text: "true"},
+		{AttributeID: attributeID("refrigeradores", "peso_kg"), Key: "peso_kg", DataType: "decimal", Text: "65.5"},
+		{AttributeID: attributeID("refrigeradores", "color"), Key: "color", DataType: "string", Text: "Gris"},
+	}
+	if !reflect.DeepEqual(values, want) {
+		t.Fatalf("values =\n%+v\nquiero\n%+v", values, want)
+	}
+
+	fibra, err := repo.GetBySlug(ctx, "internet-fibra-optica")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, errs = ValidateAttributes(fibra.Attributes, map[string]json.RawMessage{
+		"velocidad_bajada_mbps": json.RawMessage(`"600"`),
+		"tipo_contrato":         json.RawMessage(`"36 meses"`),
+		"ip_fija":               json.RawMessage(`"si"`),
+		"precio":                json.RawMessage(`19990`),
+	})
+	var got []string
+	for _, e := range errs {
+		got = append(got, e.Field+"/"+e.Code)
+	}
+	wantErrs := []string{
+		"attributes.velocidad_bajada_mbps/invalid_type",
+		"attributes.velocidad_subida_mbps/required",
+		"attributes.tipo_contrato/one_of",
+		"attributes.ip_fija/invalid_type",
+		"attributes.precio/unknown_field",
+	}
+	if !reflect.DeepEqual(got, wantErrs) {
+		t.Fatalf("errores = %v, quiero %v", got, wantErrs)
 	}
 }
