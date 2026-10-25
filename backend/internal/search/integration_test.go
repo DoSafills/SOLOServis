@@ -39,6 +39,15 @@ func newSearchFixture(t *testing.T) searchFixture {
 
 	f := searchFixture{repo: NewRepository(pool), tag: "tal75-" + strconv.FormatInt(time.Now().UnixNano(), 10),
 		refrigeradores: "refrigeradores"}
+	// La limpieza se registra antes de crear datos: si el fixture falla a la
+	// mitad, igual se borra lo que alcanzó a crear.
+	var productIDs, storeIDs, brandIDs []int32
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM product WHERE id = ANY($1)`, productIDs)
+		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = ANY($1)`, storeIDs)
+		_, _ = pool.Exec(ctx, `DELETE FROM brand WHERE id = ANY($1)`, brandIDs)
+	})
 	must := func(err error, what string) {
 		t.Helper()
 		if err != nil {
@@ -46,19 +55,21 @@ func newSearchFixture(t *testing.T) searchFixture {
 		}
 	}
 	must(pool.QueryRow(ctx, `INSERT INTO brand (name) VALUES ($1) RETURNING id`, "Ñandú "+f.tag).Scan(&f.brandA), "marca A")
+	brandIDs = []int32{f.brandA}
 	must(pool.QueryRow(ctx, `INSERT INTO brand (name) VALUES ($1) RETURNING id`, "Polaris "+f.tag).Scan(&f.brandB), "marca B")
+	brandIDs = []int32{f.brandA, f.brandB}
 	var storeA, storeB int32
 	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL75 A "+f.tag).Scan(&storeA), "tienda A")
 	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL75 B "+f.tag).Scan(&storeB), "tienda B")
+	storeIDs = []int32{storeA, storeB}
 
-	var productIDs []int32
 	product := func(name string, brand int32, active bool, attrs map[string]string) int32 {
 		var id int32
+		defer func() { productIDs = append(productIDs, id) }()
 		must(pool.QueryRow(ctx, `
 			INSERT INTO product (category_id, category_ref, brand_id, name, active)
 			SELECT c.legacy_product_category_id, c.id, $1, $2, $3 FROM categories c WHERE c.slug = 'refrigeradores'
 			RETURNING id`, brand, name+" "+f.tag, active).Scan(&id), name)
-		productIDs = append(productIDs, id)
 		for key, value := range attrs {
 			var numeric *string // value_numeric solo para integer/decimal, como en TAL-70
 			if key == "capacidad_litros" || key == "peso_kg" {
@@ -94,12 +105,6 @@ func newSearchFixture(t *testing.T) searchFixture {
 	offer(polar, storeB, 100, 0, false, false) // no disponible: no cuenta
 	offer(inactive, storeA, 1, 0, false, true)
 
-	t.Cleanup(func() {
-		ctx := context.Background()
-		_, _ = pool.Exec(ctx, `DELETE FROM product WHERE id = ANY($1)`, productIDs)
-		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = ANY($1)`, []int32{storeA, storeB})
-		_, _ = pool.Exec(ctx, `DELETE FROM brand WHERE id = ANY($1)`, []int32{f.brandA, f.brandB})
-	})
 	return f
 }
 
