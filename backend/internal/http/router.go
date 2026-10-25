@@ -13,9 +13,11 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
+	"github.com/DoSafills/SOLOServis/backend/internal/features"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
+	"github.com/DoSafills/SOLOServis/backend/internal/search"
 	"github.com/DoSafills/SOLOServis/backend/internal/services"
 	"github.com/DoSafills/SOLOServis/backend/internal/stores"
 	"github.com/go-chi/chi/v5"
@@ -67,6 +69,11 @@ func NewUserRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 // NewPricingRouter es el router de Pricing API (TAL-74); cmd/pricing-api lo usa.
 func NewPricingRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	return newRouter(db, frontendURL, registerPricingRoutes)
+}
+
+// NewSearchRouter es el router de Search API (TAL-75); cmd/search-api lo usa.
+func NewSearchRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	return newRouter(db, frontendURL, registerSearchRoutes)
 }
 
 // adminOnly protege escrituras: sesión con rol admin o INTERNAL_API_TOKEN (TAL-70).
@@ -164,6 +171,16 @@ func registerPricingRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) 
 	r.Get("/offers/{id}/price-history", handler.OfferHistory)
 	r.With(admin).Post("/offers", handler.CreateOffer)
 	r.With(admin).Put("/offers/{id}", handler.UpdateOffer)
+}
+
+func registerSearchRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	handler := search.NewHandler(search.NewRepository(db), logger)
+	r.Get("/search/products", handler.Products)
+	r.Get("/search/facets", handler.Facets)
+	r.Get("/search/categories", handler.Categories)
+	r.Get("/search/brands", handler.Brands)
+	// Historial y búsquedas guardadas (requieren sesión): siguen en features.
+	features.RegisterSearchSessionRoutes(r, db)
 }
 
 func registerServiceRoutes(r chi.Router, db *pgxpool.Pool, _ *slog.Logger) {
