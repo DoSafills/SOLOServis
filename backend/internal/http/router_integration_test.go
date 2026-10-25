@@ -37,8 +37,10 @@ func TestIntegration_ProductAPIEscrituraConAtributos(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	adminToken := createSession(t, pool, "admin", "admin-"+suffix)
 	clientToken := createSession(t, pool, "client", "client-"+suffix)
+	// Se borra por id público: el PUT de reemplazo completo deja el SKU en NULL.
+	var created []string
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE sku LIKE $1`, "e2e-%-"+suffix)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE public_id = ANY($1::uuid[])`, created)
 	})
 
 	do := func(method, path, token, body string) *httptest.ResponseRecorder {
@@ -84,6 +86,7 @@ func TestIntegration_ProductAPIEscrituraConAtributos(t *testing.T) {
 		rec := do(http.MethodPost, "/products", adminToken, create)
 		expect(t, rec, http.StatusCreated, "")
 		location = rec.Header().Get("Location")
+		created = append(created, strings.TrimPrefix(location, "/products/"))
 		var body struct {
 			ID           string                     `json:"id"`
 			CategorySlug string                     `json:"categorySlug"`
@@ -140,6 +143,7 @@ func TestIntegration_ProductAPIEscrituraConAtributos(t *testing.T) {
 			`{"categoryId": %d, "name": "Lavadora E2E", "sku": "e2e-ingestion-%s", "imageUrl": "https://example.test/l.png"}`,
 			lavadoID, suffix))
 		expect(t, rec, http.StatusCreated, "")
+		created = append(created, strings.TrimPrefix(rec.Header().Get("Location"), "/products/"))
 		if !strings.Contains(rec.Body.String(), `"categorySlug":null`) || !strings.Contains(rec.Body.String(), `"attributes":{}`) {
 			t.Fatalf("body = %s", rec.Body.String())
 		}
