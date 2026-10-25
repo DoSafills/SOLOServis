@@ -38,6 +38,7 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 		{"store id inválido", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/abc", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"store offers sin product", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/offers", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"store escritura no existe", NewStoreRouter(nil, frontendURL), http.MethodPost, "/stores", `{}`, "application/json", 405, "", ""},
+		{"search parámetro inválido", NewSearchRouter(nil, frontendURL), http.MethodGet, "/search/products?limit=0", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"pricing id inválido", NewPricingRouter(nil, frontendURL), http.MethodGet, "/offers/abc", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"pricing POST sin token", NewPricingRouter(nil, frontendURL), http.MethodPost, "/offers", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
 		{"pricing PUT sin token", NewPricingRouter(nil, frontendURL), http.MethodPut, "/offers/1", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
@@ -206,6 +207,41 @@ func TestPricingRouter_RutasRegistradas(t *testing.T) {
 		return nil
 	}
 	if err := chi.Walk(NewPricingRouter(nil, "http://localhost:5173"), walk); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range want {
+		if !got[route] {
+			t.Errorf("falta la ruta %s", route)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
+	}
+}
+
+// Search API (TAL-75): búsqueda pública propia + historial y búsquedas
+// guardadas (con sesión) que siguen en features.
+func TestSearchRouter_RutasRegistradas(t *testing.T) {
+	want := []string{
+		"GET /health",
+		"GET /search/products",
+		"GET /search/facets",
+		"GET /search/categories",
+		"GET /search/brands",
+		"POST /search/history",
+		"GET /search/history",
+		"POST /search/saved",
+		"GET /search/saved",
+		"DELETE /search/saved/{id}",
+	}
+
+	got := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		got[method+" "+route] = true
+		return nil
+	}
+	if err := chi.Walk(NewSearchRouter(nil, "http://localhost:5173"), walk); err != nil {
 		t.Fatal(err)
 	}
 
