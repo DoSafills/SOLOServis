@@ -1332,6 +1332,148 @@ Los nombres de los campos se mantienen. Cart lee `productId` de `GET /offers/{id
 ---
 
 
+# 12.5. Search API: texto, categoría y atributos filtrables (TAL-75)
+
+Search API (`cmd/search-api`, puerto 8086) tiene ahora la búsqueda pública en su propio paquete, `internal/search`, con el estándar TAL-78 (`apphttp.NewSearchRouter`). El historial y las búsquedas guardadas (`/search/history`, `/search/saved`, requieren sesión) siguen en `internal/features` y se montan en el mismo router sin cambios: es lo único que usa hoy el frontend.
+
+Ya no descarga `GET /products` de Product API: consulta la base directamente.
+
+| Método | Ruta | Respuesta |
+| --- | --- | --- |
+| GET | `/search/products` | arreglo de productos + `X-Total-Count` |
+| GET | `/search/facets` | total, rango de precios, marcas y atributos filtrables (para los filtros del frontend, TAL-57) |
+| GET | `/search/categories?q=&itemType=` | categorías del modelo nuevo (`categories`) |
+| GET | `/search/brands?q=` | marcas activas |
+
+## Parámetros de `/search/products` (y de `/search/facets`, sin `sort`/`limit`/`offset`)
+
+| Parámetro | Regla |
+| --- | --- |
+| `q` | hasta 5 palabras y 200 caracteres; **cada palabra** debe aparecer en nombre, modelo, SKU o marca. Sin distinguir tildes ni mayúsculas (`translate`, sin extensiones). `%` y `_` son literales. |
+| `category` | slug de `categories` **o** id de `product_category` (incluye subcategorías) |
+| `brand` | ids de marca separados por coma (hasta 20) |
+| `minPrice` / `maxPrice` | sobre el **mejor precio total** (precio + envío) de las ofertas disponibles en tiendas activas; hasta 2 decimales; `minPrice` ≤ `maxPrice` |
+| `available` | `true`: solo productos con al menos una oferta disponible |
+| `attr.<key>=valor` | igualdad: `integer`/`decimal` numérica, `boolean` `true`/`false`, `enum` dentro de `allowedValues`, `string` sin distinguir mayúsculas |
+| `attr.<key>.min` / `.max` | rango, solo atributos numéricos (usa `value_numeric` de TAL-70) |
+| `sort` | `name` (por defecto, con la collation de la BD), `price_asc`, `price_desc` (sin precio al final), `newest` |
+| `limit` / `offset` | 1–100 (por defecto 20) / ≥ 0 |
+
+Los filtros `attr.*` exigen `category` con slug (los atributos son de la categoría) y solo aceptan atributos **`filterable`** (TAL-71). Todos los filtros se combinan con Y.
+
+La consulta es una sola sentencia estática y parametrizada: palabras, marcas y filtros de atributos viajan como arreglos (`unnest`), sin concatenar entrada del usuario. Una búsqueda usa 3 consultas fijas (conteo, página, atributos); las facetas, 4.
+
+## Ejemplos (respuestas reales)
+
+```http
+GET /search/products?q=refrigerador&category=refrigeradores&attr.capacidad_litros.min=500&attr.no_frost=true&sort=price_asc&limit=2
+X-Total-Count: 2
+```
+
+```json
+[
+  {
+    "id": "e666b310-fc3c-4bbb-b93b-fcc7696c3233",
+    "name": "Refrigerador Midea Side by Side No Frost 555 L",
+    "brand": "Midea",
+    "model": "MDRS710FGE50IN",
+    "category": "Refrigeracion",
+    "categorySlug": "refrigeradores",
+    "imageUrl": "https://rimage.ripley.cl/home.ripley/Attachment/WOP/1/2000406824253/full_image-2000406824253",
+    "bestPrice": "332991.00",
+    "offerCount": 3,
+    "attributes": { "capacidad_litros": 555, "eficiencia_energetica": "A+", "no_frost": true }
+  },
+  {
+    "id": "098d4ed6-ac0e-4bcd-bd8e-b885cc348c9b",
+    "name": "Refrigerador LG French Door 530 L",
+    "brand": "LG",
+    "model": "GM53",
+    "category": "Refrigeracion",
+    "categorySlug": "refrigeradores",
+    "imageUrl": "https://placehold.co/640x640?text=DEMO-LG-FRIDGE-530",
+    "bestPrice": "899990.00",
+    "offerCount": 2,
+    "attributes": { "capacidad_litros": 530, "eficiencia_energetica": "A++", "no_frost": true }
+  }
+]
+```
+
+`bestPrice` es `null` si el producto no tiene ofertas disponibles; `offerCount` cuenta ofertas disponibles.
+
+```http
+GET /search/facets?category=refrigeradores
+```
+
+```json
+{
+  "total": 5,
+  "price": { "min": "332991.00", "max": "1458980.00" },
+  "brands": [
+    { "id": 2, "name": "LG", "count": 2 },
+    { "id": 10, "name": "Midea", "count": 2 },
+    { "id": 1, "name": "Samsung", "count": 1 }
+  ],
+  "attributes": [
+    { "key": "capacidad_litros", "label": "Capacidad", "dataType": "integer", "unit": "L", "min": 400, "max": 555 },
+    { "key": "eficiencia_energetica", "label": "Eficiencia energética", "dataType": "enum", "unit": null,
+      "values": [{ "value": "A+", "count": 2 }, { "value": "A++", "count": 1 }] },
+    { "key": "no_frost", "label": "No Frost", "dataType": "boolean", "unit": null,
+      "values": [{ "value": true, "count": 3 }] }
+  ]
+}
+```
+
+Las facetas aplican los mismos filtros que la búsqueda; solo incluyen atributos `filterable`. Los productos existentes no tienen atributos hasta que se editan (TAL-70 no migró las especificaciones antiguas): en el ejemplo, 3 de los 5 refrigeradores.
+
+```http
+GET /search/categories?q=OPTICA
+```
+
+```json
+[{ "slug": "internet-fibra-optica", "name": "Internet Fibra Óptica", "itemType": "service" }]
+```
+
+## Errores
+
+| Caso | Status | `code` / `errors[]` |
+| --- | --- | --- |
+| `q`, `category`, `brand`, precios, `available`, `sort`, `limit`, `offset` inválidos | 400 | `invalid_parameter` / `max_length`, `max`, `format`, `min`, `one_of`, `invalid_type` |
+| `attr.*` sin `category` con slug | 400 | `category` `required` |
+| Categoría inexistente | 400 | `category` `not_found` |
+| Atributo desconocido / no filtrable | 400 | `attr.<key>` `unknown_field` / `not_filterable` |
+| Valor que no cumple el tipo o el enum | 400 | `attr.<key>` `invalid_type` / `one_of` |
+| Error de base de datos | 500 | `internal_error` |
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Los parámetros de la consulta no son válidos.",
+  "instance": "/search/products",
+  "code": "invalid_parameter",
+  "request_id": "ejemplo-tal75",
+  "errors": [
+    { "field": "attr.eficiencia_energetica", "code": "one_of", "message": "attr.eficiencia_energetica debe ser uno de: A+++, A++, A+, A, B, C, D" },
+    { "field": "attr.no_existe", "code": "unknown_field", "message": "attr.no_existe no es un atributo de la categoría" },
+    { "field": "attr.peso_kg", "code": "not_filterable", "message": "attr.peso_kg no es filtrable" }
+  ]
+}
+```
+
+## Índices
+
+No se agregó un índice trigram: con el catálogo actual (38 productos) PostgreSQL recorre la tabla de todos modos, el texto combina columnas de `product` y `brand` (un índice sobre `product` no lo cubriría) y `pg_trgm`/`unaccent` exigen extensiones con privilegios en k8s. Revisar cuando el catálogo crezca (miles de productos): columna generada normalizada en `product` + índice GIN trigram.
+
+## Tests
+
+- Unitarios sin BD: `internal/search/handler_test.go`, `internal/http/router_test.go`.
+- Integración con `TEST_DATABASE_URL`: `internal/search/integration_test.go` (texto sin tildes y con comodines literales, marca, precio total, disponibilidad, filtros por atributo, orden, paginación, facetas, categorías y marcas).
+
+---
+
+
 # 13. Handlers
 
 Los handlers se encuentran en:
