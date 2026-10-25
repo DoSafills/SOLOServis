@@ -129,8 +129,10 @@ func parseStoreID(w http.ResponseWriter, r *http.Request) (int32, bool) {
 	return int32(id), true
 }
 
+// parseOfferFilter valida primero el filtro y luego la paginación, para que
+// los errores salgan en ese orden.
 func parseOfferFilter(v *httpx.Validator, query url.Values) OfferFilter {
-	filter := OfferFilter{Page: parsePage(v, query)}
+	var filter OfferFilter
 	if query.Has("available") {
 		switch query.Get("available") {
 		case "true", "false":
@@ -140,6 +142,7 @@ func parseOfferFilter(v *httpx.Validator, query url.Values) OfferFilter {
 			v.Add("available", "one_of", "available debe ser true o false")
 		}
 	}
+	filter.Page = parsePage(v, query)
 	return filter
 }
 
