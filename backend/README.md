@@ -554,6 +554,7 @@ Categorías unificadas de productos y servicios con sus **definiciones de atribu
 - Servicio: **Product API** (`cmd/product-api`, puerto 8081). Código en `internal/categories`.
 - Solo lectura: `POST`/`PUT`/`PATCH`/`DELETE` responden `405`. No hay endpoints de escritura (requerirían autenticación).
 - Errores con el estándar TAL-78 (`application/problem+json`, ver `docs/estandares/TAL-78-estandar-api.md`).
+- Incluye el validador de atributos (TAL-72) que usan los endpoints de escritura de productos y servicios (ver más abajo).
 - Solo se exponen categorías con `active = TRUE`.
 
 ## Esquema (migraciones `012_categories.sql` y `013_categories_seed.sql`)
@@ -713,6 +714,71 @@ Con la base de datos caída:
   "instance": "/categories/notebooks",
   "code": "internal_error",
   "request_id": "ejemplo-500"
+}
+```
+
+## Validación de atributos (TAL-72)
+
+`categories.ValidateAttributes(defs, input)` (`internal/categories/validate.go`) valida los atributos de un producto o servicio contra las definiciones de su categoría **antes de guardarlo**. Es una función pura: no consulta la base (recibe las definiciones que ya devolvió `GetBySlug`), así que la reutilizan Product API (TAL-70) e Ingestion API (TAL-77).
+
+El request lleva los atributos como un objeto `key → valor JSON nativo`, decodificado como `map[string]json.RawMessage`:
+
+```json
+{
+  "attributes": {
+    "capacidad_litros": 350,
+    "eficiencia_energetica": "A+",
+    "no_frost": true,
+    "peso_kg": 65.5,
+    "color": "Gris"
+  }
+}
+```
+
+Los valores se interpretan en la unidad de la definición (`L`, `kg`…); la unidad no se envía.
+
+| `dataType` | Acepta | Rechaza (`errors[].code`) | Se guarda como |
+| --- | --- | --- | --- |
+| `integer` | número JSON entero (`350`, `350.0`, `3.5e2`) hasta 2^53−1 | `"350"`, `true`, `35.5` → `invalid_type`; fuera de rango → `min` / `max` | `"350"` |
+| `decimal` | número JSON finito | string, booleano, objeto → `invalid_type`; `min` / `max` | `"65.5"` (sin ceros finales) |
+| `boolean` | `true` / `false` | `"true"`, `1` → `invalid_type` | `"true"` / `"false"` |
+| `enum` | string exacto de `allowedValues` (distingue mayúsculas; se quitan espacios en los extremos) | otro valor → `one_of`; no-string → `invalid_type` | el valor |
+| `string` | string (se quitan espacios en los extremos) | no-string → `invalid_type`; más de `maxLength` caracteres (255 si no se define) → `max_length` | el texto |
+
+Reglas generales:
+
+- **Sin conversiones implícitas**: `"350"` no es un entero. Así un error del cliente no se guarda como dato válido.
+- **Obligatorios**: un atributo `required` ausente, `null` o con texto vacío → `required`. Un opcional `null` o vacío se omite.
+- **Keys desconocidas**: una key que no existe en la categoría → `unknown_field` (un error de tipeo no se pierde en silencio).
+- **Rangos inclusivos**: `min` y `max` admiten el valor límite.
+- **Errores** con `field: "attributes.<key>"` y en orden determinista: definiciones por `displayOrder` y luego keys desconocidas en orden alfabético.
+- El resultado es una lista de `Value{AttributeID, Key, DataType, Text}`: `AttributeID` es la FK a `category_attributes.id` y `Text` cabe en las columnas `VARCHAR(255)` de valores.
+
+Uso previsto en el handler (TAL-70). Los errores son reglas de negocio sobre un JSON ya decodificado, por eso responden **422**:
+
+```go
+values, fieldErrors := categories.ValidateAttributes(category.Attributes, req.Attributes)
+if len(fieldErrors) > 0 {
+	httpx.WriteValidation(w, r, fieldErrors)
+	return
+}
+```
+
+```json
+{
+  "type": "about:blank",
+  "title": "Unprocessable Entity",
+  "status": 422,
+  "detail": "La solicitud no cumple las reglas de validación.",
+  "instance": "/products",
+  "code": "validation_failed",
+  "request_id": "3f9c2a7e5b0d4c1a8e6f2b9d0a7c4e1f",
+  "errors": [
+    { "field": "attributes.velocidad_bajada_mbps", "code": "invalid_type", "message": "attributes.velocidad_bajada_mbps debe ser un número entero" },
+    { "field": "attributes.velocidad_subida_mbps", "code": "required", "message": "attributes.velocidad_subida_mbps es obligatorio" },
+    { "field": "attributes.tipo_contrato", "code": "one_of", "message": "attributes.tipo_contrato debe ser uno de: Sin permanencia, 12 meses, 24 meses" },
+    { "field": "attributes.precio", "code": "unknown_field", "message": "attributes.precio no está definido para esta categoría" }
+  ]
 }
 ```
 
