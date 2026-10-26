@@ -68,10 +68,7 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 		r.Get("/notifications/unread", h.GetUnreadNotifications)
 		r.Put("/notifications/{id}/read", h.ReadNotification)
 		r.Put("/notifications/read-all", h.ReadAllNotifications)
-	case "ingestion-api":
-		r.Post("/ingestion/products", h.IngestProduct)
-		r.Post("/ingestion/offers", h.IngestOffer)
-		r.Post("/ingestion/sync", h.SyncIngestion)
+	// ingestion-api se movió a internal/ingestion (TAL-77).
 	}
 	return r
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/comparison"
 	"github.com/DoSafills/SOLOServis/backend/internal/features"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
+	"github.com/DoSafills/SOLOServis/backend/internal/ingestion"
 	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/DoSafills/SOLOServis/backend/internal/search"
@@ -80,6 +81,11 @@ func NewSearchRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 // NewComparisonRouter es el router de Comparison API (TAL-76); cmd/comparison-api lo usa.
 func NewComparisonRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	return newRouter(db, frontendURL, registerComparisonRoutes)
+}
+
+// NewIngestionRouter es el router de Ingestion API (TAL-77); cmd/ingestion-api lo usa.
+func NewIngestionRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	return newRouter(db, frontendURL, registerIngestionRoutes)
 }
 
 // adminOnly protege escrituras: sesión con rol admin o INTERNAL_API_TOKEN (TAL-70).
@@ -211,6 +217,23 @@ func registerComparisonRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logge
 
 	// Comparaciones de servicios: siguen en features (fuera de TAL-76).
 	features.RegisterServiceComparisonRoutes(r, db)
+}
+
+func registerIngestionRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	runs := ingestion.NewRepository(db)
+	processor := ingestion.NewProcessor(runs, products.NewRepository(db), pricing.NewRepository(db),
+		pricing.NewHTTPNotifier(), logger)
+	handler := ingestion.NewHandler(runs, processor, logger)
+
+	// Solo el scraper (INTERNAL_API_TOKEN) o un admin.
+	r.Group(func(r chi.Router) {
+		r.Use(adminOnly(db, logger))
+		r.Post("/ingestion/runs", handler.OpenRun)
+		r.Get("/ingestion/runs", handler.ListRuns)
+		r.Get("/ingestion/runs/{id}", handler.GetRun)
+		r.Post("/ingestion/runs/{id}/items", handler.AddItems)
+		r.Post("/ingestion/runs/{id}/finish", handler.FinishRun)
+	})
 }
 
 func registerServiceRoutes(r chi.Router, db *pgxpool.Pool, _ *slog.Logger) {

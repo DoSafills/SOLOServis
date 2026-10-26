@@ -8,20 +8,6 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
 )
 
-type offerInput struct {
-	ProductID    string   `json:"productId"`
-	StoreID      int32    `json:"storeId"`
-	Price        float64  `json:"price"`
-	ListPrice    *float64 `json:"listPrice"`
-	Currency     string   `json:"currency"`
-	ShippingCost float64  `json:"shippingCost"`
-	ShippingFree bool     `json:"shippingFree"`
-	Available    bool     `json:"available"`
-	Stock        *int32   `json:"stock"`
-	Condition    string   `json:"condition"`
-	ProductURL   string   `json:"productUrl"`
-}
-
 type searchInput struct {
 	UserID  int32           `json:"userId"`
 	Query   string          `json:"query"`
