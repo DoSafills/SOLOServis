@@ -1474,6 +1474,149 @@ No se agregó un índice trigram: con el catálogo actual (38 productos) Postgre
 ---
 
 
+# 12.6. Comparison API: alternativas de una misma categoría (TAL-76)
+
+Comparison API (`cmd/comparison-api`, puerto 8087) tiene la comparación de **productos** en su propio paquete, `internal/comparison`, con el estándar TAL-78 (`apphttp.NewComparisonRouter`). Las comparaciones de **servicios** (`/comparisons/services`) siguen en `internal/features` sin cambios y se montan en el mismo router.
+
+Ya no llama a Product API ni a Pricing API: el mejor precio se calcula en SQL con el mismo criterio que Pricing y Search (precio + envío, ofertas disponibles en tiendas activas).
+
+| Método | Ruta | Acceso | Respuesta |
+| --- | --- | --- | --- |
+| GET | `/comparisons/products/compare?ids=a,b,c` | pública | matriz de comparación (2 a 5 productos, sin guardar) |
+| GET | `/comparisons/compatible/{productId}?limit=&offset=` | pública | alternativas de la misma categoría + `X-Total-Count` |
+| POST | `/comparisons/products` | sesión | 201 + `Location` con la comparación guardada |
+| GET | `/comparisons/products?limit=&offset=` | sesión | mis comparaciones + `X-Total-Count` |
+| GET | `/comparisons/products/{id}` | sesión (dueño) | comparación guardada con su matriz |
+| PUT | `/comparisons/products/{id}` | sesión (dueño) | renombrar: `{"name": "..."}` |
+| DELETE | `/comparisons/products/{id}` | sesión (dueño) | 204 |
+| POST | `/comparisons/products/{id}/items` | sesión (dueño) | agregar `{"productId": "..."}` → 201 con la comparación |
+| DELETE | `/comparisons/products/{id}/items/{productId}` | sesión (dueño) | 204 |
+
+## Propiedad (corrige S3 de TAL-69)
+
+- El usuario sale del **token de sesión** de Auth API (`Authorization: Bearer <token>`, `authz.RequireSession`), nunca del body: enviar `userId` responde 400 `unknown_field`.
+- Las consultas filtran por `user_id`: una comparación de otro usuario responde **404**, igual que una inexistente, para no revelar que existe.
+- Sin token o con un token vencido: 401 `unauthorized`.
+
+## Reglas
+
+- Todos los productos deben ser de la **misma categoría** (`product.category_id`; equivale a la misma `category_ref`, porque el enlace con la categoría anterior es único).
+- Entre 2 y 5 productos en `/compare`; entre 1 y 5 en una comparación guardada. Sin repetidos.
+- Solo productos activos; un producto dado de baja deja de aparecer en las comparaciones guardadas.
+- El nombre es opcional al crear (por defecto "Comparación de productos"), máximo 150 caracteres.
+
+## La matriz
+
+- `products`: columnas en el orden pedido, con `bestPrice` (precio total), `bestStore` y `offerCount`.
+- `attributes`: atributos **`comparable`** de la categoría (TAL-71), en `displayOrder`, con valores tipados alineados con `products` (`null` si el producto no lo tiene).
+- `specifications`: especificaciones anteriores comparables (`product_category_specification`), como texto. Se incluyen porque los productos existentes todavía no tienen atributos (TAL-70 no los migró).
+- Solo aparecen filas con al menos un valor. `differs` indica si los valores difieren (un `null` cuenta como distinto), para mostrar "solo diferencias".
+- No se marca un "ganador" por atributo: no siempre más (o menos) es mejor. El precio menor sí se informa por producto.
+
+```http
+GET /comparisons/products/compare?ids=c5b9f86a-703b-4569-9902-0ccadfcdab60,bb0aa9e9-1ca2-4aff-bd18-f8fc01666b7c
+```
+
+```json
+{
+  "category": { "slug": "refrigeradores", "name": "Refrigeradores" },
+  "products": [
+    { "id": "c5b9f86a-703b-4569-9902-0ccadfcdab60", "name": "Refrigerador Midea Side by Side No Frost 555 L",
+      "brand": "Midea", "model": "MDRS710FGE50IN",
+      "imageUrl": "https://rimage.ripley.cl/home.ripley/Attachment/WOP/1/2000406824253/full_image-2000406824253",
+      "bestPrice": "332991.00", "bestStore": "Ripley", "offerCount": 3 },
+    { "id": "bb0aa9e9-1ca2-4aff-bd18-f8fc01666b7c", "name": "Refrigerador LG French Door 530 L",
+      "brand": "LG", "model": "GM53", "imageUrl": "https://placehold.co/640x640?text=DEMO-LG-FRIDGE-530",
+      "bestPrice": "899990.00", "bestStore": "Paris", "offerCount": 2 }
+  ],
+  "attributes": [
+    { "key": "capacidad_litros", "label": "Capacidad", "dataType": "integer", "unit": "L", "values": [555, 530], "differs": true },
+    { "key": "eficiencia_energetica", "label": "Eficiencia energética", "dataType": "enum", "unit": null, "values": ["D", "A+"], "differs": true },
+    { "key": "no_frost", "label": "No Frost", "dataType": "boolean", "unit": null, "values": [true, true], "differs": false }
+  ],
+  "specifications": [
+    { "name": "Capacidad", "unit": "L", "values": ["555", "530"], "differs": true },
+    { "name": "Eficiencia energetica", "unit": null, "values": ["D", "A+"], "differs": true }
+  ]
+}
+```
+
+Una comparación guardada (`POST`, `GET`, `PUT`, `POST …/items`) agrega `id`, `name`, `createdAt` y `updatedAt` a la misma matriz:
+
+```http
+POST /comparisons/products
+Authorization: Bearer <token>
+
+{"name": "Refris grandes", "productIds": ["c5b9f86a-703b-4569-9902-0ccadfcdab60"]}
+```
+
+```http
+HTTP/1.1 201 Created
+Location: /comparisons/products/6
+```
+
+```json
+{ "id": 6, "name": "Refris grandes", "createdAt": "2026-10-26T14:31:40.399096Z", "updatedAt": "2026-10-26T14:31:40.399096Z",
+  "category": { "slug": "refrigeradores", "name": "Refrigeradores" }, "products": [ … ], "attributes": [ … ], "specifications": [ … ] }
+```
+
+`GET /comparisons/products` (`X-Total-Count: 2`):
+
+```json
+[
+  { "id": 6, "name": "Refris grandes", "category": "Refrigeradores", "productCount": 1, "updatedAt": "2026-10-26T14:31:40.399096Z" },
+  { "id": 1, "name": "Comparando refrigeradores para depto nuevo", "category": "Refrigeradores", "productCount": 2, "updatedAt": "2026-10-26T14:29:46.992865Z" }
+]
+```
+
+## Errores
+
+| Caso | Status | `code` / `errors[]` |
+| --- | --- | --- |
+| `ids` ausente, < 2, > 5, no UUID, repetido | 400 | `invalid_parameter` / `ids` `required`, `min`, `max`, `format`, `unique` |
+| `ids` de distintas categorías | 400 | `invalid_parameter` / `ids` `incompatible_category` |
+| Producto inexistente en `ids` o `{productId}` | 404 | `not_found` |
+| `{id}`, `{productId}`, `limit`, `offset` inválidos | 400 | `invalid_parameter` |
+| Sin sesión | 401 | `unauthorized` |
+| Body con campos desconocidos (p. ej. `userId`) | 400 | `unknown_field` |
+| `productIds` vacío, > 5, repetido, inexistente o de otra categoría | 422 | `productIds` `min`, `max`, `unique`, `not_found`, `incompatible_category` |
+| `name` vacío (PUT) o > 150 | 422 | `name` `required` / `max_length` |
+| Agregar de otra categoría / con 5 productos | 422 | `productId` `incompatible_category` / `max` |
+| Agregar un producto que ya está | 409 | `conflict` |
+| Comparación inexistente o de otro usuario | 404 | `not_found` |
+| Error de base de datos | 500 | `internal_error` |
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Los productos deben ser de la misma categoría.",
+  "instance": "/comparisons/products/compare",
+  "code": "invalid_parameter",
+  "request_id": "ejemplo-tal76",
+  "errors": [
+    { "field": "ids", "code": "incompatible_category", "message": "ids debe contener productos de la misma categoría" }
+  ]
+}
+```
+
+## Compatibilidad
+
+El contrato cambió respecto del anterior (sin `userId` en el body, respuestas con matriz, errores del estándar). No hay consumidores: el frontend define las llamadas en `personalization.ts` pero no las usa (la comparación se arma en el cliente con `product.specs`); conectarlo corresponde a TAL-56.
+
+## Tests
+
+- Unitarios sin BD: `internal/comparison/handler_test.go` (con `authz.RequireSession` real y sesiones falsas), `internal/authz/authz_test.go`, `internal/http/router_test.go`.
+- Integración con `TEST_DATABASE_URL`: `internal/comparison/integration_test.go` (matriz, compatibles, límites, propiedad entre usuarios) e `internal/http/router_integration_test.go` (sesiones reales: otro usuario recibe 404).
+
+## Pendiente
+
+- Las comparaciones de servicios (`/comparisons/services`) siguen sin propiedad por usuario (mismo S3); quedan en `features`.
+
+---
+
+
 # 13. Handlers
 
 Los handlers se encuentran en:
