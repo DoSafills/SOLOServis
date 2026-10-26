@@ -13,6 +13,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
+	"github.com/DoSafills/SOLOServis/backend/internal/comparison"
 	"github.com/DoSafills/SOLOServis/backend/internal/features"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
@@ -74,6 +75,11 @@ func NewPricingRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 // NewSearchRouter es el router de Search API (TAL-75); cmd/search-api lo usa.
 func NewSearchRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	return newRouter(db, frontendURL, registerSearchRoutes)
+}
+
+// NewComparisonRouter es el router de Comparison API (TAL-76); cmd/comparison-api lo usa.
+func NewComparisonRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	return newRouter(db, frontendURL, registerComparisonRoutes)
 }
 
 // adminOnly protege escrituras: sesión con rol admin o INTERNAL_API_TOKEN (TAL-70).
@@ -181,6 +187,30 @@ func registerSearchRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	r.Get("/search/brands", handler.Brands)
 	// Historial y búsquedas guardadas (requieren sesión): siguen en features.
 	features.RegisterSearchSessionRoutes(r, db)
+}
+
+func registerComparisonRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	handler := comparison.NewHandler(comparison.NewRepository(db), logger)
+	session := authz.New(authz.NewPostgresSessions(db), "", logger).RequireSession
+
+	// Públicos: comparar sin guardar y buscar alternativas compatibles.
+	r.Get("/comparisons/products/compare", handler.Compare)
+	r.Get("/comparisons/compatible/{productId}", handler.Compatible)
+
+	// Comparaciones guardadas: el usuario sale de la sesión (corrige S3).
+	r.Group(func(r chi.Router) {
+		r.Use(session)
+		r.Post("/comparisons/products", handler.Create)
+		r.Get("/comparisons/products", handler.List)
+		r.Get("/comparisons/products/{id}", handler.Get)
+		r.Put("/comparisons/products/{id}", handler.Rename)
+		r.Delete("/comparisons/products/{id}", handler.Delete)
+		r.Post("/comparisons/products/{id}/items", handler.AddItem)
+		r.Delete("/comparisons/products/{id}/items/{productId}", handler.RemoveItem)
+	})
+
+	// Comparaciones de servicios: siguen en features (fuera de TAL-76).
+	features.RegisterServiceComparisonRoutes(r, db)
 }
 
 func registerServiceRoutes(r chi.Router, db *pgxpool.Pool, _ *slog.Logger) {
