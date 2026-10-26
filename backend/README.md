@@ -1617,6 +1617,159 @@ El contrato cambió respecto del anterior (sin `userId` en el body, respuestas c
 ---
 
 
+# 12.7. Ingestion API: datos normalizados del scraper (TAL-77)
+
+Ingestion API (`cmd/ingestion-api`, puerto 8094) tiene su propio paquete, `internal/ingestion`, con el estándar TAL-78 (`apphttp.NewIngestionRouter`). Recibe del scraper productos y ofertas **ya normalizados**, los incorpora con las mismas reglas que Product API (TAL-70/72) y Pricing API (TAL-74), y registra cada ejecución.
+
+- Procesa **dentro del mismo proceso** con los repositorios de Product y Pricing (misma base): sin saltos HTTP ni 502 por servicios caídos.
+- Registra las ejecuciones en las tablas de `001_schema.sql` que el scraper (PR #25) ya refleja: `data_source`, `scraper_config`, `scrape_run`, `scraped_data`. La migración `015_ingestion_data_source_store.sql` agrega `data_source.store_id` (una fuente de tipo tienda sabe a qué `store` pertenecen sus ofertas).
+- **Todas las rutas** exigen `Authorization: Bearer <INTERNAL_API_TOKEN>` (el scraper) o una sesión admin (`authz.RequireAdmin`).
+- Reemplaza a `POST /ingestion/products`, `/ingestion/offers` y `/ingestion/sync` (sin consumidores). La tabla `ingestion_run` queda sin uso.
+
+| Método | Ruta | Respuesta |
+| --- | --- | --- |
+| POST | `/ingestion/runs` | 201 + `Location`: abre una ejecución (`running`) |
+| POST | `/ingestion/runs/{id}/items` | 200: resultado por ítem (aunque algunos fallen) |
+| POST | `/ingestion/runs/{id}/finish` | 200: cierra la ejecución (`success` o `failed`) |
+| GET | `/ingestion/runs?limit=&offset=` | ejecuciones, la más reciente primero + `X-Total-Count` |
+| GET | `/ingestion/runs/{id}` | ejecución con sus contadores |
+
+## Contrato para el scraper (TAL-79 / TAL-90)
+
+### 1. Abrir una ejecución
+
+```http
+POST /ingestion/runs
+Authorization: Bearer <INTERNAL_API_TOKEN>
+
+{"source": {"name": "Ripley scraper", "baseUrl": "https://simple.ripley.cl"}, "storeId": 4, "scraperType": "scrapling"}
+```
+
+- `source.name` (obligatorio, ≤ 150) identifica la fuente; si no existe se crea, enlazada a `storeId`. Si ya existe enlazada a **otra** tienda → 409.
+- `storeId` (obligatorio): tienda activa a la que pertenecen las ofertas de toda la ejecución.
+- `scraperType` (≤ 50, por defecto `http`): reutiliza o crea la `scraper_config` de esa fuente.
+
+```json
+{ "id": 7, "source": "Ripley scraper", "sourceUrl": "https://simple.ripley.cl", "storeId": 4, "scraperType": "scrapling",
+  "status": "running", "startedAt": "2026-10-26T15:24:55.977948Z", "finishedAt": null,
+  "recordsFound": 0, "recordsProcessed": 0, "recordsFailed": 0, "errorMessage": null }
+```
+
+### 2. Enviar lotes (1 a 100 ítems)
+
+```http
+POST /ingestion/runs/7/items
+```
+
+```json
+{ "items": [
+  { "externalId": "rip-2000406824253",
+    "product": { "sku": "MDRT489-RIP", "name": "Refrigerador Midea No Frost 400 L", "brand": "Midea", "model": "MDRT489",
+                 "categorySlug": "refrigeradores", "imageUrl": "https://rimage.ripley.cl/midea-400.jpg",
+                 "attributes": { "capacidad_litros": 400, "eficiencia_energetica": "A+", "no_frost": true } },
+    "offer": { "price": 379990, "listPrice": 429990, "shippingFree": true, "available": true,
+               "productUrl": "https://simple.ripley.cl/refrigerador-midea-400" } }
+] }
+```
+
+| Campo | Regla |
+| --- | --- |
+| `externalId` | opcional, ≤ 255; se devuelve en el resultado y se guarda en `scraped_data` |
+| `product.name` | obligatorio (≤ 255) |
+| `product.sku` / `brand` / `model` | identifican el producto (ver abajo); ≤ 100 / 150 / 150 |
+| `product.categorySlug` | obligatorio **solo si el producto es nuevo**; categoría de productos (TAL-71) |
+| `product.attributes` | se validan contra la categoría como en Product API (TAL-72): tipos, obligatorios, rangos, enum |
+| `product.description` / `imageUrl` | opcionales (≤ 5000 / URL http(s)) |
+| `offer` | mismas reglas que `POST /offers` de Pricing (TAL-74): `price` obligatorio, montos con 2 decimales, `condition`, `stock`, `productUrl`… |
+
+### Cómo se procesa cada ítem
+
+1. Se valida; los errores salen con el campo prefijado (`product.…`, `offer.…`).
+2. **Producto existente:** se busca por `sku`; si no hay o no coincide, por **marca + modelo** (sin distinguir mayúsculas). Así el SKU propio de una tienda no duplica un producto ya catalogado. Si existe, **no se modifica** (el catálogo lo cura el admin): solo se registra la oferta. Si está dado de baja, el ítem falla.
+3. **Producto nuevo:** se crea con categoría y atributos validados; la marca se busca por nombre (sin mayúsculas) o se crea.
+4. **Oferta:** upsert de Pricing en la tienda de la ejecución (producto + tienda + URL normalizada). El historial lo escribe el trigger de la migración 010 solo si el precio cambió, y una bajada **avisa** a los usuarios con precio objetivo (Notification API, `NOTIFICATION_API_URL`).
+5. El ítem se guarda tal como llegó en `scraped_data` (JSON normalizado), para auditoría o reproceso.
+
+Un ítem inválido **no detiene el lote**. Un error inesperado de base de datos marca el ítem como `failed` con `code: internal_error` (el detalle solo va al log).
+
+Respuesta real (`200`):
+
+```json
+{
+  "runId": 3, "received": 4, "processed": 2, "failed": 2,
+  "results": [
+    { "index": 0, "externalId": "rip-2000406824253", "status": "updated",
+      "productId": "e069888d-615c-488d-8ae1-7c7200f75724", "offerId": 79 },
+    { "index": 1, "externalId": "rip-lg-gm53", "status": "updated",
+      "productId": "71296be4-e4f8-4954-ad91-9ea23cc08564", "offerId": 80 },
+    { "index": 2, "externalId": "rip-sin-capacidad", "status": "failed",
+      "errors": [ { "field": "product.attributes.capacidad_litros", "code": "required",
+                    "message": "product.attributes.capacidad_litros es obligatorio" } ] },
+    { "index": 3, "externalId": "rip-precio-malo", "status": "failed",
+      "errors": [ { "field": "offer.price", "code": "min", "message": "offer.price debe ser mayor o igual a 0" },
+                  { "field": "offer.condition", "code": "one_of", "message": "offer.condition debe ser new, used o refurbished" } ] }
+  ]
+}
+```
+
+`status`: `created` (producto nuevo + oferta), `updated` (producto existente, oferta registrada) o `failed`. En el ejemplo, el primer ítem trae un SKU propio de Ripley, pero el producto ya existía (Midea `MDRT489`): se asoció a ese producto en vez de duplicarlo.
+
+### 3. Cerrar la ejecución
+
+```http
+POST /ingestion/runs/7/finish
+
+{"status": "success"}
+```
+
+```json
+{ "id": 3, "source": "Ripley scraper", "sourceUrl": "https://simple.ripley.cl", "storeId": 4, "scraperType": "scrapling",
+  "status": "success", "startedAt": "2026-10-26T15:27:34.849284Z", "finishedAt": "2026-10-26T15:27:37.311679Z",
+  "recordsFound": 4, "recordsProcessed": 2, "recordsFailed": 2, "errorMessage": null }
+```
+
+`status`: `success` o `failed` (con `errorMessage` opcional, ≤ 2000). Una ejecución cerrada no acepta más ítems ni se cierra dos veces (409).
+
+## Errores
+
+| Caso | Status | `code` / `errors[]` |
+| --- | --- | --- |
+| Sin token / sin rol admin | 401 / 403 | `unauthorized` / `forbidden` |
+| JSON malformado, campo desconocido, tipo incorrecto | 400 | `malformed_json`, `unknown_field`, `invalid_type` |
+| `{id}`, `limit`, `offset` inválidos | 400 | `invalid_parameter` |
+| Abrir: `source.name`, `source.baseUrl`, `storeId`, `scraperType` inválidos | 422 | `required`, `format`, `min`, `max_length` |
+| Abrir: tienda inexistente | 422 | `storeId` `not_found` |
+| Abrir: fuente de otra tienda o desactivada | 409 | `conflict` |
+| Lote vacío o > 100 ítems | 422 | `items` `min` / `max` |
+| Ejecución inexistente | 404 | `not_found` |
+| Ejecución cerrada o fuente sin tienda | 409 | `conflict` |
+| Cerrar: `status` distinto de `success`/`failed` | 422 | `status` `one_of` |
+| Error de base de datos (fuera de los ítems) | 500 | `internal_error` |
+
+```json
+{
+  "type": "about:blank", "title": "Conflict", "status": 409,
+  "detail": "La ejecución ya está cerrada.", "instance": "/ingestion/runs/7/items",
+  "code": "conflict", "request_id": "ejemplo-tal77"
+}
+```
+
+## Configuración
+
+`docker/compose.yml` (`ingestion-api`): `DATABASE_URL`, `INTERNAL_API_TOKEN` y `NOTIFICATION_API_URL`. Ya no usa `PRODUCT_API_URL`, `STORE_API_URL` ni `PRICING_API_URL`.
+
+## Tests
+
+- Unitarios sin BD: `internal/ingestion/handler_test.go` (lotes mixtos, deduplicación, errores por ítem sin filtrar detalles, avisos), `internal/http/router_test.go` (rutas y 401).
+- Integración con `TEST_DATABASE_URL`: `internal/ingestion/integration_test.go` (flujo completo con los repositorios reales: producto nuevo con marca nueva, deduplicación contra el seed, bajada de precio con historial y aviso, contadores, `scraped_data`, cierre y reapertura). Reemplaza a los tests de caracterización de la Ingestion anterior en `internal/features`.
+
+## Pendiente
+
+- Adaptar el scraper (PR #25) a este contrato: hoy guarda en SQLite local; corresponde a TAL-86/88.
+
+---
+
+
 # 13. Handlers
 
 Los handlers se encuentran en:
