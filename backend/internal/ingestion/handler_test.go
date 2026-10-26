@@ -83,12 +83,11 @@ func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string) (Exi
 	if f.findErr != nil {
 		return ExistingProduct{}, false, f.findErr
 	}
-	key := sku
-	if key == "" {
-		key = brand + "|" + model
+	if p, ok := f.existing[sku]; ok && sku != "" {
+		return p, true, nil
 	}
-	p, ok := f.existing[key]
-	return p, ok, nil
+	p, ok := f.existing[brand+"|"+model]
+	return p, ok && brand != "" && model != "", nil
 }
 func (f *fakeRuns) EnsureBrand(_ context.Context, name string) (int32, error) {
 	f.brands = append(f.brands, name)
@@ -348,11 +347,14 @@ func TestAddItems_ProductoExistenteSoloRegistraLaOferta(t *testing.T) {
 	e.offers.previous = strp("100.00")
 	e.offers.watchers = []pricing.Watcher{{UserID: 4, ProductName: "Refri"}}
 
+	// El tercero trae un SKU propio de la tienda que no existe: se encuentra
+	// igual por marca + modelo y no se duplica.
 	result := batch(t, e, `{"product":{"sku":"LG-1","name":"cualquiera"},"offer":{"price":90}},
-		{"product":{"name":"x","brand":"Samsung","model":"RT38"},"offer":{"price":90}}`)
+		{"product":{"name":"x","brand":"Samsung","model":"RT38"},"offer":{"price":90}},
+		{"product":{"sku":"SKU-DE-LA-TIENDA","name":"x","brand":"Samsung","model":"RT38"},"offer":{"price":90}}`)
 
-	if result.Processed != 2 || result.Results[0].Status != ItemUpdated || result.Results[0].ProductID != "existente-sku" ||
-		result.Results[1].ProductID != "existente-modelo" {
+	if result.Processed != 3 || result.Results[0].Status != ItemUpdated || result.Results[0].ProductID != "existente-sku" ||
+		result.Results[1].ProductID != "existente-modelo" || result.Results[2].ProductID != "existente-modelo" {
 		t.Fatalf("resultado = %+v", result)
 	}
 	if len(e.catalog.created) != 0 {
@@ -361,7 +363,7 @@ func TestAddItems_ProductoExistenteSoloRegistraLaOferta(t *testing.T) {
 	if e.offers.written[0].ProductID != 8 || e.offers.written[1].ProductID != 9 {
 		t.Fatalf("ofertas = %+v", e.offers.written)
 	}
-	if len(e.notifier.sent) != 2 || e.notifier.sent[0].Data["oldPrice"] != "100.00" {
+	if len(e.notifier.sent) != 3 || e.notifier.sent[0].Data["oldPrice"] != "100.00" {
 		t.Fatalf("la bajada de precio debe avisar como en Pricing: %+v", e.notifier.sent)
 	}
 }

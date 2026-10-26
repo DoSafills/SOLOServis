@@ -113,7 +113,8 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		map[string]any{"externalId": "e-1", "product": map[string]any{"sku": tag + "-1", "name": "Refri " + tag,
 			"brand": brand, "model": "M1", "categorySlug": "refrigeradores", "attributes": map[string]any{"capacidad_litros": 350}},
 			"offer": map[string]any{"price": 300000, "productUrl": "https://tienda.example.test/p/1"}},
-		map[string]any{"externalId": "e-2", "product": map[string]any{"name": "lo que diga la tienda", "brand": "lg", "model": "gm53"},
+		map[string]any{"externalId": "e-2", "product": map[string]any{"sku": tag + "-sku-de-la-tienda",
+			"name": "lo que diga la tienda", "brand": "lg", "model": "gm53"},
 			"offer": map[string]any{"price": 888888}},
 		map[string]any{"externalId": "e-3", "product": map[string]any{"sku": tag + "-3", "name": "Sin atributo",
 			"categorySlug": "refrigeradores"}, "offer": map[string]any{"price": 1}},
@@ -128,7 +129,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		t.Fatalf("resultados = %v, quiero %v", statuses, want)
 	}
 	if result.Results[1].ProductID != seedPublicID {
-		t.Fatal("marca + modelo (sin distinguir mayúsculas) debe encontrar el producto del seed")
+		t.Fatal("un SKU desconocido con marca + modelo del seed debe encontrar ese producto, no duplicarlo")
 	}
 
 	// El producto nuevo quedó con categoría, atributos y la marca creada.

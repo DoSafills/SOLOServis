@@ -175,26 +175,30 @@ func (r *Repository) SaveScraped(ctx context.Context, runID int32, externalID, e
 	return err
 }
 
-// FindProduct busca un producto ya catalogado: primero por SKU y, si no hay
-// SKU, por marca + modelo (sin distinguir mayúsculas). Prefiere los activos.
+// FindProduct busca un producto ya catalogado: primero por SKU y, si no lo
+// encuentra (o no hay SKU), por marca + modelo sin distinguir mayúsculas. Así
+// un SKU propio de la tienda no duplica un producto que ya existe con otro SKU.
+// Prefiere los activos.
 func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string) (ExistingProduct, bool, error) {
-	var (
-		p   ExistingProduct
-		err error
-	)
-	switch {
-	case sku != "":
-		err = r.db.QueryRow(ctx, `
-			SELECT id, public_id::text, active FROM product WHERE sku = $1`, sku).Scan(&p.ID, &p.PublicID, &p.Active)
-	case brand != "" && model != "":
-		err = r.db.QueryRow(ctx, `
-			SELECT p.id, p.public_id::text, p.active
-			FROM product p JOIN brand b ON b.id = p.brand_id
-			WHERE lower(b.name) = lower($1) AND lower(p.model) = lower($2)
-			ORDER BY p.active DESC, p.id LIMIT 1`, brand, model).Scan(&p.ID, &p.PublicID, &p.Active)
-	default:
+	var p ExistingProduct
+	if sku != "" {
+		err := r.db.QueryRow(ctx, `SELECT id, public_id::text, active FROM product WHERE sku = $1`, sku).
+			Scan(&p.ID, &p.PublicID, &p.Active)
+		if err == nil {
+			return p, true, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return ExistingProduct{}, false, err
+		}
+	}
+	if brand == "" || model == "" {
 		return ExistingProduct{}, false, nil
 	}
+	err := r.db.QueryRow(ctx, `
+		SELECT p.id, p.public_id::text, p.active
+		FROM product p JOIN brand b ON b.id = p.brand_id
+		WHERE lower(b.name) = lower($1) AND lower(p.model) = lower($2)
+		ORDER BY p.active DESC, p.id LIMIT 1`, brand, model).Scan(&p.ID, &p.PublicID, &p.Active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ExistingProduct{}, false, nil
 	}
