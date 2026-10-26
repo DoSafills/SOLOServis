@@ -254,3 +254,43 @@ func TestSearchRouter_RutasRegistradas(t *testing.T) {
 		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
 	}
 }
+
+// Comparison API (TAL-76): comparación pública, guardadas con sesión y las de
+// servicios que siguen en features.
+func TestComparisonRouter_RutasRegistradas(t *testing.T) {
+	want := []string{
+		"GET /health",
+		"GET /comparisons/products/compare",
+		"GET /comparisons/compatible/{productId}",
+		"POST /comparisons/products",
+		"GET /comparisons/products",
+		"GET /comparisons/products/{id}",
+		"PUT /comparisons/products/{id}",
+		"DELETE /comparisons/products/{id}",
+		"POST /comparisons/products/{id}/items",
+		"DELETE /comparisons/products/{id}/items/{productId}",
+		"POST /comparisons/services",
+		"GET /comparisons/services/{id}",
+		"DELETE /comparisons/services/{id}",
+		"POST /comparisons/services/{id}/items",
+		"DELETE /comparisons/services/{id}/items/{serviceId}",
+	}
+
+	got := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		got[method+" "+route] = true
+		return nil
+	}
+	if err := chi.Walk(NewComparisonRouter(nil, "http://localhost:5173"), walk); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range want {
+		if !got[route] {
+			t.Errorf("falta la ruta %s", route)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
+	}
+}
