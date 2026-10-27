@@ -19,18 +19,8 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 		// La búsqueda pública se movió a internal/search (TAL-75).
 		registerSearchSessionRoutes(r, h)
 	case "comparison-api":
-		r.Post("/comparisons/products", h.CreateComparison)
-		r.Get("/comparisons/products/{id}", h.GetComparison)
-		r.Put("/comparisons/products/{id}", h.UpdateComparison)
-		r.Delete("/comparisons/products/{id}", h.DeleteComparison)
-		r.Post("/comparisons/products/{id}/items", h.AddComparisonItem)
-		r.Delete("/comparisons/products/{id}/items/{productId}", h.DeleteComparisonItem)
-		r.Get("/comparisons/compatible/{productId}", h.CompatibleProducts)
-		r.Post("/comparisons/services", h.CreateServiceComparison)
-		r.Get("/comparisons/services/{id}", h.GetServiceComparison)
-		r.Delete("/comparisons/services/{id}", h.DeleteServiceComparison)
-		r.Post("/comparisons/services/{id}/items", h.AddServiceComparisonItem)
-		r.Delete("/comparisons/services/{id}/items/{serviceId}", h.DeleteServiceComparisonItem)
+		// Las comparaciones de productos se movieron a internal/comparison (TAL-76).
+		registerServiceComparisonRoutes(r, h)
 	case "auth-api":
 		r.Post("/auth/register", h.Register)
 		r.Post("/auth/login", h.Login)
@@ -78,10 +68,7 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 		r.Get("/notifications/unread", h.GetUnreadNotifications)
 		r.Put("/notifications/{id}/read", h.ReadNotification)
 		r.Put("/notifications/read-all", h.ReadAllNotifications)
-	case "ingestion-api":
-		r.Post("/ingestion/products", h.IngestProduct)
-		r.Post("/ingestion/offers", h.IngestOffer)
-		r.Post("/ingestion/sync", h.SyncIngestion)
+	// ingestion-api se movió a internal/ingestion (TAL-77).
 	}
 	return r
 }
@@ -101,6 +88,20 @@ func registerSearchSessionRoutes(r chi.Router, h *Handler) {
 		r.Get("/search/saved", h.GetSavedSearches)
 		r.Delete("/search/saved/{id}", h.DeleteSavedSearch)
 	})
+}
+
+// RegisterServiceComparisonRoutes monta las comparaciones de servicios en el
+// router de Comparison API (TAL-76).
+func RegisterServiceComparisonRoutes(r chi.Router, db *pgxpool.Pool) {
+	registerServiceComparisonRoutes(r, NewHandler("comparison-api", db))
+}
+
+func registerServiceComparisonRoutes(r chi.Router, h *Handler) {
+	r.Post("/comparisons/services", h.CreateServiceComparison)
+	r.Get("/comparisons/services/{id}", h.GetServiceComparison)
+	r.Delete("/comparisons/services/{id}", h.DeleteServiceComparison)
+	r.Post("/comparisons/services/{id}/items", h.AddServiceComparisonItem)
+	r.Delete("/comparisons/services/{id}/items/{serviceId}", h.DeleteServiceComparisonItem)
 }
 
 func cors(frontendURL string) func(http.Handler) http.Handler {
