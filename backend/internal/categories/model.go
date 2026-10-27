@@ -37,6 +37,7 @@ type CategoryDetail struct {
 // Attribute es la definición de un atributo dinámico. Las restricciones que
 // no aplican al data_type se serializan como null para un contrato estable.
 type Attribute struct {
+	ID            int32    `json:"-"` // id interno; lo usa TAL-70 para guardar valores
 	Key           string   `json:"key"`
 	Label         string   `json:"label"`
 	DataType      string   `json:"dataType"`

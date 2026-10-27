@@ -1,0 +1,323 @@
+﻿Reejecución real de docs/auditorias/dia2/consultas.sql
+Fecha de ejecución: 2026-10-23
+PostgreSQL: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2), base tal_audit, contenedor desechable solo_tal59_tmp_20261023, tmpfs.
+Migraciones aplicadas por nombre en orden: 001_schema.sql, 002_views.sql, 003_platform_apis.sql, 004_service_cart.sql, 005_normalize_prices_to_clp.sql, 006_offer_identity_and_url_index.sql, 007_store_and_category_name_unique.sql; todas finalizaron con exit 0.
+Fixture sintético aplicado desde docs/auditorias/dia2/fixtures_reejecucion.sql; comando: docker exec solo_tal59_tmp_20261023 psql -X -v ON_ERROR_STOP=1 -U postgres -d tal_audit -f /tmp/fixtures.sql
+Salida de carga de fixture:
+BEGIN
+INSERT 0 4
+INSERT 0 3
+INSERT 0 3
+INSERT 0 3
+INSERT 0 2
+INSERT 0 4
+INSERT 0 3
+COMMIT
+
+Comando de diagnóstico: docker exec solo_tal59_tmp_20261023 psql -X -A -v ON_ERROR_STOP=1 -U postgres -d tal_audit -f /tmp/consultas.sql
+Salida real completa de consultas.sql (formato psql sin alineación):
+Q01: URLs repetidas por tienda (store_id, product_url, cantidad)
+BEGIN
+store_id|product_url|cantidad
+1|https://shop.example.test/item?utm_source=fixture/|2
+(1 row)
+ROLLBACK
+Q02: Ofertas con URL NULL o vacia, total y por tienda
+BEGIN
+store_id|tienda|ofertas_sin_url
+2|Tienda Demo Dos|1
+TOTAL|Todas las tiendas|1
+(2 rows)
+ROLLBACK
+Q03: URLs con espacios al inicio o final
+BEGIN
+store_id|cantidad
+(0 rows)
+ROLLBACK
+Q04: Conteo de URLs con parámetros de seguimiento y barra final
+BEGIN
+con_parametros_seguimiento|con_barra_final|con_ambos
+3|3|3
+(1 row)
+ROLLBACK
+Q05: Misma URL usada en distintas tiendas
+BEGIN
+product_url|tiendas|ofertas
+https://shop.example.test/item?utm_source=fixture/|2|3
+(1 row)
+ROLLBACK
+Q06: Tiendas con nombre repetido ignorando mayusculas y espacios exteriores
+BEGIN
+nombre_normalizado|tiendas|store_ids|nombres
+(0 rows)
+ROLLBACK
+Q07: Tiendas con el mismo dominio de website_url
+BEGIN
+domain|tiendas|store_ids|nombres
+shop.example.test|2|{1,2}|{"Tienda Demo Uno","Tienda Demo Dos"}
+(1 row)
+ROLLBACK
+Q08: Categorias con nombre repetido bajo el mismo parent_category_id
+BEGIN
+parent_category_id|nombre_normalizado|categorias|category_ids
+(0 rows)
+ROLLBACK
+Q09: Especificaciones repetidas por categoria y nombre
+BEGIN
+category_id|nombre_normalizado|especificaciones|specification_ids
+(0 rows)
+ROLLBACK
+Q10a: Productos con sku NULL
+BEGIN
+productos_con_sku_null
+0
+(1 row)
+ROLLBACK
+Q10b: Productos con name + model repetidos
+BEGIN
+nombre_normalizado|modelo_normalizado|productos|product_ids
+refrigerador demo|r-100|2|{1,2}
+(1 row)
+ROLLBACK
+Q11: Valores de especificacion cuya categoria difiere de la categoria del producto
+BEGIN
+value_id|product_id|product_category_id|specification_id|specification_category_id|value
+2|1|2|2|4|no-numérico
+(1 row)
+ROLLBACK
+Q12: Valores incompatibles con data_type number o boolean usando patrones sin casts
+BEGIN
+value_id|product_id|category_id|specification_name|data_type|value
+2|1|4|Ancho pantalla|number|no-numérico
+3|3|4|HDR|boolean|quizás
+(2 rows)
+ROLLBACK
+Q13: Ofertas sin ninguna fila de historial
+BEGIN
+offer_id|product_id|store_id|price
+2|2|1|80.00
+4|1|2|125.00
+(2 rows)
+ROLLBACK
+Q14: Ofertas con multiples historiales y ofertas con precios consecutivos iguales
+BEGIN
+ofertas_con_multiples_filas|ofertas_consecutivas_mismo_precio|pares_consecutivos_mismo_precio
+1|1|1
+(1 row)
+ROLLBACK
+Q15: Ofertas cuyo ultimo precio historico difiere del precio actual
+BEGIN
+offer_id|precio_actual|ultimo_precio_historico
+1|120.00|110.00
+(1 row)
+ROLLBACK
+Q16a: Conteo de ofertas por currency
+BEGIN
+currency|ofertas
+CLP|4
+(1 row)
+ROLLBACK
+Q16b: Conteo de ofertas por condition
+BEGIN
+condition|ofertas
+new|4
+(1 row)
+ROLLBACK
+Q17: Ofertas con list_price menor que price
+BEGIN
+offer_id|product_id|store_id|list_price|price
+1|1|1|100.00|120.00
+(1 row)
+ROLLBACK
+Q18: Ofertas no disponibles o con stock cero
+BEGIN
+offer_id|product_id|store_id|available|stock
+1|1|1|f|0
+(1 row)
+ROLLBACK
+Q19: Conteo de filas por tablas auditadas
+BEGIN
+tabla|filas
+product|3
+product_offer|4
+product_price_history|3
+product_specification_value|3
+store|2
+(5 rows)
+ROLLBACK
+Q20: Ofertas que excederian UNIQUE(store_id, product_url); NULL no colisiona en UNIQUE normal
+BEGIN
+grupos_duplicados|filas_en_grupos_duplicados|filas_que_exceden_una_por_clave
+1|2|1
+(1 row)
+ROLLBACK
+
+Exit code consultas.sql: 0
+
+
+Reejecución adicional reportada en Neon
+Fecha y hora reportadas: 2026-10-23 16:14 (UTC-03:00).
+Entorno: Neon, endpoint directo de la rama de pruebas confirmada por el usuario; no se registra la URL ni credenciales.
+Procedencia: transcripción pegada por el usuario desde psql. Esta salida no fue verificada independientemente desde este repositorio.
+Alcance: consultas Q01–Q20 de docs/auditorias/dia2/consultas.sql, ejecutadas después de cargar el fixture sintético. Cada consulta terminó con ROLLBACK. La transcripción llegó al prompt de PowerShell sin mostrar errores de SQL.
+
+Salida reportada (formato alineado de psql):
+Q01: URLs repetidas por tienda (store_id, product_url, cantidad)
+BEGIN
+ store_id |                    product_url                     | cantidad
+----------+----------------------------------------------------+----------
+        1 | https://shop.example.test/item?utm_source=fixture/ |        2
+(1 row)
+ROLLBACK
+Q02: Ofertas con URL NULL o vacia, total y por tienda
+BEGIN
+ store_id |      tienda       | ofertas_sin_url
+----------+-------------------+-----------------
+ 2        | Tienda Demo Dos   |               1
+ TOTAL    | Todas las tiendas |               1
+(2 rows)
+ROLLBACK
+Q03: URLs con espacios al inicio o final
+BEGIN
+ store_id | cantidad
+----------+----------
+(0 rows)
+ROLLBACK
+Q04: Conteo de URLs con parámetros de seguimiento y barra final
+BEGIN
+ con_parametros_seguimiento | con_barra_final | con_ambos
+----------------------------+-----------------+-----------
+                          3 |              3 |         3
+(1 row)
+ROLLBACK
+Q05: Misma URL usada en distintas tiendas
+BEGIN
+                    product_url                     | tiendas | ofertas
+----------------------------------------------------+---------+---------
+ https://shop.example.test/item?utm_source=fixture/ |       2 |       3
+(1 row)
+ROLLBACK
+Q06: Tiendas con nombre repetido ignorando mayusculas y espacios exteriores
+BEGIN
+ nombre_normalizado | tiendas | store_ids | nombres
+--------------------+---------+-----------+---------
+(0 rows)
+ROLLBACK
+Q07: Tiendas con el mismo dominio de website_url
+BEGIN
+      domain       | tiendas | store_ids |                nombres
+-------------------+---------+-----------+---------------------------------------
+ shop.example.test |       2 | {1,2}     | {"Tienda Demo Uno","Tienda Demo Dos"}
+(1 row)
+ROLLBACK
+Q08: Categorias con nombre repetido bajo el mismo parent_category_id
+BEGIN
+ parent_category_id | nombre_normalizado | categorias | category_ids
+--------------------+--------------------+------------+--------------
+(0 rows)
+ROLLBACK
+Q09: Especificaciones repetidas por categoria y nombre
+BEGIN
+ category_id | nombre_normalizado | especificaciones | specification_ids
+-------------+--------------------+------------------+-------------------
+(0 rows)
+ROLLBACK
+Q10a: Productos con sku NULL
+BEGIN
+ productos_con_sku_null
+-----------------------
+                     0
+(1 row)
+ROLLBACK
+Q10b: Productos con name + model repetidos
+BEGIN
+ nombre_normalizado | modelo_normalizado | productos | product_ids
+--------------------+--------------------+-----------+-------------
+ refrigerador demo  | r-100              |         2 | {1,2}
+(1 row)
+ROLLBACK
+Q11: Valores de especificacion cuya categoria difiere de la categoria del producto
+BEGIN
+ value_id | product_id | product_category_id | specification_id | specification_category_id |    value
+----------+------------+---------------------+------------------+---------------------------+-------------
+        2 |          1 |                   2 |                2 |                         4 | no-numérico
+(1 row)
+ROLLBACK
+Q12: Valores incompatibles con data_type number o boolean usando patrones sin casts
+BEGIN
+ value_id | product_id | category_id | specification_name | data_type |    value
+----------+------------+-------------+--------------------+-----------+-------------
+        2 |          1 |           4 | Ancho pantalla     | number    | no-numérico
+        3 |          3 |           4 | HDR                | boolean   | quizás
+(2 rows)
+ROLLBACK
+Q13: Ofertas sin ninguna fila de historial
+BEGIN
+ offer_id | product_id | store_id | price
+----------+------------+----------+--------
+        2 |          2 |        1 |  80.00
+        4 |          1 |        2 | 125.00
+(2 rows)
+ROLLBACK
+Q14: Ofertas con multiples historiales y ofertas con precios consecutivos iguales
+BEGIN
+ ofertas_con_multiples_filas | ofertas_consecutivas_mismo_precio | pares_consecutivos_mismo_precio
+-----------------------------+-----------------------------------+---------------------------------
+                           1 |                                 1 |                               1
+(1 row)
+ROLLBACK
+Q15: Ofertas cuyo ultimo precio historico difiere del precio actual
+BEGIN
+ offer_id | precio_actual | ultimo_precio_historico
+----------+---------------+-------------------------
+        1 |        120.00 |                  110.00
+(1 row)
+ROLLBACK
+Q16a: Conteo de ofertas por currency
+BEGIN
+ currency | ofertas
+----------+---------
+ CLP      |       4
+(1 row)
+ROLLBACK
+Q16b: Conteo de ofertas por condition
+BEGIN
+ condition | ofertas
+-----------+---------
+ new       |       4
+(1 row)
+ROLLBACK
+Q17: Ofertas con list_price menor que price
+BEGIN
+ offer_id | product_id | store_id | list_price | price
+----------+------------+----------+------------+--------
+        1 |          1 |        1 |     100.00 | 120.00
+(1 row)
+ROLLBACK
+Q18: Ofertas no disponibles o con stock cero
+BEGIN
+ offer_id | product_id | store_id | available | stock
+----------+------------+----------+-----------+-------
+        1 |          1 |        1 | f         |     0
+(1 row)
+ROLLBACK
+Q19: Conteo de filas por tablas auditadas
+BEGIN
+            tabla            | filas
+-----------------------------+-------
+ product                     |     3
+ product_offer               |     4
+ product_price_history       |     3
+ product_specification_value |     3
+ store                       |     2
+(5 rows)
+ROLLBACK
+Q20: Ofertas que excederian UNIQUE(store_id, product_url); NULL no colisiona en UNIQUE normal
+BEGIN
+ grupos_duplicados | filas_en_grupos_duplicados | filas_que_exceden_una_por_clave
+-------------------+----------------------------+---------------------------------
+                 1 |                          2 |                               1
+(1 row)
+ROLLBACK
+
+La secuencia reportada coincide con los resultados previamente registrados para el fixture sintético en la base desechable; no representa datos de catálogo reales.

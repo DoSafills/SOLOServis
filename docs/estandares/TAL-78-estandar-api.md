@@ -62,6 +62,8 @@ Justificación:
 | `unknown_field` | 400 | El JSON trae un campo que el DTO no declara. |
 | `invalid_type` | 400 | Un campo trae un tipo JSON incompatible con el DTO (p. ej. `"name": 5`). |
 | `invalid_parameter` | 400 | Parámetro de ruta o query con formato inválido (p. ej. UUID mal formado). |
+| `unauthorized` | 401 | Falta el token o no corresponde a una sesión vigente (TAL-70). Incluye `WWW-Authenticate: Bearer`. |
+| `forbidden` | 403 | Token válido sin el rol requerido (TAL-70: escrituras de productos exigen `admin`). |
 | `not_found` | 404 | El recurso no existe (o está desactivado y el endpoint no expone inactivos). |
 | `conflict` | 409 | Violación de unicidad o estado incompatible (p. ej. SKU duplicado). |
 | `body_too_large` | 413 | El body supera el límite configurado. |
@@ -81,6 +83,8 @@ Los códigos por campo (`errors[].code`) iniciales son: `required`, `min`, `max`
 | **201 Created** | Creación exitosa (POST). Incluir header `Location` con la URL del recurso. | Recurso creado, **con la misma forma que el GET** del recurso. |
 | **204 No Content** | Operación exitosa sin body: DELETE (incluido soft-delete) y acciones sin resultado. | Vacío. |
 | **400 Bad Request** | La petición **no se puede interpretar**: JSON malformado, body vacío, campo desconocido, tipo incorrecto, parámetro de ruta/query mal formado. | Problem (`malformed_json`, `unknown_field`, `invalid_type`, `invalid_parameter`). |
+| **401 Unauthorized** | Endpoint protegido sin token válido (`internal/authz`). | Problem `unauthorized`. |
+| **403 Forbidden** | Token válido sin el rol requerido. | Problem `forbidden`. |
 | **404 Not Found** | El recurso direccionado no existe. **Solo** cuando el repositorio indica "no encontrado" (`pgx.ErrNoRows`), nunca como comodín para cualquier error de BD. | Problem `not_found`. |
 | **409 Conflict** | Violación de restricción UNIQUE (SQLSTATE `23505`) o conflicto de estado. | Problem `conflict`. |
 | **413 Content Too Large** | Body mayor al límite (1 MB por defecto). | Problem `body_too_large`. |

@@ -117,6 +117,30 @@ WHERE po.store_id = $1
   AND p.active = true
 ORDER BY p.id;
 
+-- name: ListStoreOffers :many
+SELECT
+    po.id,
+    po.product_id,
+    po.store_id,
+    p.public_id,
+    p.name AS product_name,
+    po.price,
+    po.list_price,
+    po.currency,
+    po.shipping_cost,
+    po.shipping_free,
+    po.available,
+    po.stock,
+    po.condition,
+    po.product_url,
+    po.last_updated
+FROM product_offer po
+JOIN product p
+    ON p.id = po.product_id
+WHERE po.store_id = $1
+  AND p.active = true
+ORDER BY po.id;
+
 
 -- name: ListStoreLocations :many
 SELECT

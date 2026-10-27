@@ -4,6 +4,7 @@ import type { Page, Product, Service, StoreOffer } from "../../types";
 import { PRODUCT_TYPES } from "../../constants/productCatalog";
 
 import { getProducts, getServices } from "../../services/api/api";
+import { getCategories, type ApiProductCategory } from "../../services/api/products";
 import ProductCard from "../../components/products/ProductCard";
 import ServiceCard from "../../components/services/ServiceCard";
 
@@ -52,6 +53,7 @@ export default function HomePage({
 
   const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
 
   useEffect(() => {
     Promise.all([getProducts(), getServices()])
@@ -60,7 +62,15 @@ export default function HomePage({
         setServices(services);
       })
       .catch(console.error);
+
+    getCategories().then(setCategories).catch(console.error);
   }, []);
+
+  // Las categorías raíz (sin padre) son las que se muestran en la portada;
+  // debajo de cada una se listan sus subcategorías.
+  const rootCategories = categories.filter((cat) => cat.parentId === null);
+  const subcategoriesOf = (parentId: number) =>
+    categories.filter((cat) => cat.parentId === parentId);
 
   const featuredProducts = products.slice(0, 4);
 
@@ -240,6 +250,35 @@ export default function HomePage({
       </section>
 
       <div className="max-w-7xl mx-auto px-4">
+        {/* Product categories */}
+        <section className="py-12">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-text">Categorías de productos</h2>
+              <p className="text-xs text-muted mt-1">Encuentra lo que buscas por categoría</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+            {rootCategories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => navigate({ id: "search-products", query: "", categoryId: cat.id })}
+                style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+                className="flex flex-col items-center gap-2 p-4 rounded-2xl hover:border-prime hover:bg-prime-muted transition-all duration-200 group"
+              >
+                <span className="text-xs font-semibold text-muted-2 group-hover:text-prime transition-colors">
+                  {cat.name}
+                </span>
+                <span className="text-[10px] text-muted">
+                  {subcategoriesOf(cat.id)
+                    .map((sub) => sub.name)
+                    .join(" · ") || "Sin subcategorías"}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+
         {/* Featured products */}
         <section className="pb-12">
           <div className="flex items-center justify-between mb-6">
