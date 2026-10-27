@@ -1,6 +1,7 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import { getProducts } from "../../services/api/api";
+import { getCategories, type ApiProductCategory } from "../../services/api/products";
 import ProductCard from "../../components/products/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
 import {
@@ -14,6 +15,7 @@ interface Props {
   query: string;
   category?: string;
   productGroup?: string;
+  categoryId?: number;
   navigate: (page: Page) => void;
   favorites: Set<string>;
   productCompareList: Set<string>;
@@ -110,6 +112,7 @@ export default function SearchResultsPage({
   query,
   category,
   productGroup,
+  categoryId,
   navigate,
   favorites,
   productCompareList,
@@ -131,6 +134,8 @@ export default function SearchResultsPage({
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<number | null>(categoryId ?? null);
   const activeFilterKey =
     activeSubtype === "all" ? activeProductGroup : `${activeProductGroup}:${activeSubtype}`;
   const activeFilters = filtersByGroup[activeFilterKey] ?? emptyFilters;
@@ -153,34 +158,41 @@ export default function SearchResultsPage({
   };
 
   useEffect(() => {
+    getCategories().then(setCategories).catch(console.error);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
-
-    async function loadProducts() {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const result = await getProducts();
+    getProducts(selectedCategory ?? undefined)
+      .then((result) => {
         if (!cancelled) {
           setProducts(result);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Error al cargar los productos");
-        }
-      } finally {
-        if (!cancelled) {
+          setError(null);
           setLoading(false);
         }
-      }
-    }
-
-    loadProducts();
-
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Error al cargar los productos");
+          setLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedCategory]);
+
+  const rootCategories = categories.filter((cat) => cat.parentId === null);
+  const subcategoriesOf = (parentId: number) =>
+    categories.filter((cat) => cat.parentId === parentId);
+  const selectedCategoryName = categories.find((cat) => cat.id === selectedCategory)?.name ?? "";
+  const selectCategory = (nextCategory: number | null) => {
+    if (nextCategory === selectedCategory) return;
+    setLoading(true);
+    setError(null);
+    setPage(1);
+    setSelectedCategory(nextCategory);
+  };
 
   const departmentProducts = products.filter((product) => {
     if (category && product.category.toLocaleLowerCase() !== category.toLocaleLowerCase()) {
@@ -265,10 +277,54 @@ export default function SearchResultsPage({
 
   const clearFilters = () => {
     updateActiveFilters({ ...emptyFilters });
+    selectCategory(null);
   };
 
   const renderFilters = () => (
     <div className="space-y-2">
+      <details className="border-b border-slate-200 pb-2">
+        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
+          Categoría <span className="float-right text-slate-500">⌄</span>
+        </summary>
+        <div className="space-y-2 pb-2 pt-1">
+          <button
+            type="button"
+            onClick={() => selectCategory(null)}
+            className={`block text-left text-sm ${
+              selectedCategory === null ? "font-semibold text-prime" : "text-slate-700"
+            }`}
+          >
+            Todas
+          </button>
+          {rootCategories.map((root) => (
+            <div key={root.id} className="space-y-1">
+              <button
+                type="button"
+                onClick={() => selectCategory(root.id)}
+                className={`block text-left text-sm ${
+                  selectedCategory === root.id ? "font-semibold text-prime" : "text-slate-700"
+                }`}
+              >
+                {root.name}
+              </button>
+              {subcategoriesOf(root.id).map((subcategory) => (
+                <button
+                  key={subcategory.id}
+                  type="button"
+                  onClick={() => selectCategory(subcategory.id)}
+                  className={`ml-3 block text-left text-xs ${
+                    selectedCategory === subcategory.id
+                      ? "font-semibold text-prime"
+                      : "text-slate-600"
+                  }`}
+                >
+                  {subcategory.name}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </details>
       <details className="border-b border-slate-200 pb-2" open>
         <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
           Precio <span className="float-right text-slate-500">⌄</span>
@@ -379,7 +435,8 @@ export default function SearchResultsPage({
         Object.keys(selectedSpecs).length > 0 ||
         priceMin ||
         priceMax ||
-        availableOnly) && (
+        availableOnly ||
+        selectedCategory !== null) && (
         <button
           onClick={clearFilters}
           className="pt-2 text-xs font-semibold text-violet-700 hover:text-violet-900"
@@ -422,12 +479,13 @@ export default function SearchResultsPage({
             label: "Productos",
             onClick: () => navigate({ id: "product-categories" }),
           },
+          ...(selectedCategoryName ? [{ label: selectedCategoryName }] : []),
           ...(category ? [{ label: category }] : []),
           ...(query ? [{ label: `"${query}"` }] : []),
         ]}
       />
 
-      {!category && (
+      {!category && selectedCategory === null && (
         <nav
           aria-label="Tipos de productos"
           role="tablist"
@@ -478,7 +536,7 @@ export default function SearchResultsPage({
         </nav>
       )}
 
-      {!category && availableSubtypes.length > 0 && (
+      {!category && selectedCategory === null && availableSubtypes.length > 0 && (
         <nav
           aria-label="Tipos específicos de productos"
           role="tablist"
@@ -531,6 +589,7 @@ export default function SearchResultsPage({
         <div>
           <h1 className="text-2xl font-bold text-text">
             {category ||
+              selectedCategoryName ||
               (activeSubtype !== "all"
                 ? activeSubtype
                 : activeProductGroup !== "all"

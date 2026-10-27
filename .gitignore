@@ -49,3 +49,4 @@ temp/
 k8s/overlays/local/
 *.kubeconfig
 kubeconfig*
+.neon

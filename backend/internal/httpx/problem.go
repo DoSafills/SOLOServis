@@ -18,6 +18,8 @@ const (
 	CodeUnknownField         = "unknown_field"
 	CodeInvalidType          = "invalid_type"
 	CodeInvalidParameter     = "invalid_parameter"
+	CodeUnauthorized         = "unauthorized"
+	CodeForbidden            = "forbidden"
 	CodeNotFound             = "not_found"
 	CodeConflict             = "conflict"
 	CodeBodyTooLarge         = "body_too_large"

@@ -1,11 +1,12 @@
 # Cómo probar la base de datos localmente
 
-1. Desde la raiz del proyecto, levanta PostgreSQL y aplica automaticamente todas las migraciones a un volumen nuevo:
+1. Desde la raíz del proyecto, levanta PostgreSQL y aplica automáticamente las migraciones y seeds en el orden de `backend/database/migration_order.txt` a un volumen nuevo:
    docker compose -f docker/compose.yml up -d postgres
 
-2. Para una base que ya existe, aplica la migracion de catalogo y la carga unificada de servicios:
-   docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/005_demo_catalog.sql
-   docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/006_demo_catalog_services.sql
+2. Para una base versionada existente, aplica las versiones pendientes mediante el mismo runner:
+   docker compose -f docker/compose.yml exec -T postgres bash /docker-entrypoint-initdb.d/001_migrations.sh
+   Las bases antiguas sin tabla `schema_migrations` se rechazan para evitar reaplicar
+   cambios a ciegas; antes de migrarlas se debe preparar y verificar un baseline.
 
 3. Verifica productos, tiendas y el límite de servicios activos por microcategoría:
    docker compose -f docker/compose.yml exec -T postgres psql -U postgres -d soloservis -c "SELECT COUNT(*) FROM product WHERE sku LIKE 'DEMO-%';"

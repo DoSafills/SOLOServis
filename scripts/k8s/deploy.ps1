@@ -205,6 +205,7 @@ function Write-Overlay {
   Get-ChildItem $migDir -Filter *.sql -ErrorAction SilentlyContinue | Remove-Item -Force
   $sqls = Get-ChildItem (Join-Path $RepoRoot 'backend/database/migrations') -Filter *.sql | Sort-Object Name
   foreach ($f in $sqls) { Copy-Item $f.FullName (Join-Path $migDir $f.Name) -Force }
+  Copy-Item (Join-Path $RepoRoot 'backend/database/migration_order.txt') (Join-Path $migDir 'migration_order.txt') -Force
 
   $L = New-Object System.Collections.Generic.List[string]
   $L.Add('# GENERADO por scripts/k8s/deploy.ps1 - no editar ni commitear.')
@@ -218,6 +219,7 @@ function Write-Overlay {
   $L.Add('  - name: soloservis-migrations')
   $L.Add('    files:')
   foreach ($f in $sqls) { $L.Add("      - migrations/$($f.Name)") }
+  $L.Add('      - migrations/migration_order.txt')
   $L.Add('    options:')
   $L.Add('      labels:')
   $L.Add('        app.kubernetes.io/part-of: soloservis')
