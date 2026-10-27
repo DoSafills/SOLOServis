@@ -4,6 +4,7 @@ import type { Page, Product, Service, StoreOffer } from "../../types";
 import { PRODUCT_TYPES } from "../../constants/productCatalog";
 
 import { getProducts, getServices } from "../../services/api/api";
+import { getCategories, type ApiProductCategory } from "../../services/api/products";
 import ProductCard from "../../components/products/ProductCard";
 import ServiceCard from "../../components/services/ServiceCard";
 
@@ -26,7 +27,10 @@ interface Props {
   favorites: Set<string>;
   compareList: Set<string>;
   productCompareList: Set<string>;
-  onAddToCart: (product: Product, offer: StoreOffer) => void;
+  cartProductIds: ReadonlySet<string>;
+  cartServiceIds: ReadonlySet<string>;
+  onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
+  onAddServiceToCart: (service: Service) => Promise<boolean>;
   onToggleFavorite: (id: string, kind?: "product" | "service") => void;
   onToggleCompare: (id: string) => void;
   onToggleProductCompare: (id: string, category: string) => void;
@@ -37,7 +41,10 @@ export default function HomePage({
   favorites,
   compareList,
   productCompareList,
+  cartProductIds,
+  cartServiceIds,
   onAddToCart,
+  onAddServiceToCart,
   onToggleFavorite,
   onToggleCompare,
   onToggleProductCompare,
@@ -46,6 +53,7 @@ export default function HomePage({
 
   const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
 
   useEffect(() => {
     Promise.all([getProducts(), getServices()])
@@ -54,7 +62,15 @@ export default function HomePage({
         setServices(services);
       })
       .catch(console.error);
+
+    getCategories().then(setCategories).catch(console.error);
   }, []);
+
+  // Las categorías raíz (sin padre) son las que se muestran en la portada;
+  // debajo de cada una se listan sus subcategorías.
+  const rootCategories = categories.filter((cat) => cat.parentId === null);
+  const subcategoriesOf = (parentId: number) =>
+    categories.filter((cat) => cat.parentId === parentId);
 
   const featuredProducts = products.slice(0, 4);
 
@@ -234,6 +250,35 @@ export default function HomePage({
       </section>
 
       <div className="max-w-7xl mx-auto px-4">
+        {/* Product categories */}
+        <section className="py-12">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-text">Categorías de productos</h2>
+              <p className="text-xs text-muted mt-1">Encuentra lo que buscas por categoría</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+            {rootCategories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => navigate({ id: "search-products", query: "", categoryId: cat.id })}
+                style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+                className="flex flex-col items-center gap-2 p-4 rounded-2xl hover:border-prime hover:bg-prime-muted transition-all duration-200 group"
+              >
+                <span className="text-xs font-semibold text-muted-2 group-hover:text-prime transition-colors">
+                  {cat.name}
+                </span>
+                <span className="text-[10px] text-muted">
+                  {subcategoriesOf(cat.id)
+                    .map((sub) => sub.name)
+                    .join(" · ") || "Sin subcategorías"}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+
         {/* Featured products */}
         <section className="pb-12">
           <div className="flex items-center justify-between mb-6">
@@ -256,48 +301,11 @@ export default function HomePage({
                 navigate={navigate}
                 isFavorite={favorites.has(p.id)}
                 isComparing={productCompareList.has(p.id)}
+                cartProductIds={cartProductIds}
                 onAddToCart={onAddToCart}
                 onToggleFavorite={onToggleFavorite}
                 onToggleCompare={onToggleProductCompare}
               />
-            ))}
-          </div>
-        </section>
-
-        {/* Service categories */}
-        <section className="pb-12">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-bold text-text">{UI_TEXT.services.categories}</h2>
-              <p className="text-xs text-muted mt-1">{UI_TEXT.services.categoryDescription}</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-            {serviceCategories.map((cat) => (
-              <button
-                key={cat.name}
-                onClick={() => navigate({ id: "search-services", query: cat.name })}
-                style={{
-                  background:
-                    "linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.72))",
-                  border: "1px solid rgba(148, 163, 184, 0.22)",
-                  boxShadow: "0 8px 24px rgba(15,23,42,0.08)",
-                }}
-                className="flex flex-col items-center gap-2 p-4 rounded-2xl hover:-translate-y-0.5 hover:border-[#8b5cf6] transition-all duration-200 group"
-              >
-                <span
-                  className="flex h-11 w-11 items-center justify-center rounded-xl text-2xl shadow-inner"
-                  style={{
-                    background: `${cat.color}20`,
-                    boxShadow: `inset 0 0 0 1px ${cat.color}33`,
-                  }}
-                >
-                  {cat.icon}
-                </span>
-                <span className="text-xs font-medium text-slate-700 group-hover:text-[#8b5cf6] transition-colors">
-                  {cat.name}
-                </span>
-              </button>
             ))}
           </div>
         </section>
@@ -324,8 +332,10 @@ export default function HomePage({
                 navigate={navigate}
                 isFavorite={favorites.has(s.id)}
                 isComparing={compareList.has(s.id)}
+                isInCart={cartServiceIds.has(s.id)}
                 onToggleFavorite={onToggleFavorite}
                 onToggleCompare={onToggleCompare}
+                onAddToCart={onAddServiceToCart}
               />
             ))}
           </div>

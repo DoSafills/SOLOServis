@@ -1,15 +1,24 @@
 export type Page =
   | { id: "home" }
   | { id: "product-categories" }
-  | { id: "search-products"; query: string; category?: string; productGroup?: string }
+  | { id: "service-categories" }
+  | {
+      id: "search-products";
+      query: string;
+      category?: string;
+      productGroup?: string;
+      categoryId?: number;
+    }
   | {
       id: "product-detail";
       productId: string;
     }
   | { id: "product-comparison"; productIds: string[] }
+  | { id: "offer-comparison"; product: Product; storeIds: string[] }
   | {
       id: "search-services";
       query: string;
+      category?: string;
     }
   | { id: "service-detail"; serviceId: string }
   | {
@@ -51,6 +60,9 @@ export interface Product {
   name: string;
   brand: string;
   model: string;
+  /** Id de la categoría del producto en el backend (la subcategoría si la tiene) */
+  categoryId?: number;
+  categorySlug?: string | null;
   category: string;
   subcategory: string;
   image: string;
@@ -59,6 +71,8 @@ export interface Product {
   rating: number;
   reviewCount: number;
   specs: Record<string, string>;
+  /** Valores tipados definidos por la categoría dinámica. */
+  attributes: Record<string, string | number | boolean>;
   offers: StoreOffer[];
   priceHistory: PricePoint[];
   /** Current sale/offer price if product is on promotion right now */
@@ -69,19 +83,33 @@ export interface Product {
 }
 
 export interface CartItem {
+  type: "product";
   product: Product;
   offer: StoreOffer;
   quantity: number;
   cartItemId: number;
 }
+
+export interface ServiceCartItem {
+  type: "service";
+  service: Service;
+  serviceOfferId: number;
+  quantity: number;
+  cartItemId: number;
+}
+
+export type AnyCartItem = CartItem | ServiceCartItem;
+
 export interface Service {
   id: string;
+  offerId?: number;
   name: string;
   provider: string;
   category: string;
   subcategory: string;
   description: string;
   monthlyPrice: number;
+  billingPeriod?: string;
   installationCost: number | null;
   contractMonths: number | null;
   rating: number;

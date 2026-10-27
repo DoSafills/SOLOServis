@@ -1,6 +1,14 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import { getProducts } from "../../services/api/api";
+import { getCategories, type ApiProductCategory } from "../../services/api/products";
+import {
+  getCategoryBySlug,
+  getDynamicCategories,
+  type CategoryAttribute,
+  type ProductCategory,
+  type ProductCategoryDetail,
+} from "../../services/api/categories";
 import ProductCard from "../../components/products/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
 import {
@@ -14,21 +22,32 @@ interface Props {
   query: string;
   category?: string;
   productGroup?: string;
+  categoryId?: number;
   navigate: (page: Page) => void;
   favorites: Set<string>;
   productCompareList: Set<string>;
-  onAddToCart: (product: Product, offer: StoreOffer) => void;
+  cartProductIds: ReadonlySet<string>;
+  onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
   onToggleFavorite: (id: string) => void;
   onToggleProductCompare: (id: string, category: string) => void;
 }
 
-type SortOption = "relevance" | "price-asc" | "price-desc" | "rating";
+type SortOption =
+  | "relevance"
+  | "price-asc"
+  | "price-desc"
+  | "brand-asc"
+  | "brand-desc"
+  | "rating"
+  | `attribute-asc:${string}`
+  | `attribute-desc:${string}`;
 
 interface ProductFilterState {
   priceMin: string;
   priceMax: string;
   selectedBrands: Set<string>;
   selectedSpecs: Record<string, Set<string>>;
+  selectedRanges: Record<string, { min: string; max: string }>;
   availableOnly: boolean;
 }
 
@@ -37,6 +56,7 @@ const emptyFilters: ProductFilterState = {
   priceMax: "",
   selectedBrands: new Set(),
   selectedSpecs: {},
+  selectedRanges: {},
   availableOnly: false,
 };
 
@@ -74,7 +94,37 @@ const getProductPrice = (product: Product): number | null => {
   return prices.length ? Math.min(...prices) : null;
 };
 
-const getSpecFilterGroups = (products: Product[]) => {
+const getAttributeValue = (
+  product: Product,
+  attribute: CategoryAttribute,
+): string | number | boolean | undefined =>
+  product.attributes[attribute.key] ??
+  product.specs[attribute.label] ??
+  product.specs[attribute.key];
+
+const getDynamicAttributeOptions = (products: Product[], attribute: CategoryAttribute): string[] =>
+  [
+    ...new Set(
+      products
+        .map((product) => getAttributeValue(product, attribute))
+        .filter((value) => value !== undefined)
+        .map(String),
+    ),
+  ].sort((first, second) => first.localeCompare(second, "es", { numeric: true }));
+
+const getSpecFilterGroups = (products: Product[], dynamicAttributes: CategoryAttribute[] = []) => {
+  if (dynamicAttributes.length > 0) {
+    return dynamicAttributes.map((attribute) => ({
+      title: attribute.label,
+      attribute,
+      specs: [
+        {
+          name: attribute.key,
+          values: getDynamicAttributeOptions(products, attribute),
+        },
+      ],
+    }));
+  }
   const names = [...new Set(products.flatMap((product) => Object.keys(product.specs)))].sort(
     (first, second) => first.localeCompare(second, "es"),
   );
@@ -100,7 +150,7 @@ const getSpecFilterGroups = (products: Product[]) => {
         }))
         .filter((spec) => spec.values.length > 0);
 
-      return { title, specs };
+      return { title, specs, attribute: undefined };
     })
     .filter((group) => group.specs.length > 0);
 };
@@ -109,9 +159,11 @@ export default function SearchResultsPage({
   query,
   category,
   productGroup,
+  categoryId,
   navigate,
   favorites,
   productCompareList,
+  cartProductIds,
   onAddToCart,
   onToggleFavorite,
   onToggleProductCompare,
@@ -129,10 +181,15 @@ export default function SearchResultsPage({
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
+  const [dynamicCategories, setDynamicCategories] = useState<ProductCategory[]>([]);
+  const [categoryDefinition, setCategoryDefinition] = useState<ProductCategoryDetail | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<number | null>(categoryId ?? null);
   const activeFilterKey =
     activeSubtype === "all" ? activeProductGroup : `${activeProductGroup}:${activeSubtype}`;
   const activeFilters = filtersByGroup[activeFilterKey] ?? emptyFilters;
-  const { priceMin, priceMax, selectedBrands, selectedSpecs, availableOnly } = activeFilters;
+  const { priceMin, priceMax, selectedBrands, selectedSpecs, selectedRanges, availableOnly } =
+    activeFilters;
 
   const updateActiveFilters = (update: Partial<ProductFilterState>) => {
     setFiltersByGroup((previous) => ({
@@ -151,34 +208,74 @@ export default function SearchResultsPage({
   };
 
   useEffect(() => {
+    getCategories().then(setCategories).catch(console.error);
+    getDynamicCategories().then(setDynamicCategories).catch(console.error);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
-
-    async function loadProducts() {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const result = await getProducts();
+    getProducts(selectedCategory ?? undefined)
+      .then((result) => {
         if (!cancelled) {
           setProducts(result);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Error al cargar los productos");
-        }
-      } finally {
-        if (!cancelled) {
+          setError(null);
           setLoading(false);
         }
-      }
-    }
-
-    loadProducts();
-
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Error al cargar los productos");
+          setLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedCategory]);
+
+  const selectedCategoryName = categories.find((cat) => cat.id === selectedCategory)?.name ?? "";
+  const productCategorySlugs = new Set(
+    products.map((product) => product.categorySlug).filter((slug): slug is string => Boolean(slug)),
+  );
+  const inferredCategorySlug =
+    productCategorySlugs.size === 1 ? [...productCategorySlugs][0] : undefined;
+  const categorySlug =
+    dynamicCategories.find(
+      (candidate) => candidate.name.toLocaleLowerCase() === (category ?? "").toLocaleLowerCase(),
+    )?.slug ??
+    dynamicCategories.find(
+      (candidate) =>
+        candidate.name.toLocaleLowerCase() === selectedCategoryName.toLocaleLowerCase(),
+    )?.slug ??
+    inferredCategorySlug;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!categorySlug) {
+      return;
+    }
+    getCategoryBySlug(categorySlug)
+      .then((definition) => {
+        if (!cancelled) setCategoryDefinition(definition);
+      })
+      .catch(() => {
+        if (!cancelled) setCategoryDefinition(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [categorySlug]);
+
+  const rootCategories = categories.filter((cat) => cat.parentId === null);
+  const subcategoriesOf = (parentId: number) =>
+    categories.filter((cat) => cat.parentId === parentId);
+  const selectCategory = (nextCategory: number | null) => {
+    if (nextCategory === selectedCategory) return;
+    setLoading(true);
+    setError(null);
+    setPage(1);
+    setSelectedCategory(nextCategory);
+  };
 
   const departmentProducts = products.filter((product) => {
     if (category && product.category.toLocaleLowerCase() !== category.toLocaleLowerCase()) {
@@ -203,7 +300,11 @@ export default function SearchResultsPage({
   const brands = [...new Set(matchingProducts.map((product) => product.brand))].sort((a, b) =>
     a.localeCompare(b, "es"),
   );
-  const specGroups = getSpecFilterGroups(matchingProducts);
+  const activeCategoryDefinition =
+    categoryDefinition?.slug === categorySlug ? categoryDefinition : null;
+  const filterableAttributes =
+    activeCategoryDefinition?.attributes.filter((attribute) => attribute.filterable) ?? [];
+  const specGroups = getSpecFilterGroups(matchingProducts, filterableAttributes);
   const minimumPrice = priceMin ? Number(priceMin) : null;
   const maximumPrice = priceMax ? Number(priceMax) : null;
 
@@ -219,11 +320,26 @@ export default function SearchResultsPage({
       if (productPrice === null || productPrice > maximumPrice) return false;
     }
 
-    return Object.entries(selectedSpecs).every(([name, values]) => {
-      if (values.size === 0) return true;
-      const productValue = product.specs[name];
-      return productValue ? values.has(normalizeFilterValue(productValue)) : false;
-    });
+    return (
+      Object.entries(selectedSpecs).every(([name, values]) => {
+        if (values.size === 0) return true;
+        const attribute = filterableAttributes.find((candidate) => candidate.key === name);
+        const productValue = attribute
+          ? getAttributeValue(product, attribute)
+          : product.specs[name];
+        return productValue !== undefined && values.has(normalizeFilterValue(String(productValue)));
+      }) &&
+      filterableAttributes.every((attribute) => {
+        const range = selectedRanges[attribute.key];
+        if (!range || (range.min === "" && range.max === "")) return true;
+        const value = getAttributeValue(product, attribute);
+        if (typeof value !== "number") return false;
+        return (
+          (range.min === "" || value >= Number(range.min)) &&
+          (range.max === "" || value <= Number(range.max))
+        );
+      })
+    );
   });
 
   filtered = [...filtered].sort((a, b) => {
@@ -232,6 +348,20 @@ export default function SearchResultsPage({
       return (getProductPrice(a) ?? Infinity) - (getProductPrice(b) ?? Infinity);
     if (sort === "price-desc")
       return (getProductPrice(b) ?? -Infinity) - (getProductPrice(a) ?? -Infinity);
+    if (sort === "brand-asc") return a.brand.localeCompare(b.brand, "es");
+    if (sort === "brand-desc") return b.brand.localeCompare(a.brand, "es");
+    if (sort.startsWith("attribute-")) {
+      const [direction, key] = sort.split(":");
+      const attribute = filterableAttributes.find((candidate) => candidate.key === key);
+      if (!attribute) return 0;
+      const first = getAttributeValue(a, attribute);
+      const second = getAttributeValue(b, attribute);
+      const result =
+        typeof first === "number" && typeof second === "number"
+          ? first - second
+          : String(first ?? "").localeCompare(String(second ?? ""), "es", { numeric: true });
+      return direction === "attribute-desc" ? -result : result;
+    }
     return 0;
   });
 
@@ -261,12 +391,63 @@ export default function SearchResultsPage({
     });
   };
 
+  const updateAttributeRange = (key: string, range: { min: string; max: string }) => {
+    updateActiveFiltersWith((current) => ({
+      ...current,
+      selectedRanges: { ...current.selectedRanges, [key]: range },
+    }));
+  };
+
   const clearFilters = () => {
     updateActiveFilters({ ...emptyFilters });
+    selectCategory(null);
   };
 
   const renderFilters = () => (
     <div className="space-y-2">
+      <details className="border-b border-slate-200 pb-2">
+        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
+          Categoría <span className="float-right text-slate-500">⌄</span>
+        </summary>
+        <div className="space-y-2 pb-2 pt-1">
+          <button
+            type="button"
+            onClick={() => selectCategory(null)}
+            className={`block text-left text-sm ${
+              selectedCategory === null ? "font-semibold text-prime" : "text-slate-700"
+            }`}
+          >
+            Todas
+          </button>
+          {rootCategories.map((root) => (
+            <div key={root.id} className="space-y-1">
+              <button
+                type="button"
+                onClick={() => selectCategory(root.id)}
+                className={`block text-left text-sm ${
+                  selectedCategory === root.id ? "font-semibold text-prime" : "text-slate-700"
+                }`}
+              >
+                {root.name}
+              </button>
+              {subcategoriesOf(root.id).map((subcategory) => (
+                <button
+                  key={subcategory.id}
+                  type="button"
+                  onClick={() => selectCategory(subcategory.id)}
+                  className={`ml-3 block text-left text-xs ${
+                    selectedCategory === subcategory.id
+                      ? "font-semibold text-prime"
+                      : "text-slate-600"
+                  }`}
+                >
+                  {subcategory.name}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </details>
       <details className="border-b border-slate-200 pb-2" open>
         <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
           Precio <span className="float-right text-slate-500">⌄</span>
@@ -349,24 +530,54 @@ export default function SearchResultsPage({
             {group.specs.map((spec) => (
               <fieldset key={spec.name}>
                 <legend className="mb-1.5 text-xs font-semibold text-slate-600">{spec.name}</legend>
-                <div className="space-y-1.5">
-                  {spec.values.map((value) => (
-                    <label
-                      key={value}
-                      className="flex cursor-pointer items-start gap-2 text-xs text-slate-700"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={
-                          selectedSpecs[spec.name]?.has(normalizeFilterValue(value)) ?? false
-                        }
-                        onChange={() => toggleSpecValue(spec.name, value)}
-                        className="mt-0.5 accent-prime"
-                      />
-                      <span>{value}</span>
-                    </label>
-                  ))}
-                </div>
+                {group.attribute?.dataType === "integer" ||
+                group.attribute?.dataType === "decimal" ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      placeholder={`Mín. ${group.attribute.min ?? ""}`}
+                      value={selectedRanges[spec.name]?.min ?? ""}
+                      onChange={(event) =>
+                        updateAttributeRange(spec.name, {
+                          min: event.target.value,
+                          max: selectedRanges[spec.name]?.max ?? "",
+                        })
+                      }
+                      className="w-1/2 rounded border border-slate-300 p-2 text-xs"
+                    />
+                    <input
+                      type="number"
+                      placeholder={`Máx. ${group.attribute.max ?? ""}`}
+                      value={selectedRanges[spec.name]?.max ?? ""}
+                      onChange={(event) =>
+                        updateAttributeRange(spec.name, {
+                          min: selectedRanges[spec.name]?.min ?? "",
+                          max: event.target.value,
+                        })
+                      }
+                      className="w-1/2 rounded border border-slate-300 p-2 text-xs"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {spec.values.map((value) => (
+                      <label
+                        key={value}
+                        className="flex cursor-pointer items-start gap-2 text-xs text-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={
+                            selectedSpecs[spec.name]?.has(normalizeFilterValue(value)) ?? false
+                          }
+                          onChange={() => toggleSpecValue(spec.name, value)}
+                          className="mt-0.5 accent-prime"
+                        />
+                        <span>{value}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </fieldset>
             ))}
           </div>
@@ -375,9 +586,11 @@ export default function SearchResultsPage({
 
       {(selectedBrands.size > 0 ||
         Object.keys(selectedSpecs).length > 0 ||
+        Object.keys(selectedRanges).length > 0 ||
         priceMin ||
         priceMax ||
-        availableOnly) && (
+        availableOnly ||
+        selectedCategory !== null) && (
         <button
           onClick={clearFilters}
           className="pt-2 text-xs font-semibold text-violet-700 hover:text-violet-900"
@@ -420,12 +633,13 @@ export default function SearchResultsPage({
             label: "Productos",
             onClick: () => navigate({ id: "product-categories" }),
           },
+          ...(selectedCategoryName ? [{ label: selectedCategoryName }] : []),
           ...(category ? [{ label: category }] : []),
           ...(query ? [{ label: `"${query}"` }] : []),
         ]}
       />
 
-      {!category && (
+      {!category && selectedCategory === null && (
         <nav
           aria-label="Tipos de productos"
           role="tablist"
@@ -443,6 +657,7 @@ export default function SearchResultsPage({
                 (count, values) => count + values.size,
                 0,
               ) +
+              Object.keys(groupFilters.selectedRanges).length +
               Number(Boolean(groupFilters.priceMin || groupFilters.priceMax)) +
               Number(groupFilters.availableOnly);
 
@@ -476,7 +691,7 @@ export default function SearchResultsPage({
         </nav>
       )}
 
-      {!category && availableSubtypes.length > 0 && (
+      {!category && selectedCategory === null && availableSubtypes.length > 0 && (
         <nav
           aria-label="Tipos específicos de productos"
           role="tablist"
@@ -494,6 +709,7 @@ export default function SearchResultsPage({
                 (count, values) => count + values.size,
                 0,
               ) +
+              Object.keys(subtypeFilters.selectedRanges).length +
               Number(Boolean(subtypeFilters.priceMin || subtypeFilters.priceMax)) +
               Number(subtypeFilters.availableOnly);
 
@@ -529,6 +745,7 @@ export default function SearchResultsPage({
         <div>
           <h1 className="text-2xl font-bold text-text">
             {category ||
+              selectedCategoryName ||
               (activeSubtype !== "all"
                 ? activeSubtype
                 : activeProductGroup !== "all"
@@ -582,7 +799,19 @@ export default function SearchResultsPage({
             <option value="relevance">Relevancia</option>
             <option value="price-asc">Precio: menor a mayor</option>
             <option value="price-desc">Precio: mayor a menor</option>
+            <option value="brand-asc">Marca: A-Z</option>
+            <option value="brand-desc">Marca: Z-A</option>
             <option value="rating">Mejor valoración</option>
+            {filterableAttributes.map((attribute) => (
+              <optgroup key={attribute.key} label={attribute.label}>
+                <option value={`attribute-asc:${attribute.key}`}>
+                  {attribute.label}: menor a mayor
+                </option>
+                <option value={`attribute-desc:${attribute.key}`}>
+                  {attribute.label}: mayor a menor
+                </option>
+              </optgroup>
+            ))}
           </select>
 
           {/* Compare button */}
@@ -594,8 +823,7 @@ export default function SearchResultsPage({
                   productIds: [...productCompareList],
                 })
               }
-              style={{ background: "#E8001B", color: "#0A0A0A" }}
-              className="px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
+              className="rounded-xl bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-400 px-4 py-2 text-sm font-extrabold text-white shadow-lg shadow-violet-950/40 transition hover:brightness-110"
             >
               Comparar {productCompareList.size} productos
             </button>
@@ -663,6 +891,7 @@ export default function SearchResultsPage({
                     navigate={navigate}
                     isFavorite={favorites.has(p.id)}
                     isComparing={productCompareList.has(p.id)}
+                    cartProductIds={cartProductIds}
                     onAddToCart={onAddToCart}
                     onToggleFavorite={onToggleFavorite}
                     onToggleCompare={onToggleProductCompare}

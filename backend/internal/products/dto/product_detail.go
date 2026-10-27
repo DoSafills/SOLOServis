@@ -1,6 +1,8 @@
 package dto
 
 import (
+	"encoding/json"
+
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 )
 
@@ -9,7 +11,9 @@ type ProductDetail struct {
 	Name              string            `json:"name"`
 	Brand             string            `json:"brand"`
 	Model             string            `json:"model"`
+	CategoryID        int32             `json:"categoryId"`
 	Category          string            `json:"category"`
+	Subcategory       string            `json:"subcategory"`
 	Description       string            `json:"description"`
 	Rating            float64           `json:"rating"`
 	ReviewCount       int64             `json:"reviewCount"`
@@ -18,6 +22,9 @@ type ProductDetail struct {
 	Offers            []ProductOffer    `json:"offers"`
 	PriceHistory      []PricePoint      `json:"priceHistory"`
 	OfferPriceHistory []PricePoint      `json:"offerPriceHistory"`
+	// TAL-70: ver ProductListItem.
+	CategorySlug *string                    `json:"categorySlug"`
+	Attributes   map[string]json.RawMessage `json:"attributes"`
 }
 
 type PricePoint struct {
@@ -70,12 +77,16 @@ func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail 
 		}
 	}
 
+	category, subcategory := splitCategory(product.CategoryName, product.ParentCategoryName)
+
 	return ProductDetail{
 		ID:                product.PublicID.String(),
 		Name:              product.Name,
 		Brand:             brand,
 		Model:             model,
-		Category:          product.CategoryName,
+		CategoryID:        product.CategoryID,
+		Category:          category,
+		Subcategory:       subcategory,
 		Description:       description,
 		Rating:            rating,
 		ReviewCount:       product.ReviewCount,
@@ -84,6 +95,7 @@ func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail 
 		Offers:            []ProductOffer{},
 		PriceHistory:      []PricePoint{},
 		OfferPriceHistory: []PricePoint{},
+		Attributes:        make(map[string]json.RawMessage),
 	}
 }
 

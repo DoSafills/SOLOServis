@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
-import { getProductById } from "../../services/api/api";
-import { Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
+import {
+  getProductById,
+  getProductReviews,
+  type ApiProductReview,
+} from "../../services/api/products";
+import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 import PriceOfferComparison from "./PriceOfferComparison";
 
@@ -12,7 +16,8 @@ interface Props {
   isComparing: boolean;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string, category: string) => void;
-  onAddToCart: (product: Product, offer: StoreOffer) => void;
+  cartProductIds: ReadonlySet<string>;
+  onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
 }
 
 type ProductSpecification = [name: string, value: string];
@@ -84,11 +89,13 @@ export default function ProductDetailPage({
   isComparing,
   onToggleFavorite,
   onToggleCompare,
+  cartProductIds,
   onAddToCart,
 }: Props) {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState(0);
+  const [reviews, setReviews] = useState<ApiProductReview[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +117,15 @@ export default function ProductDetailPage({
           setLoading(false);
         }
       });
+
+    // Si fallan las reseñas, la ficha del producto se muestra igual.
+    getProductReviews(productId)
+      .then((result) => {
+        if (!cancelled) {
+          setReviews(result);
+        }
+      })
+      .catch(console.error);
 
     return () => {
       cancelled = true;
@@ -146,6 +162,19 @@ export default function ProductDetailPage({
             label: product.category,
             onClick: () => navigate({ id: "search-products", query: product.category }),
           },
+          ...(product.subcategory
+            ? [
+                {
+                  label: product.subcategory,
+                  onClick: () =>
+                    navigate({
+                      id: "search-products",
+                      query: "",
+                      categoryId: product.categoryId,
+                    }),
+                },
+              ]
+            : []),
           { label: product.name },
         ]}
       />
@@ -197,7 +226,7 @@ export default function ProductDetailPage({
               <FavoriteButton active={isFavorite} onClick={() => onToggleFavorite(product.id)} />
             </div>
 
-            <h1 className="text-2xl md:text-3xl font-black text-slate-900 leading-tight tracking-[-0.04em]">
+            <h1 className="text-2xl md:text-3xl font-black text-white leading-tight tracking-[-0.04em]">
               {product.name}
             </h1>
 
@@ -262,7 +291,12 @@ export default function ProductDetailPage({
         </div>
       </div>
 
-      <PriceOfferComparison product={product} onAddToCart={onAddToCart} />
+      <PriceOfferComparison
+        product={product}
+        cartProductIds={cartProductIds}
+        onAddToCart={onAddToCart}
+        navigate={navigate}
+      />
 
       <PriceHistory
         history={product.priceHistory}
@@ -306,6 +340,46 @@ export default function ProductDetailPage({
           <p className="mt-4 text-sm text-slate-300">
             No hay especificaciones técnicas informadas.
           </p>
+        )}
+      </section>
+
+      {/* Reviews */}
+      <section
+        style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+        className="rounded-2xl p-6 mt-6"
+      >
+        <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
+          <h2 className="text-lg font-bold text-text">Reseñas y calificaciones</h2>
+          <Rating value={product.rating} count={product.reviewCount} />
+        </div>
+        {reviews.length === 0 ? (
+          <p className="text-sm text-muted">Este producto aún no tiene reseñas.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {reviews.map((review, i) => (
+              <article
+                key={`${review.author}-${review.createdAt}-${i}`}
+                style={{ background: "#1A1A1A" }}
+                className="rounded-xl p-4"
+              >
+                <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                  <div className="flex items-center gap-2">
+                    <Rating value={review.rating} />
+                    {review.authorVerified && <Badge variant="available">Usuario verificado</Badge>}
+                  </div>
+                  <span className="text-xs text-muted">
+                    {review.author}
+                    {review.createdAt &&
+                      ` · ${new Date(review.createdAt).toLocaleDateString("es-CL")}`}
+                  </span>
+                </div>
+                {review.title && (
+                  <h3 className="text-sm font-semibold text-text mb-1">{review.title}</h3>
+                )}
+                {review.content && <p className="text-sm text-muted">{review.content}</p>}
+              </article>
+            ))}
+          </div>
         )}
       </section>
     </div>

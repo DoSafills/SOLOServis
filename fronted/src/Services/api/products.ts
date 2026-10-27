@@ -1,4 +1,5 @@
-﻿import type { Product, PricePoint } from "../../types";
+import type { Product, PricePoint } from "../../types";
+import { API_URLS, getJson } from "./config";
 
 interface ApiImage {
   url: string;
@@ -29,16 +30,38 @@ interface ApiPricePoint {
   price: string;
 }
 
+export interface ApiProductCategory {
+  id: number;
+  /** null en las categorías raíz */
+  parentId: number | null;
+  name: string;
+  description: string;
+}
+
+export interface ApiProductReview {
+  author: string;
+  /** El autor confirmó su email. No indica que haya comprado el producto. */
+  authorVerified: boolean;
+  rating: number;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
 export interface ApiProduct {
   id: string;
   name: string;
   brand: string;
   model: string;
+  categoryId: number;
+  categorySlug?: string | null;
   category: string;
+  subcategory: string;
   description: string;
   rating: number;
   reviewCount: number;
   specs?: Record<string, string>;
+  attributes?: Record<string, string | number | boolean>;
   images?: ApiImage[];
   offers?: ApiOffer[];
   priceHistory?: ApiPricePoint[];
@@ -98,14 +121,17 @@ export const toProduct = (product: ApiProduct): Product => {
     name: product.name,
     brand: product.brand,
     model: product.model,
+    categoryId: product.categoryId,
+    categorySlug: product.categorySlug,
     category: product.category,
-    subcategory: "",
+    subcategory: product.subcategory ?? "",
     image: images[0] ?? "",
     images,
     description: product.description,
     rating: product.rating,
     reviewCount: product.reviewCount,
     specs: product.specs ?? {},
+    attributes: product.attributes ?? {},
     offers,
     priceHistory,
     offerPriceHistory,
@@ -113,3 +139,29 @@ export const toProduct = (product: ApiProduct): Product => {
     tags: [],
   };
 };
+
+/** Filtrar por una categoría incluye los productos de sus subcategorías. */
+export async function getProducts(categoryId?: number): Promise<ApiProduct[]> {
+  const query = categoryId === undefined ? "" : `?category=${categoryId}`;
+  return getJson<ApiProduct[]>(`${API_URLS.products}/products${query}`);
+}
+
+export async function getCategories(): Promise<ApiProductCategory[]> {
+  return getJson<ApiProductCategory[]>(`${API_URLS.products}/product-categories`);
+}
+
+export async function getProductReviews(id: string): Promise<ApiProductReview[]> {
+  return getJson<ApiProductReview[]>(`${API_URLS.products}/products/${id}/reviews`);
+}
+
+export async function getProductById(id: string): Promise<Product | null> {
+  const response = await fetch(`${API_URLS.products}/products/${id}`);
+
+  if (response.status === 404) return null;
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch product: ${response.status}`);
+  }
+
+  return toProduct((await response.json()) as ApiProduct);
+}

@@ -134,7 +134,10 @@ export default function ComparisonDock({ productIds, onClear, onRemove, onNaviga
           )}
 
           {error && (
-            <p role="alert" className="rounded-lg bg-rose-500/10 px-2 py-1.5 text-[11px] text-rose-200">
+            <p
+              role="alert"
+              className="rounded-lg bg-rose-500/10 px-2 py-1.5 text-[11px] text-rose-200"
+            >
               {error}
             </p>
           )}

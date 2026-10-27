@@ -1,0 +1,20 @@
+# One entry per SQL file; order is explicit and independent of locale/glob rules.
+001_schema.sql
+002_views.sql
+003_seed.sql
+004_platform_apis.sql
+004_user_email_verified.sql
+005_demo_catalog.sql
+005_seed_catalogo.sql
+006_demo_catalog_services.sql
+006_refrigeradores.sql
+007_Computacion.sql
+007_service_cart.sql
+008_Telefonia.sql
+008_normalize_prices_to_clp.sql
+009_product_offer_identity_and_timestamps.sql
+010_product_price_history_on_price_change.sql
+011_catalog_history_uniqueness_and_indexes.sql
+012_categories.sql
+013_categories_seed.sql
+014_product_attributes.sql

@@ -1,6 +1,24 @@
 import type { Product } from "../../types";
 
-export const formatPrice = (price: number): string => `$${price.toLocaleString("es-CL")}`;
+const clpFormatter = new Intl.NumberFormat("es-CL", {
+  style: "currency",
+  currency: "CLP",
+  maximumFractionDigits: 0,
+});
+
+export const formatPrice = (price: number): string => clpFormatter.format(price);
+
+export const getBillingPeriodText = (period: string | null | undefined): string => {
+  if (period === "yearly") return "/año";
+  if (period === "one_time") return "pago único";
+  return "/mes";
+};
+
+export const getBillingPeriodName = (period: string | null | undefined): string => {
+  if (period === "yearly") return "anual";
+  if (period === "one_time") return "pago único";
+  return "mensual";
+};
 
 export const getMinPrice = (product: Product): number => {
   const availableOffers = product.offers.filter((offer) => offer.available);

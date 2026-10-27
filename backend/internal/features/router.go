@@ -14,24 +14,10 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	r.Get("/health", h.Health)
 
 	switch name {
-	case "pricing-api":
-		r.Get("/offers/product/{productId}", h.OffersByProduct)
-		r.Get("/offers/{id}/price-history", h.PriceHistory)
-		r.Get("/offers/{id}", h.GetOffer)
-		r.Post("/offers", h.CreateOffer)
-		r.Put("/offers/{id}", h.UpdateOffer)
+	// pricing-api se movió a internal/pricing (TAL-74).
 	case "search-api":
-		r.Get("/search/products", h.SearchProducts)
-		r.Get("/search/categories", h.SearchCategories)
-		r.Get("/search/brands", h.SearchBrands)
-		r.Group(func(r chi.Router) {
-			r.Use(h.requireSession)
-			r.Post("/search/history", h.CreateSearchHistory)
-			r.Get("/search/history", h.GetSearchHistory)
-			r.Post("/search/saved", h.SaveSearch)
-			r.Get("/search/saved", h.GetSavedSearches)
-			r.Delete("/search/saved/{id}", h.DeleteSavedSearch)
-		})
+		// La búsqueda pública se movió a internal/search (TAL-75).
+		registerSearchSessionRoutes(r, h)
 	case "comparison-api":
 		r.Post("/comparisons/products", h.CreateComparison)
 		r.Get("/comparisons/products/{id}", h.GetComparison)
@@ -98,6 +84,23 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 		r.Post("/ingestion/sync", h.SyncIngestion)
 	}
 	return r
+}
+
+// RegisterSearchSessionRoutes monta el historial y las búsquedas guardadas
+// (requieren sesión) en el router de Search API (TAL-75).
+func RegisterSearchSessionRoutes(r chi.Router, db *pgxpool.Pool) {
+	registerSearchSessionRoutes(r, NewHandler("search-api", db))
+}
+
+func registerSearchSessionRoutes(r chi.Router, h *Handler) {
+	r.Group(func(r chi.Router) {
+		r.Use(h.requireSession)
+		r.Post("/search/history", h.CreateSearchHistory)
+		r.Get("/search/history", h.GetSearchHistory)
+		r.Post("/search/saved", h.SaveSearch)
+		r.Get("/search/saved", h.GetSavedSearches)
+		r.Delete("/search/saved/{id}", h.DeleteSavedSearch)
+	})
 }
 
 func cors(frontendURL string) func(http.Handler) http.Handler {

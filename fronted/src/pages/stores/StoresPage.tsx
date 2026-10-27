@@ -1,7 +1,9 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import type { Page, Store, StoreDetail, StoreProduct } from "../../types";
+import { useEffect, useMemo, useState } from "react";
+import type { Page, Product, Store, StoreDetail, StoreOffer, StoreProduct } from "../../types";
 import { getStores, getStoreById } from "../../services/api/api";
 import { Badge, Breadcrumb, Rating } from "../../components/common/ui";
+
+let offerIdCounter = 1000;
 
 interface Props {
   navigate: (page: Page) => void;
@@ -9,6 +11,7 @@ interface Props {
   compareList: Set<string>;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string) => void;
+  onAddToCart: (product: Product, offer: StoreOffer) => void;
   storeId?: string;
 }
 
@@ -52,11 +55,24 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
         items={[{ label: "Inicio", onClick: () => navigate({ id: "home" }) }, { label: "Tiendas" }]}
       />
 
-      <h1 className="text-2xl font-bold text-text mb-2">Tiendas y proveedores</h1>
+      <header className="mb-8">
+        <h1 className="text-2xl font-bold text-text mb-2">Tiendas y proveedores</h1>
 
-      <p className="text-sm text-muted mb-8">
-        Directorio de tiendas comparadas en nuestra plataforma
-      </p>
+        <p className="text-sm text-muted mb-2">
+          Directorio de tiendas comparadas en nuestra plataforma
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="search"
+            placeholder="Buscar tienda o proveedor..."
+            className="w-full sm:w-32 rounded-xl border border-slate-300/50 bg-slate-950/60 px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-prime focus:bg-slate-950/80 transition-colors"
+          />
+          <button className="rounded-xl bg-prime px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-opacity">
+            Agregar tienda
+          </button>
+        </div>
+      </header>
 
       {loading ? (
         <div className="text-center py-20">
@@ -72,17 +88,14 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
             <button
               key={store.id}
               onClick={() => navigate({ id: "store-detail", storeId: store.id })}
-              style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-              className="rounded-2xl p-5 text-left hover:border-prime transition-all duration-200 group"
+              className="rounded-2xl p-5 bg-store-bg text-left hover:border-prime transition-all duration-200 group"
+              style={{
+                background: "rgb(17, 17, 17)",
+                border: "1px solid rgb(42, 42, 42)",
+              }}
             >
               <div className="flex items-center gap-3 mb-4">
-                <div
-                  style={{
-                    background: "rgba(232,0,27,0.12)",
-                    border: "1px solid rgba(232,0,27,0.25)",
-                  }}
-                  className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden"
-                >
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden bg-store-surface/50 border border-store-border/20">
                   {store.logo ? (
                     <img
                       src={store.logo}
@@ -97,9 +110,7 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
                 </div>
 
                 <div>
-                  <div className="text-sm font-bold text-text group-hover:text-prime transition-colors">
-                    {store.name}
-                  </div>
+                  <div className="text-sm font-bold text-prime transition-colors">{store.name}</div>
 
                   <Badge variant={store.reputation === "Excelente" ? "best" : "available"}>
                     {store.reputation}
@@ -135,17 +146,64 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
   );
 }
 
-function StoreProductCard({ product }: { product: StoreProduct }) {
+function StoreProductCard({
+  product,
+  onAddToCart,
+}: {
+  product: StoreProduct;
+  onAddToCart: (product: Product, offer: StoreOffer) => void;
+}) {
+  const mappedProduct: Product = {
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    model: product.model,
+    category: product.category,
+    subcategory: "",
+    image: product.image,
+    images: [],
+    description: product.description,
+    rating: 0,
+    reviewCount: 0,
+    specs: {},
+    attributes: {},
+    offers: [],
+    priceHistory: [],
+    offerPriceHistory: [],
+    tags: [],
+  };
+
+  const mappedOffer: StoreOffer = {
+    offerId: offerIdCounter++,
+    storeId: "",
+    storeName: "",
+    price: product.price,
+    listPrice: product.listPrice,
+    available: product.available,
+    shipping: product.shippingCost,
+    shippingFree: product.shippingFree,
+    stock: product.stock,
+    condition: product.condition,
+    url: product.productUrl,
+  };
+
   return (
     <div
-      style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-      className="rounded-2xl overflow-hidden hover:border-prime transition-colors"
+      className="rounded-2xl overflow-hidden bg-store-bg hover:border-prime transition-colors"
+      style={{
+        background: "rgb(17, 17, 17)",
+        border: "1px solid rgb(42, 42, 42)",
+      }}
     >
       <div className="h-56 bg-surface flex items-center justify-center p-5">
-        {product.image ? (
+        {product.image && product.image.startsWith("http") ? (
+          <img src={product.image} alt={product.name} className="w-full h-full object-contain" />
+        ) : product.image ? (
           <img src={product.image} alt={product.name} className="w-full h-full object-contain" />
         ) : (
-          <div className="text-sm text-muted">Imagen no disponible</div>
+          <div className="flex h-full w-full items-center justify-center text-sm text-muted">
+            Sin imagen
+          </div>
         )}
       </div>
 
@@ -154,7 +212,7 @@ function StoreProductCard({ product }: { product: StoreProduct }) {
           <div>
             <p className="text-xs text-muted mb-1">{product.brand || "Sin marca"}</p>
 
-            <h3 className="text-sm font-semibold text-text leading-5">{product.name}</h3>
+            <h3 className="text-sm font-semibold text-prime leading-5">{product.name}</h3>
           </div>
 
           <Badge variant={product.available ? "available" : "unavailable"}>
@@ -196,12 +254,21 @@ function StoreProductCard({ product }: { product: StoreProduct }) {
             <span className="text-muted-2 font-medium text-right">{product.model || "—"}</span>
           </div>
         </div>
+
+        <button
+          type="button"
+          disabled={!product.available}
+          onClick={() => onAddToCart(mappedProduct, mappedOffer)}
+          className="mt-4 w-full rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none"
+        >
+          Agregar al carrito
+        </button>
       </div>
     </div>
   );
 }
 
-function StoreDetail({ storeId, navigate }: Required<Props>) {
+function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
   const [store, setStore] = useState<StoreDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -283,22 +350,27 @@ function StoreDetail({ storeId, navigate }: Required<Props>) {
       />
 
       <div
+        className="mb-8 flex flex-col overflow-hidden rounded-2xl md:flex-row bg-store-border border border-store-border"
         style={{
-          background:
-            "linear-gradient(#3b3f45, #3b3f45) padding-box, linear-gradient(135deg, #a3a3a3, #f472b6, #60a5fa, #a3a3a3) border-box",
-          border: "1px solid transparent",
+          background: "rgb(17, 17, 17)",
+          border: "1px solid rgb(42, 42, 42)",
         }}
-        className="mb-8 flex flex-col overflow-hidden rounded-2xl md:flex-row"
       >
-        <div className="flex h-48 w-full shrink-0 items-center justify-center overflow-hidden bg-slate-300 p-4 md:h-auto md:min-h-[220px] md:w-64">
-          {store.logo ? (
+        <div className="flex h-48 w-full shrink-0 items-center justify-center overflow-hidden p-6 md:h-auto md:min-h-[220px] md:w-72">
+          {store.logo && store.logo.startsWith("http") ? (
             <img
               src={store.logo}
               alt={`Imagen de ${store.name}`}
-              className="h-full w-full object-contain"
+              className="max-h-full max-w-full object-contain"
+            />
+          ) : store.logo ? (
+            <img
+              src={store.logo}
+              alt={`Imagen de ${store.name}`}
+              className="max-h-full max-w-full object-contain"
             />
           ) : (
-            <span className="text-5xl font-bold text-slate-700">
+            <span className="text-5xl font-bold text-prime">
               {store.name.slice(0, 2).toUpperCase()}
             </span>
           )}
@@ -333,14 +405,14 @@ function StoreDetail({ storeId, navigate }: Required<Props>) {
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-center">
-            <div style={{ background: "#50545A" }} className="rounded-xl px-4 py-3">
+            <div className="rounded-xl px-4 py-3 bg-store-surface-2 border border-store-border">
               <div className="price text-lg font-bold text-white">
                 {store.productCount.toLocaleString("es-CL")}
               </div>
               <div className="text-xs text-slate-200">Productos</div>
             </div>
 
-            <div style={{ background: "#50545A" }} className="rounded-xl px-4 py-3">
+            <div className="rounded-xl px-4 py-3 bg-store-surface-2 border border-store-border">
               <div className="text-lg font-bold text-slate-50">{store.dispatchTime}</div>
               <div className="text-xs text-slate-200">Despacho</div>
             </div>
@@ -369,17 +441,14 @@ function StoreDetail({ storeId, navigate }: Required<Props>) {
       </div>
 
       {filteredProducts.length === 0 ? (
-        <div
-          style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-          className="rounded-2xl p-10 text-center mb-10"
-        >
+        <div className="rounded-2xl p-10 bg-store-border border border-store-border text-store-bg font-medium">
           <p className="text-text font-medium">No se encontraron productos</p>
           <p className="text-sm text-muted mt-1">Prueba con otro nombre de producto.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
           {filteredProducts.map((product) => (
-            <StoreProductCard key={product.id} product={product} />
+            <StoreProductCard key={product.id} product={product} onAddToCart={onAddToCart} />
           ))}
         </div>
       )}
@@ -390,10 +459,9 @@ function StoreDetail({ storeId, navigate }: Required<Props>) {
         {store.locations.map((location) => (
           <div
             key={location.id}
-            style={{ background: "#111111", border: "1px solid #2A2A2A" }}
-            className="rounded-2xl p-5"
+            className="rounded-2xl p-5 bg-store-surface-2 border border-store-border"
           >
-            <div className="text-sm font-semibold text-text">
+            <div className="text-sm font-semibold text-prime">
               {location.address || "Direccion no disponible"}
             </div>
 

@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import type { Product, Page, StoreOffer } from "../../types";
 import { Rating, FavoriteButton } from "../common/ui";
 import { formatPrice, getMinOffer } from "../../services/utils/productUtils";
@@ -7,7 +8,8 @@ interface Props {
   navigate: (page: Page) => void;
   isFavorite: boolean;
   isComparing: boolean;
-  onAddToCart: (product: Product, offer: StoreOffer) => void;
+  cartProductIds: ReadonlySet<string>;
+  onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string, category: string) => void;
 }
@@ -17,15 +19,31 @@ export default function ProductCard({
   navigate,
   isFavorite,
   isComparing,
+  cartProductIds,
   onAddToCart,
   onToggleFavorite,
   onToggleCompare,
 }: Props) {
+  const [adding, setAdding] = useState(false);
+  const addingRef = useRef(false);
   const bestOffer = getMinOffer(product);
+  const isInCart = cartProductIds.has(product.id);
   const discountPercent =
     bestOffer?.listPrice && bestOffer.listPrice > bestOffer.price
       ? Math.round(((bestOffer.listPrice - bestOffer.price) / bestOffer.listPrice) * 100)
       : null;
+
+  const addProductToCart = async () => {
+    if (!bestOffer || isInCart || addingRef.current) return;
+    addingRef.current = true;
+    setAdding(true);
+    try {
+      await onAddToCart(product, bestOffer);
+    } finally {
+      addingRef.current = false;
+      setAdding(false);
+    }
+  };
 
   return (
     <div
@@ -141,11 +159,23 @@ export default function ProductCard({
         <div className="mt-1 flex gap-2">
           <button
             type="button"
-            disabled={!bestOffer}
-            onClick={() => bestOffer && onAddToCart(product, bestOffer)}
-            className="flex-1 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 py-2 text-xs font-bold text-white shadow-md shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none"
+            disabled={!bestOffer && !isInCart}
+            aria-disabled={(!bestOffer && !isInCart) || isInCart || adding}
+            aria-live="polite"
+            onClick={() => void addProductToCart()}
+            className={`flex-1 rounded-lg py-2 text-xs font-bold text-white shadow-md transition ${
+              isInCart
+                ? "bg-emerald-700 text-emerald-100 shadow-emerald-950/30"
+                : adding
+                  ? "bg-emerald-800 text-emerald-100 shadow-emerald-950/30"
+                  : "bg-gradient-to-r from-violet-600 to-fuchsia-500 shadow-violet-950/30 hover:brightness-110"
+            } disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none`}
           >
-            Agregar al carrito
+            {isInCart
+              ? "Agregado en la cesta"
+              : adding
+                ? "Agregando a la cesta..."
+                : "Agregar al carrito"}
           </button>
           <button
             type="button"
