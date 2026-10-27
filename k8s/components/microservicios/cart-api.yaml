@@ -1,14 +1,15 @@
+# cart-api: un Deployment por API (modo microservicios, mismo puerto que docker/compose.yml).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: product-api
+  name: cart-api
   labels:
-    app.kubernetes.io/name: product-api
-    app.kubernetes.io/component: product-api
+    app.kubernetes.io/name: cart-api
+    app.kubernetes.io/component: api
 spec:
   replicas: 1
   revisionHistoryLimit: 3
-  # Sin pod extra durante el rollout: la cuota compartida casi no tiene margen.
+  # Sin pod extra durante el rollout: en UCT la cuota casi no tiene margen.
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -16,12 +17,12 @@ spec:
       maxUnavailable: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: product-api
+      app.kubernetes.io/name: cart-api
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: product-api
-        app.kubernetes.io/component: product-api
+        app.kubernetes.io/name: cart-api
+        app.kubernetes.io/component: api
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -31,16 +32,16 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: product-api
-          image: soloservis/product-api
+        - name: cart-api
+          image: soloservis/cart-api
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8081
+              containerPort: 8090
               protocol: TCP
           env:
             - name: PORT
-              value: "8081"
+              value: "8090"
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}
@@ -56,13 +57,15 @@ spec:
             - name: FRONTEND_URL
               valueFrom:
                 configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}
+            - name: PRODUCT_API_URL
+              value: http://product-api:8081
+            - name: PRICING_API_URL
+              value: http://pricing-api:8085
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-          # Limites bajos: la plataforma tiene una cuota COMPARTIDA entre todos
-          # los estudiantes (students-host-envelope, 20 CPU de limits en total).
           resources:
             requests:
               cpu: 25m
@@ -86,3 +89,20 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 20
             failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cart-api
+  labels:
+    app.kubernetes.io/name: cart-api
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: cart-api
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
+      protocol: TCP

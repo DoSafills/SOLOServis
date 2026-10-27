@@ -1,0 +1,26 @@
+# Modo consolidado: las 14 APIs en un solo Deployment "backend" (cmd/all-apis).
+# Es el modo del clúster UCT: postgres + backend + frontend = 3 pods y 4
+# Services, dentro de la cuota (12 pods, 10 Services, 1 CPU / 1G de requests).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - backend.yaml
+
+# El nginx del frontend envía todas las rutas públicas al backend único.
+patches:
+  - target: {kind: Deployment, name: frontend}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - {name: PRODUCT_UPSTREAM, value: "backend:8080"}
+          - {name: STORE_UPSTREAM, value: "backend:8080"}
+          - {name: SERVICE_UPSTREAM, value: "backend:8080"}
+          - {name: AUTH_UPSTREAM, value: "backend:8080"}
+          - {name: FAVORITES_UPSTREAM, value: "backend:8080"}
+          - {name: CART_UPSTREAM, value: "backend:8080"}
+          - {name: SEARCH_UPSTREAM, value: "backend:8080"}
+          - {name: COMPARISON_UPSTREAM, value: "backend:8080"}
+          - {name: REVIEW_UPSTREAM, value: "backend:8080"}
+          - {name: WATCHLIST_UPSTREAM, value: "backend:8080"}

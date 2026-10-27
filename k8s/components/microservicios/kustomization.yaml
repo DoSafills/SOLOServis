@@ -1,0 +1,22 @@
+# Modo microservicios: un Deployment + Service por API (14), como en
+# docker/compose.yml. Pensado para el Kubernetes local (Docker Desktop):
+# no cabe en la cuota del clúster UCT (12 pods y 10 Services por estudiante).
+# El frontend usa los destinos por defecto de su imagen (product-api:8081, ...).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - product-api.yaml
+  - store-api.yaml
+  - service-api.yaml
+  - user-api.yaml
+  - pricing-api.yaml
+  - search-api.yaml
+  - comparison-api.yaml
+  - auth-api.yaml
+  - favorites-api.yaml
+  - cart-api.yaml
+  - review-api.yaml
+  - watchlist-api.yaml
+  - notification-api.yaml
+  - ingestion-api.yaml
