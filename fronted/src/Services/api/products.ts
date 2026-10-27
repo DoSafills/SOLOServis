@@ -143,7 +143,7 @@ export async function getProducts(categoryId?: number): Promise<ApiProduct[]> {
 }
 
 export async function getCategories(): Promise<ApiProductCategory[]> {
-  return getJson<ApiProductCategory[]>(`${API_URLS.products}/categories`);
+  return getJson<ApiProductCategory[]>(`${API_URLS.products}/product-categories`);
 }
 
 export async function getProductReviews(id: string): Promise<ApiProductReview[]> {

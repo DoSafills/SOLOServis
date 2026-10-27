@@ -15,3 +15,7 @@
 009_product_offer_identity_and_timestamps.sql
 010_product_price_history_on_price_change.sql
 011_catalog_history_uniqueness_and_indexes.sql
+012_categories.sql
+013_categories_seed.sql
+014_product_attributes.sql
+015_ingestion_data_source_store.sql

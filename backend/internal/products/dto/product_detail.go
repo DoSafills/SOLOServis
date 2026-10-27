@@ -1,6 +1,8 @@
 package dto
 
 import (
+	"encoding/json"
+
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 )
 
@@ -20,6 +22,9 @@ type ProductDetail struct {
 	Offers            []ProductOffer    `json:"offers"`
 	PriceHistory      []PricePoint      `json:"priceHistory"`
 	OfferPriceHistory []PricePoint      `json:"offerPriceHistory"`
+	// TAL-70: ver ProductListItem.
+	CategorySlug *string                    `json:"categorySlug"`
+	Attributes   map[string]json.RawMessage `json:"attributes"`
 }
 
 type PricePoint struct {
@@ -90,6 +95,7 @@ func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail 
 		Offers:            []ProductOffer{},
 		PriceHistory:      []PricePoint{},
 		OfferPriceHistory: []PricePoint{},
+		Attributes:        make(map[string]json.RawMessage),
 	}
 }
 
