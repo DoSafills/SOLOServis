@@ -18,12 +18,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Largos máximos de texto (columnas de product).
+// Largos máximos de texto (columnas de product). Exportados para Ingestion API.
 const (
-	maxNameLength        = 255
-	maxModelLength       = 150
-	maxSKULength         = 100
-	maxDescriptionLength = 5000
+	MaxNameLength        = 255
+	MaxModelLength       = 150
+	MaxSKULength         = 100
+	MaxDescriptionLength = 5000
 )
 
 type Handler struct {
@@ -141,10 +141,10 @@ func (h *Handler) validateWrite(w http.ResponseWriter, r *http.Request, f *write
 
 	var v httpx.Validator
 	v.Required("name", f.name)
-	v.MaxLength("name", f.name, maxNameLength)
-	v.MaxLength("model", f.model, maxModelLength)
-	v.MaxLength("sku", f.sku, maxSKULength)
-	v.MaxLength("description", f.description, maxDescriptionLength)
+	v.MaxLength("name", f.name, MaxNameLength)
+	v.MaxLength("model", f.model, MaxModelLength)
+	v.MaxLength("sku", f.sku, MaxSKULength)
+	v.MaxLength("description", f.description, MaxDescriptionLength)
 	v.Check(f.brandID == nil || *f.brandID > 0, "brandId", "min", "brandId debe ser mayor que 0")
 	switch {
 	case f.categorySlug != "" && f.categoryID != nil:

@@ -1332,6 +1332,444 @@ Los nombres de los campos se mantienen. Cart lee `productId` de `GET /offers/{id
 ---
 
 
+# 12.5. Search API: texto, categoría y atributos filtrables (TAL-75)
+
+Search API (`cmd/search-api`, puerto 8086) tiene ahora la búsqueda pública en su propio paquete, `internal/search`, con el estándar TAL-78 (`apphttp.NewSearchRouter`). El historial y las búsquedas guardadas (`/search/history`, `/search/saved`, requieren sesión) siguen en `internal/features` y se montan en el mismo router sin cambios: es lo único que usa hoy el frontend.
+
+Ya no descarga `GET /products` de Product API: consulta la base directamente.
+
+| Método | Ruta | Respuesta |
+| --- | --- | --- |
+| GET | `/search/products` | arreglo de productos + `X-Total-Count` |
+| GET | `/search/facets` | total, rango de precios, marcas y atributos filtrables (para los filtros del frontend, TAL-57) |
+| GET | `/search/categories?q=&itemType=` | categorías del modelo nuevo (`categories`) |
+| GET | `/search/brands?q=` | marcas activas |
+
+## Parámetros de `/search/products` (y de `/search/facets`, sin `sort`/`limit`/`offset`)
+
+| Parámetro | Regla |
+| --- | --- |
+| `q` | hasta 5 palabras y 200 caracteres; **cada palabra** debe aparecer en nombre, modelo, SKU o marca. Sin distinguir tildes ni mayúsculas (`translate`, sin extensiones). `%` y `_` son literales. |
+| `category` | slug de `categories` **o** id de `product_category` (incluye subcategorías) |
+| `brand` | ids de marca separados por coma (hasta 20) |
+| `minPrice` / `maxPrice` | sobre el **mejor precio total** (precio + envío) de las ofertas disponibles en tiendas activas; hasta 2 decimales; `minPrice` ≤ `maxPrice` |
+| `available` | `true`: solo productos con al menos una oferta disponible |
+| `attr.<key>=valor` | igualdad: `integer`/`decimal` numérica, `boolean` `true`/`false`, `enum` dentro de `allowedValues`, `string` sin distinguir mayúsculas |
+| `attr.<key>.min` / `.max` | rango, solo atributos numéricos (usa `value_numeric` de TAL-70) |
+| `sort` | `name` (por defecto, con la collation de la BD), `price_asc`, `price_desc` (sin precio al final), `newest` |
+| `limit` / `offset` | 1–100 (por defecto 20) / ≥ 0 |
+
+Los filtros `attr.*` exigen `category` con slug (los atributos son de la categoría) y solo aceptan atributos **`filterable`** (TAL-71). Todos los filtros se combinan con Y.
+
+La consulta es una sola sentencia estática y parametrizada: palabras, marcas y filtros de atributos viajan como arreglos (`unnest`), sin concatenar entrada del usuario. Una búsqueda usa 3 consultas fijas (conteo, página, atributos); las facetas, 4.
+
+## Ejemplos (respuestas reales)
+
+```http
+GET /search/products?q=refrigerador&category=refrigeradores&attr.capacidad_litros.min=500&attr.no_frost=true&sort=price_asc&limit=2
+X-Total-Count: 2
+```
+
+```json
+[
+  {
+    "id": "e666b310-fc3c-4bbb-b93b-fcc7696c3233",
+    "name": "Refrigerador Midea Side by Side No Frost 555 L",
+    "brand": "Midea",
+    "model": "MDRS710FGE50IN",
+    "category": "Refrigeracion",
+    "categorySlug": "refrigeradores",
+    "imageUrl": "https://rimage.ripley.cl/home.ripley/Attachment/WOP/1/2000406824253/full_image-2000406824253",
+    "bestPrice": "332991.00",
+    "offerCount": 3,
+    "attributes": { "capacidad_litros": 555, "eficiencia_energetica": "A+", "no_frost": true }
+  },
+  {
+    "id": "098d4ed6-ac0e-4bcd-bd8e-b885cc348c9b",
+    "name": "Refrigerador LG French Door 530 L",
+    "brand": "LG",
+    "model": "GM53",
+    "category": "Refrigeracion",
+    "categorySlug": "refrigeradores",
+    "imageUrl": "https://placehold.co/640x640?text=DEMO-LG-FRIDGE-530",
+    "bestPrice": "899990.00",
+    "offerCount": 2,
+    "attributes": { "capacidad_litros": 530, "eficiencia_energetica": "A++", "no_frost": true }
+  }
+]
+```
+
+`bestPrice` es `null` si el producto no tiene ofertas disponibles; `offerCount` cuenta ofertas disponibles.
+
+```http
+GET /search/facets?category=refrigeradores
+```
+
+```json
+{
+  "total": 5,
+  "price": { "min": "332991.00", "max": "1458980.00" },
+  "brands": [
+    { "id": 2, "name": "LG", "count": 2 },
+    { "id": 10, "name": "Midea", "count": 2 },
+    { "id": 1, "name": "Samsung", "count": 1 }
+  ],
+  "attributes": [
+    { "key": "capacidad_litros", "label": "Capacidad", "dataType": "integer", "unit": "L", "min": 400, "max": 555 },
+    { "key": "eficiencia_energetica", "label": "Eficiencia energética", "dataType": "enum", "unit": null,
+      "values": [{ "value": "A+", "count": 2 }, { "value": "A++", "count": 1 }] },
+    { "key": "no_frost", "label": "No Frost", "dataType": "boolean", "unit": null,
+      "values": [{ "value": true, "count": 3 }] }
+  ]
+}
+```
+
+Las facetas aplican los mismos filtros que la búsqueda; solo incluyen atributos `filterable`. Los productos existentes no tienen atributos hasta que se editan (TAL-70 no migró las especificaciones antiguas): en el ejemplo, 3 de los 5 refrigeradores.
+
+```http
+GET /search/categories?q=OPTICA
+```
+
+```json
+[{ "slug": "internet-fibra-optica", "name": "Internet Fibra Óptica", "itemType": "service" }]
+```
+
+## Errores
+
+| Caso | Status | `code` / `errors[]` |
+| --- | --- | --- |
+| `q`, `category`, `brand`, precios, `available`, `sort`, `limit`, `offset` inválidos | 400 | `invalid_parameter` / `max_length`, `max`, `format`, `min`, `one_of`, `invalid_type` |
+| `attr.*` sin `category` con slug | 400 | `category` `required` |
+| Categoría inexistente | 400 | `category` `not_found` |
+| Atributo desconocido / no filtrable | 400 | `attr.<key>` `unknown_field` / `not_filterable` |
+| Valor que no cumple el tipo o el enum | 400 | `attr.<key>` `invalid_type` / `one_of` |
+| Error de base de datos | 500 | `internal_error` |
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Los parámetros de la consulta no son válidos.",
+  "instance": "/search/products",
+  "code": "invalid_parameter",
+  "request_id": "ejemplo-tal75",
+  "errors": [
+    { "field": "attr.eficiencia_energetica", "code": "one_of", "message": "attr.eficiencia_energetica debe ser uno de: A+++, A++, A+, A, B, C, D" },
+    { "field": "attr.no_existe", "code": "unknown_field", "message": "attr.no_existe no es un atributo de la categoría" },
+    { "field": "attr.peso_kg", "code": "not_filterable", "message": "attr.peso_kg no es filtrable" }
+  ]
+}
+```
+
+## Índices
+
+No se agregó un índice trigram: con el catálogo actual (38 productos) PostgreSQL recorre la tabla de todos modos, el texto combina columnas de `product` y `brand` (un índice sobre `product` no lo cubriría) y `pg_trgm`/`unaccent` exigen extensiones con privilegios en k8s. Revisar cuando el catálogo crezca (miles de productos): columna generada normalizada en `product` + índice GIN trigram.
+
+## Tests
+
+- Unitarios sin BD: `internal/search/handler_test.go`, `internal/http/router_test.go`.
+- Integración con `TEST_DATABASE_URL`: `internal/search/integration_test.go` (texto sin tildes y con comodines literales, marca, precio total, disponibilidad, filtros por atributo, orden, paginación, facetas, categorías y marcas).
+
+---
+
+
+# 12.6. Comparison API: alternativas de una misma categoría (TAL-76)
+
+Comparison API (`cmd/comparison-api`, puerto 8087) tiene la comparación de **productos** en su propio paquete, `internal/comparison`, con el estándar TAL-78 (`apphttp.NewComparisonRouter`). Las comparaciones de **servicios** (`/comparisons/services`) siguen en `internal/features` sin cambios y se montan en el mismo router.
+
+Ya no llama a Product API ni a Pricing API: el mejor precio se calcula en SQL con el mismo criterio que Pricing y Search (precio + envío, ofertas disponibles en tiendas activas).
+
+| Método | Ruta | Acceso | Respuesta |
+| --- | --- | --- | --- |
+| GET | `/comparisons/products/compare?ids=a,b,c` | pública | matriz de comparación (2 a 5 productos, sin guardar) |
+| GET | `/comparisons/compatible/{productId}?limit=&offset=` | pública | alternativas de la misma categoría + `X-Total-Count` |
+| POST | `/comparisons/products` | sesión | 201 + `Location` con la comparación guardada |
+| GET | `/comparisons/products?limit=&offset=` | sesión | mis comparaciones + `X-Total-Count` |
+| GET | `/comparisons/products/{id}` | sesión (dueño) | comparación guardada con su matriz |
+| PUT | `/comparisons/products/{id}` | sesión (dueño) | renombrar: `{"name": "..."}` |
+| DELETE | `/comparisons/products/{id}` | sesión (dueño) | 204 |
+| POST | `/comparisons/products/{id}/items` | sesión (dueño) | agregar `{"productId": "..."}` → 201 con la comparación |
+| DELETE | `/comparisons/products/{id}/items/{productId}` | sesión (dueño) | 204 |
+
+## Propiedad (corrige S3 de TAL-69)
+
+- El usuario sale del **token de sesión** de Auth API (`Authorization: Bearer <token>`, `authz.RequireSession`), nunca del body: enviar `userId` responde 400 `unknown_field`.
+- Las consultas filtran por `user_id`: una comparación de otro usuario responde **404**, igual que una inexistente, para no revelar que existe.
+- Sin token o con un token vencido: 401 `unauthorized`.
+
+## Reglas
+
+- Todos los productos deben ser de la **misma categoría** (`product.category_id`; equivale a la misma `category_ref`, porque el enlace con la categoría anterior es único).
+- Entre 2 y 5 productos en `/compare`; entre 1 y 5 en una comparación guardada. Sin repetidos.
+- Solo productos activos; un producto dado de baja deja de aparecer en las comparaciones guardadas.
+- El nombre es opcional al crear (por defecto "Comparación de productos"), máximo 150 caracteres.
+
+## La matriz
+
+- `products`: columnas en el orden pedido, con `bestPrice` (precio total), `bestStore` y `offerCount`.
+- `attributes`: atributos **`comparable`** de la categoría (TAL-71), en `displayOrder`, con valores tipados alineados con `products` (`null` si el producto no lo tiene).
+- `specifications`: especificaciones anteriores comparables (`product_category_specification`), como texto. Se incluyen porque los productos existentes todavía no tienen atributos (TAL-70 no los migró).
+- Solo aparecen filas con al menos un valor. `differs` indica si los valores difieren (un `null` cuenta como distinto), para mostrar "solo diferencias".
+- No se marca un "ganador" por atributo: no siempre más (o menos) es mejor. El precio menor sí se informa por producto.
+
+```http
+GET /comparisons/products/compare?ids=c5b9f86a-703b-4569-9902-0ccadfcdab60,bb0aa9e9-1ca2-4aff-bd18-f8fc01666b7c
+```
+
+```json
+{
+  "category": { "slug": "refrigeradores", "name": "Refrigeradores" },
+  "products": [
+    { "id": "c5b9f86a-703b-4569-9902-0ccadfcdab60", "name": "Refrigerador Midea Side by Side No Frost 555 L",
+      "brand": "Midea", "model": "MDRS710FGE50IN",
+      "imageUrl": "https://rimage.ripley.cl/home.ripley/Attachment/WOP/1/2000406824253/full_image-2000406824253",
+      "bestPrice": "332991.00", "bestStore": "Ripley", "offerCount": 3 },
+    { "id": "bb0aa9e9-1ca2-4aff-bd18-f8fc01666b7c", "name": "Refrigerador LG French Door 530 L",
+      "brand": "LG", "model": "GM53", "imageUrl": "https://placehold.co/640x640?text=DEMO-LG-FRIDGE-530",
+      "bestPrice": "899990.00", "bestStore": "Paris", "offerCount": 2 }
+  ],
+  "attributes": [
+    { "key": "capacidad_litros", "label": "Capacidad", "dataType": "integer", "unit": "L", "values": [555, 530], "differs": true },
+    { "key": "eficiencia_energetica", "label": "Eficiencia energética", "dataType": "enum", "unit": null, "values": ["D", "A+"], "differs": true },
+    { "key": "no_frost", "label": "No Frost", "dataType": "boolean", "unit": null, "values": [true, true], "differs": false }
+  ],
+  "specifications": [
+    { "name": "Capacidad", "unit": "L", "values": ["555", "530"], "differs": true },
+    { "name": "Eficiencia energetica", "unit": null, "values": ["D", "A+"], "differs": true }
+  ]
+}
+```
+
+Una comparación guardada (`POST`, `GET`, `PUT`, `POST …/items`) agrega `id`, `name`, `createdAt` y `updatedAt` a la misma matriz:
+
+```http
+POST /comparisons/products
+Authorization: Bearer <token>
+
+{"name": "Refris grandes", "productIds": ["c5b9f86a-703b-4569-9902-0ccadfcdab60"]}
+```
+
+```http
+HTTP/1.1 201 Created
+Location: /comparisons/products/6
+```
+
+```json
+{ "id": 6, "name": "Refris grandes", "createdAt": "2026-10-26T14:31:40.399096Z", "updatedAt": "2026-10-26T14:31:40.399096Z",
+  "category": { "slug": "refrigeradores", "name": "Refrigeradores" }, "products": [ … ], "attributes": [ … ], "specifications": [ … ] }
+```
+
+`GET /comparisons/products` (`X-Total-Count: 2`):
+
+```json
+[
+  { "id": 6, "name": "Refris grandes", "category": "Refrigeradores", "productCount": 1, "updatedAt": "2026-10-26T14:31:40.399096Z" },
+  { "id": 1, "name": "Comparando refrigeradores para depto nuevo", "category": "Refrigeradores", "productCount": 2, "updatedAt": "2026-10-26T14:29:46.992865Z" }
+]
+```
+
+## Errores
+
+| Caso | Status | `code` / `errors[]` |
+| --- | --- | --- |
+| `ids` ausente, < 2, > 5, no UUID, repetido | 400 | `invalid_parameter` / `ids` `required`, `min`, `max`, `format`, `unique` |
+| `ids` de distintas categorías | 400 | `invalid_parameter` / `ids` `incompatible_category` |
+| Producto inexistente en `ids` o `{productId}` | 404 | `not_found` |
+| `{id}`, `{productId}`, `limit`, `offset` inválidos | 400 | `invalid_parameter` |
+| Sin sesión | 401 | `unauthorized` |
+| Body con campos desconocidos (p. ej. `userId`) | 400 | `unknown_field` |
+| `productIds` vacío, > 5, repetido, inexistente o de otra categoría | 422 | `productIds` `min`, `max`, `unique`, `not_found`, `incompatible_category` |
+| `name` vacío (PUT) o > 150 | 422 | `name` `required` / `max_length` |
+| Agregar de otra categoría / con 5 productos | 422 | `productId` `incompatible_category` / `max` |
+| Agregar un producto que ya está | 409 | `conflict` |
+| Comparación inexistente o de otro usuario | 404 | `not_found` |
+| Error de base de datos | 500 | `internal_error` |
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Los productos deben ser de la misma categoría.",
+  "instance": "/comparisons/products/compare",
+  "code": "invalid_parameter",
+  "request_id": "ejemplo-tal76",
+  "errors": [
+    { "field": "ids", "code": "incompatible_category", "message": "ids debe contener productos de la misma categoría" }
+  ]
+}
+```
+
+## Compatibilidad
+
+El contrato cambió respecto del anterior (sin `userId` en el body, respuestas con matriz, errores del estándar). No hay consumidores: el frontend define las llamadas en `personalization.ts` pero no las usa (la comparación se arma en el cliente con `product.specs`); conectarlo corresponde a TAL-56.
+
+## Tests
+
+- Unitarios sin BD: `internal/comparison/handler_test.go` (con `authz.RequireSession` real y sesiones falsas), `internal/authz/authz_test.go`, `internal/http/router_test.go`.
+- Integración con `TEST_DATABASE_URL`: `internal/comparison/integration_test.go` (matriz, compatibles, límites, propiedad entre usuarios) e `internal/http/router_integration_test.go` (sesiones reales: otro usuario recibe 404).
+
+## Pendiente
+
+- Las comparaciones de servicios (`/comparisons/services`) siguen sin propiedad por usuario (mismo S3); quedan en `features`.
+
+---
+
+
+# 12.7. Ingestion API: datos normalizados del scraper (TAL-77)
+
+Ingestion API (`cmd/ingestion-api`, puerto 8094) tiene su propio paquete, `internal/ingestion`, con el estándar TAL-78 (`apphttp.NewIngestionRouter`). Recibe del scraper productos y ofertas **ya normalizados**, los incorpora con las mismas reglas que Product API (TAL-70/72) y Pricing API (TAL-74), y registra cada ejecución.
+
+- Procesa **dentro del mismo proceso** con los repositorios de Product y Pricing (misma base): sin saltos HTTP ni 502 por servicios caídos.
+- Registra las ejecuciones en las tablas de `001_schema.sql` que el scraper (PR #25) ya refleja: `data_source`, `scraper_config`, `scrape_run`, `scraped_data`. La migración `015_ingestion_data_source_store.sql` agrega `data_source.store_id` (una fuente de tipo tienda sabe a qué `store` pertenecen sus ofertas).
+- **Todas las rutas** exigen `Authorization: Bearer <INTERNAL_API_TOKEN>` (el scraper) o una sesión admin (`authz.RequireAdmin`).
+- Reemplaza a `POST /ingestion/products`, `/ingestion/offers` y `/ingestion/sync` (sin consumidores). La tabla `ingestion_run` queda sin uso.
+
+| Método | Ruta | Respuesta |
+| --- | --- | --- |
+| POST | `/ingestion/runs` | 201 + `Location`: abre una ejecución (`running`) |
+| POST | `/ingestion/runs/{id}/items` | 200: resultado por ítem (aunque algunos fallen) |
+| POST | `/ingestion/runs/{id}/finish` | 200: cierra la ejecución (`success` o `failed`) |
+| GET | `/ingestion/runs?limit=&offset=` | ejecuciones, la más reciente primero + `X-Total-Count` |
+| GET | `/ingestion/runs/{id}` | ejecución con sus contadores |
+
+## Contrato para el scraper (TAL-79 / TAL-90)
+
+### 1. Abrir una ejecución
+
+```http
+POST /ingestion/runs
+Authorization: Bearer <INTERNAL_API_TOKEN>
+
+{"source": {"name": "Ripley scraper", "baseUrl": "https://simple.ripley.cl"}, "storeId": 4, "scraperType": "scrapling"}
+```
+
+- `source.name` (obligatorio, ≤ 150) identifica la fuente; si no existe se crea, enlazada a `storeId`. Si ya existe enlazada a **otra** tienda → 409.
+- `storeId` (obligatorio): tienda activa a la que pertenecen las ofertas de toda la ejecución.
+- `scraperType` (≤ 50, por defecto `http`): reutiliza o crea la `scraper_config` de esa fuente.
+
+```json
+{ "id": 7, "source": "Ripley scraper", "sourceUrl": "https://simple.ripley.cl", "storeId": 4, "scraperType": "scrapling",
+  "status": "running", "startedAt": "2026-10-26T15:24:55.977948Z", "finishedAt": null,
+  "recordsFound": 0, "recordsProcessed": 0, "recordsFailed": 0, "errorMessage": null }
+```
+
+### 2. Enviar lotes (1 a 100 ítems)
+
+```http
+POST /ingestion/runs/7/items
+```
+
+```json
+{ "items": [
+  { "externalId": "rip-2000406824253",
+    "product": { "sku": "MDRT489-RIP", "name": "Refrigerador Midea No Frost 400 L", "brand": "Midea", "model": "MDRT489",
+                 "categorySlug": "refrigeradores", "imageUrl": "https://rimage.ripley.cl/midea-400.jpg",
+                 "attributes": { "capacidad_litros": 400, "eficiencia_energetica": "A+", "no_frost": true } },
+    "offer": { "price": 379990, "listPrice": 429990, "shippingFree": true, "available": true,
+               "productUrl": "https://simple.ripley.cl/refrigerador-midea-400" } }
+] }
+```
+
+| Campo | Regla |
+| --- | --- |
+| `externalId` | opcional, ≤ 255; se devuelve en el resultado y se guarda en `scraped_data` |
+| `product.name` | obligatorio (≤ 255) |
+| `product.sku` / `brand` / `model` | identifican el producto (ver abajo); ≤ 100 / 150 / 150 |
+| `product.categorySlug` | obligatorio **solo si el producto es nuevo**; categoría de productos (TAL-71) |
+| `product.attributes` | se validan contra la categoría como en Product API (TAL-72): tipos, obligatorios, rangos, enum |
+| `product.description` / `imageUrl` | opcionales (≤ 5000 / URL http(s)) |
+| `offer` | mismas reglas que `POST /offers` de Pricing (TAL-74): `price` obligatorio, montos con 2 decimales, `condition`, `stock`, `productUrl`… |
+
+### Cómo se procesa cada ítem
+
+1. Se valida; los errores salen con el campo prefijado (`product.…`, `offer.…`).
+2. **Producto existente:** se busca por `sku`; si no hay o no coincide, por **marca + modelo** (sin distinguir mayúsculas). Así el SKU propio de una tienda no duplica un producto ya catalogado. Si existe, **no se modifica** (el catálogo lo cura el admin): solo se registra la oferta. Si está dado de baja, el ítem falla.
+3. **Producto nuevo:** se crea con categoría y atributos validados; la marca se busca por nombre (sin mayúsculas) o se crea.
+4. **Oferta:** upsert de Pricing en la tienda de la ejecución (producto + tienda + URL normalizada). El historial lo escribe el trigger de la migración 010 solo si el precio cambió, y una bajada **avisa** a los usuarios con precio objetivo (Notification API, `NOTIFICATION_API_URL`).
+5. El ítem se guarda tal como llegó en `scraped_data` (JSON normalizado), para auditoría o reproceso.
+
+Un ítem inválido **no detiene el lote**. Un error inesperado de base de datos marca el ítem como `failed` con `code: internal_error` (el detalle solo va al log).
+
+Respuesta real (`200`):
+
+```json
+{
+  "runId": 3, "received": 4, "processed": 2, "failed": 2,
+  "results": [
+    { "index": 0, "externalId": "rip-2000406824253", "status": "updated",
+      "productId": "e069888d-615c-488d-8ae1-7c7200f75724", "offerId": 79 },
+    { "index": 1, "externalId": "rip-lg-gm53", "status": "updated",
+      "productId": "71296be4-e4f8-4954-ad91-9ea23cc08564", "offerId": 80 },
+    { "index": 2, "externalId": "rip-sin-capacidad", "status": "failed",
+      "errors": [ { "field": "product.attributes.capacidad_litros", "code": "required",
+                    "message": "product.attributes.capacidad_litros es obligatorio" } ] },
+    { "index": 3, "externalId": "rip-precio-malo", "status": "failed",
+      "errors": [ { "field": "offer.price", "code": "min", "message": "offer.price debe ser mayor o igual a 0" },
+                  { "field": "offer.condition", "code": "one_of", "message": "offer.condition debe ser new, used o refurbished" } ] }
+  ]
+}
+```
+
+`status`: `created` (producto nuevo + oferta), `updated` (producto existente, oferta registrada) o `failed`. En el ejemplo, el primer ítem trae un SKU propio de Ripley, pero el producto ya existía (Midea `MDRT489`): se asoció a ese producto en vez de duplicarlo.
+
+### 3. Cerrar la ejecución
+
+```http
+POST /ingestion/runs/7/finish
+
+{"status": "success"}
+```
+
+```json
+{ "id": 3, "source": "Ripley scraper", "sourceUrl": "https://simple.ripley.cl", "storeId": 4, "scraperType": "scrapling",
+  "status": "success", "startedAt": "2026-10-26T15:27:34.849284Z", "finishedAt": "2026-10-26T15:27:37.311679Z",
+  "recordsFound": 4, "recordsProcessed": 2, "recordsFailed": 2, "errorMessage": null }
+```
+
+`status`: `success` o `failed` (con `errorMessage` opcional, ≤ 2000). Una ejecución cerrada no acepta más ítems ni se cierra dos veces (409).
+
+## Errores
+
+| Caso | Status | `code` / `errors[]` |
+| --- | --- | --- |
+| Sin token / sin rol admin | 401 / 403 | `unauthorized` / `forbidden` |
+| JSON malformado, campo desconocido, tipo incorrecto | 400 | `malformed_json`, `unknown_field`, `invalid_type` |
+| `{id}`, `limit`, `offset` inválidos | 400 | `invalid_parameter` |
+| Abrir: `source.name`, `source.baseUrl`, `storeId`, `scraperType` inválidos | 422 | `required`, `format`, `min`, `max_length` |
+| Abrir: tienda inexistente | 422 | `storeId` `not_found` |
+| Abrir: fuente de otra tienda o desactivada | 409 | `conflict` |
+| Lote vacío o > 100 ítems | 422 | `items` `min` / `max` |
+| Ejecución inexistente | 404 | `not_found` |
+| Ejecución cerrada o fuente sin tienda | 409 | `conflict` |
+| Cerrar: `status` distinto de `success`/`failed` | 422 | `status` `one_of` |
+| Error de base de datos (fuera de los ítems) | 500 | `internal_error` |
+
+```json
+{
+  "type": "about:blank", "title": "Conflict", "status": 409,
+  "detail": "La ejecución ya está cerrada.", "instance": "/ingestion/runs/7/items",
+  "code": "conflict", "request_id": "ejemplo-tal77"
+}
+```
+
+## Configuración
+
+`docker/compose.yml` (`ingestion-api`): `DATABASE_URL`, `INTERNAL_API_TOKEN` y `NOTIFICATION_API_URL`. Ya no usa `PRODUCT_API_URL`, `STORE_API_URL` ni `PRICING_API_URL`.
+
+## Tests
+
+- Unitarios sin BD: `internal/ingestion/handler_test.go` (lotes mixtos, deduplicación, errores por ítem sin filtrar detalles, avisos), `internal/http/router_test.go` (rutas y 401).
+- Integración con `TEST_DATABASE_URL`: `internal/ingestion/integration_test.go` (flujo completo con los repositorios reales: producto nuevo con marca nueva, deduplicación contra el seed, bajada de precio con historial y aviso, contadores, `scraped_data`, cierre y reapertura). Reemplaza a los tests de caracterización de la Ingestion anterior en `internal/features`.
+
+## Pendiente
+
+- Adaptar el scraper (PR #25) a este contrato: hoy guarda en SQLite local; corresponde a TAL-86/88.
+
+---
+
+
 # 13. Handlers
 
 Los handlers se encuentran en:

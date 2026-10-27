@@ -38,7 +38,10 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 		{"store id inválido", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/abc", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"store offers sin product", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/offers", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"store escritura no existe", NewStoreRouter(nil, frontendURL), http.MethodPost, "/stores", `{}`, "application/json", 405, "", ""},
+		{"search parámetro inválido", NewSearchRouter(nil, frontendURL), http.MethodGet, "/search/products?limit=0", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"pricing id inválido", NewPricingRouter(nil, frontendURL), http.MethodGet, "/offers/abc", "", "", 400, "", httpx.CodeInvalidParameter},
+		{"ingestion sin token", NewIngestionRouter(nil, frontendURL), http.MethodPost, "/ingestion/runs", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
+		{"ingestion lectura sin token", NewIngestionRouter(nil, frontendURL), http.MethodGet, "/ingestion/runs", "", "", 401, "", httpx.CodeUnauthorized},
 		{"pricing POST sin token", NewPricingRouter(nil, frontendURL), http.MethodPost, "/offers", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
 		{"pricing PUT sin token", NewPricingRouter(nil, frontendURL), http.MethodPut, "/offers/1", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
 	}
@@ -206,6 +209,111 @@ func TestPricingRouter_RutasRegistradas(t *testing.T) {
 		return nil
 	}
 	if err := chi.Walk(NewPricingRouter(nil, "http://localhost:5173"), walk); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range want {
+		if !got[route] {
+			t.Errorf("falta la ruta %s", route)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
+	}
+}
+
+// Search API (TAL-75): búsqueda pública propia + historial y búsquedas
+// guardadas (con sesión) que siguen en features.
+func TestSearchRouter_RutasRegistradas(t *testing.T) {
+	want := []string{
+		"GET /health",
+		"GET /search/products",
+		"GET /search/facets",
+		"GET /search/categories",
+		"GET /search/brands",
+		"POST /search/history",
+		"GET /search/history",
+		"POST /search/saved",
+		"GET /search/saved",
+		"DELETE /search/saved/{id}",
+	}
+
+	got := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		got[method+" "+route] = true
+		return nil
+	}
+	if err := chi.Walk(NewSearchRouter(nil, "http://localhost:5173"), walk); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range want {
+		if !got[route] {
+			t.Errorf("falta la ruta %s", route)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
+	}
+}
+
+// Comparison API (TAL-76): comparación pública, guardadas con sesión y las de
+// servicios que siguen en features.
+func TestComparisonRouter_RutasRegistradas(t *testing.T) {
+	want := []string{
+		"GET /health",
+		"GET /comparisons/products/compare",
+		"GET /comparisons/compatible/{productId}",
+		"POST /comparisons/products",
+		"GET /comparisons/products",
+		"GET /comparisons/products/{id}",
+		"PUT /comparisons/products/{id}",
+		"DELETE /comparisons/products/{id}",
+		"POST /comparisons/products/{id}/items",
+		"DELETE /comparisons/products/{id}/items/{productId}",
+		"POST /comparisons/services",
+		"GET /comparisons/services/{id}",
+		"DELETE /comparisons/services/{id}",
+		"POST /comparisons/services/{id}/items",
+		"DELETE /comparisons/services/{id}/items/{serviceId}",
+	}
+
+	got := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		got[method+" "+route] = true
+		return nil
+	}
+	if err := chi.Walk(NewComparisonRouter(nil, "http://localhost:5173"), walk); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range want {
+		if !got[route] {
+			t.Errorf("falta la ruta %s", route)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
+	}
+}
+
+// Ingestion API (TAL-77): todas las rutas exigen admin o INTERNAL_API_TOKEN.
+func TestIngestionRouter_RutasRegistradas(t *testing.T) {
+	want := []string{
+		"GET /health",
+		"POST /ingestion/runs",
+		"GET /ingestion/runs",
+		"GET /ingestion/runs/{id}",
+		"POST /ingestion/runs/{id}/items",
+		"POST /ingestion/runs/{id}/finish",
+	}
+
+	got := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		got[method+" "+route] = true
+		return nil
+	}
+	if err := chi.Walk(NewIngestionRouter(nil, "http://localhost:5173"), walk); err != nil {
 		t.Fatal(err)
 	}
 
