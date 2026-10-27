@@ -13,8 +13,13 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
+	"github.com/DoSafills/SOLOServis/backend/internal/comparison"
+	"github.com/DoSafills/SOLOServis/backend/internal/features"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
+	"github.com/DoSafills/SOLOServis/backend/internal/ingestion"
+	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
+	"github.com/DoSafills/SOLOServis/backend/internal/search"
 	"github.com/DoSafills/SOLOServis/backend/internal/services"
 	"github.com/DoSafills/SOLOServis/backend/internal/stores"
 	"github.com/go-chi/chi/v5"
@@ -61,6 +66,31 @@ func NewStoreRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 
 func NewUserRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	return newRouter(db, frontendURL, registerUserRoutes)
+}
+
+// NewPricingRouter es el router de Pricing API (TAL-74); cmd/pricing-api lo usa.
+func NewPricingRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	return newRouter(db, frontendURL, registerPricingRoutes)
+}
+
+// NewSearchRouter es el router de Search API (TAL-75); cmd/search-api lo usa.
+func NewSearchRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	return newRouter(db, frontendURL, registerSearchRoutes)
+}
+
+// NewComparisonRouter es el router de Comparison API (TAL-76); cmd/comparison-api lo usa.
+func NewComparisonRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	return newRouter(db, frontendURL, registerComparisonRoutes)
+}
+
+// NewIngestionRouter es el router de Ingestion API (TAL-77); cmd/ingestion-api lo usa.
+func NewIngestionRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	return newRouter(db, frontendURL, registerIngestionRoutes)
+}
+
+// adminOnly protege escrituras: sesión con rol admin o INTERNAL_API_TOKEN (TAL-70).
+func adminOnly(db *pgxpool.Pool, logger *slog.Logger) func(http.Handler) http.Handler {
+	return authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
 }
 
 func newRouter(db *pgxpool.Pool, frontendURL string, registrars ...routeRegistrar) *chi.Mux {
@@ -114,7 +144,7 @@ func registerHealth(r chi.Router, db *pgxpool.Pool) {
 func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	handler := products.NewHandler(products.NewRepository(db), logger)
 	// Escrituras (TAL-70): solo admin o servicios internos con INTERNAL_API_TOKEN.
-	admin := authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
+	admin := adminOnly(db, logger)
 
 	// Árbol de product_category (modelo anterior). Transitorio: el frontend
 	// debe migrar a /categories (TAL-51) y luego se elimina.
@@ -140,6 +170,70 @@ func registerStoreRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	r.Get("/stores/offers", handler.ListProductOffers)
 	r.Get("/stores/{id}", handler.GetByID)
 	r.Get("/stores/{id}/offers", handler.ListStoreOffers)
+}
+
+func registerPricingRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	handler := pricing.NewHandler(pricing.NewRepository(db), pricing.NewHTTPNotifier(), logger)
+	admin := adminOnly(db, logger)
+
+	r.Get("/offers/product/{productId}", handler.ListProductOffers)
+	r.Get("/offers/product/{productId}/best", handler.BestOffer)
+	r.Get("/offers/product/{productId}/price-history", handler.ProductHistory)
+	r.Get("/offers/{id}", handler.GetOffer)
+	r.Get("/offers/{id}/price-history", handler.OfferHistory)
+	r.With(admin).Post("/offers", handler.CreateOffer)
+	r.With(admin).Put("/offers/{id}", handler.UpdateOffer)
+}
+
+func registerSearchRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	handler := search.NewHandler(search.NewRepository(db), logger)
+	r.Get("/search/products", handler.Products)
+	r.Get("/search/facets", handler.Facets)
+	r.Get("/search/categories", handler.Categories)
+	r.Get("/search/brands", handler.Brands)
+	// Historial y búsquedas guardadas (requieren sesión): siguen en features.
+	features.RegisterSearchSessionRoutes(r, db)
+}
+
+func registerComparisonRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	handler := comparison.NewHandler(comparison.NewRepository(db), logger)
+	session := authz.New(authz.NewPostgresSessions(db), "", logger).RequireSession
+
+	// Públicos: comparar sin guardar y buscar alternativas compatibles.
+	r.Get("/comparisons/products/compare", handler.Compare)
+	r.Get("/comparisons/compatible/{productId}", handler.Compatible)
+
+	// Comparaciones guardadas: el usuario sale de la sesión (corrige S3).
+	r.Group(func(r chi.Router) {
+		r.Use(session)
+		r.Post("/comparisons/products", handler.Create)
+		r.Get("/comparisons/products", handler.List)
+		r.Get("/comparisons/products/{id}", handler.Get)
+		r.Put("/comparisons/products/{id}", handler.Rename)
+		r.Delete("/comparisons/products/{id}", handler.Delete)
+		r.Post("/comparisons/products/{id}/items", handler.AddItem)
+		r.Delete("/comparisons/products/{id}/items/{productId}", handler.RemoveItem)
+	})
+
+	// Comparaciones de servicios: siguen en features (fuera de TAL-76).
+	features.RegisterServiceComparisonRoutes(r, db)
+}
+
+func registerIngestionRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	runs := ingestion.NewRepository(db)
+	processor := ingestion.NewProcessor(runs, products.NewRepository(db), pricing.NewRepository(db),
+		pricing.NewHTTPNotifier(), logger)
+	handler := ingestion.NewHandler(runs, processor, logger)
+
+	// Solo el scraper (INTERNAL_API_TOKEN) o un admin.
+	r.Group(func(r chi.Router) {
+		r.Use(adminOnly(db, logger))
+		r.Post("/ingestion/runs", handler.OpenRun)
+		r.Get("/ingestion/runs", handler.ListRuns)
+		r.Get("/ingestion/runs/{id}", handler.GetRun)
+		r.Post("/ingestion/runs/{id}/items", handler.AddItems)
+		r.Post("/ingestion/runs/{id}/finish", handler.FinishRun)
+	})
 }
 
 func registerServiceRoutes(r chi.Router, db *pgxpool.Pool, _ *slog.Logger) {

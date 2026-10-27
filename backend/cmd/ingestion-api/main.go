@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/DoSafills/SOLOServis/backend/internal/ingestion"
+	apphttp "github.com/DoSafills/SOLOServis/backend/internal/http"
 	"github.com/DoSafills/SOLOServis/backend/internal/runner"
 )
 
-func main() { runner.Run("Ingestion API", ingestion.NewRouter) }
+func main() { runner.Run("Ingestion API", apphttp.NewIngestionRouter) }

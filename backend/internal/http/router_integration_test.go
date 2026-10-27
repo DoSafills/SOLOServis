@@ -37,8 +37,10 @@ func TestIntegration_ProductAPIEscrituraConAtributos(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	adminToken := createSession(t, pool, "admin", "admin-"+suffix)
 	clientToken := createSession(t, pool, "client", "client-"+suffix)
+	// Se borra por id público: el PUT de reemplazo completo deja el SKU en NULL.
+	var created []string
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE sku LIKE $1`, "e2e-%-"+suffix)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE public_id = ANY($1::uuid[])`, created)
 	})
 
 	do := func(method, path, token, body string) *httptest.ResponseRecorder {
@@ -84,6 +86,7 @@ func TestIntegration_ProductAPIEscrituraConAtributos(t *testing.T) {
 		rec := do(http.MethodPost, "/products", adminToken, create)
 		expect(t, rec, http.StatusCreated, "")
 		location = rec.Header().Get("Location")
+		created = append(created, strings.TrimPrefix(location, "/products/"))
 		var body struct {
 			ID           string                     `json:"id"`
 			CategorySlug string                     `json:"categorySlug"`
@@ -140,6 +143,7 @@ func TestIntegration_ProductAPIEscrituraConAtributos(t *testing.T) {
 			`{"categoryId": %d, "name": "Lavadora E2E", "sku": "e2e-ingestion-%s", "imageUrl": "https://example.test/l.png"}`,
 			lavadoID, suffix))
 		expect(t, rec, http.StatusCreated, "")
+		created = append(created, strings.TrimPrefix(rec.Header().Get("Location"), "/products/"))
 		if !strings.Contains(rec.Body.String(), `"categorySlug":null`) || !strings.Contains(rec.Body.String(), `"attributes":{}`) {
 			t.Fatalf("body = %s", rec.Body.String())
 		}
@@ -170,6 +174,85 @@ func TestIntegration_ProductAPIEscrituraConAtributos(t *testing.T) {
 		expect(t, do(http.MethodGet, location, "", ""), http.StatusNotFound, httpx.CodeNotFound)
 		expect(t, do(http.MethodDelete, location, adminToken, ""), http.StatusNotFound, httpx.CodeNotFound)
 	})
+}
+
+// TAL-76 de punta a punta: comparaciones guardadas con sesiones reales. El
+// usuario sale del token; otro usuario no puede ver la comparación.
+func TestIntegration_ComparisonAPIPropiedad(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL no definida: se omite el test de integración")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	router := NewComparisonRouter(pool, "http://localhost:5173")
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	ana := createSession(t, pool, "client", "ana-"+suffix)
+	beto := createSession(t, pool, "client", "beto-"+suffix)
+
+	var ids []string
+	rows, err := pool.Query(ctx, `
+		SELECT p.public_id::text FROM product p JOIN categories c ON c.id = p.category_ref
+		WHERE c.slug = 'refrigeradores' AND p.active ORDER BY p.id LIMIT 2`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		_ = rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if len(ids) != 2 {
+		t.Fatalf("se necesitan 2 refrigeradores en la BD, hay %d", len(ids))
+	}
+
+	do := func(method, path, token, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := do(http.MethodGet, "/comparisons/products/compare?ids="+ids[0]+","+ids[1], "", ""); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"slug":"refrigeradores"`) {
+		t.Fatalf("compare público = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodPost, "/comparisons/products", "", `{"productIds":["`+ids[0]+`"]}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("sin sesión = %d", rec.Code)
+	}
+
+	rec := do(http.MethodPost, "/comparisons/products", ana, `{"name":"De Ana","productIds":["`+ids[0]+`","`+ids[1]+`"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("crear = %d %s", rec.Code, rec.Body.String())
+	}
+	location := rec.Header().Get("Location")
+
+	if rec := do(http.MethodGet, location, ana, ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"De Ana"`) {
+		t.Fatalf("Ana ve su comparación = %d %s", rec.Code, rec.Body.String())
+	}
+	for _, method := range []string{http.MethodGet, http.MethodDelete} {
+		if rec := do(method, location, beto, ""); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s de Beto sobre la comparación de Ana = %d, quiero 404", method, rec.Code)
+		}
+	}
+	if rec := do(http.MethodGet, "/comparisons/products", beto, ""); rec.Header().Get("X-Total-Count") != "0" {
+		t.Fatalf("Beto lista comparaciones ajenas: %s", rec.Body.String())
+	}
+	if rec := do(http.MethodDelete, location, ana, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("Ana borra = %d", rec.Code)
+	}
 }
 
 // createSession crea un usuario con rol y una sesión vigente; devuelve el
