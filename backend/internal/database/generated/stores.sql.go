@@ -147,6 +147,85 @@ func (q *Queries) ListStoreLocations(ctx context.Context, storeID int32) ([]List
 	return items, nil
 }
 
+const listStoreOffers = `-- name: ListStoreOffers :many
+SELECT
+    po.id,
+    po.product_id,
+    po.store_id,
+    p.public_id,
+    p.name AS product_name,
+    po.price,
+    po.list_price,
+    po.currency,
+    po.shipping_cost,
+    po.shipping_free,
+    po.available,
+    po.stock,
+    po.condition,
+    po.product_url,
+    po.last_updated
+FROM product_offer po
+JOIN product p
+    ON p.id = po.product_id
+WHERE po.store_id = $1
+  AND p.active = true
+ORDER BY po.id
+`
+
+type ListStoreOffersRow struct {
+	ID           int32              `json:"id"`
+	ProductID    int32              `json:"product_id"`
+	StoreID      int32              `json:"store_id"`
+	PublicID     pgtype.UUID        `json:"public_id"`
+	ProductName  string             `json:"product_name"`
+	Price        pgtype.Numeric     `json:"price"`
+	ListPrice    pgtype.Numeric     `json:"list_price"`
+	Currency     string             `json:"currency"`
+	ShippingCost pgtype.Numeric     `json:"shipping_cost"`
+	ShippingFree bool               `json:"shipping_free"`
+	Available    bool               `json:"available"`
+	Stock        pgtype.Int4        `json:"stock"`
+	Condition    string             `json:"condition"`
+	ProductUrl   pgtype.Text        `json:"product_url"`
+	LastUpdated  pgtype.Timestamptz `json:"last_updated"`
+}
+
+func (q *Queries) ListStoreOffers(ctx context.Context, storeID int32) ([]ListStoreOffersRow, error) {
+	rows, err := q.db.Query(ctx, listStoreOffers, storeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStoreOffersRow
+	for rows.Next() {
+		var i ListStoreOffersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProductID,
+			&i.StoreID,
+			&i.PublicID,
+			&i.ProductName,
+			&i.Price,
+			&i.ListPrice,
+			&i.Currency,
+			&i.ShippingCost,
+			&i.ShippingFree,
+			&i.Available,
+			&i.Stock,
+			&i.Condition,
+			&i.ProductUrl,
+			&i.LastUpdated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStoreProducts = `-- name: ListStoreProducts :many
 SELECT
     p.id,
@@ -198,31 +277,31 @@ ORDER BY p.id
 `
 
 type ListStoreProductsRow struct {
-	ID           int32            `json:"id"`
-	PublicID     pgtype.UUID      `json:"public_id"`
-	CategoryID   int32            `json:"category_id"`
-	BrandID      pgtype.Int4      `json:"brand_id"`
-	Name         string           `json:"name"`
-	Model        pgtype.Text      `json:"model"`
-	Sku          pgtype.Text      `json:"sku"`
-	Description  pgtype.Text      `json:"description"`
-	Active       bool             `json:"active"`
-	CreatedAt    pgtype.Timestamp `json:"created_at"`
-	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
-	BrandName    pgtype.Text      `json:"brand_name"`
-	CategoryName string           `json:"category_name"`
-	OfferID      int32            `json:"offer_id"`
-	Price        pgtype.Numeric   `json:"price"`
-	ListPrice    pgtype.Numeric   `json:"list_price"`
-	Currency     string           `json:"currency"`
-	ShippingCost pgtype.Numeric   `json:"shipping_cost"`
-	ShippingFree bool             `json:"shipping_free"`
-	Available    bool             `json:"available"`
-	Stock        pgtype.Int4      `json:"stock"`
-	Condition    string           `json:"condition"`
-	ProductUrl   pgtype.Text      `json:"product_url"`
-	LastUpdated  pgtype.Timestamp `json:"last_updated"`
-	ImageUrl     string           `json:"image_url"`
+	ID           int32              `json:"id"`
+	PublicID     pgtype.UUID        `json:"public_id"`
+	CategoryID   int32              `json:"category_id"`
+	BrandID      pgtype.Int4        `json:"brand_id"`
+	Name         string             `json:"name"`
+	Model        pgtype.Text        `json:"model"`
+	Sku          pgtype.Text        `json:"sku"`
+	Description  pgtype.Text        `json:"description"`
+	Active       bool               `json:"active"`
+	CreatedAt    pgtype.Timestamp   `json:"created_at"`
+	UpdatedAt    pgtype.Timestamp   `json:"updated_at"`
+	BrandName    pgtype.Text        `json:"brand_name"`
+	CategoryName string             `json:"category_name"`
+	OfferID      int32              `json:"offer_id"`
+	Price        pgtype.Numeric     `json:"price"`
+	ListPrice    pgtype.Numeric     `json:"list_price"`
+	Currency     string             `json:"currency"`
+	ShippingCost pgtype.Numeric     `json:"shipping_cost"`
+	ShippingFree bool               `json:"shipping_free"`
+	Available    bool               `json:"available"`
+	Stock        pgtype.Int4        `json:"stock"`
+	Condition    string             `json:"condition"`
+	ProductUrl   pgtype.Text        `json:"product_url"`
+	LastUpdated  pgtype.Timestamptz `json:"last_updated"`
+	ImageUrl     string             `json:"image_url"`
 }
 
 func (q *Queries) ListStoreProducts(ctx context.Context, storeID int32) ([]ListStoreProductsRow, error) {

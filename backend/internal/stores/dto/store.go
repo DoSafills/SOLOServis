@@ -1,8 +1,6 @@
 package dto
 
 import (
-	"strconv"
-
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -56,51 +54,54 @@ type StoreLocation struct {
 	Commune    string `json:"commune"`
 }
 
-func FromStore(row generated.ListStoresRow) Store {
-	return Store{
-		ID:           strconv.Itoa(int(row.ID)),
-		Name:         row.Name,
-		Logo:         textValue(row.LogoUrl),
-		Rating:       numericValue(row.Rating),
-		ProductCount: row.ProductCount,
-		Reputation:   textValue(row.Reputation),
-		DispatchTime: textValue(row.ShippingInformation),
-		Conditions:   textValue(row.GeneralConditions),
-		Website:      textValue(row.WebsiteUrl),
-	}
+// StoreSummary es la tienda resumida que acompaña a cada oferta (TAL-73).
+type StoreSummary struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Logo        string  `json:"logo"`
+	Rating      float64 `json:"rating"`
+	ReviewCount int64   `json:"reviewCount"`
+	Website     string  `json:"website"`
 }
 
-func FromStoreDetail(row generated.GetStoreByIDRow) Store {
-	return Store{
-		ID:           strconv.Itoa(int(row.ID)),
-		Name:         row.Name,
-		Logo:         textValue(row.LogoUrl),
-		Rating:       numericValue(row.Rating),
-		ProductCount: row.ProductCount,
-		Reputation:   textValue(row.Reputation),
-		DispatchTime: textValue(row.ShippingInformation),
-		Conditions:   textValue(row.GeneralConditions),
-		Website:      textValue(row.WebsiteUrl),
-	}
+// Offer es una oferta de un producto en una tienda (TAL-73). Los montos van
+// como string para no perder precisión (igual que en Product API). Store solo
+// viene en GET /stores/offers (por producto); en /stores/{id}/offers la tienda
+// ya es la de la ruta.
+type Offer struct {
+	OfferID      int32         `json:"offerId"`
+	ProductID    string        `json:"productId"`
+	ProductName  string        `json:"productName"`
+	Price        string        `json:"price"`
+	ListPrice    string        `json:"listPrice"`
+	Currency     string        `json:"currency"`
+	ShippingCost string        `json:"shippingCost"`
+	ShippingFree bool          `json:"shippingFree"`
+	Available    bool          `json:"available"`
+	Stock        *int32        `json:"stock"`
+	Condition    string        `json:"condition"`
+	ProductURL   string        `json:"productUrl"`
+	LastUpdated  string        `json:"lastUpdated"`
+	Store        *StoreSummary `json:"store,omitempty"`
 }
 
 func FromStoreProduct(row generated.ListStoreProductsRow) StoreProduct {
 	return StoreProduct{
 		ID:           row.PublicID.String(),
 		Name:         row.Name,
-		Brand:        textValue(row.BrandName),
-		Model:        textValue(row.Model),
+		Brand:        TextValue(row.BrandName),
+		Model:        TextValue(row.Model),
 		Category:     row.CategoryName,
-		Description:  textValue(row.Description),
-		Price:        numericString(row.Price),
-		ListPrice:    numericString(row.ListPrice),
+		Description:  TextValue(row.Description),
+		Price:        NumericString(row.Price),
+		ListPrice:    NumericString(row.ListPrice),
 		Currency:     row.Currency,
-		ShippingCost: numericString(row.ShippingCost),
+		ShippingCost: NumericString(row.ShippingCost),
 		ShippingFree: row.ShippingFree,
 		Available:    row.Available,
-		Stock:        intValue(row.Stock),
+		Stock:        IntValue(row.Stock),
 		Condition:    row.Condition,
-		ProductURL:   textValue(row.ProductUrl),
+		ProductURL:   TextValue(row.ProductUrl),
 		Image:        row.ImageUrl,
 	}
 }
@@ -109,23 +110,23 @@ func FromStoreLocation(row generated.ListStoreLocationsRow) StoreLocation {
 	return StoreLocation{
 		ID:         row.ID,
 		LocationID: row.LocationID,
-		Address:    textValue(row.Address),
-		PostalCode: textValue(row.PostalCode),
+		Address:    TextValue(row.Address),
+		PostalCode: TextValue(row.PostalCode),
 		Country:    row.Country,
-		Region:     textValue(row.Region),
-		City:       textValue(row.City),
-		Commune:    textValue(row.Commune),
+		Region:     TextValue(row.Region),
+		City:       TextValue(row.City),
+		Commune:    TextValue(row.Commune),
 	}
 }
 
-func textValue(value pgtype.Text) string {
+func TextValue(value pgtype.Text) string {
 	if value.Valid {
 		return value.String
 	}
 	return ""
 }
 
-func numericValue(value pgtype.Numeric) float64 {
+func NumericValue(value pgtype.Numeric) float64 {
 	if !value.Valid {
 		return 0
 	}
@@ -138,7 +139,7 @@ func numericValue(value pgtype.Numeric) float64 {
 	return result.Float64
 }
 
-func numericString(value pgtype.Numeric) string {
+func NumericString(value pgtype.Numeric) string {
 	if !value.Valid {
 		return ""
 	}
@@ -151,7 +152,7 @@ func numericString(value pgtype.Numeric) string {
 	return string(data)
 }
 
-func intValue(value pgtype.Int4) *int32 {
+func IntValue(value pgtype.Int4) *int32 {
 	if !value.Valid {
 		return nil
 	}

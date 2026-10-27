@@ -93,24 +93,35 @@ func (r *PostgresRepository) GetBySlug(ctx context.Context, slug string) (Catego
 		return CategoryDetail{}, err
 	}
 
-	rows, err := r.db.Query(ctx, listAttributesSQL, id)
+	detail.Attributes, err = r.AttributesByCategoryID(ctx, id)
 	if err != nil {
-		return CategoryDetail{}, err
-	}
-	defer rows.Close()
-
-	detail.Attributes = make([]Attribute, 0)
-	for rows.Next() {
-		var a Attribute
-		if err := rows.Scan(&a.ID, &a.Key, &a.Label, &a.DataType, &a.Unit, &a.Required, &a.Comparable,
-			&a.Filterable, &a.Min, &a.Max, &a.MaxLength, &a.AllowedValues, &a.DisplayOrder); err != nil {
-			return CategoryDetail{}, err
-		}
-		detail.Attributes = append(detail.Attributes, a)
-	}
-	if err := rows.Err(); err != nil {
 		return CategoryDetail{}, err
 	}
 
 	return detail, nil
+}
+
+// AttributesByCategoryID devuelve las definiciones de una categoría ordenadas
+// por display_order. Lo usa Product API (TAL-70) para validar atributos.
+func (r *PostgresRepository) AttributesByCategoryID(ctx context.Context, categoryID int32) ([]Attribute, error) {
+	rows, err := r.db.Query(ctx, listAttributesSQL, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	attributes := make([]Attribute, 0)
+	for rows.Next() {
+		var a Attribute
+		if err := rows.Scan(&a.ID, &a.Key, &a.Label, &a.DataType, &a.Unit, &a.Required, &a.Comparable,
+			&a.Filterable, &a.Min, &a.Max, &a.MaxLength, &a.AllowedValues, &a.DisplayOrder); err != nil {
+			return nil, err
+		}
+		attributes = append(attributes, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return attributes, nil
 }

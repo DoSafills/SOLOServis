@@ -131,8 +131,9 @@ const toStoreDetail = (detail: ApiStoreDetail): StoreDetail => ({
 
 export { toProduct, type ApiProduct } from "./products";
 
-export async function getProducts(): Promise<Product[]> {
-  const products = await fetchList<ApiProduct>(PRODUCT_API_URL, "/products");
+export async function getProducts(categoryId?: number): Promise<Product[]> {
+  const query = categoryId === undefined ? "" : `?category=${categoryId}`;
+  const products = await fetchList<ApiProduct>(PRODUCT_API_URL, `/products${query}`);
   return products.map(toProduct);
 }
 
