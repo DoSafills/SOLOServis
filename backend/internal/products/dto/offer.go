@@ -41,6 +41,7 @@ func FromProductOffer(offer generated.ListProductOffersRow) ProductOffer {
 	}
 
 	return ProductOffer{
+		OfferID:      offer.ID,
 		StoreID:      offer.StoreID,
 		StoreName:    offer.StoreName,
 		Price:        price,

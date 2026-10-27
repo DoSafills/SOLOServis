@@ -29,4 +29,5 @@ export function toService(service: ApiService): Service {
 }
 
 export const getServices = () => getJson<ApiService[]>(`${API_URLS.services}/services`);
-export const getService = (id: string) => getJson<ApiService>(`${API_URLS.services}/services/${id}`);
+export const getService = (id: string) =>
+  getJson<ApiService>(`${API_URLS.services}/services/${id}`);

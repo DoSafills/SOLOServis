@@ -294,6 +294,8 @@ Actualmente:
 001_schema.sql
 002_views.sql
 003_seed.sql
+004_platform_apis.sql
+005_demo_catalog.sql
 ```
 
 ## `001_schema.sql`
@@ -348,6 +350,14 @@ Refrigerador LG Side by Side
 ```
 
 También existen tiendas, ofertas, imágenes y reviews utilizadas para comprobar el flujo completo.
+
+## `005_demo_catalog.sql`
+
+Agrega de forma repetible 22 productos de 8 categorias y 5 tiendas adicionales, con marcas, especificaciones, imagenes de placeholder, ofertas en varias tiendas e historial de precios. Incluye stock agotado, envio pagado/gratis y productos nuevos, usados o reacondicionados para probar busqueda, filtros, comparaciones, detalle de tiendas y precios. Docker lo ejecuta automaticamente en una base nueva. Para una base ya inicializada, ejecutar desde la raiz del repositorio:
+
+```powershell
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/005_demo_catalog.sql
+```
 
 ---
 
@@ -1087,6 +1097,56 @@ El frontend siempre debe comunicarse con PostgreSQL **a través de la API**.
 
 # 27. Flujo completo de desarrollo
 
+---
+
+# 28. Microservicios de la plataforma
+
+El backend ejecuta APIs independientes en el mismo módulo Go y comparte PostgreSQL. Cada comando de `cmd/` usa un router de dominio bajo `internal/` y el runner común para cargar configuración, comprobar la base e iniciar HTTP.
+
+| Servicio | Puerto | Rutas principales |
+| --- | ---: | --- |
+| Product API | 8081 | `/products` |
+| Store API | 8082 | `/stores` |
+| Service API | 8083 | `/services` |
+| User API | 8084 | `/users/{id}` |
+| Pricing API | 8085 | `/offers`, `/offers/product/{productId}`, historial |
+| Search API | 8086 | productos, categorías, marcas, historial y búsquedas guardadas |
+| Comparison API | 8087 | comparaciones e items de productos y servicios; productos compatibles |
+| Auth API | 8088 | registro, login, refresh, logout y validación |
+| Favorites API | 8089 | favoritos de productos y servicios |
+| Cart API | 8090 | carrito asociado a una oferta de tienda |
+| Review API | 8091 | reseñas de producto, tienda y servicio |
+| Watchlist API | 8092 | productos y precio objetivo |
+| Notification API | 8093 | notificaciones y estado de lectura |
+| Ingestion API | 8094 | productos, ofertas y ejecuciones de sync |
+
+La navegación, el carrito local y las comparaciones no requieren iniciar sesión. La autenticación se realiza mediante Auth API (registro, inicio, renovación y cierre de sesión); favoritos, historial de búsqueda, búsquedas guardadas y carrito sincronizado requieren una sesión válida. El frontend conserva la sesión en `localStorage` y renueva el token de acceso al vencerlo. Favorites, Cart y Search APIs validan el token y usan el usuario de la sesión, sin aceptar que el cliente elija otro `userId`.
+
+Las nuevas tablas se definen en `database/migrations/004_platform_apis.sql`. Docker ejecuta las migraciones automáticamente al inicializar un volumen PostgreSQL nuevo. La compatibilidad del carrito con ofertas de servicios se agrega en `database/migrations/008_service_cart.sql`. La migración `009_normalize_prices_to_clp.sql` etiqueta los precios existentes como CLP sin cambiar sus importes (conversión temporal 1:1) y deja triggers para normalizar la moneda de nuevas ofertas. Los valores que originalmente estaban en USD/EUR son referenciales y no representan una conversión real a pesos chilenos. `010_seed_all_services.sql` concentra en un único archivo las cargas de fibra, seguridad, educación y servicios técnicos; limita a tres los servicios activos por microcategoría y clasifica los 16 servicios técnicos en microcategorías específicas.
+
+Para un volumen existente que ya tiene aplicadas las migraciones anteriores, aplica las migraciones pendientes una vez desde el root del proyecto:
+
+```powershell
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/008_service_cart.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/009_normalize_prices_to_clp.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/010_seed_all_services.sql
+```
+
+Las integraciones entre servicios usan las URLs internas definidas en `docker/compose.yml`: Search, Comparison, Favorites y Cart consultan Product API; Comparison y Cart consultan Pricing API; Review valida producto/tienda/servicio; Watchlist consulta Pricing; Pricing genera notificaciones mediante Notification API; e Ingestion delega en Product, Store y Pricing APIs. User API solo expone el perfil asociado al token de sesión autenticado.
+
+Para compilar y ejecutar todo el stack:
+
+```powershell
+cd backend
+gofmt -w .
+go build ./cmd/...
+go test ./...
+cd ..
+docker compose -f docker/compose.yml up -d --build
+```
+
+Cada API expone `GET /health`, que informa el estado de PostgreSQL.
+
 Para una modificación de datos de productos:
 
 ```text
@@ -1154,3 +1214,7 @@ PostgreSQL
 ```
 
 Esta estructura permite que cada capa tenga una responsabilidad concreta y facilita la expansión futura del sistema hacia servicios, usuarios, scraping, historial de precios, favoritos, comparaciones y otras funcionalidades.
+
+Docker Compose y Kubernetes ejecutan `k8s/base/migrations/migrate.sh` con el orden explícito de `backend/database/migration_order.txt`. El runner valida que el manifiesto incluya todos los archivos SQL, registra cada basename y checksum en `schema_migrations`, y no vuelve a aplicar versiones ya registradas. El manifiesto conserva los nombres y contenidos existentes; los prefijos pueden repetirse, pero el orden ya no depende del locale.
+
+Docker aplica el runner automáticamente al inicializar un volumen PostgreSQL vacío. Para un volumen existente con `schema_migrations`, ejecuta el runner para aplicar versiones pendientes. Una base antigua con esquema pero sin registro se rechaza intencionalmente: primero requiere establecer un baseline verificado; el runner no asume que migraciones o seeds se hayan aplicado.

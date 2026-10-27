@@ -1,20 +1,14 @@
 # Cómo probar la base de datos localmente
 
-1. Clona/actualiza el repo y entra a esta carpeta:
-   cd backend/db/migrations
+1. Desde la raíz del proyecto, levanta PostgreSQL y aplica automáticamente las migraciones y seeds en el orden de `backend/database/migration_order.txt` a un volumen nuevo:
+   docker compose -f docker/compose.yml up -d postgres
 
-2. Levanta PostgreSQL con Docker:
-   sudo docker run --name soloservis-db -e POSTGRES_PASSWORD=admin123 -e POSTGRES_DB=soloservis -p 5432:5432 -d postgres:16
+2. Para una base versionada existente, aplica las versiones pendientes mediante el mismo runner:
+   docker compose -f docker/compose.yml exec -T postgres bash /docker-entrypoint-initdb.d/001_migrations.sh
+   Las bases antiguas sin tabla `schema_migrations` se rechazan para evitar reaplicar
+   cambios a ciegas; antes de migrarlas se debe preparar y verificar un baseline.
 
-3. Copia los scripts al contenedor:
-   sudo docker cp 001_schema.sql soloservis-db:/001_schema.sql
-   sudo docker cp 002_views.sql soloservis-db:/002_views.sql
-   sudo docker cp 003_seed.sql soloservis-db:/003_seed.sql
-
-4. Ejecútalos en orden:
-   sudo docker exec -it soloservis-db psql -U postgres -d soloservis -f /001_schema.sql
-   sudo docker exec -it soloservis-db psql -U postgres -d soloservis -f /002_views.sql
-   sudo docker exec -it soloservis-db psql -U postgres -d soloservis -f /003_seed.sql
-
-5. Verifica:
-   sudo docker exec -it soloservis-db psql -U postgres -d soloservis -c "SELECT * FROM product;"
+3. Verifica productos, tiendas y el límite de servicios activos por microcategoría:
+   docker compose -f docker/compose.yml exec -T postgres psql -U postgres -d soloservis -c "SELECT COUNT(*) FROM product WHERE sku LIKE 'DEMO-%';"
+   docker compose -f docker/compose.yml exec -T postgres psql -U postgres -d soloservis -c "SELECT name FROM store ORDER BY name;"
+   docker compose -f docker/compose.yml exec -T postgres psql -U postgres -d soloservis -c "SELECT parent.name AS categoria, category.name AS microcategoria, COUNT(service.id) AS servicios_activos FROM service_category category JOIN service_category parent ON parent.id = category.parent_category_id LEFT JOIN service ON service.category_id = category.id AND service.active GROUP BY parent.name, category.name HAVING COUNT(service.id) > 3;"
