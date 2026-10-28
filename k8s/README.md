@@ -67,6 +67,7 @@ El nginx del frontend (`docker/frontend/default.conf.template`) enruta por path.
 | kubectl ≥ 1.27 | hablar con el clúster (incluye kustomize) | `kubectl version --client` |
 | git | clonar el repo y etiquetar imágenes | `git --version` |
 | curl | verificaciones del script (bash) | `curl --version` |
+| plugin `kubectl oidc-login` (solo UCT) | iniciar sesión con tu cuenta institucional | `kubectl oidc-login --version` |
 
 Docker Desktop ya trae `kubectl`. Si no lo tienes:
 
@@ -183,6 +184,31 @@ Para apagar Kubernetes sin borrar nada, desmarca **Enable Kubernetes** en Docker
 
 ### 4.1. Tu kubeconfig
 
+El kubeconfig de la plataforma inicia sesión con `kubectl oidc-login`. Si no tienes el plugin, `kubectl` responde `unknown command "oidc-login"`. Instálalo una sola vez:
+
+**PowerShell** (como administrador, con [Chocolatey](https://chocolatey.org/install))
+
+```powershell
+choco install kubelogin
+```
+
+> Sin Chocolatey puedes usar krew: `winget install -e --id Kubernetes.krew`, luego `kubectl krew install oidc-login`, y agrega `$HOME\.krew\bin` al PATH. Ojo: el paquete `int128.kubelogin` de winget solo trae `kubelogin.exe`, sin el `kubectl-oidc_login.exe` que necesita `kubectl`.
+
+**bash**
+
+```bash
+brew install kubelogin              # macOS
+kubectl krew install oidc-login     # Linux (con krew instalado)
+```
+
+Abre una terminal nueva y comprueba:
+
+```bash
+kubectl oidc-login --version
+```
+
+Luego:
+
 1. Entra a <https://estudiantes.dev.censei.cl> y descarga tu kubeconfig (`estudiantes-<usuario>.kubeconfig`).
 2. Guárdalo en `~/.kube/`. **No lo subas a git:** `.gitignore` ya ignora `*.kubeconfig`.
 
@@ -236,7 +262,9 @@ Los repositorios `soloservis-frontend` y `soloservis-backend` se crean **públic
     --registry docker.io/<usuario-docker>
 ```
 
-Al terminar, la app queda en `http://soloservis-<usuario>.dev.censei.cl`. El script lo imprime y verifica las rutas públicas desde tu máquina. La primera vez, el DNS puede tardar unos minutos en propagarse.
+Al terminar, la app queda en `https://soloservis-<usuario>.dev.censei.cl` (la plataforma redirige `http` a `https`). El script lo imprime y verifica las rutas públicas desde tu máquina. La primera vez, el DNS puede tardar unos minutos en propagarse.
+
+> **Advertencia de certificado:** por ahora la plataforma usa un certificado HTTPS que el navegador no reconoce. Que aparezca el aviso es normal (§12 del manual de la plataforma) y no indica un error del despliegue: acéptalo para entrar. Con curl agrega `-k`.
 
 **Lo que conviene saber:**
 - **Solo inventario:** agrega `-ToPhase 0` / `--to-phase 0`. Muestra recursos, cuota y StorageClasses sin modificar nada.
@@ -406,17 +434,20 @@ En los ejemplos, `$BASE` es la URL de la app:
 
 ```powershell
 $BASE = "http://localhost:8080"                              # local (con el port-forward de 3.3 abierto)
-$BASE = "http://soloservis-<usuario>.dev.censei.cl"          # UCT
+$BASE = "https://soloservis-<usuario>.dev.censei.cl"         # UCT
 ```
 
 **bash**
 
 ```bash
 BASE=http://localhost:8080                                   # local (con el port-forward de 3.3 abierto)
-BASE=http://soloservis-<usuario>.dev.censei.cl               # UCT
+BASE=https://soloservis-<usuario>.dev.censei.cl              # UCT
 ```
 
 > En PowerShell usa siempre `curl.exe`, no `curl`, porque `curl` es un alias de `Invoke-WebRequest`.
+>
+> **En UCT** el certificado HTTPS aún no es de confianza (ver [§4.3](#43-desplegar)): agrega `-k` a cada `curl`/`curl.exe`. Para `Invoke-RestMethod` en PowerShell 5.1, desactiva la verificación **solo en esa terminal y solo para estas pruebas**:
+> `[Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }`
 
 ### Consultas públicas
 
@@ -506,7 +537,10 @@ El contrato completo para el scraper está en `backend/README.md`, §12.7. **No 
 | Síntoma | Causa probable | Qué hacer |
 |---|---|---|
 | Fase 0: `no existe el contexto 'docker-desktop'` | Kubernetes no está activado | Docker Desktop → Settings → Kubernetes → Enable |
+| `unknown command "oidc-login" for "kubectl"` | falta el plugin de login de la plataforma | instálalo como en [§4.1](#41-tu-kubeconfig) y abre una terminal nueva |
 | Fase 0 (UCT): `sin acceso al namespace` | kubeconfig vencido o login OIDC no completado | descarga de nuevo el kubeconfig y corre `kubectl auth can-i list pods` |
+| `kubectl get nodes` / `get namespaces`: `Forbidden` (UCT) | la plataforma no permite ver recursos del clúster | es esperado; trabaja dentro de tu namespace |
+| Navegador: "la conexión no es privada"; curl: error 60 / `SEC_E_UNTRUSTED_ROOT` (UCT) | la plataforma aún no emite certificados de confianza | acepta el aviso; con curl usa `-k` |
 | Fase 3: `docker push` denegado | no hiciste `docker login` o el usuario del registry no es el tuyo | `docker login` y `-Registry docker.io/<tu-usuario>` |
 | Fase 6: `ErrImageNeverPull` / `ImagePullBackOff` (local) | el clúster no ve las imágenes locales (tipo `kind`) | en Docker Desktop elige el clúster **kubeadm**, o reinicia Kubernetes |
 | Fase 6: `ImagePullBackOff` (UCT) | repositorio privado en Docker Hub | hazlo público, o crea `kubectl create secret docker-registry regcred --docker-username=<u> --docker-password=<token>` y usa `-ImagePullSecret regcred` |
