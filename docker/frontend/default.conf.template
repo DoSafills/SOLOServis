@@ -1,0 +1,86 @@
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+    # Probe de Kubernetes (no toca las APIs).
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # APIs por el mismo origen. La plataforma UCT solo permite el path / por
+    # hostname en el Ingress, así que el enrutamiento por path se hace aquí:
+    # Browser -> Ingress (/) -> frontend (nginx) -> Service de cada API.
+    # Cada destino (*_UPSTREAM) lo completa envsubst al arrancar el contenedor:
+    # microservicios -> product-api:8081, ...; consolidado (UCT) -> backend:8080.
+    # Pricing, User, Notification e Ingestion no se exponen: solo red interna.
+
+    # Catálogo: público solo lectura (las escrituras requieren admin o token y van por la red interna).
+    location ~ ^/(products|product-categories|categories)(/.*)?$ {
+        limit_except GET { deny all; }
+        proxy_pass http://${PRODUCT_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+    location ~ ^/stores(/.*)?$ {
+        limit_except GET { deny all; }
+        proxy_pass http://${STORE_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+    location ~ ^/services(/.*)?$ {
+        limit_except GET { deny all; }
+        proxy_pass http://${SERVICE_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+
+    # Sesión: login, registro, refresh, logout y validate.
+    location ~ ^/auth(/.*)?$ {
+        limit_except GET POST { deny all; }
+        proxy_pass http://${AUTH_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+
+    # Datos del usuario: cada API valida el token de sesión.
+    location ~ ^/favorites(/.*)?$ {
+        proxy_pass http://${FAVORITES_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+    location ~ ^/cart(/.*)?$ {
+        proxy_pass http://${CART_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+    location ~ ^/search(/.*)?$ {
+        proxy_pass http://${SEARCH_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+    location ~ ^/comparisons(/.*)?$ {
+        proxy_pass http://${COMPARISON_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+    location ~ ^/reviews(/.*)?$ {
+        proxy_pass http://${REVIEW_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+    location ~ ^/watchlist(/.*)?$ {
+        proxy_pass http://${WATCHLIST_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+
+    # Assets con hash de Vite: cache largo.
+    location /assets/ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # SPA: cualquier otra ruta sirve index.html.
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
+    }
+}

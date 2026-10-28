@@ -794,21 +794,9 @@ if len(fieldErrors) > 0 {
 }
 ```
 
-## Exposición por nginx (pendiente de aprobación)
+## Exposición por nginx
 
-Hoy `docker/frontend/nginx.conf` solo enruta `/products` y `/stores`, así que en k8s `/categories` cae en la SPA. Para exponerlo (solo GET) haría falta un bloque igual al de `/products`:
-
-```nginx
-location ~ ^/categories(/.*)?$ {
-    limit_except GET { deny all; }
-    proxy_pass http://product-api:8081;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_connect_timeout 5s;
-    proxy_read_timeout 30s;
-}
-```
+En Kubernetes, el nginx del frontend (`docker/frontend/default.conf.template`) publica `/categories` y `/product-categories` solo para GET, junto con `/products`. Ver `k8s/README.md`.
 
 ## Tests
 
@@ -1326,7 +1314,7 @@ Los nombres de los campos se mantienen. Cart lee `productId` de `GET /offers/{id
 
 ## Pendiente (fuera de TAL-74)
 
-- Pricing no se despliega en k8s ni está enrutado en nginx (requiere aprobación).
+- Pricing se despliega en k8s (como `pricing-api` en local o dentro de `backend` en UCT), pero no se publica en nginx: solo la usan las otras APIs por la red interna.
 - `is_promotional` siempre es `false`: el trigger de la 010 no lo calcula.
 
 ---

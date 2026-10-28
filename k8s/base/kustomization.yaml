@@ -1,10 +1,12 @@
-# SOLOServis MVP en Kubernetes (namespace student-rrios).
-# No aplicar directo: scripts/k8s/deploy.ps1 genera overlays/local con
-# registry, tag, StorageClass, IngressClass y host del entorno real.
+# SOLOServis en Kubernetes: piezas comunes a los dos modos (PostgreSQL,
+# migraciones, frontend, configuración e Ingress). Las APIs las agrega un
+# componente: components/microservicios (local) o components/consolidado (UCT).
+# No aplicar directo: scripts/k8s/deploy.ps1 / deploy.sh generan
+# k8s/overlays/<modo> con namespace, imágenes, StorageClass, host y los .sql.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: student-rrios
+namespace: soloservis
 
 labels:
   - pairs:
@@ -17,10 +19,6 @@ resources:
   - postgres/service.yaml
   - postgres/statefulset.yaml
   - migrations/job.yaml
-  - product-api/deployment.yaml
-  - product-api/service.yaml
-  - store-api/deployment.yaml
-  - store-api/service.yaml
   - frontend/deployment.yaml
   - frontend/service.yaml
   - ingress.yaml
@@ -43,9 +41,5 @@ configMapGenerator:
         app.kubernetes.io/component: migrations
 
 images:
-  - name: soloservis/product-api
-    newTag: dev
-  - name: soloservis/store-api
-    newTag: dev
   - name: soloservis/frontend
     newTag: dev

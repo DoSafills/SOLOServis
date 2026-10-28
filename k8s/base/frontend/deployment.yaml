@@ -65,10 +65,15 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 20
-          # nginx necesita /tmp escribible (pid, buffers); no guarda datos.
+          # nginx necesita /tmp escribible (pid, buffers) y conf.d, donde el
+          # entrypoint escribe default.conf desde la plantilla (envsubst).
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: conf
+              mountPath: /etc/nginx/conf.d
       volumes:
         - name: tmp
+          emptyDir: {}
+        - name: conf
           emptyDir: {}

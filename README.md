@@ -150,6 +150,10 @@ Utilizado para mantener un entorno de desarrollo reproducible entre los integran
 
 Utilizado inicialmente para administrar los servicios locales, principalmente PostgreSQL.
 
+### Kubernetes
+
+La app completa (PostgreSQL, 14 APIs y frontend) se despliega con `scripts/k8s/deploy.ps1` o `scripts/k8s/deploy.sh`, en el Kubernetes de Docker Desktop (`local`) o en el clúster de la universidad (`uct`). Guía paso a paso: [`k8s/README.md`](k8s/README.md).
+
 ---
 
 
@@ -421,6 +425,21 @@ En otra terminal:
 ```bash
 cd frontend
 npm run dev
+```
+
+---
+
+
+## Ejecutar en Kubernetes
+
+Con Docker Desktop y Kubernetes activado (detalles, modo UCT y comandos en [`k8s/README.md`](k8s/README.md)):
+
+```powershell
+.\scripts\k8s\deploy.ps1 -Modo local
+```
+
+```bash
+./scripts/k8s/deploy.sh --modo local
 ```
 
 ---
