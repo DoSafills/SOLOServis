@@ -1,0 +1,429 @@
+HALLAZGOS TAL-126: RELACIONES ENTRE ENTIDADES
+
+RESUMEN
+61 foreign keys reales en la BD (no solo en el código). Todas con ON UPDATE NO ACTION.
+ON DELETE: 47 CASCADE, 7 SET NULL, 7 RESTRICT.
+
+LO QUE ESTÁ BIEN
+- Todas las relaciones tienen FK real. Las 4 columnas *_id sin FK son falsos positivos:
+  public_id (uuid para la API, 3 tablas) y scraped_data.external_id (id de la fuente externa).
+- RESTRICT aplicado correctamente en catálogo: product.category_id, product.category_ref,
+  service.category_id, service_category.service_type_id, product_attribute_value.attribute_id,
+  *_comparison.category_id. No se puede borrar una categoría en uso.
+- SET NULL correcto en relaciones opcionales: product.brand_id, data_source.store_id,
+  search_query.user_id (conserva el historial de búsquedas), jerarquías parent_category_id.
+- Datos del usuario con CASCADE (cart_item, notification, saved_search, user_session,
+  reseñas, comparaciones, intereses): correcto al eliminar una cuenta.
+- cart_item tiene CHECK cart_item_product_or_service: o es producto (product_id + offer_id)
+  o es servicio (service_offer_id), nunca ambos ni ninguno.
+- Pipeline de scraping encadenado con CASCADE coherente:
+  data_source > scraper_config > scrape_run > scraped_data.
+
+LO QUE HAY QUE CORREGIR
+
+1. Tablas N:M sin UNIQUE/PK compuesta (permiten duplicados):
+   - store_location (store_id, location_id)
+   - provider_location (provider_id, location_id)
+   - product_category_specification
+   - service_category_specification
+
+2. CASCADE de riesgo (decisión de negocio):
+   - product -> product_offer -> product_price_history: borrar un producto elimina todo
+     su historial de precios. Igual con service -> service_offer -> service_price_history.
+   - product_review y service_review: borrar el producto elimina las reseñas.
+   - store -> product_offer: borrar una tienda elimina sus ofertas y su historial.
+   - provider -> service_offer: igual para proveedores.
+   Recomendación: usar borrado lógico (columna activo/deleted_at) en product, service,
+   store y provider, o cambiar a RESTRICT donde el historial deba conservarse.
+
+3. Observación de diseño: product tiene dos FKs de categoría (category_id hacia
+   product_category y category_ref hacia categories), ambas RESTRICT. Hay un modelo
+   de categorías antiguo y uno nuevo conviviendo (categories tiene legacy_*_category_id).
+   Definir cuál es el definitivo y migrar.
+
+4. Sección 4 del script: no es un detector confiable de N:M. Lista tablas con 2 FKs
+   que son relaciones normales. Las N:M reales son: store_location, provider_location,
+   product_comparison_item, service_comparison_item, y los *_specification_value.
+
+5. Sin datos: cart_item tiene 0 filas, así que el CHECK no se probó con datos reales.
+
+ACCIONES PROPUESTAS
+- Migración 017 con UNIQUE en las 4 tablas N:M.
+- Decidir política de borrado lógico para product/service/store/provider.
+- Definir el modelo de categorías definitivo.
+
+
+# ============================================================
+# TAL-126: Auditoría de relaciones en Neon (solo lectura)
+# ============================================================
+
+Set-Location "C:\Users\cc077\Documents\GitHub\SOLOServis"
+
+# --- 1. Crear auditoria_126.sql ---
+@'
+\echo '=== 1. TODAS LAS FOREIGN KEYS (con ON DELETE / ON UPDATE) ==='
+SELECT
+  c.conrelid::regclass::text  AS tabla_hija,
+  a.attname                   AS columna,
+  c.confrelid::regclass::text AS tabla_padre,
+  c.conname                   AS fk,
+  CASE c.confdeltype WHEN 'a' THEN 'NO ACTION' WHEN 'r' THEN 'RESTRICT'
+                     WHEN 'c' THEN 'CASCADE'   WHEN 'n' THEN 'SET NULL'
+                     WHEN 'd' THEN 'SET DEFAULT' END AS on_delete,
+  CASE c.confupdtype WHEN 'a' THEN 'NO ACTION' WHEN 'r' THEN 'RESTRICT'
+                     WHEN 'c' THEN 'CASCADE'   WHEN 'n' THEN 'SET NULL'
+                     WHEN 'd' THEN 'SET DEFAULT' END AS on_update
+FROM pg_constraint c
+JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
+ORDER BY 1, 2;
+
+\echo '=== 2. RESUMEN DE ON DELETE ==='
+SELECT
+  CASE confdeltype WHEN 'a' THEN 'NO ACTION' WHEN 'r' THEN 'RESTRICT'
+                   WHEN 'c' THEN 'CASCADE'   WHEN 'n' THEN 'SET NULL'
+                   WHEN 'd' THEN 'SET DEFAULT' END AS on_delete,
+  count(*) AS cantidad
+FROM pg_constraint
+WHERE contype = 'f' AND connamespace = 'public'::regnamespace
+GROUP BY 1 ORDER BY 2 DESC;
+
+\echo '=== 3. COLUMNAS *_id SIN FOREIGN KEY ==='
+SELECT c.table_name, c.column_name, c.data_type
+FROM information_schema.columns c
+JOIN information_schema.tables t
+  ON t.table_name = c.table_name AND t.table_schema = c.table_schema
+WHERE c.table_schema = 'public'
+  AND t.table_type = 'BASE TABLE'
+  AND c.column_name LIKE '%\_id' ESCAPE '\'
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_constraint k
+    JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attnum = ANY (k.conkey)
+    WHERE k.contype = 'f'
+      AND k.conrelid = (quote_ident(c.table_schema)||'.'||quote_ident(c.table_name))::regclass
+      AND a.attname = c.column_name
+  )
+ORDER BY c.table_name, c.column_name;
+
+\echo '=== 4. TABLAS INTERMEDIAS N:M ==='
+SELECT c.conrelid::regclass::text AS tabla,
+       count(*) AS num_fks,
+       (SELECT count(*) FROM information_schema.columns ic
+         WHERE ic.table_schema = 'public'
+           AND ic.table_name = c.conrelid::regclass::text) AS num_columnas
+FROM pg_constraint c
+WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
+GROUP BY c.conrelid
+HAVING count(*) >= 2
+ORDER BY 3, 1;
+
+\echo '=== 5. N:M SIN UNIQUE/PK COMPUESTA ==='
+SELECT DISTINCT c.conrelid::regclass::text AS tabla
+FROM pg_constraint c
+WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
+  AND c.conrelid::regclass::text IN (
+    'store_location','provider_location','product_comparison_item',
+    'service_comparison_item','product_category_specification',
+    'service_category_specification','product_specification_value',
+    'service_specification_value','product_attribute_value'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_constraint u
+    WHERE u.conrelid = c.conrelid AND u.contype IN ('u','p')
+      AND array_length(u.conkey,1) >= 2
+  );
+
+\echo '=== 6. CART_ITEM ==='
+SELECT
+  count(*) AS total,
+  count(*) FILTER (WHERE offer_id IS NOT NULL AND service_offer_id IS NOT NULL) AS con_ambos,
+  count(*) FILTER (WHERE offer_id IS NULL AND service_offer_id IS NULL) AS con_ninguno
+FROM cart_item;
+
+SELECT conname, pg_get_constraintdef(oid) AS definicion
+FROM pg_constraint
+WHERE conrelid = 'cart_item'::regclass AND contype = 'c';
+'@ | Set-Content -Path "$PWD\auditoria_126.sql" -Encoding utf8
+
+# --- 2. Variables de conexión ---
+$env:PGHOST = "ep-silent-bonus-b5l2dcfy.c-7.us-east-2.aws.neon.tech"
+$env:PGPORT = "5432"
+$env:PGUSER = "neondb_owner"
+$env:PGDATABASE = "neondb"
+$env:PGSSLMODE = "require"
+
+# --- 3. Contraseña (no se muestra) ---
+$secure = Read-Host "Contraseña de Neon" -AsSecureString
+$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+$env:PGPASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+
+# --- 4. Ejecutar y guardar resultado ---
+try {
+    docker run --rm `
+      --env PGHOST --env PGPORT --env PGUSER --env PGDATABASE --env PGSSLMODE --env PGPASSWORD `
+      --volume "${PWD}\auditoria_126.sql:/auditoria_126.sql:ro" `
+      postgres:18 psql -f /auditoria_126.sql 2>&1 | Tee-Object -FilePath "$PWD\auditoria_126_resultado.txt"
+}
+finally {
+    # --- 5. Limpiar la contraseña ---
+    $env:PGPASSWORD = $null
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+}
+
+Write-Host "`nListo. Resultado guardado en: $PWD\auditoria_126_resultado.txt"
+
+
+
+
+ # ============================================================
+>> # TAL-126: Auditoría de relaciones en Neon (solo lectura) - CORREGIDO
+>> # ============================================================
+>> 
+>> Set-Location "C:\Users\cc077\Documents\GitHub\SOLOServis"
+>> 
+>> # --- 1. Crear auditoria_126.sql ---
+>> @'
+>> \echo '=== 1. TODAS LAS FOREIGN KEYS (con ON DELETE / ON UPDATE) ==='
+>> SELECT
+>>   c.conrelid::regclass::text  AS tabla_hija,
+>>   a.attname                   AS columna,
+>>   c.confrelid::regclass::text AS tabla_padre,
+>>   c.conname                   AS fk,
+>>   CASE c.confdeltype WHEN 'a' THEN 'NO ACTION' WHEN 'r' THEN 'RESTRICT'
+>>                      WHEN 'c' THEN 'CASCADE'   WHEN 'n' THEN 'SET NULL'
+>>                      WHEN 'd' THEN 'SET DEFAULT' END AS on_delete,
+>>   CASE c.confupdtype WHEN 'a' THEN 'NO ACTION' WHEN 'r' THEN 'RESTRICT'
+>>                      WHEN 'c' THEN 'CASCADE'   WHEN 'n' THEN 'SET NULL'
+>>                      WHEN 'd' THEN 'SET DEFAULT' END AS on_update
+>> FROM pg_constraint c
+>> JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+>> WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
+>> ORDER BY 1, 2;
+>> 
+>> \echo '=== 2. RESUMEN DE ON DELETE ==='
+>> SELECT
+>>   CASE confdeltype WHEN 'a' THEN 'NO ACTION' WHEN 'r' THEN 'RESTRICT'
+>>                    WHEN 'c' THEN 'CASCADE'   WHEN 'n' THEN 'SET NULL'
+>>                    WHEN 'd' THEN 'SET DEFAULT' END AS on_delete,
+>>   count(*) AS cantidad
+>> FROM pg_constraint
+>> WHERE contype = 'f' AND connamespace = 'public'::regnamespace
+>> GROUP BY 1 ORDER BY 2 DESC;
+>> 
+>> \echo '=== 3. COLUMNAS *_id SIN FOREIGN KEY ==='
+>> SELECT c.table_name, c.column_name, c.data_type
+>> FROM information_schema.columns c
+>> JOIN information_schema.tables t
+>>   ON t.table_name = c.table_name AND t.table_schema = c.table_schema
+>> WHERE c.table_schema = 'public'
+>>   AND t.table_type = 'BASE TABLE'
+>>   AND c.column_name LIKE '%\_id' ESCAPE '\'
+>>   AND NOT EXISTS (
+>>     SELECT 1 FROM pg_constraint k
+>>     JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attnum = ANY (k.conkey)
+>>     WHERE k.contype = 'f'
+>>       AND k.conrelid = (quote_ident(c.table_schema)||'.'||quote_ident(c.table_name))::regclass
+>>       AND a.attname = c.column_name
+>>   )
+>> ORDER BY c.table_name, c.column_name;
+>> 
+>> \echo '=== 4. TABLAS INTERMEDIAS N:M ==='
+>> SELECT c.conrelid::regclass::text AS tabla,
+>>        count(*) AS num_fks,
+>>        (SELECT count(*) FROM information_schema.columns ic
+>>          WHERE ic.table_schema = 'public'
+>>            AND ic.table_name = c.conrelid::regclass::text) AS num_columnas
+>> FROM pg_constraint c
+>> WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
+>> GROUP BY c.conrelid
+>> HAVING count(*) >= 2
+>> ORDER BY 3, 1;
+>> 
+>> \echo '=== 5. N:M SIN UNIQUE/PK COMPUESTA ==='
+>> SELECT DISTINCT c.conrelid::regclass::text AS tabla
+>> FROM pg_constraint c
+>> WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
+>>   AND c.conrelid::regclass::text IN (
+>>     'store_location','provider_location','product_comparison_item',
+>>     'service_comparison_item','product_category_specification',
+>>     'service_category_specification','product_specification_value',
+>>     'service_specification_value','product_attribute_value'
+>>   )
+>>   AND NOT EXISTS (
+>>     SELECT 1 FROM pg_constraint u
+>>     WHERE u.conrelid = c.conrelid AND u.contype IN ('u','p')
+>>       AND array_length(u.conkey,1) >= 2
+>>   );
+>> 
+>> \echo '=== 6. CART_ITEM ==='
+>> SELECT
+>>   count(*) AS total,
+>>   count(*) FILTER (WHERE offer_id IS NOT NULL AND service_offer_id IS NOT NULL) AS con_ambos,
+>>   count(*) FILTER (WHERE offer_id IS NULL AND service_offer_id IS NULL) AS con_ninguno
+>> FROM cart_item;
+>> 
+>> SELECT conname, pg_get_constraintdef(oid) AS definicion
+>> FROM pg_constraint
+>> WHERE conrelid = 'cart_item'::regclass AND contype = 'c';
+>> '@ | Set-Content -Path "$PWD\auditoria_126.sql" -Encoding utf8
+>> 
+>> # --- 2. Variables de conexión ---
+>> $env:PGHOST = "ep-silent-bonus-b5l2dcfy.c-7.us-east-2.aws.neon.tech"
+>> $env:PGPORT = "5432"
+>> $env:PGUSER = "neondb_owner"
+>> $env:PGDATABASE = "neondb"
+>> $env:PGSSLMODE = "require"
+>> 
+>> # --- 3. Contraseña (no se muestra) ---
+>> $secure = Read-Host "Contraseña de Neon" -AsSecureString
+>> $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+>> $env:PGPASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+>> 
+>> # --- 4. Ejecutar y guardar resultado ---
+>> try {
+>>     docker run --rm `
+>>       --env PGHOST --env PGPORT --env PGUSER --env PGDATABASE --env PGSSLMODE --env PGPASSWORD `
+>>       --volume "${PWD}\auditoria_126.sql:/auditoria_126.sql:ro" `
+>>       postgres:18 psql -f /auditoria_126.sql 2>&1 | Tee-Object -FilePath "$PWD\auditoria_126_resultado.txt"
+>> }
+>> finally {
+>>     # --- 5. Limpiar la contraseña ---
+>>     $env:PGPASSWORD = $null
+>>     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+>> }
+>> 
+>> Write-Host "`nListo. Resultado guardado en: $PWD\auditoria_126_resultado.txt"
+Contraseña de Neon: ****************
+=== 1. TODAS LAS FOREIGN KEYS (con ON DELETE / ON UPDATE) ===
+           tabla_hija           |          columna           |          tabla_padre           |                fk                         | on_delete | on_update 
+--------------------------------+----------------------------+--------------------------------+---------------------------------------------------+-----------+-----------
+ ai_query_process               | search_query_id            | search_query                   | ai_query_process_search_query_id_fkey             | CASCADE   | NO ACTION
+ cart_item                      | offer_id                   | product_offer                  | cart_item_offer_id_fkey                           | CASCADE   | NO ACTION
+ cart_item                      | product_id                 | product                        | cart_item_product_id_fkey                         | CASCADE   | NO ACTION
+ cart_item                      | service_offer_id           | service_offer                  | cart_item_service_offer_id_fkey                   | CASCADE   | NO ACTION
+ cart_item                      | user_id                    | user_account                   | cart_item_user_id_fkey                            | CASCADE   | NO ACTION
+ categories                     | legacy_product_category_id | product_category               | categories_legacy_product_category_id_fkey        | SET NULL  | NO ACTION
+ categories                     | legacy_service_category_id | service_category               | categories_legacy_service_category_id_fkey        | SET NULL  | NO ACTION
+ category_attributes            | category_id                | categories                     | category_attributes_category_id_fkey              | CASCADE   | NO ACTION
+ data_source                    | store_id                   | store                          | data_source_store_id_fkey                         | SET NULL  | NO ACTION
+ notification                   | user_id                    | user_account                   | notification_user_id_fkey                         | CASCADE   | NO ACTION
+ product                        | brand_id                   | brand                          | product_brand_id_fkey                             | SET NULL  | NO ACTION
+ product                        | category_id                | product_category               | product_category_id_fkey                          | RESTRICT  | NO ACTION
+ product                        | category_ref               | categories                     | product_category_ref_fkey                         | RESTRICT  | NO ACTION
+ product_attribute_value        | attribute_id               | category_attributes            | product_attribute_value_attribute_fk              | RESTRICT  | NO ACTION
+ product_attribute_value        | product_id                 | product                        | product_attribute_value_product_fk                | CASCADE   | NO ACTION
+ product_category               | parent_category_id         | product_category               | product_category_parent_category_id_fkey          | SET NULL  | NO ACTION
+ product_category_specification | category_id                | product_category               | product_category_specification_category_id_fkey   | CASCADE   | NO ACTION
+ product_comparison             | category_id                | product_category               | product_comparison_category_id_fkey               | RESTRICT  | NO ACTION
+ product_comparison             | user_id                    | user_account                   | product_comparison_user_id_fkey                   | CASCADE   | NO ACTION
+ product_comparison_item        | comparison_id              | product_comparison             | product_comparison_item_comparison_id_fkey        | CASCADE   | NO ACTION
+ product_comparison_item        | product_id                 | product                        | product_comparison_item_product_id_fkey           | CASCADE   | NO ACTION
+ product_image                  | product_id                 | product                        | product_image_product_id_fkey                     | CASCADE   | NO ACTION
+ product_offer                  | product_id                 | product                        | product_offer_product_id_fkey                     | CASCADE   | NO ACTION
+ product_offer                  | store_id                   | store                          | product_offer_store_id_fkey                       | CASCADE   | NO ACTION
+ product_price_history          | product_offer_id           | product_offer                  | product_price_history_product_offer_id_fkey       | CASCADE   | NO ACTION
+ product_review                 | product_id                 | product                        | product_review_product_id_fkey                    | CASCADE   | NO ACTION
+ product_review                 | user_id                    | user_account                   | product_review_user_id_fkey                       | CASCADE   | NO ACTION
+ product_specification_value    | product_id                 | product                        | product_specification_value_product_id_fkey       | CASCADE   | NO ACTION
+ product_specification_value    | specification_id           | product_category_specification | product_specification_value_specification_id_fkey | CASCADE   | NO ACTION
+ product_user_interest          | product_id                 | product                        | product_user_interest_product_id_fkey             | CASCADE   | NO ACTION
+ product_user_interest          | user_id                    | user_account                   | product_user_interest_user_id_fkey                | CASCADE   | NO ACTION
+ provider_location              | location_id                | location                       | provider_location_location_id_fkey                | CASCADE   | NO ACTION
+ provider_location              | provider_id                | provider                       | provider_location_provider_id_fkey                | CASCADE   | NO ACTION
+ saved_search                   | user_id                    | user_account                   | saved_search_user_id_fkey                         | CASCADE   | NO ACTION
+ scrape_run                     | scraper_config_id          | scraper_config                 | scrape_run_scraper_config_id_fkey                 | CASCADE   | NO ACTION
+ scraped_data                   | scrape_run_id              | scrape_run                     | scraped_data_scrape_run_id_fkey                   | CASCADE   | NO ACTION
+ scraper_config                 | data_source_id             | data_source                    | scraper_config_data_source_id_fkey                | CASCADE   | NO ACTION
+ search_query                   | user_id                    | user_account                   | search_query_user_id_fkey                         | SET NULL  | NO ACTION
+ search_query_filter            | search_query_id            | search_query                   | search_query_filter_search_query_id_fkey          | CASCADE   | NO ACTION
+ service                        | category_id                | service_category               | service_category_id_fkey                          | RESTRICT  | NO ACTION
+ service_category               | parent_category_id         | service_category               | service_category_parent_category_id_fkey          | SET NULL  | NO ACTION
+ service_category               | service_type_id            | service_type                   | service_category_service_type_id_fkey             | RESTRICT  | NO ACTION
+ service_category_specification | category_id                | service_category               | service_category_specification_category_id_fkey   | CASCADE   | NO ACTION
+ service_comparison             | category_id                | service_category               | service_comparison_category_id_fkey               | RESTRICT  | NO ACTION
+ service_comparison             | user_id                    | user_account                   | service_comparison_user_id_fkey                   | CASCADE   | NO ACTION
+ service_comparison_item        | comparison_id              | service_comparison             | service_comparison_item_comparison_id_fkey        | CASCADE   | NO ACTION
+ service_comparison_item        | service_id                 | service                        | service_comparison_item_service_id_fkey           | CASCADE   | NO ACTION
+ service_offer                  | provider_id                | provider                       | service_offer_provider_id_fkey                    | CASCADE   | NO ACTION
+ service_offer                  | service_id                 | service                        | service_offer_service_id_fkey                     | CASCADE   | NO ACTION
+ service_price_history          | service_offer_id           | service_offer                  | service_price_history_service_offer_id_fkey       | CASCADE   | NO ACTION
+ service_review                 | service_id                 | service                        | service_review_service_id_fkey                    | CASCADE   | NO ACTION
+ service_review                 | user_id                    | user_account                   | service_review_user_id_fkey                       | CASCADE   | NO ACTION
+ service_specification_value    | service_id                 | service                        | service_specification_value_service_id_fkey       | CASCADE   | NO ACTION
+ service_specification_value    | specification_id           | service_category_specification | service_specification_value_specification_id_fkey | CASCADE   | NO ACTION
+ service_user_interest          | service_id                 | service                        | service_user_interest_service_id_fkey             | CASCADE   | NO ACTION
+ service_user_interest          | user_id                    | user_account                   | service_user_interest_user_id_fkey                | CASCADE   | NO ACTION
+ store_location                 | location_id                | location                       | store_location_location_id_fkey                   | CASCADE   | NO ACTION
+ store_location                 | store_id                   | store                          | store_location_store_id_fkey                      | CASCADE   | NO ACTION
+ store_review                   | store_id                   | store                          | store_review_store_id_fkey                        | CASCADE   | NO ACTION
+ store_review                   | user_id                    | user_account                   | store_review_user_id_fkey                         | CASCADE   | NO ACTION
+ user_session                   | user_id                    | user_account                   | user_session_user_id_fkey                         | CASCADE   | NO ACTION
+(61 rows)
+
+=== 2. RESUMEN DE ON DELETE ===
+ on_delete | cantidad 
+-----------+----------
+ CASCADE   |       47
+ SET NULL  |        7
+ RESTRICT  |        7
+(3 rows)
+
+=== 3. COLUMNAS *_id SIN FOREIGN KEY ===
+  table_name  | column_name |     data_type     
+--------------+-------------+-------------------
+ product      | public_id   | uuid
+ scraped_data | external_id | character varying
+ service      | public_id   | uuid
+ user_account | public_id   | uuid
+(4 rows)
+
+=== 4. TABLAS INTERMEDIAS N:M ===
+            tabla            | num_fks | num_columnas 
+-----------------------------+---------+--------------
+ product_specification_value |       2 |            4
+ service_specification_value |       2 |            4
+ product_attribute_value     |       2 |            5
+ product_comparison_item     |       2 |            5
+ service_comparison_item     |       2 |            5
+ product_comparison          |       2 |            6
+ service_comparison          |       2 |            6
+ store_location              |       2 |            6
+ provider_location           |       2 |            7
+ product_user_interest       |       2 |            8
+ service_category            |       2 |            8
+ service_user_interest       |       2 |            8
+ store_review                |       2 |            8
+ product_review              |       2 |            9
+ service_review              |       2 |            9
+ cart_item                   |       4 |           10
+ categories                  |       2 |           10
+ product                     |       3 |           12
+ product_offer               |       2 |           13
+ service_offer               |       2 |           13
+(20 rows)
+
+=== 5. N:M SIN UNIQUE/PK COMPUESTA ===
+             tabla              
+--------------------------------
+ product_category_specification
+ provider_location
+ service_category_specification
+ store_location
+(4 rows)
+
+=== 6. CART_ITEM ===
+ total | con_ambos | con_ninguno 
+-------+-----------+-------------
+     0 |         0 |           0
+(1 row)
+
+               conname               |                    definicion            
+-------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ cart_item_quantity_check            | CHECK ((quantity > 0))
+ cart_item_saved_price_check         | CHECK ((saved_price >= (0)::numeric))
+ cart_item_saved_shipping_cost_check | CHECK ((saved_shipping_cost >= (0)::numeric))
+ cart_item_product_or_service        | CHECK ((((product_id IS NOT NULL) AND (offer_id IS NOT NULL) AND (service_offer_id IS NULL)) OR ((product_id IS NULL) AND (offer_id IS NULL) AND (service_offer_id IS NOT NULL))))
+(4 rows)
+
+
+
