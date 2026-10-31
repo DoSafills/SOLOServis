@@ -9,6 +9,14 @@
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 
+# Los recursos de un componente no reciben las etiquetas de base: sin esta, la
+# limpieza de la Fase 1 (part-of=soloservis) no los borraría al cambiar de topología.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: soloservis
+    includeSelectors: false
+    includeTemplates: true
+
 resources:
   - comercial.yaml
   - usuarios.yaml
