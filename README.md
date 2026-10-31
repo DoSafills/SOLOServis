@@ -432,14 +432,14 @@ npm run dev
 
 ## Ejecutar en Kubernetes
 
-Con Docker Desktop y Kubernetes activado (detalles, modo UCT y comandos en [`k8s/README.md`](k8s/README.md)):
+En tu namespace del clúster UCT, con 3 pods por dominio: comercial, usuarios e ingestion. Kubeconfig, Docker Hub, pod de test y más comandos en [`k8s/README.md`](k8s/README.md).
 
 ```powershell
-.\scripts\k8s\deploy.ps1 -Modo local
+.\scripts\k8s\deploy.ps1 -Modo uct -Registry docker.io/<usuario-docker>
 ```
 
 ```bash
-./scripts/k8s/deploy.sh --modo local
+./scripts/k8s/deploy.sh --modo uct --registry docker.io/<usuario-docker>
 ```
 
 ---

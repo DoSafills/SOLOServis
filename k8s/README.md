@@ -1,14 +1,14 @@
 # SOLOServis en Kubernetes
 
-Guía para desplegar SOLOServis desde tu máquina, en tu propio Kubernetes local o en tu namespace del clúster de la universidad (UCT). Cada comando aparece en **PowerShell** (Windows) y en **bash** (Linux, macOS o Git Bash).
+Guía para desplegar SOLOServis desde tu máquina en tu namespace del clúster de la universidad (UCT). Cada comando aparece en **PowerShell** (Windows) y en **bash** (Linux, macOS o Git Bash).
 
 ## Contenido
 
 1. [Qué se despliega](#1-qué-se-despliega)
 2. [Requisitos](#2-requisitos)
-3. [Modo local (Docker Desktop)](#3-modo-local-docker-desktop)
-4. [Modo UCT (clúster de la universidad)](#4-modo-uct-clúster-de-la-universidad)
-5. [Qué hace el script, fase por fase](#5-qué-hace-el-script-fase-por-fase)
+3. [Desplegar en UCT](#3-desplegar-en-uct)
+4. [Qué hace el script, fase por fase](#4-qué-hace-el-script-fase-por-fase)
+5. [Pod de test](#5-pod-de-test)
 6. [Operación del día a día](#6-operación-del-día-a-día)
 7. [Ejemplos de uso de la app desplegada](#7-ejemplos-de-uso-de-la-app-desplegada)
 8. [Solución de problemas](#8-solución-de-problemas)
@@ -18,44 +18,45 @@ Guía para desplegar SOLOServis desde tu máquina, en tu propio Kubernetes local
 
 ## 1. Qué se despliega
 
-La misma aplicación se puede desplegar de dos formas. Solo cambia cómo se agrupan las APIs:
+Las 14 APIs se agrupan en **3 pods, uno por contexto de negocio**. Los tres usan la misma imagen (`backend/cmd/all-apis`); solo cambia la variable `API_DOMAIN`, que decide qué APIs sirve cada proceso (`backend/internal/allapis/domains.go`).
 
-| | **Modo `local`** | **Modo `uct`** |
-|---|---|---|
-| Dónde | Kubernetes de Docker Desktop, en tu máquina | Tu namespace `student-<usuario>` en la plataforma UCT |
-| APIs | **14 Deployments**, uno por API (microservicios, igual que `docker/compose.yml`) | **1 Deployment `backend`** con las 14 APIs en un solo proceso (`backend/cmd/all-apis`) |
-| Imágenes | Se construyen en tu máquina; no hace falta registry | Se publican en Docker Hub (`docker.io/<tu-usuario>`) |
-| Cómo se entra | `kubectl port-forward` → <http://localhost:8080> | Ingress → `http://soloservis-<usuario>.dev.censei.cl` |
-| Pods / Services | 16 / 17 | 3 / 4 |
+| Pod (Deployment + Service) | `API_DOMAIN` | APIs | Rutas que atiende |
+|---|---|---|---|
+| `comercial` | `comercial` | product, store, service, pricing, search, comparison, favorites, cart, review, watchlist, notification | `/products`, `/categories`, `/stores`, `/services`, `/offers`, `/search`, `/comparisons`, `/favorites`, `/cart`, `/reviews`, `/watchlist`, `/notifications` |
+| `usuarios` | `usuarios` | auth, user | `/auth`, `/users` |
+| `ingestion` | `ingestion` | ingestion | `/ingestion` (solo red interna, la usa el scraper) |
 
-**¿Por qué dos topologías?** La cuota de cada namespace UCT es de **12 pods, 10 Services, 1 CPU y 1 GB de memoria reservada**, y 14 APIs separadas no caben. `all-apis` sirve las mismas rutas con el mismo código: cada request llega sin cambios al router de su API. Para el frontend y para quien llame a las APIs, las dos topologías son idénticas.
+Además corren `frontend` (nginx con la app de Vite) y `postgres` (StatefulSet con PVC). En total: **5 pods y 6 Services**.
 
 ```
-Modo local (microservicios)                    Modo uct (consolidado)
+ navegador
+    │ https://soloservis-<usuario>.dev.censei.cl   (Ingress, solo path /)
+    ▼
+ frontend (nginx) ── /auth ───────────────────────────► usuarios   (auth, user)
+                  ── /products, /cart, /search, ... ──► comercial  (11 APIs)
+                                                            ▲
+ scraper ──(red interna + token)──► ingestion ── POST /notifications ┘
 
- navegador                                      navegador
-    │ kubectl port-forward :8080                   │ Ingress (solo path /)
-    ▼                                              ▼
- frontend (nginx) ──/products──► product-api    frontend (nginx) ──/products, /auth, ...──► backend
-                  ──/auth──────► auth-api                                                (14 APIs)
-                  ──/cart──────► cart-api                                                    │
-                  ...  (una API por ruta)                                                    ▼
-                         │                                                               postgres
-                         ▼                                                              (StatefulSet
-                      postgres (StatefulSet + PVC)                                       + PVC)
+ comercial, usuarios e ingestion ──► postgres (StatefulSet + PVC)
 ```
 
-El nginx del frontend (`docker/frontend/default.conf.template`) enruta por path. La plataforma UCT solo admite el path `/` en el Ingress, y el navegador usa siempre el mismo origen, así que no hay CORS. Estas son las rutas públicas:
+**Cómo se reparten las llamadas:**
+- Una ruta que no es del dominio responde **404** en ese pod (por ejemplo, `/auth/login` en `comercial`). El nginx manda cada ruta al pod correcto.
+- Las llamadas HTTP entre APIs del mismo dominio (cart → product, cart → pricing, review → store, ...) van al propio pod (`127.0.0.1:8080`).
+- La **única llamada entre pods** es ingestion → notification: `NOTIFICATION_API_URL=http://comercial:8080`. Si falta esa variable, ingestion **no arranca** y dice cuál falta.
+- `comercial` lee las tablas de sesión (`user_session`) para validar el token: es una dependencia por la base, no por HTTP.
 
-| Ruta | API | Métodos |
+El nginx del frontend (`docker/frontend/default.conf.template`) enruta por path, porque la plataforma UCT solo admite el path `/` en el Ingress. El navegador usa siempre el mismo origen, así que no hay CORS. Estas son las rutas públicas:
+
+| Ruta | Pod | Métodos |
 |---|---|---|
-| `/products`, `/product-categories`, `/categories` | Product | GET |
-| `/stores` | Store | GET |
-| `/services` | Service | GET |
-| `/auth` | Auth | GET, POST |
-| `/favorites`, `/cart`, `/search`, `/comparisons`, `/reviews`, `/watchlist` | la de su nombre | todos (cada API valida la sesión) |
+| `/products`, `/product-categories`, `/categories`, `/stores`, `/services` | comercial | GET |
+| `/auth` | usuarios | GET, POST |
+| `/favorites`, `/cart`, `/search`, `/comparisons`, `/reviews`, `/watchlist` | comercial | todos (cada API valida la sesión) |
 
 **Pricing, User, Notification e Ingestion no se publican.** Solo se llaman por la red interna del clúster (ver [§7](#7-ejemplos-de-uso-de-la-app-desplegada)).
+
+**Topología de respaldo: `consolidado`.** Las 14 APIs en un solo Deployment `backend` (3 pods y 4 Services en total). Sirve si la cuota no alcanza: `-Topologia consolidado` / `--topologia consolidado`. Para el frontend y para quien llame a las APIs, las dos topologías son idénticas.
 
 ---
 
@@ -63,11 +64,11 @@ El nginx del frontend (`docker/frontend/default.conf.template`) enruta por path.
 
 | Herramienta | Para qué | Comprobar |
 |---|---|---|
-| Docker Desktop (o Docker Engine en Linux) | construir imágenes (y Kubernetes local) | `docker version` |
+| Docker Desktop (o Docker Engine en Linux) | construir y publicar las imágenes | `docker version` |
 | kubectl ≥ 1.27 | hablar con el clúster (incluye kustomize) | `kubectl version --client` |
 | git | clonar el repo y etiquetar imágenes | `git --version` |
 | curl | verificaciones del script (bash) | `curl --version` |
-| plugin `kubectl oidc-login` (solo UCT) | iniciar sesión con tu cuenta institucional | `kubectl oidc-login --version` |
+| plugin `kubectl oidc-login` | iniciar sesión con tu cuenta institucional | `kubectl oidc-login --version` |
 
 Docker Desktop ya trae `kubectl`. Si no lo tienes:
 
@@ -111,78 +112,9 @@ git pull
 
 ---
 
-## 3. Modo local (Docker Desktop)
+## 3. Desplegar en UCT
 
-### 3.1. Activar Kubernetes
-
-1. Abre Docker Desktop → **Settings → Kubernetes**.
-2. Marca **Enable Kubernetes**. Si te pregunta por el tipo de clúster, elige **kubeadm**: con ese tipo, el clúster ve las imágenes que construyes con `docker build` sin publicarlas.
-3. **Apply & restart** y espera a que el indicador de Kubernetes quede en verde (2 a 5 minutos la primera vez).
-4. Recomendado: en **Settings → Resources**, asigna al menos **4 CPU y 6 GB de memoria**.
-
-Comprueba que el contexto existe y responde:
-
-```bash
-kubectl config get-contexts
-```
-
-```bash
-kubectl --context docker-desktop get nodes
-```
-
-Deberías ver el nodo `docker-desktop` en estado `Ready`.
-
-### 3.2. Desplegar
-
-**PowerShell**
-
-```powershell
-.\scripts\k8s\deploy.ps1 -Modo local
-```
-
-**bash**
-
-```bash
-./scripts/k8s/deploy.sh --modo local
-```
-
-La primera vez tarda entre 5 y 10 minutos, porque construye 15 imágenes. Cada fase termina con un checkpoint (`=== FASE N ===`). Si algo falla, el script se detiene, muestra la causa y te dice desde qué fase reintentar.
-
-### 3.3. Abrir la app
-
-Deja esta terminal abierta mientras uses la app:
-
-```bash
-kubectl --context docker-desktop -n soloservis port-forward svc/frontend 8080:80
-```
-
-Abre <http://localhost:8080>.
-
-> Para no repetir `--context docker-desktop -n soloservis` en cada comando, deja ese namespace por defecto (solo cambia tu `~/.kube/config` local):
->
-> ```bash
-> kubectl config use-context docker-desktop
-> ```
->
-> ```bash
-> kubectl config set-context --current --namespace soloservis
-> ```
-
-### 3.4. Apagar o borrar
-
-Para borrar todo (incluida la base de datos local):
-
-```bash
-kubectl --context docker-desktop delete namespace soloservis
-```
-
-Para apagar Kubernetes sin borrar nada, desmarca **Enable Kubernetes** en Docker Desktop.
-
----
-
-## 4. Modo UCT (clúster de la universidad)
-
-### 4.1. Tu kubeconfig
+### 3.1. Tu kubeconfig
 
 El kubeconfig de la plataforma inicia sesión con `kubectl oidc-login`. Si no tienes el plugin, `kubectl` responde `unknown command "oidc-login"`. Instálalo una sola vez:
 
@@ -234,7 +166,7 @@ La primera vez, `kubectl` abre el navegador para iniciar sesión (OIDC). La resp
 
 > `$env:KUBECONFIG` / `export KUBECONFIG` solo duran mientras la terminal está abierta. Para las demás secciones, ábrela así o pasa `--kubeconfig <ruta>` en cada comando.
 
-### 4.2. Docker Hub
+### 3.2. Docker Hub
 
 El clúster descarga las imágenes de un registry, así que necesitas una cuenta en <https://hub.docker.com>. Tu usuario de Docker Hub es el `<usuario-docker>` de los comandos.
 
@@ -244,7 +176,7 @@ docker login
 
 Los repositorios `soloservis-frontend` y `soloservis-backend` se crean **públicos** con el primer `docker push`, y así el clúster puede descargarlos sin credenciales. Si prefieres que sean privados, mira [§8](#8-solución-de-problemas) (`ImagePullBackOff`).
 
-### 4.3. Desplegar
+### 3.3. Desplegar
 
 **PowerShell**
 
@@ -262,63 +194,122 @@ Los repositorios `soloservis-frontend` y `soloservis-backend` se crean **públic
     --registry docker.io/<usuario-docker>
 ```
 
-Al terminar, la app queda en `https://soloservis-<usuario>.dev.censei.cl` (la plataforma redirige `http` a `https`). El script lo imprime y verifica las rutas públicas desde tu máquina. La primera vez, el DNS puede tardar unos minutos en propagarse.
+Despliega la topología `dominios`. Para la de respaldo agrega `-Topologia consolidado` / `--topologia consolidado`.
+
+Al terminar, la app queda en `https://soloservis-<usuario>.dev.censei.cl` (la plataforma redirige `http` a `https`). El script verifica las rutas públicas desde tu máquina y corre el [pod de test](#5-pod-de-test) dentro del clúster. La primera vez, el DNS puede tardar unos minutos en propagarse.
 
 > **Advertencia de certificado:** por ahora la plataforma usa un certificado HTTPS que el navegador no reconoce. Que aparezca el aviso es normal (§12 del manual de la plataforma) y no indica un error del despliegue: acéptalo para entrar. Con curl agrega `-k`.
 
 **Lo que conviene saber:**
 - **Solo inventario:** agrega `-ToPhase 0` / `--to-phase 0`. Muestra recursos, cuota y StorageClasses sin modificar nada.
-- **Tus datos se conservan:** la Fase 1 borra Deployments, Services, Jobs e Ingress de un despliegue anterior, pero **conserva el PVC de PostgreSQL y los Secrets**. El Job de migraciones solo aplica las que falten (las registra en `schema_migrations`).
+- **Tus datos se conservan:** la Fase 1 borra Deployments, Services, Jobs e Ingress de un despliegue anterior (también el de la otra topología), pero **conserva el PVC de PostgreSQL y los Secrets**. El Job de migraciones solo aplica las que falten (las registra en `schema_migrations`).
 - **Otro dominio:** usa `-IngressHost` / `--ingress-host`.
 
-### 4.4. Cuota
+### 3.4. Cuota
 
 ```bash
 kubectl get resourcequota
 ```
 
-El modo `uct` ocupa unos 175m de CPU y 450Mi de memoria reservados, y 650m de CPU y 900Mi de límite: alrededor de la mitad de la cuota. Si la universidad la amplía (al menos 18 pods y 18 Services), puedes desplegar microservicios también ahí con `-Topologia microservicios` / `--topologia microservicios`.
+| | Cuota del namespace | `dominios` | `consolidado` |
+|---|---|---|---|
+| Pods | 12 | 5 | 3 |
+| Services | 10 | 6 | 4 |
+| CPU reservada (requests) | 1 | 225m | 175m |
+| Memoria reservada (requests) | 1G | 576Mi | 448Mi |
+| CPU / memoria máxima (limits) | 2 / 2G | 1050m / 1152Mi | 650m / 896Mi |
+
+Requests por pod en `dominios`: comercial 50m/128Mi, usuarios 25m/64Mi, ingestion 25m/64Mi, frontend 25m/64Mi y postgres 100m/256Mi. Los Jobs (migraciones y pod de test) suman un pod más mientras corren. El LimitRange de la plataforma exige como mínimo 25m y 64Mi por contenedor.
 
 ---
 
-## 5. Qué hace el script, fase por fase
+## 4. Qué hace el script, fase por fase
 
-`deploy.ps1` y `deploy.sh` hacen lo mismo. Cada fase muestra un checkpoint y, si algo falla, se detiene con el diagnóstico (describe, logs y eventos).
+`deploy.ps1` y `deploy.sh` hacen lo mismo. Cada fase muestra un checkpoint (`=== FASE N ===`) y, si algo falla, se detiene con el diagnóstico (describe, logs y eventos) y te dice desde qué fase reintentar.
 
 | Fase | Qué hace | Cómo se verifica |
 |---|---|---|
 | 0 | Inventario: herramientas, acceso al clúster, recursos actuales, cuota | solo lectura |
-| 1 | Crea el namespace (local) y borra el despliegue anterior. **Conserva el PVC y los Secrets** | no quedan recursos `part-of=soloservis` |
-| 2 | Elige la StorageClass (UCT: prueba que un PVC quede Bound y escribible) y genera `k8s/overlays/<modo>` | `kubectl kustomize` compila |
-| 3 | `docker build` de las imágenes (y `docker push` en UCT) | cada imagen OK |
+| 1 | Borra el despliegue anterior. **Conserva el PVC y los Secrets** | no quedan recursos `part-of=soloservis` |
+| 2 | Elige la StorageClass (prueba que un PVC quede Bound y escribible) y genera `k8s/overlays/uct` | `kubectl kustomize` compila |
+| 3 | `docker build` y `docker push` de las 2 imágenes (frontend y backend) | cada imagen OK |
 | 4 | Crea el Secret `soloservis-internal` (token) si no existe y despliega PostgreSQL | `postgres-0` Ready |
 | 5 | Job de migraciones (`migration_order.txt`) | `schema_migrations` = archivos del manifiesto |
-| 6 | APIs (14 Deployments o `backend`) | cada una Ready y con `/health` → `database: connected` |
+| 6 | APIs: `comercial`, `usuarios` e `ingestion` (o `backend`) | cada una Ready y con `/health` → `database: connected` |
 | 7 | Frontend (nginx) | Ready y `/products` responde a través de nginx |
-| 8 | Acceso: Ingress (UCT) o port-forward temporal (local) | `/`, `/products`, `/categories`, `/stores`, `/services`, `/search` desde tu máquina |
+| 8 | Ingress | `/`, `/products`, `/categories`, `/stores`, `/services`, `/search` desde tu máquina |
 | 9 | Prueba de resiliencia: borra un pod de API y reinicia PostgreSQL | el pod se recrea, los datos persisten, las APIs reconectan |
+| 10 | [Pod de test](#5-pod-de-test) | todas las verificaciones OK |
 
 **Parámetros:**
 
 | PowerShell | bash | Uso |
 |---|---|---|
-| `-Modo local\|uct` | `--modo local\|uct` | obligatorio |
-| `-Topologia` | `--topologia` | `microservicios` o `consolidado` (por defecto, según el modo) |
-| `-Kubeconfig` / `-Context` / `-Namespace` | `--kubeconfig` / `--context` / `--namespace` | por defecto: `~/.kube/config`, `docker-desktop` y `soloservis` en local; en UCT, el namespace del kubeconfig |
-| `-Registry` | `--registry` | UCT: `docker.io/<usuario-docker>` |
+| `-Topologia` | `--topologia` | `dominios` (por defecto) o `consolidado` |
+| `-Modo uct` | `--modo uct` | opcional; se mantiene por compatibilidad (el modo local se retiró) |
+| `-Kubeconfig` / `-Context` / `-Namespace` | `--kubeconfig` / `--context` / `--namespace` | por defecto: `$KUBECONFIG` o `~/.kube/config`, y el namespace del kubeconfig |
+| `-Registry` | `--registry` | `docker.io/<usuario-docker>` |
 | `-Tag` | `--tag` | por defecto: el commit actual (`git rev-parse --short HEAD`) |
-| `-FromPhase` / `-ToPhase` | `--from-phase` / `--to-phase` | ejecutar solo un rango de fases (0–9) |
+| `-FromPhase` / `-ToPhase` | `--from-phase` / `--to-phase` | ejecutar solo un rango de fases (0–10) |
 | `-SkipCleanup` | `--skip-cleanup` | no borrar nada en la Fase 1 |
-| `-LocalPort` | `--local-port` | puerto de la prueba de la Fase 8 (local, por defecto 8080) |
-| `-StorageClass`, `-IngressClass`, `-IngressHost`, `-ImagePullSecret` | `--storage-class`, `--ingress-class`, `--ingress-host`, `--image-pull-secret` | casos especiales (UCT) |
+| `-StorageClass`, `-IngressClass`, `-IngressHost`, `-ImagePullSecret` | `--storage-class`, `--ingress-class`, `--ingress-host`, `--image-pull-secret` | casos especiales |
 
-El script guarda el registry, el tag y la StorageClass elegida en `k8s/overlays/<modo>/` (carpeta ignorada por git). Así, al reintentar desde una fase intermedia, no tienes que repetirlos.
+El script guarda el registry, el tag y la StorageClass elegida en `k8s/overlays/uct/` (carpeta ignorada por git). Así, al reintentar desde una fase intermedia, no tienes que repetirlos.
+
+---
+
+## 5. Pod de test
+
+Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **Solo hace lecturas: no escribe nada en la base.** Detecta solo la topología (dominios o consolidado).
+
+| Verificación | Qué espera |
+|---|---|
+| `/health` de `comercial`, `usuarios` e `ingestion` | 200 y `"database":"connected"` |
+| Una lectura por API (product, store, service, pricing, search, comparison, review, watchlist, notification, user) | 200 con datos |
+| Rutas con sesión sin token: `/favorites`, `/cart`, `/comparisons/products`, `/auth/validate`, `/ingestion/runs` | 401 |
+| Ruta interna con `INTERNAL_API_TOKEN`: `GET /ingestion/runs` | 200 |
+| Aislamiento: `comercial` no sirve `/auth` ni `/ingestion`; `usuarios` e `ingestion` no sirven `/products` | 404 |
+| nginx del frontend: `/` → app, `/products` → comercial, `/auth` → usuarios | 200, 200, 401 |
+
+Lo corre la Fase 10 del deploy. Para correrlo solo:
+
+**PowerShell**
+
+```powershell
+.\scripts\k8s\deploy.ps1 -Modo uct -FromPhase 10
+```
+
+**bash**
+
+```bash
+./scripts/k8s/deploy.sh --modo uct --from-phase 10
+```
+
+O a mano con `kubectl` (los Jobs son inmutables: se borra antes de repetirlo):
+
+```bash
+kubectl delete job soloservis-smoke-test --ignore-not-found
+```
+
+```bash
+kubectl apply -k k8s/tests
+```
+
+```bash
+kubectl wait --for=condition=complete job/soloservis-smoke-test --timeout=180s
+```
+
+```bash
+kubectl logs job/soloservis-smoke-test
+```
+
+Cada línea dice `OK` o `FALLA` con el código HTTP y la URL; la última es `Resultado: N OK, M fallas`. El Job termina en `Complete` si todo pasa y en `Failed` si algo falla. Se borra solo una hora después.
 
 ---
 
 ## 6. Operación del día a día
 
-Los ejemplos de esta sección usan el modo local. En UCT, quita `--context docker-desktop -n soloservis` (el kubeconfig ya fija el namespace) y cambia `deployment/product-api` por `deployment/backend`.
+Los ejemplos usan `deployment/comercial`. Cambia el nombre por `usuarios`, `ingestion`, `frontend` o, en la topología consolidada, `backend`.
 
 ### Re-desplegar después de cambiar código
 
@@ -327,13 +318,13 @@ Cambiaste código y quieres verlo en el clúster: construye imágenes nuevas (Fa
 **PowerShell**
 
 ```powershell
-.\scripts\k8s\deploy.ps1 -Modo local -FromPhase 3 -SkipCleanup
+.\scripts\k8s\deploy.ps1 -Modo uct -FromPhase 3 -SkipCleanup
 ```
 
 **bash**
 
 ```bash
-./scripts/k8s/deploy.sh --modo local --from-phase 3 --skip-cleanup
+./scripts/k8s/deploy.sh --modo uct --from-phase 3 --skip-cleanup
 ```
 
 > El tag de las imágenes es el commit actual, más la fecha si hay cambios sin commitear. Así cada build produce un tag nuevo y Kubernetes siempre reemplaza los pods.
@@ -343,19 +334,19 @@ Si agregaste una **migración nueva**, agrégala también a `backend/database/mi
 ### Ver el estado
 
 ```bash
-kubectl --context docker-desktop -n soloservis get pods
+kubectl get pods
 ```
 
 ```bash
-kubectl --context docker-desktop -n soloservis get deploy,svc,pvc,ingress
+kubectl get deploy,svc,pvc,ingress
 ```
 
 ### Logs
 
-Últimas 50 líneas de una API, siguiendo en vivo (Ctrl+C para salir):
+Últimas 50 líneas de un pod de API, siguiendo en vivo (Ctrl+C para salir):
 
 ```bash
-kubectl --context docker-desktop -n soloservis logs deployment/product-api --tail 50 -f
+kubectl logs deployment/comercial --tail 50 -f
 ```
 
 Los logs de las APIs son JSON (uno por request, con `request_id`). Para buscar errores:
@@ -363,39 +354,39 @@ Los logs de las APIs son JSON (uno por request, con `request_id`). Para buscar e
 **PowerShell**
 
 ```powershell
-kubectl --context docker-desktop -n soloservis logs deployment/product-api --tail 500 | Select-String '"level":"ERROR"'
+kubectl logs deployment/comercial --tail 500 | Select-String '"level":"ERROR"'
 ```
 
 **bash**
 
 ```bash
-kubectl --context docker-desktop -n soloservis logs deployment/product-api --tail 500 | grep '"level":"ERROR"'
+kubectl logs deployment/comercial --tail 500 | grep '"level":"ERROR"'
 ```
 
-### Reiniciar una API
+### Reiniciar un pod de API
 
 ```bash
-kubectl --context docker-desktop -n soloservis rollout restart deployment/product-api
+kubectl rollout restart deployment/comercial
 ```
 
 ```bash
-kubectl --context docker-desktop -n soloservis rollout status deployment/product-api
+kubectl rollout status deployment/comercial
 ```
 
 ### Volver a la versión anterior (rollback)
 
 ```bash
-kubectl --context docker-desktop -n soloservis rollout history deployment/product-api
+kubectl rollout history deployment/comercial
 ```
 
 ```bash
-kubectl --context docker-desktop -n soloservis rollout undo deployment/product-api
+kubectl rollout undo deployment/comercial
 ```
 
 ### Consola de PostgreSQL
 
 ```bash
-kubectl --context docker-desktop -n soloservis exec -it postgres-0 -- psql -U postgres -d soloservis
+kubectl exec -it postgres-0 -- psql -U postgres -d soloservis
 ```
 
 Dentro de `psql`: `\dt` lista las tablas, `SELECT version FROM schema_migrations;` muestra las migraciones aplicadas y `\q` sale.
@@ -403,18 +394,12 @@ Dentro de `psql`: `\dt` lista las tablas, `SELECT version FROM schema_migrations
 Para conectarte desde DBeaver, pgAdmin u otro cliente: abre un port-forward y conéctate a `localhost:15432` (usuario `postgres`, contraseña `postgres`, base `soloservis`).
 
 ```bash
-kubectl --context docker-desktop -n soloservis port-forward svc/postgres 15432:5432
+kubectl port-forward svc/postgres 15432:5432
 ```
 
 ### Borrar todo
 
-Local:
-
-```bash
-kubectl --context docker-desktop delete namespace soloservis
-```
-
-UCT (en tu namespace no puedes borrarlo, así que se borran los recursos). ⚠️ Esto incluye la base de datos:
+En tu namespace no puedes borrar el namespace, así que se borran los recursos. ⚠️ Esto incluye la base de datos:
 
 ```bash
 kubectl delete all,ingress,configmap,job,pvc -l app.kubernetes.io/part-of=soloservis
@@ -433,20 +418,18 @@ En los ejemplos, `$BASE` es la URL de la app:
 **PowerShell**
 
 ```powershell
-$BASE = "http://localhost:8080"                              # local (con el port-forward de 3.3 abierto)
-$BASE = "https://soloservis-<usuario>.dev.censei.cl"         # UCT
+$BASE = "https://soloservis-<usuario>.dev.censei.cl"
 ```
 
 **bash**
 
 ```bash
-BASE=http://localhost:8080                                   # local (con el port-forward de 3.3 abierto)
-BASE=https://soloservis-<usuario>.dev.censei.cl              # UCT
+BASE=https://soloservis-<usuario>.dev.censei.cl
 ```
 
 > En PowerShell usa siempre `curl.exe`, no `curl`, porque `curl` es un alias de `Invoke-WebRequest`.
 >
-> **En UCT** el certificado HTTPS aún no es de confianza (ver [§4.3](#43-desplegar)): agrega `-k` a cada `curl`/`curl.exe`. Para `Invoke-RestMethod` en PowerShell 5.1, desactiva la verificación **solo en esa terminal y solo para estas pruebas**:
+> El certificado HTTPS aún no es de confianza (ver [§3.3](#33-desplegar)): agrega `-k` a cada `curl`/`curl.exe`. Para `Invoke-RestMethod` en PowerShell 5.1, desactiva la verificación **solo en esa terminal y solo para estas pruebas**:
 > `[Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }`
 
 ### Consultas públicas
@@ -454,24 +437,26 @@ BASE=https://soloservis-<usuario>.dev.censei.cl              # UCT
 **PowerShell**
 
 ```powershell
-curl.exe -s "$BASE/categories"
-curl.exe -s "$BASE/categories/refrigeradores"
-curl.exe -s "$BASE/search/products?q=refrigerador&limit=3"
-curl.exe -s "$BASE/search/facets?category=refrigeradores"
-curl.exe -s "$BASE/stores"
+curl.exe -s -k "$BASE/categories"
+curl.exe -s -k "$BASE/categories/refrigeradores"
+curl.exe -s -k "$BASE/search/products?q=refrigerador&limit=3"
+curl.exe -s -k "$BASE/search/facets?category=refrigeradores"
+curl.exe -s -k "$BASE/stores"
 ```
 
 **bash**
 
 ```bash
-curl -s "$BASE/categories"
-curl -s "$BASE/categories/refrigeradores"
-curl -s "$BASE/search/products?q=refrigerador&limit=3"
-curl -s "$BASE/search/facets?category=refrigeradores"
-curl -s "$BASE/stores"
+curl -s -k "$BASE/categories"
+curl -s -k "$BASE/categories/refrigeradores"
+curl -s -k "$BASE/search/products?q=refrigerador&limit=3"
+curl -s -k "$BASE/search/facets?category=refrigeradores"
+curl -s -k "$BASE/stores"
 ```
 
 ### Registro y sesión
+
+`/auth` lo atiende el pod `usuarios`; `/comparisons` lo atiende `comercial`, que valida el mismo token leyendo `user_session`.
 
 **PowerShell**
 
@@ -480,51 +465,56 @@ curl -s "$BASE/stores"
 $body = '{"name":"Ana Prueba","email":"ana@test.cl","password":"Clave12345!"}'
 $session = Invoke-RestMethod -Method Post -Uri "$BASE/auth/register" -ContentType 'application/json' -Body $body
 $TOKEN = $session.accessToken
-curl.exe -s -H "Authorization: Bearer $TOKEN" "$BASE/auth/validate"
-curl.exe -s -H "Authorization: Bearer $TOKEN" "$BASE/comparisons/products"
+curl.exe -s -k -H "Authorization: Bearer $TOKEN" "$BASE/auth/validate"
+curl.exe -s -k -H "Authorization: Bearer $TOKEN" "$BASE/comparisons/products"
 ```
 
 **bash**
 
 ```bash
-TOKEN=$(curl -s -X POST -H 'Content-Type: application/json' \
+TOKEN=$(curl -s -k -X POST -H 'Content-Type: application/json' \
   -d '{"name":"Ana Prueba","email":"ana@test.cl","password":"Clave12345!"}' \
   "$BASE/auth/register" | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/auth/validate"
-curl -s -H "Authorization: Bearer $TOKEN" "$BASE/comparisons/products"
+curl -s -k -H "Authorization: Bearer $TOKEN" "$BASE/auth/validate"
+curl -s -k -H "Authorization: Bearer $TOKEN" "$BASE/comparisons/products"
 ```
 
 Si el correo ya existe, usa `/auth/login` con `{"email": ..., "password": ...}`.
 
 ### APIs internas (Pricing, Ingestion, User, Notification)
 
-No están publicadas. Para probarlas, abre un port-forward directo a la API:
+No están publicadas. Para probarlas, abre un port-forward al pod de su dominio:
 
-- **local:** `svc/pricing-api` (8085), `svc/ingestion-api` (8094), ...
-- **UCT:** `svc/backend` (8080), que atiende todas las rutas.
+| API | Service |
+|---|---|
+| pricing, notification | `svc/comercial` |
+| user | `svc/usuarios` |
+| ingestion | `svc/ingestion` |
 
-**PowerShell** (local; en UCT, `svc/backend 8094:8080`)
+En la topología consolidada, todas están en `svc/backend`.
+
+**PowerShell**
 
 ```powershell
-kubectl --context docker-desktop -n soloservis port-forward svc/ingestion-api 8094:8094
+kubectl port-forward svc/ingestion 8094:8080
 ```
 
 En otra terminal, lee el token de servicio y consulta las ejecuciones del scraper:
 
 ```powershell
-$raw = kubectl --context docker-desktop -n soloservis get secret soloservis-internal -o jsonpath='{.data.INTERNAL_API_TOKEN}'
+$raw = kubectl get secret soloservis-internal -o jsonpath='{.data.INTERNAL_API_TOKEN}'
 $INTERNAL = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($raw))
 curl.exe -s -H "Authorization: Bearer $INTERNAL" "http://localhost:8094/ingestion/runs"
 ```
 
-**bash** (local; en UCT, `svc/backend 8094:8080`)
+**bash**
 
 ```bash
-kubectl --context docker-desktop -n soloservis port-forward svc/ingestion-api 8094:8094
+kubectl port-forward svc/ingestion 8094:8080
 ```
 
 ```bash
-INTERNAL=$(kubectl --context docker-desktop -n soloservis get secret soloservis-internal -o jsonpath='{.data.INTERNAL_API_TOKEN}' | base64 -d)
+INTERNAL=$(kubectl get secret soloservis-internal -o jsonpath='{.data.INTERNAL_API_TOKEN}' | base64 -d)
 curl -s -H "Authorization: Bearer $INTERNAL" "http://localhost:8094/ingestion/runs"
 ```
 
@@ -536,20 +526,20 @@ El contrato completo para el scraper está en `backend/README.md`, §12.7. **No 
 
 | Síntoma | Causa probable | Qué hacer |
 |---|---|---|
-| Fase 0: `no existe el contexto 'docker-desktop'` | Kubernetes no está activado | Docker Desktop → Settings → Kubernetes → Enable |
-| `unknown command "oidc-login" for "kubectl"` | falta el plugin de login de la plataforma | instálalo como en [§4.1](#41-tu-kubeconfig) y abre una terminal nueva |
-| Fase 0 (UCT): `sin acceso al namespace` | kubeconfig vencido o login OIDC no completado | descarga de nuevo el kubeconfig y corre `kubectl auth can-i list pods` |
-| `kubectl get nodes` / `get namespaces`: `Forbidden` (UCT) | la plataforma no permite ver recursos del clúster | es esperado; trabaja dentro de tu namespace |
-| Navegador: "la conexión no es privada"; curl: error 60 / `SEC_E_UNTRUSTED_ROOT` (UCT) | la plataforma aún no emite certificados de confianza | acepta el aviso; con curl usa `-k` |
+| `unknown command "oidc-login" for "kubectl"` | falta el plugin de login de la plataforma | instálalo como en [§3.1](#31-tu-kubeconfig) y abre una terminal nueva |
+| Fase 0: `sin acceso al namespace` | kubeconfig vencido o login OIDC no completado | descarga de nuevo el kubeconfig y corre `kubectl auth can-i list pods` |
+| `kubectl get nodes` / `get namespaces`: `Forbidden` | la plataforma no permite ver recursos del clúster | es esperado; trabaja dentro de tu namespace |
+| Navegador: "la conexión no es privada"; curl: error 60 / `SEC_E_UNTRUSTED_ROOT` | la plataforma aún no emite certificados de confianza | acepta el aviso; con curl usa `-k` |
 | Fase 3: `docker push` denegado | no hiciste `docker login` o el usuario del registry no es el tuyo | `docker login` y `-Registry docker.io/<tu-usuario>` |
-| Fase 6: `ErrImageNeverPull` / `ImagePullBackOff` (local) | el clúster no ve las imágenes locales (tipo `kind`) | en Docker Desktop elige el clúster **kubeadm**, o reinicia Kubernetes |
-| Fase 6: `ImagePullBackOff` (UCT) | repositorio privado en Docker Hub | hazlo público, o crea `kubectl create secret docker-registry regcred --docker-username=<u> --docker-password=<token>` y usa `-ImagePullSecret regcred` |
-| Fase 6 (UCT): pods `Pending` con `exceeded quota` | otro despliegue tuyo ocupa la cuota | `kubectl get pods,resourcequota`; borra lo que no uses o corre desde la Fase 1 |
-| Fase 6: `CrashLoopBackOff` | la API no conecta a la base o falla al arrancar | `kubectl logs deployment/<api> --previous` |
+| Fase 3: `Cannot connect to the Docker daemon` | Docker Desktop no está abierto | ábrelo y corre desde la Fase 3 |
+| Fase 6: `ImagePullBackOff` | repositorio privado en Docker Hub | hazlo público, o crea `kubectl create secret docker-registry regcred --docker-username=<u> --docker-password=<token>` y usa `-ImagePullSecret regcred` |
+| Fase 6: pods `Pending` con `exceeded quota` | otro despliegue tuyo ocupa la cuota | `kubectl get pods,resourcequota`; borra lo que no uses, corre desde la Fase 1 o usa `-Topologia consolidado` |
+| Fase 6: `CrashLoopBackOff` | la API no conecta a la base o falla al arrancar | `kubectl logs deployment/<pod> --previous` |
+| Fase 6: ingestion termina con `faltan URLs de APIs de otro dominio` | falta `NOTIFICATION_API_URL` en su Deployment | revisa `k8s/components/dominios/ingestion.yaml` |
 | Fase 5: `faltan migraciones` | un `.sql` nuevo no está en `migration_order.txt` | agrégalo al manifiesto y corre desde la Fase 5 |
-| Fase 7: el frontend no arranca (`host not found in upstream`) | falta el Service de alguna API | corre desde la Fase 6 (crea las APIs antes que el frontend) |
-| Fase 8 (UCT): `sin respuesta: DNS o red` | el DNS aún no se propaga | espera unos minutos y abre la URL en el navegador |
-| `port-forward`: `address already in use` | el puerto 8080 está ocupado (compose, Vite, ...) | usa otro puerto: `port-forward svc/frontend 8081:80` |
+| Fase 7: el frontend no arranca (`host not found in upstream`) | falta el Service de algún pod de API | corre desde la Fase 6 (crea las APIs antes que el frontend) |
+| Fase 8: `sin respuesta: DNS o red` | el DNS aún no se propaga | espera unos minutos y abre la URL en el navegador |
+| Fase 10: líneas `FALLA` | una ruta respondió otro código | el log muestra la URL y el inicio de la respuesta; revisa `kubectl logs deployment/<pod>` |
 | PowerShell: `running scripts is disabled` | política de ejecución | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
 | bash: `/usr/bin/env: 'bash\r'` | el script quedó con finales de línea CRLF | `git checkout -- scripts/k8s/deploy.sh` (`.gitattributes` lo fuerza a LF) |
 
@@ -569,25 +559,26 @@ kubectl get events --sort-by=.lastTimestamp
 
 ```
 k8s/
-├── base/                         común a los dos modos
+├── base/                         común a las dos topologías
 │   ├── postgres/                 Secret (credenciales de desarrollo), Services, StatefulSet + PVC
 │   ├── migrations/               Job + migrate.sh (aplica migration_order.txt y registra schema_migrations)
 │   ├── frontend/                 Deployment (nginx sin root, solo lectura) + Service
-│   ├── ingress.yaml              host *.dev.censei.cl (se elimina en modo local)
+│   ├── ingress.yaml              host *.dev.censei.cl
 │   └── kustomization.yaml
 ├── components/
-│   ├── microservicios/           14 Deployments + Services, uno por API (modo local)
-│   └── consolidado/              Deployment "backend" (all-apis) + destino del nginx (modo uct)
-└── overlays/<modo>/              GENERADO por el script (ignorado por git): namespace, imágenes,
+│   ├── dominios/                 comercial, usuarios e ingestion (Deployment + Service) + destinos del nginx
+│   └── consolidado/              Deployment "backend" con las 14 APIs + destino del nginx (respaldo)
+├── tests/                        pod de test: Job + smoke-test.sh (solo lecturas)
+└── overlays/uct/                 GENERADO por el script (ignorado por git): namespace, imágenes,
                                   StorageClass, host y los .sql de backend/database/migrations
 scripts/k8s/deploy.ps1            despliegue por fases (PowerShell 5.1+)
 scripts/k8s/deploy.sh             el mismo despliegue en bash (Linux, macOS, Git Bash)
-docker/<api>/Dockerfile           imagen de cada API (binario estático, usuario 10001)
-docker/all-apis/Dockerfile        imagen del backend consolidado
+docker/all-apis/Dockerfile        imagen del backend (cmd/all-apis); la usan los 3 pods de API
 docker/frontend/                  build de Vite + nginx (default.conf.template, proxy.conf)
+docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/compose.yml)
 ```
 
 **Seguridad:**
 - **Postgres:** `base/postgres/secret.yaml` tiene credenciales **de desarrollo** (las mismas de `docker/compose.yml`). Para un entorno real se reemplazan por un Secret creado fuera de git.
-- **Token interno:** el token de `soloservis-internal` lo genera el script al azar en cada namespace y no está en git.
+- **Token interno:** el token de `soloservis-internal` lo genera el script al azar en cada namespace y no está en git. El pod de test lo usa sin imprimirlo.
 - **Pods:** todos corren sin root, con `readOnlyRootFilesystem` y sin capabilities. Cumplen Pod Security `restricted`.
