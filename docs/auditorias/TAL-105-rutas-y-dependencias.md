@@ -6,7 +6,7 @@
 | Fecha | 2026-10-31 |
 | Código auditado | `develop` @ `3e5e856` |
 | Tipo | Solo lectura y documentación. No se modificó código. |
-| Siguiente | TAL-95 inventaría lo **desplegado** (pods, Services, variables reales, health), después de TAL-103 |
+| Siguiente | [TAL-95](TAL-95-inventario-despliegue.md): inventario de lo **desplegado** (pods, Services, variables reales, health), después de TAL-103 |
 
 **Cómo se obtuvo el inventario de rutas:** se recorrió el router real de cada API con `chi.Walk`, la misma técnica del test `backend/internal/allapis/router_test.go`. Salen **101 rutas** en las 14 APIs: 87 de negocio y 14 `/health`.
 
