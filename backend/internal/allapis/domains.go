@@ -14,6 +14,11 @@ var Domains = map[string][]string{
 	// y es parte del catálogo (auditoría TAL-105).
 	"comercial": {"product", "store", "service", "pricing", "search", "comparison",
 		"favorites", "cart", "review", "watchlist", "notification"},
+	// TAL-106. Cuentas y sesiones; nadie las llama por HTTP: las demás APIs
+	// validan la sesión leyendo user_session.
+	"usuarios": {"auth", "user"},
+	// El scraper escribe aquí; avisa bajas de precio a notification (comercial).
+	"ingestion": {"ingestion"},
 }
 
 // Calls son las llamadas HTTP entre APIs: quién llama a quién (auditoría
