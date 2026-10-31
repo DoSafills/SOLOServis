@@ -1,10 +1,12 @@
-# favorites-api: un Deployment por API (modo microservicios, mismo puerto que docker/compose.yml).
+# usuarios: auth y user: cuentas, login y sesiones. No llama a otras APIs; las
+# demás validan la sesión leyendo user_session en la base.
+# Misma imagen que los otros dominios (cmd/all-apis); solo cambia API_DOMAIN.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: favorites-api
+  name: usuarios
   labels:
-    app.kubernetes.io/name: favorites-api
+    app.kubernetes.io/name: usuarios
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -17,11 +19,11 @@ spec:
       maxUnavailable: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: favorites-api
+      app.kubernetes.io/name: usuarios
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: favorites-api
+        app.kubernetes.io/name: usuarios
         app.kubernetes.io/component: api
     spec:
       automountServiceAccountToken: false
@@ -32,16 +34,19 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: favorites-api
-          image: soloservis/favorites-api
+        - name: usuarios
+          image: soloservis/backend
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8089
+              containerPort: 8080
               protocol: TCP
           env:
             - name: PORT
-              value: "8089"
+              value: "8080"
+            # Qué APIs sirve este proceso (backend/internal/allapis/domains.go).
+            - name: API_DOMAIN
+              value: usuarios
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}
@@ -57,8 +62,11 @@ spec:
             - name: FRONTEND_URL
               valueFrom:
                 configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}
-            - name: PRODUCT_API_URL
-              value: http://product-api:8081
+            # Token de servicio (scraper/admin). Lo crea el script de deploy;
+            # sin él, las escrituras quedan solo para sesiones admin.
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -69,7 +77,7 @@ spec:
               cpu: 25m
               memory: 64Mi
             limits:
-              cpu: 100m
+              cpu: 200m
               memory: 128Mi
           # /health hace ping a PostgreSQL: listo solo si hay base de datos.
           readinessProbe:
@@ -91,16 +99,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: favorites-api
+  name: usuarios
   labels:
-    app.kubernetes.io/name: favorites-api
+    app.kubernetes.io/name: usuarios
     app.kubernetes.io/component: api
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/name: favorites-api
+    app.kubernetes.io/name: usuarios
   ports:
     - name: http
-      port: 8089
+      port: 8080
       targetPort: http
       protocol: TCP

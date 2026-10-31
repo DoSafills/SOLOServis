@@ -1,5 +1,5 @@
-# Modo consolidado: las 14 APIs en un solo Deployment "backend" (cmd/all-apis).
-# Es el modo del clúster UCT: postgres + backend + frontend = 3 pods y 4
+# Modo consolidado (respaldo): las 14 APIs en un solo Deployment "backend" (cmd/all-apis).
+# Sirve si la cuota no alcanza para los 3 dominios: postgres + backend + frontend = 3 pods y 4
 # Services, dentro de la cuota (12 pods, 10 Services, 1 CPU / 1G de requests).
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component

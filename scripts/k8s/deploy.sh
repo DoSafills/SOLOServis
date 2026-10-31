@@ -1,42 +1,41 @@
 #!/usr/bin/env bash
-# Despliega SOLOServis en Kubernetes por fases (0-9), con checkpoint por fase.
+# Despliega SOLOServis en el cluster UCT por fases (0-10), con checkpoint por fase.
 # Equivalente en bash de scripts/k8s/deploy.ps1 (Linux, macOS y Git Bash).
 #
-# Modos (ver k8s/README.md):
-#   local  Kubernetes de Docker Desktop. Una API por Deployment (microservicios),
-#          imagenes construidas en tu maquina (sin registry) y acceso con
-#          kubectl port-forward en http://localhost:8080.
-#   uct    Cluster de la universidad con TU kubeconfig. Las 14 APIs en un solo
-#          Deployment "backend" (la cuota no admite 14), imagenes publicadas en
-#          un registry y acceso por Ingress en soloservis-<usuario>.dev.censei.cl.
+# Usa TU kubeconfig del cluster de la universidad, publica las imagenes en un
+# registry y deja la app en soloservis-<usuario>.dev.censei.cl (ver k8s/README.md).
+# Topologias (--topologia):
+#   dominios     (por defecto) 3 Deployments por contexto de negocio, misma imagen
+#                y API_DOMAIN distinto: comercial (11 APIs), usuarios e ingestion.
+#   consolidado  (respaldo) las 14 APIs en un solo Deployment "backend".
+# La Fase 10 corre el pod de test (k8s/tests): solo lecturas, no escribe nada.
 #
 # Ejemplos:
-#   ./scripts/k8s/deploy.sh --modo local
 #   ./scripts/k8s/deploy.sh --modo uct --kubeconfig ~/.kube/estudiantes-<usuario>.kubeconfig \
 #       --registry docker.io/<usuario-docker>
 #   ./scripts/k8s/deploy.sh --modo uct --to-phase 0          # solo inventario
-#   ./scripts/k8s/deploy.sh --modo local --from-phase 6 --skip-cleanup
+#   ./scripts/k8s/deploy.sh --modo uct --from-phase 6 --skip-cleanup
+#   ./scripts/k8s/deploy.sh --modo uct --from-phase 10       # solo el pod de test
 #
 # Nunca imprime Secrets, tokens ni el contenido del kubeconfig.
 set -uo pipefail
 
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
   cat <<'EOF'
 Opciones:
-  --modo local|uct            (obligatorio)
-  --topologia microservicios|consolidado   (por defecto: microservicios en local, consolidado en uct)
+  --modo uct                  (opcional: el modo local se retiro en TAL-103)
+  --topologia dominios|consolidado   (por defecto: dominios)
   --kubeconfig RUTA  --context NOMBRE  --namespace NOMBRE
-  --registry docker.io/usuario   (uct)   --tag TAG
+  --registry docker.io/usuario   --tag TAG
   --storage-class X  --ingress-class X  --ingress-host X  --ingress-scheme http|https  --image-pull-secret X
-  --local-port 8080  (local)
-  --from-phase N  --to-phase N  (0-9)   --skip-cleanup
+  --from-phase N  --to-phase N  (0-10)   --skip-cleanup
 EOF
 }
 
-MODO="" TOPOLOGIA="" KUBECONFIG_FILE="" CONTEXT="" NAMESPACE="" REGISTRY="" TAG=""
+MODO=uct TOPOLOGIA=dominios KUBECONFIG_FILE="" CONTEXT="" NAMESPACE="" REGISTRY="" TAG=""
 STORAGE_CLASS="" INGRESS_CLASS="" INGRESS_HOST="" INGRESS_SCHEME="http" IMAGE_PULL_SECRET=""
-LOCAL_PORT=8080 FROM_PHASE=0 TO_PHASE=9 SKIP_CLEANUP=0
+FROM_PHASE=0 TO_PHASE=10 SKIP_CLEANUP=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --modo) MODO="$2"; shift 2 ;;
@@ -51,7 +50,6 @@ while [ $# -gt 0 ]; do
     --ingress-host) INGRESS_HOST="$2"; shift 2 ;;
     --ingress-scheme) INGRESS_SCHEME="$2"; shift 2 ;;
     --image-pull-secret) IMAGE_PULL_SECRET="$2"; shift 2 ;;
-    --local-port) LOCAL_PORT="$2"; shift 2 ;;
     --from-phase) FROM_PHASE="$2"; shift 2 ;;
     --to-phase) TO_PHASE="$2"; shift 2 ;;
     --skip-cleanup) SKIP_CLEANUP=1; shift ;;
@@ -59,19 +57,17 @@ while [ $# -gt 0 ]; do
     *) echo "ERROR: opcion desconocida: $1" >&2; usage; exit 1 ;;
   esac
 done
-case "$MODO" in local|uct) ;; *) echo "ERROR: indica --modo local o --modo uct" >&2; usage; exit 1 ;; esac
+[ "$MODO" = uct ] || { echo "ERROR: solo existe --modo uct (el modo local se retiro)" >&2; exit 1; }
+case "$TOPOLOGIA" in dominios|consolidado) ;; *) echo "ERROR: --topologia dominios o consolidado" >&2; exit 1 ;; esac
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OVERLAY_DIR="$REPO_ROOT/k8s/overlays/$MODO"
 STATE_FILE="$OVERLAY_DIR/state.env"
 RENDERED="$OVERLAY_DIR/rendered.yaml"
-IS_LOCAL=0; [ "$MODO" = local ] && IS_LOCAL=1
-if [ -z "$TOPOLOGIA" ]; then
-  if [ $IS_LOCAL = 1 ]; then TOPOLOGIA=microservicios; else TOPOLOGIA=consolidado; fi
-fi
-# APIs segun la topologia, como "nombre:puerto" (bash 3.2 de macOS no tiene arrays asociativos).
-if [ "$TOPOLOGIA" = microservicios ]; then
-  APIS="product-api:8081 store-api:8082 service-api:8083 user-api:8084 pricing-api:8085 search-api:8086 comparison-api:8087 auth-api:8088 favorites-api:8089 cart-api:8090 review-api:8091 watchlist-api:8092 notification-api:8093 ingestion-api:8094"
+# Deployments de API segun la topologia, como "nombre:puerto" (bash 3.2 de macOS
+# no tiene arrays asociativos). Todos usan la imagen del backend (cmd/all-apis).
+if [ "$TOPOLOGIA" = dominios ]; then
+  APIS="comercial:8080 usuarios:8080 ingestion:8080"
 else
   APIS="backend:8080"
 fi
@@ -87,19 +83,15 @@ if [ -z "$KUBECONFIG_FILE" ]; then
   fi
 fi
 if [ -z "$KUBECONFIG_FILE" ] || [ ! -f "$KUBECONFIG_FILE" ]; then
-  if [ $IS_LOCAL = 1 ]; then echo "${C_RED}ERROR: no hay ~/.kube/config. Activa Kubernetes en Docker Desktop (Settings > Kubernetes).${C_OFF}"
-  else echo "${C_RED}ERROR: indica tu kubeconfig con --kubeconfig (descargalo desde https://estudiantes.dev.censei.cl).${C_OFF}"; fi
+  echo "${C_RED}ERROR: indica tu kubeconfig con --kubeconfig (descargalo desde https://estudiantes.dev.censei.cl).${C_OFF}"
   exit 1
 fi
-[ $IS_LOCAL = 1 ] && [ -z "$CONTEXT" ] && CONTEXT=docker-desktop
 KBASE=(--kubeconfig "$KUBECONFIG_FILE")
 [ -n "$CONTEXT" ] && KBASE+=(--context "$CONTEXT")
 if [ -z "$NAMESPACE" ]; then
-  if [ $IS_LOCAL = 1 ]; then NAMESPACE=soloservis
-  else NAMESPACE="$(kubectl "${KBASE[@]}" config view --minify -o 'jsonpath={..namespace}' 2>/dev/null)"; fi
+  NAMESPACE="$(kubectl "${KBASE[@]}" config view --minify -o 'jsonpath={..namespace}' 2>/dev/null)"
 fi
 if [ -z "$NAMESPACE" ]; then echo "${C_RED}ERROR: el kubeconfig no define namespace; usa --namespace student-<usuario>.${C_OFF}"; exit 1; fi
-KNONS=("${KBASE[@]}")
 KBASE+=(-n "$NAMESPACE")
 # student-marcelo-vidal-22843887e32d -> marcelo-vidal (sin el sufijo hash)
 STUDENT_USER="$(echo "$NAMESPACE" | sed -E 's/^student-//; s/-[0-9a-f]{8,}$//')"
@@ -126,7 +118,7 @@ checkpoint() {
 stop_phase() {
   cp_set Bloqueos "$2"; checkpoint "$1"
   echo "${C_RED}Proceso detenido en la Fase $1.${C_OFF}"
-  echo "${C_YELLOW}Corrige el bloqueo y vuelve a correr con: --modo $MODO --from-phase $1${C_OFF}"
+  echo "${C_YELLOW}Corrige el bloqueo y vuelve a correr con: --modo uct --topologia $TOPOLOGIA --from-phase $1${C_OFF}"
   exit 1
 }
 diagnostics() {
@@ -168,7 +160,7 @@ public_routes() {
   return $ok
 }
 
-# ---------------------------------------------------------------- estado local
+# ---------------------------------------------------------------- estado en disco
 
 save_state() {
   mkdir -p "$OVERLAY_DIR"
@@ -187,23 +179,16 @@ new_tag() {
   sha="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo local)"
   if [ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]; then echo "$sha-$(date +%Y%m%d%H%M)"; else echo "$sha"; fi
 }
-# Imagenes: "nombre|Dockerfile|contexto"
+# Imagenes: "nombre|Dockerfile|contexto". En las dos topologias todos los
+# Deployments de API usan la misma imagen del backend.
 images() {
   echo "frontend|docker/frontend/Dockerfile|."
-  local a n
-  for a in $APIS; do
-    n="${a%%:*}"
-    if [ "$n" = backend ]; then echo "backend|docker/all-apis/Dockerfile|backend"; else echo "$n|docker/$n/Dockerfile|backend"; fi
-  done
+  echo "backend|docker/all-apis/Dockerfile|backend"
 }
-image_ref() {
-  if [ $IS_LOCAL = 1 ]; then echo "soloservis/$1:$TAG"; else echo "$REGISTRY/soloservis-$1:$TAG"; fi
-}
-frontend_url() {
-  if [ $IS_LOCAL = 1 ]; then echo "http://localhost:$LOCAL_PORT"; else echo "$INGRESS_SCHEME://$INGRESS_HOST"; fi
-}
+image_ref() { echo "$REGISTRY/soloservis-$1:$TAG"; }
+frontend_url() { echo "$INGRESS_SCHEME://$INGRESS_HOST"; }
 
-# Genera k8s/overlays/<modo> (ignorado por git) a partir de base + componente.
+# Genera k8s/overlays/uct (ignorado por git) a partir de base + componente.
 write_overlay() {
   local mig="$OVERLAY_DIR/migrations" f line name ref
   mkdir -p "$mig"
@@ -240,17 +225,13 @@ write_overlay() {
       echo "    newTag: \"$TAG\""
     done < <(images)
     echo "patches:"
-    if [ $IS_LOCAL = 1 ]; then
-      # Sin Ingress Controller en Docker Desktop: se entra con kubectl port-forward.
-      printf '%s\n' "  - patch: |-" "      \$patch: delete" "      apiVersion: networking.k8s.io/v1" "      kind: Ingress" "      metadata:" "        name: soloservis"
-    fi
     if [ -n "$STORAGE_CLASS" ]; then
       printf '%s\n' "  - target: {kind: StatefulSet, name: postgres}" "    patch: |-" "      - op: add" "        path: /spec/volumeClaimTemplates/0/spec/storageClassName" "        value: $STORAGE_CLASS"
     fi
-    if [ $IS_LOCAL = 0 ] && [ -n "$INGRESS_CLASS" ]; then
+    if [ -n "$INGRESS_CLASS" ]; then
       printf '%s\n' "  - target: {kind: Ingress, name: soloservis}" "    patch: |-" "      - op: add" "        path: /spec/ingressClassName" "        value: $INGRESS_CLASS"
     fi
-    if [ $IS_LOCAL = 0 ] && [ -n "$INGRESS_HOST" ]; then
+    if [ -n "$INGRESS_HOST" ]; then
       printf '%s\n' "  - target: {kind: Ingress, name: soloservis}" "    patch: |-" "      - op: add" "        path: /spec/rules/0/host" "        value: $INGRESS_HOST"
     fi
     if [ -n "$IMAGE_PULL_SECRET" ]; then
@@ -263,7 +244,7 @@ write_overlay() {
   save_state
 }
 build_rendered() {
-  if [ $IS_LOCAL = 0 ] && [ -z "$REGISTRY" ]; then echo "falta --registry"; return 1; fi
+  if [ -z "$REGISTRY" ]; then echo "falta --registry"; return 1; fi
   write_overlay
   local out
   if ! out="$(kubectl kustomize "$OVERLAY_DIR" 2>&1)"; then echo "$out"; return 1; fi
@@ -277,23 +258,16 @@ phase0() {
   cp_reset
   if [ -f "$REPO_ROOT/k8s/base/kustomization.yaml" ] && [ -d "$REPO_ROOT/k8s/components/$TOPOLOGIA" ] && [ -d "$REPO_ROOT/backend/cmd/all-apis" ]; then
     cp_set Repositorio OK; else cp_set Repositorio ERROR; fi
-  cp_set Modo "$MODO ($TOPOLOGIA: $(echo $APIS | wc -w | tr -d ' ') Deployment(s) de API)"
+  cp_set Topologia "$TOPOLOGIA ($(echo $APIS | wc -w | tr -d ' ') Deployment(s) de API: $(echo $APIS | sed 's/:[0-9]*//g'))"
   local missing="" t
   for t in kubectl docker git curl; do command -v "$t" >/dev/null 2>&1 || missing="$missing $t"; done
   case "$missing" in *kubectl*) stop_phase 0 "kubectl no esta instalado" ;; esac
-  if [ $IS_LOCAL = 1 ]; then
-    kubectl --kubeconfig "$KUBECONFIG_FILE" config get-contexts -o name 2>/dev/null | grep -qx "$CONTEXT" ||
-      stop_phase 0 "no existe el contexto '$CONTEXT': activa Kubernetes en Docker Desktop (Settings > Kubernetes > Enable Kubernetes)"
-    kubectl "${KNONS[@]}" get nodes >/dev/null 2>&1 || stop_phase 0 "el cluster local no responde"
-    cp_set "Acceso Kubernetes" "OK (contexto $CONTEXT)"
-  else
-    step "kubectl auth can-i (puede abrir el navegador para el login OIDC)"
-    [ "$(k auth can-i list pods 2>&1)" = yes ] || stop_phase 0 "sin acceso al namespace $NAMESPACE"
-    cp_set "Acceso Kubernetes" OK
-  fi
+  step "kubectl auth can-i (puede abrir el navegador para el login OIDC)"
+  [ "$(k auth can-i list pods 2>&1)" = yes ] || stop_phase 0 "sin acceso al namespace $NAMESPACE"
+  cp_set "Acceso Kubernetes" OK
   echo "${C_DIM}  Recursos actuales en $NAMESPACE:${C_OFF}"; k get all,pvc,ingress,configmap,job -o wide 2>&1 | show
   echo "${C_DIM}  Secrets (solo nombres):${C_OFF}"; k get secret -o name 2>&1 | show
-  if [ $IS_LOCAL = 0 ]; then echo "${C_DIM}  ResourceQuota / LimitRange:${C_OFF}"; k get resourcequota,limitrange 2>&1 | show; fi
+  echo "${C_DIM}  ResourceQuota / LimitRange:${C_OFF}"; k get resourcequota,limitrange 2>&1 | show
   echo "${C_DIM}  StorageClasses:${C_OFF}"; k get storageclass 2>&1 | show
   cp_set "Recursos encontrados" "$(k get all,pvc,ingress,configmap,secret,job -l app.kubernetes.io/part-of=soloservis -o name 2>/dev/null | grep -c /) etiquetados soloservis"
   if [ -n "$missing" ]; then cp_set Bloqueos "no instalado:$missing"; else cp_set Bloqueos ninguno; fi
@@ -304,10 +278,6 @@ phase0() {
 
 phase1() {
   cp_reset
-  if [ $IS_LOCAL = 1 ] && ! kubectl "${KNONS[@]}" get namespace "$NAMESPACE" >/dev/null 2>&1; then
-    step "Creando el namespace $NAMESPACE"
-    kubectl "${KNONS[@]}" create namespace "$NAMESPACE" 2>&1 | show
-  fi
   if [ $SKIP_CLEANUP = 1 ]; then cp_set Limpieza "OMITIDA (--skip-cleanup)"; checkpoint 1; return; fi
   # Recursos de un despliegue anterior (por ejemplo, de la otra topologia).
   # El Secret de postgres y el PVC se conservan.
@@ -383,34 +353,29 @@ EOF
 phase2() {
   cp_reset
   local block=""
-  if [ $IS_LOCAL = 1 ]; then
-    cp_set Storage "OK (clase por defecto del cluster local)"
-    cp_set Ingress "NO SE USA (modo local: kubectl port-forward en localhost:$LOCAL_PORT)"
+  local pvc_sc
+  pvc_sc="$(k get pvc postgres-data-postgres-0 -o 'jsonpath={.status.phase} {.spec.storageClassName}' 2>/dev/null)"
+  if [ "${pvc_sc%% *}" = Bound ]; then
+    # Si el PVC de PostgreSQL ya existe, su clase manda (no se puede cambiar).
+    STORAGE_CLASS="${pvc_sc#* }"; STORAGE_RESOLVED=1
+    cp_set Storage "OK (PVC existente, sc=$STORAGE_CLASS, se conservan los datos)"
+  elif [ "$STORAGE_RESOLVED" = 1 ] || test_storage "$STORAGE_CLASS"; then
+    STORAGE_RESOLVED=1
+    cp_set Storage "OK (${STORAGE_CLASS:-clase por defecto})"
   else
-    local pvc_sc
-    pvc_sc="$(k get pvc postgres-data-postgres-0 -o 'jsonpath={.status.phase} {.spec.storageClassName}' 2>/dev/null)"
-    if [ "${pvc_sc%% *}" = Bound ]; then
-      # Si el PVC de PostgreSQL ya existe, su clase manda (no se puede cambiar).
-      STORAGE_CLASS="${pvc_sc#* }"; STORAGE_RESOLVED=1
-      cp_set Storage "OK (PVC existente, sc=$STORAGE_CLASS, se conservan los datos)"
-    elif [ "$STORAGE_RESOLVED" = 1 ] || test_storage "$STORAGE_CLASS"; then
-      STORAGE_RESOLVED=1
-      cp_set Storage "OK (${STORAGE_CLASS:-clase por defecto})"
-    else
-      cp_set Storage "ERROR (el PVC de prueba no quedo Bound/escribible; prueba --storage-class)"; block="$block almacenamiento"
-    fi
-    if [ -z "$INGRESS_CLASS" ]; then
-      INGRESS_CLASS="$(k get ingressclass -o 'jsonpath={range .items[?(@.metadata.annotations.ingressclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{end}' 2>/dev/null)"
-    fi
-    cp_set Ingress "OK (${INGRESS_CLASS:-nginx, la del manifiesto})"
-    if [ -z "$REGISTRY" ]; then cp_set Registry "ERROR (falta --registry, ej. docker.io/miusuario)"; block="$block registry"
-    else cp_set Registry "OK ($REGISTRY, tag $TAG)"; fi
+    cp_set Storage "ERROR (el PVC de prueba no quedo Bound/escribible; prueba --storage-class)"; block="$block almacenamiento"
   fi
+  if [ -z "$INGRESS_CLASS" ]; then
+    INGRESS_CLASS="$(k get ingressclass -o 'jsonpath={range .items[?(@.metadata.annotations.ingressclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{end}' 2>/dev/null)"
+  fi
+  cp_set Ingress "OK (${INGRESS_CLASS:-nginx, la del manifiesto})"
+  if [ -z "$REGISTRY" ]; then cp_set Registry "ERROR (falta --registry, ej. docker.io/miusuario)"; block="$block registry"
+  else cp_set Registry "OK ($REGISTRY, tag $TAG)"; fi
   command -v docker >/dev/null 2>&1 || { cp_set Docker "ERROR (docker no instalado)"; block="$block docker"; }
   [ -n "$block" ] && { cp_set "Kubernetes preparado" ERROR; stop_phase 2 "falta:$block"; }
   local err
   err="$(build_rendered)" || { cp_set "Kubernetes preparado" ERROR; stop_phase 2 "kustomize: $err"; }
-  cp_set "Kubernetes preparado" "OK (overlay k8s/overlays/$MODO generado)"
+  cp_set "Kubernetes preparado" "OK (overlay k8s/overlays/uct generado)"
   cp_set Bloqueos ninguno
   checkpoint 2
 }
@@ -419,24 +384,20 @@ phase2() {
 
 phase3() {
   cp_reset
-  [ $IS_LOCAL = 0 ] && [ -z "$REGISTRY" ] && stop_phase 3 "falta --registry"
-  local name file ctx ref platform=()
-  # En uct los nodos son amd64; en local se usa la arquitectura de tu maquina.
-  [ $IS_LOCAL = 0 ] && platform=(--platform linux/amd64)
+  [ -z "$REGISTRY" ] && stop_phase 3 "falta --registry"
+  local name file ctx ref
+  # Los nodos del cluster son amd64.
   while IFS='|' read -r name file ctx; do
     ref="$(image_ref "$name")"
     step "docker build $ref"
-    if ! docker build ${platform[@]+"${platform[@]}"} -f "$REPO_ROOT/$file" -t "$ref" "$REPO_ROOT/$ctx"; then
+    if ! docker build --platform linux/amd64 -f "$REPO_ROOT/$file" -t "$ref" "$REPO_ROOT/$ctx"; then
       cp_set "$name" ERROR; stop_phase 3 "docker build fallo ($name)"
     fi
-    if [ $IS_LOCAL = 0 ]; then
-      step "docker push $ref"
-      docker push "$ref" || { cp_set "$name" ERROR; stop_phase 3 "docker push fallo (revisa docker login y el nombre del registry)"; }
-    fi
+    step "docker push $ref"
+    docker push "$ref" || { cp_set "$name" ERROR; stop_phase 3 "docker push fallo (revisa docker login y el nombre del registry)"; }
     cp_set "$name" "OK ($ref)"
   done < <(images)
-  if [ $IS_LOCAL = 1 ]; then cp_set "Imagenes disponibles para Kubernetes" "OK (en Docker local: el cluster de Docker Desktop las ve directo)"
-  else cp_set "Imagenes disponibles para Kubernetes" "OK (publicadas en el registry)"; fi
+  cp_set "Imagenes disponibles para Kubernetes" "OK (publicadas en el registry)"
   save_state
   cp_set Bloqueos ninguno
   checkpoint 3
@@ -533,7 +494,6 @@ phase6() {
   done
   if [ -n "$failed" ]; then
     if printf '%s\n' "${CP_VALS[@]}" | grep -Eq 'ImagePull|ErrImage'; then
-      if [ $IS_LOCAL = 1 ]; then stop_phase 6 "el cluster no ve las imagenes locales: en Docker Desktop usa Kubernetes con el aprovisionador kubeadm (ver k8s/README.md)"; fi
       stop_phase 6 "el cluster no puede descargar la imagen (registry privado: crear Secret docker-registry y usar --image-pull-secret)"
     fi
     stop_phase 6 "no quedaron Ready:$failed"
@@ -567,17 +527,6 @@ phase7() {
 
 phase8() {
   cp_reset
-  if [ $IS_LOCAL = 1 ]; then
-    step "Abriendo kubectl port-forward temporal en localhost:$LOCAL_PORT"
-    k port-forward svc/frontend "$LOCAL_PORT:80" >/dev/null 2>&1 &
-    local pf=$! ok=0
-    sleep 3
-    public_routes "http://localhost:$LOCAL_PORT" || ok=1
-    kill "$pf" 2>/dev/null; wait "$pf" 2>/dev/null
-    [ $ok = 0 ] || stop_phase 8 "alguna ruta publica no respondio (revisa los logs del frontend y de la API)"
-    checkpoint 8
-    return
-  fi
   local err addr="" i
   err="$(build_rendered)" || stop_phase 8 "kustomize: $err"
   apply_selector app.kubernetes.io/component=ingress || stop_phase 8 "kubectl apply fallo"
@@ -626,13 +575,40 @@ phase9() {
   for a in $APIS; do api_health "${a%%:*}" "${a##*:}" || { apis_ok=0; cp_set "${a%%:*}" "ERROR (no reconecto a PostgreSQL)"; }; done
   if [ $apis_ok = 1 ]; then cp_set APIs "FUNCIONAL ($(echo $APIS | wc -w | tr -d ' ') Deployment(s), reconectan a PostgreSQL)"; else cp_set APIs ERROR; fi
   checkpoint 9
-  echo "${C_GREEN}Para abrir la app:${C_OFF}"
-  if [ $IS_LOCAL = 1 ]; then
-    echo "${C_GREEN}  kubectl --context $CONTEXT -n $NAMESPACE port-forward svc/frontend $LOCAL_PORT:80${C_OFF}"
-    echo "${C_GREEN}  y abre http://localhost:$LOCAL_PORT (deja esa terminal abierta)${C_OFF}"
-  else
-    echo "${C_GREEN}  $(frontend_url)${C_OFF}"
+}
+
+# ---------------------------------------------------------------- FASE 10
+
+# Pod de test (k8s/tests): un Job con curl que verifica health, una lectura por
+# API, rutas protegidas, aislamiento entre dominios y el nginx. Solo lee.
+phase10() {
+  cp_reset
+  local state=timeout i succeeded failed summary
+  step "Recreando el Job soloservis-smoke-test (los Jobs son inmutables)"
+  k delete job soloservis-smoke-test --ignore-not-found --wait=true --timeout=120s 2>&1 | show
+  k apply -k "$REPO_ROOT/k8s/tests" 2>&1 | show
+  [ "${PIPESTATUS[0]}" = 0 ] || { cp_set "Pod de test" ERROR; stop_phase 10 "kubectl apply -k k8s/tests fallo"; }
+  step "Esperando el Job (max 3 min)"
+  for i in $(seq 1 60); do
+    succeeded="$(k get job soloservis-smoke-test -o 'jsonpath={.status.succeeded}' 2>/dev/null)"
+    failed="$(k get job soloservis-smoke-test -o 'jsonpath={.status.failed}' 2>/dev/null)"
+    [ "${succeeded:-0}" -ge 1 ] && { state=complete; break; }
+    [ "${failed:-0}" -ge 1 ] && { state=failed; break; }
+    sleep 3
+  done
+  echo "${C_DIM}  Resultado del pod de test:${C_OFF}"
+  k logs job/soloservis-smoke-test 2>&1 | show
+  summary="$(k logs job/soloservis-smoke-test 2>/dev/null | sed -n 's/^Resultado: //p')"
+  if [ "$state" != complete ]; then
+    cp_set "Pod de test" "ERROR ($state $summary)"
+    k get events --sort-by=.lastTimestamp 2>&1 | tail -10 | show
+    stop_phase 10 "alguna verificacion del pod de test fallo (ver las lineas FALLA)"
   fi
+  cp_set "Pod de test" "OK ($summary)"
+  cp_set Bloqueos ninguno
+  checkpoint 10
+  echo "${C_GREEN}Para abrir la app:${C_OFF}"
+  echo "${C_GREEN}  $(frontend_url)${C_OFF}"
 }
 
 # ---------------------------------------------------------------- main
@@ -649,7 +625,7 @@ if [ -f "$STATE_FILE" ]; then
   [ -z "$IMAGE_PULL_SECRET" ] && IMAGE_PULL_SECRET="${PREV_IMAGE_PULL_SECRET:-}"
 fi
 # Dominio publico segun el manual: <proyecto>-<usuario>.dev.censei.cl
-[ $IS_LOCAL = 0 ] && [ -z "$INGRESS_HOST" ] && INGRESS_HOST="soloservis-$STUDENT_USER.dev.censei.cl"
+[ -z "$INGRESS_HOST" ] && INGRESS_HOST="soloservis-$STUDENT_USER.dev.censei.cl"
 if [ -n "$REGISTRY" ] && ! echo "$REGISTRY" | grep -Eq '^[a-z0-9.:-]+(/[a-z0-9._-]+)+$'; then
   echo "${C_RED}ERROR: --registry '$REGISTRY' no es valido. Usa tu usuario real en minusculas, ej: docker.io/miusuario${C_OFF}"; exit 1
 fi
@@ -658,9 +634,8 @@ if [ -z "$TAG" ]; then
   TAG="$(new_tag)"
 fi
 
-echo "${C_CYAN}SOLOServis -> Kubernetes | modo=$MODO topologia=$TOPOLOGIA contexto=${CONTEXT:-(el del kubeconfig)} namespace=$NAMESPACE fases=$FROM_PHASE..$TO_PHASE${C_OFF}"
-if [ $IS_LOCAL = 1 ]; then echo "${C_CYAN}Kubeconfig: $(basename "$KUBECONFIG_FILE") | tag=$TAG${C_OFF}"
-else echo "${C_CYAN}Kubeconfig: $(basename "$KUBECONFIG_FILE") | tag=$TAG registry=${REGISTRY:-(sin definir)}${C_OFF}"; fi
+echo "${C_CYAN}SOLOServis -> Kubernetes | topologia=$TOPOLOGIA contexto=${CONTEXT:-(el del kubeconfig)} namespace=$NAMESPACE fases=$FROM_PHASE..$TO_PHASE${C_OFF}"
+echo "${C_CYAN}Kubeconfig: $(basename "$KUBECONFIG_FILE") | tag=$TAG registry=${REGISTRY:-(sin definir)}${C_OFF}"
 
 for n in $(seq "$FROM_PHASE" "$TO_PHASE"); do
   echo; echo "---------------- FASE $n ----------------"

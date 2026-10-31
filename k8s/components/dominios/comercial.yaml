@@ -1,10 +1,13 @@
-# notification-api: un Deployment por API (modo microservicios, mismo puerto que docker/compose.yml).
+# comercial: product, store, service, pricing, search, comparison, favorites,
+# cart, review, watchlist y notification. Las llamadas entre ellas van a
+# 127.0.0.1:8080 (el binario las configura).
+# Misma imagen que los otros dominios (cmd/all-apis); solo cambia API_DOMAIN.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: notification-api
+  name: comercial
   labels:
-    app.kubernetes.io/name: notification-api
+    app.kubernetes.io/name: comercial
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -17,11 +20,11 @@ spec:
       maxUnavailable: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: notification-api
+      app.kubernetes.io/name: comercial
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: notification-api
+        app.kubernetes.io/name: comercial
         app.kubernetes.io/component: api
     spec:
       automountServiceAccountToken: false
@@ -32,16 +35,19 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: notification-api
-          image: soloservis/notification-api
+        - name: comercial
+          image: soloservis/backend
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8093
+              containerPort: 8080
               protocol: TCP
           env:
             - name: PORT
-              value: "8093"
+              value: "8080"
+            # Qué APIs sirve este proceso (backend/internal/allapis/domains.go).
+            - name: API_DOMAIN
+              value: comercial
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}
@@ -57,6 +63,11 @@ spec:
             - name: FRONTEND_URL
               valueFrom:
                 configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}
+            # Token de servicio (scraper/admin). Lo crea el script de deploy;
+            # sin él, las escrituras quedan solo para sesiones admin.
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -64,11 +75,11 @@ spec:
               drop: ["ALL"]
           resources:
             requests:
-              cpu: 25m
-              memory: 64Mi
-            limits:
-              cpu: 100m
+              cpu: 50m
               memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
           # /health hace ping a PostgreSQL: listo solo si hay base de datos.
           readinessProbe:
             httpGet:
@@ -89,16 +100,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: notification-api
+  name: comercial
   labels:
-    app.kubernetes.io/name: notification-api
+    app.kubernetes.io/name: comercial
     app.kubernetes.io/component: api
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/name: notification-api
+    app.kubernetes.io/name: comercial
   ports:
     - name: http
-      port: 8093
+      port: 8080
       targetPort: http
       protocol: TCP

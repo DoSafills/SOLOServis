@@ -1,10 +1,12 @@
-# cart-api: un Deployment por API (modo microservicios, mismo puerto que docker/compose.yml).
+# ingestion: recibe los datos del scraper (solo red interna). Avisa las
+# bajas de precio a notification, que vive en el pod comercial.
+# Misma imagen que los otros dominios (cmd/all-apis); solo cambia API_DOMAIN.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cart-api
+  name: ingestion
   labels:
-    app.kubernetes.io/name: cart-api
+    app.kubernetes.io/name: ingestion
     app.kubernetes.io/component: api
 spec:
   replicas: 1
@@ -17,11 +19,11 @@ spec:
       maxUnavailable: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: cart-api
+      app.kubernetes.io/name: ingestion
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: cart-api
+        app.kubernetes.io/name: ingestion
         app.kubernetes.io/component: api
     spec:
       automountServiceAccountToken: false
@@ -32,16 +34,19 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: cart-api
-          image: soloservis/cart-api
+        - name: ingestion
+          image: soloservis/backend
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8090
+              containerPort: 8080
               protocol: TCP
           env:
             - name: PORT
-              value: "8090"
+              value: "8080"
+            # Qué APIs sirve este proceso (backend/internal/allapis/domains.go).
+            - name: API_DOMAIN
+              value: ingestion
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}
@@ -57,10 +62,14 @@ spec:
             - name: FRONTEND_URL
               valueFrom:
                 configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}
-            - name: PRODUCT_API_URL
-              value: http://product-api:8081
-            - name: PRICING_API_URL
-              value: http://pricing-api:8085
+            # notification está en otro dominio: sin esta URL el proceso no arranca.
+            - name: NOTIFICATION_API_URL
+              value: http://comercial:8080
+            # Token de servicio (scraper/admin). Lo crea el script de deploy;
+            # sin él, las escrituras quedan solo para sesiones admin.
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -71,7 +80,7 @@ spec:
               cpu: 25m
               memory: 64Mi
             limits:
-              cpu: 100m
+              cpu: 200m
               memory: 128Mi
           # /health hace ping a PostgreSQL: listo solo si hay base de datos.
           readinessProbe:
@@ -93,16 +102,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: cart-api
+  name: ingestion
   labels:
-    app.kubernetes.io/name: cart-api
+    app.kubernetes.io/name: ingestion
     app.kubernetes.io/component: api
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/name: cart-api
+    app.kubernetes.io/name: ingestion
   ports:
     - name: http
-      port: 8090
+      port: 8080
       targetPort: http
       protocol: TCP

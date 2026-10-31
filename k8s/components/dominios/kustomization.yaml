@@ -1,0 +1,34 @@
+# Modo dominios (por defecto): las 14 APIs agrupadas en 3 Deployments por
+# contexto de negocio, con la misma imagen (cmd/all-apis) y API_DOMAIN distinto.
+#   comercial  = catálogo, precios, búsqueda, comparación, carrito, favoritos,
+#                reseñas, watchlist y notificaciones (11 APIs)
+#   usuarios   = auth y user
+#   ingestion  = ingestion (scraper)
+# En UCT: postgres + frontend + 3 dominios = 5 pods y 6 Services, dentro de la
+# cuota (12 pods, 10 Services, 1 CPU / 1G de requests).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - comercial.yaml
+  - usuarios.yaml
+  - ingestion.yaml
+
+# El nginx del frontend envía cada ruta pública al pod de su dominio. Pricing,
+# user, notification e ingestion no se publican.
+patches:
+  - target: {kind: Deployment, name: frontend}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - {name: PRODUCT_UPSTREAM, value: "comercial:8080"}
+          - {name: STORE_UPSTREAM, value: "comercial:8080"}
+          - {name: SERVICE_UPSTREAM, value: "comercial:8080"}
+          - {name: AUTH_UPSTREAM, value: "usuarios:8080"}
+          - {name: FAVORITES_UPSTREAM, value: "comercial:8080"}
+          - {name: CART_UPSTREAM, value: "comercial:8080"}
+          - {name: SEARCH_UPSTREAM, value: "comercial:8080"}
+          - {name: COMPARISON_UPSTREAM, value: "comercial:8080"}
+          - {name: REVIEW_UPSTREAM, value: "comercial:8080"}
+          - {name: WATCHLIST_UPSTREAM, value: "comercial:8080"}
