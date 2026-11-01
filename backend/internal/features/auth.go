@@ -77,11 +77,13 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 		dbError(w, err, http.StatusInternalServerError, "could not create session")
 		return
 	}
-	accessExpiry := time.Now().Add(15 * time.Minute)
 	refreshExpiry := time.Now().Add(30 * 24 * time.Hour)
+	// Los vencimientos los calcula la base con NOW(), el mismo reloj con que
+	// se validan: las columnas son TIMESTAMP sin zona y un time.Time de Go
+	// llega con la hora local del proceso (en -03:00 el token nacía vencido).
 	_, err = h.db.Exec(r.Context(), `INSERT INTO user_session
 		(user_id,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at)
-		VALUES ($1,$2,$3,$4,$5)`, userID, tokenHash(access), tokenHash(refresh), accessExpiry, refreshExpiry)
+		VALUES ($1,$2,$3,NOW()+INTERVAL '15 minutes',NOW()+INTERVAL '30 days')`, userID, tokenHash(access), tokenHash(refresh))
 	if err != nil {
 		dbError(w, err, http.StatusInternalServerError, "could not save session")
 		return
