@@ -37,22 +37,6 @@ type HealthResponse struct {
 // estándar TAL-78 para que los handlers registren sus errores 5xx.
 type routeRegistrar func(chi.Router, *pgxpool.Pool, *slog.Logger)
 
-func NewRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	return newRouter("soloservis-api", db, frontendURL, registerProductRoutes, registerStoreRoutes, registerServiceRoutes, registerUserRoutes)
-}
-
-func NewProductsRouter(db *pgxpool.Pool) *chi.Mux {
-	return newRouter("product-api", db, configuredFrontendURL(), registerProductRoutes)
-}
-
-func NewStoresRouter(db *pgxpool.Pool) *chi.Mux {
-	return newRouter("store-api", db, configuredFrontendURL(), registerStoreRoutes)
-}
-
-func NewServicesRouter(db *pgxpool.Pool) *chi.Mux {
-	return newRouter("service-api", db, configuredFrontendURL(), registerServiceRoutes)
-}
-
 func NewProductRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	return newRouter("product-api", db, frontendURL, registerProductRoutes)
 }
@@ -103,13 +87,6 @@ func newRouter(name string, db *pgxpool.Pool, frontendURL string, registrars ...
 		register(r, db, logger)
 	}
 	return r
-}
-
-func configuredFrontendURL() string {
-	if value := os.Getenv("FRONTEND_URL"); value != "" {
-		return value
-	}
-	return "http://localhost:5173"
 }
 
 func corsMiddleware(frontendURL string) func(http.Handler) http.Handler {

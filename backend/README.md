@@ -181,16 +181,16 @@ backend/
 
 ---
 
-# 4. `cmd/server/main.go`
+# 4. Puntos de entrada (`cmd/`)
 
-Es el punto de entrada de la aplicación.
+Hay un binario por API (`cmd/product-api`, `cmd/auth-api`, ...) y uno que sirve varias en un solo proceso, `cmd/all-apis`: el que corre en Kubernetes, uno por dominio (`API_DOMAIN=comercial|usuarios|ingestion`), o las 14 si `API_DOMAIN` está vacía.
 
-Su responsabilidad es:
+Todos arrancan igual, con `runner.Run`:
 
-1. Cargar la configuración.
+1. Cargar la configuración (`PORT`, `DATABASE_URL`, `FRONTEND_URL`).
 2. Crear el pool de conexiones PostgreSQL.
-3. Comprobar la conexión.
-4. Crear el router.
+3. Comprobar la conexión (si falla, el proceso termina).
+4. Crear el router de la API o del dominio.
 5. Iniciar el servidor HTTP.
 
 Flujo:
@@ -198,15 +198,13 @@ Flujo:
 ```text
 main.go
    │
-   ├── config.Load()
-   │
-   ├── database.NewPostgresPool()
-   │
-   ├── database.Ping()
-   │
-   ├── http.NewRouter()
-   │
-   └── ListenAndServe()
+   └── runner.Run(nombre, router)
+          │
+          ├── config.Load()
+          ├── database.NewPostgresPool()
+          ├── database.Ping()
+          ├── router(db, frontendURL)
+          └── ListenAndServe()
 ```
 
 El servidor actualmente utiliza:
@@ -2012,14 +2010,13 @@ SoloServise/backend
 ejecutar:
 
 ```powershell
-go run ./cmd/server
+go run ./cmd/all-apis
 ```
 
 Debe aparecer:
 
 ```text
-PostgreSQL connection established
-SoloServis API running on http://localhost:8080
+All APIs escuchando en :8080
 ```
 
 ### 3. Frontend
