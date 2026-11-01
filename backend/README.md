@@ -809,6 +809,8 @@ docker run -d --name soloservis-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRE
 cd backend && TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/soloservis go test -run Integration ./internal/categories/
 ```
 
+- Integración por dominio (TAL-133, `internal/integration/`): levanta `comercial`, `usuarios` e `ingestion` como servidores HTTP sobre la misma base y verifica que las 14 APIs leen y escriben sus tablas, incluidas las llamadas entre APIs. `TestBaseCaida_*` no necesita base: comprueba que con PostgreSQL caído todas responden 503. Detalle en `docs/auditorias/TAL-133-integracion-postgres.md`.
+
 ---
 
 
