@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -53,26 +54,38 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 			r.Get("/cart/count", h.CartCount)
 		})
 	case "review-api":
+		// Leer es público; escribir exige sesión y el autor sale del token.
 		r.Get("/reviews/product/{productId}", h.ListProductReviews)
-		r.Post("/reviews/product/{productId}", h.CreateProductReview)
 		r.Get("/reviews/store/{storeId}", h.ListStoreReviews)
-		r.Post("/reviews/store/{storeId}", h.CreateStoreReview)
 		r.Get("/reviews/service/{serviceId}", h.ListServiceReviews)
-		r.Post("/reviews/service/{serviceId}", h.CreateServiceReview)
-		r.Put("/reviews/{id}", h.UpdateReview)
-		r.Delete("/reviews/{id}", h.DeleteReview)
+		r.Group(func(r chi.Router) {
+			r.Use(h.requireSession)
+			r.Post("/reviews/product/{productId}", h.CreateProductReview)
+			r.Post("/reviews/store/{storeId}", h.CreateStoreReview)
+			r.Post("/reviews/service/{serviceId}", h.CreateServiceReview)
+			r.Put("/reviews/{id}", h.UpdateReview)
+			r.Delete("/reviews/{id}", h.DeleteReview)
+		})
 	case "watchlist-api":
-		r.Get("/watchlist", h.GetWatchlist)
-		r.Post("/watchlist", h.AddWatchlist)
-		r.Put("/watchlist/{productId}", h.UpdateWatchlist)
-		r.Delete("/watchlist/{productId}", h.DeleteWatchlist)
+		r.Group(func(r chi.Router) {
+			r.Use(h.requireSession)
+			r.Get("/watchlist", h.GetWatchlist)
+			r.Post("/watchlist", h.AddWatchlist)
+			r.Put("/watchlist/{productId}", h.UpdateWatchlist)
+			r.Delete("/watchlist/{productId}", h.DeleteWatchlist)
+		})
 	case "notification-api":
-		r.Post("/notifications", h.CreateNotification)
-		r.Get("/notifications", h.GetNotifications)
-		r.Get("/notifications/unread", h.GetUnreadNotifications)
-		r.Put("/notifications/{id}/read", h.ReadNotification)
-		r.Put("/notifications/read-all", h.ReadAllNotifications)
-	// ingestion-api se movió a internal/ingestion (TAL-77).
+		// Crear es interno: lo llaman pricing e ingestion con INTERNAL_API_TOKEN.
+		admin := authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
+		r.With(admin).Post("/notifications", h.CreateNotification)
+		r.Group(func(r chi.Router) {
+			r.Use(h.requireSession)
+			r.Get("/notifications", h.GetNotifications)
+			r.Get("/notifications/unread", h.GetUnreadNotifications)
+			r.Put("/notifications/{id}/read", h.ReadNotification)
+			r.Put("/notifications/read-all", h.ReadAllNotifications)
+		})
+		// ingestion-api se movió a internal/ingestion (TAL-77).
 	}
 	return r
 }
@@ -100,12 +113,17 @@ func RegisterServiceComparisonRoutes(r chi.Router, db *pgxpool.Pool, logger *slo
 	registerServiceComparisonRoutes(r, NewHandler("comparison-api", db, logger))
 }
 
+// Cada comparación es de un usuario: solo su dueño la ve o la modifica; la de
+// otro responde 404.
 func registerServiceComparisonRoutes(r chi.Router, h *Handler) {
-	r.Post("/comparisons/services", h.CreateServiceComparison)
-	r.Get("/comparisons/services/{id}", h.GetServiceComparison)
-	r.Delete("/comparisons/services/{id}", h.DeleteServiceComparison)
-	r.Post("/comparisons/services/{id}/items", h.AddServiceComparisonItem)
-	r.Delete("/comparisons/services/{id}/items/{serviceId}", h.DeleteServiceComparisonItem)
+	r.Group(func(r chi.Router) {
+		r.Use(h.requireSession)
+		r.Post("/comparisons/services", h.CreateServiceComparison)
+		r.Get("/comparisons/services/{id}", h.GetServiceComparison)
+		r.Delete("/comparisons/services/{id}", h.DeleteServiceComparison)
+		r.Post("/comparisons/services/{id}/items", h.AddServiceComparisonItem)
+		r.Delete("/comparisons/services/{id}/items/{serviceId}", h.DeleteServiceComparisonItem)
+	})
 }
 
 func cors(frontendURL string) func(http.Handler) http.Handler {

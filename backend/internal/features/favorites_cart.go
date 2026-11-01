@@ -14,11 +14,7 @@ type favoriteInput struct {
 }
 
 func (h *Handler) ListFavorites(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requestUserID(r)
-	if !ok {
-		badRequest(w, "userId is required")
-		return
-	}
+	userID := sessionUserID(r)
 	h.rows(w, r, `SELECT jsonb_build_object('productId',p.public_id,'name',p.name,'addedAt',i.updated_at)
 		FROM product_user_interest i JOIN product p ON p.id=i.product_id
 		WHERE i.user_id=$1 AND i.is_favorite ORDER BY i.updated_at DESC`, userID)
@@ -30,7 +26,7 @@ func (h *Handler) AddFavorite(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid request body")
 		return
 	}
-	input.UserID = normalizeUserID(r, input.UserID)
+	input.UserID = sessionUserID(r)
 	userID, err := h.service.UserID(r.Context(), input.UserID)
 	productID, productErr := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
 	if err != nil || productErr != nil {
@@ -54,9 +50,9 @@ func (h *Handler) AddFavorite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetFavorite(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requestUserID(r)
+	userID := sessionUserID(r)
 	productID, err := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
-	if !ok || err != nil {
+	if err != nil {
 		badRequest(w, "valid userId and productId are required")
 		return
 	}
@@ -66,9 +62,9 @@ func (h *Handler) GetFavorite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteFavorite(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requestUserID(r)
+	userID := sessionUserID(r)
 	productID, err := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
-	if !ok || err != nil {
+	if err != nil {
 		badRequest(w, "valid userId and productId are required")
 		return
 	}
@@ -90,11 +86,7 @@ type cartInput struct {
 }
 
 func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requestUserID(r)
-	if !ok {
-		badRequest(w, "userId is required")
-		return
-	}
+	userID := sessionUserID(r)
 	h.rows(w, r, `SELECT jsonb_build_object('id',ci.id,'userId',ci.user_id,
 		'itemType',CASE WHEN ci.service_offer_id IS NULL THEN 'product' ELSE 'service' END,
 		'productId',p.public_id,'productName',p.name,'offerId',o.id,'storeId',o.store_id,
@@ -128,7 +120,7 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "provide either productId and offerId or serviceId and serviceOfferId")
 		return
 	}
-	input.UserID = normalizeUserID(r, input.UserID)
+	input.UserID = sessionUserID(r)
 	userID, err := h.service.UserID(r.Context(), input.UserID)
 	if err != nil {
 		dbError(w, err, http.StatusNotFound, "user not found")
@@ -234,11 +226,7 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "valid userId and positive quantity are required")
 		return
 	}
-	input.UserID = normalizeUserID(r, input.UserID)
-	if input.UserID <= 0 {
-		badRequest(w, "valid userId and positive quantity are required")
-		return
-	}
+	input.UserID = sessionUserID(r)
 	result, err := h.db.Exec(r.Context(), `UPDATE cart_item SET quantity=$3,updated_at=NOW() WHERE id=$1 AND user_id=$2`, id, input.UserID, input.Quantity)
 	if err != nil || result.RowsAffected() == 0 {
 		dbError(w, err, http.StatusNotFound, "cart item not found")
@@ -249,8 +237,8 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteCartItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
-	userID, userOK := requestUserID(r)
-	if !ok || !userOK {
+	userID := sessionUserID(r)
+	if !ok {
 		badRequest(w, "valid id and userId are required")
 		return
 	}
@@ -263,11 +251,7 @@ func (h *Handler) DeleteCartItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ClearCart(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requestUserID(r)
-	if !ok {
-		badRequest(w, "userId is required")
-		return
-	}
+	userID := sessionUserID(r)
 	_, err := h.db.Exec(r.Context(), `DELETE FROM cart_item WHERE user_id=$1`, userID)
 	if err != nil {
 		dbError(w, err, http.StatusInternalServerError, "could not clear cart")
@@ -277,11 +261,7 @@ func (h *Handler) ClearCart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CartCount(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requestUserID(r)
-	if !ok {
-		badRequest(w, "userId is required")
-		return
-	}
+	userID := sessionUserID(r)
 	var count int32
 	if err := h.db.QueryRow(r.Context(), `SELECT COALESCE(SUM(quantity),0)::int FROM cart_item WHERE user_id=$1`, userID).Scan(&count); err != nil {
 		dbError(w, err, http.StatusInternalServerError, "could not count cart items")

@@ -11,11 +11,7 @@ import (
 )
 
 func (h *Handler) ListServiceFavorites(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requestUserID(r)
-	if !ok {
-		badRequest(w, "userId is required")
-		return
-	}
+	userID := sessionUserID(r)
 	h.rows(w, r, `SELECT jsonb_build_object('serviceId',s.public_id,'name',s.name,'addedAt',i.updated_at)
 		FROM service_user_interest i JOIN service s ON s.id=i.service_id
 		WHERE i.user_id=$1 AND i.is_favorite ORDER BY i.updated_at DESC`, userID)
@@ -27,7 +23,7 @@ func (h *Handler) AddServiceFavorite(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "invalid request body")
 		return
 	}
-	input.UserID = normalizeUserID(r, input.UserID)
+	input.UserID = sessionUserID(r)
 	userID, err := h.service.UserID(r.Context(), input.UserID)
 	serviceID, serviceErr := h.service.ServiceID(r.Context(), chi.URLParam(r, "serviceId"))
 	if err != nil || serviceErr != nil {
@@ -48,9 +44,9 @@ func (h *Handler) AddServiceFavorite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteServiceFavorite(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requestUserID(r)
+	userID := sessionUserID(r)
 	serviceID, err := h.service.ServiceID(r.Context(), chi.URLParam(r, "serviceId"))
-	if !ok || err != nil {
+	if err != nil {
 		badRequest(w, "valid userId and serviceId are required")
 		return
 	}
@@ -73,8 +69,8 @@ type serviceComparisonInput struct {
 
 func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request) {
 	var input serviceComparisonInput
-	if !decode(r, &input) || input.UserID <= 0 {
-		badRequest(w, "userId is required")
+	if !decode(r, &input) {
+		badRequest(w, "invalid request body")
 		return
 	}
 	if strings.TrimSpace(input.Name) == "" {
@@ -87,7 +83,7 @@ func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request
 		badRequest(w, "at least one serviceId is required")
 		return
 	}
-	userID, err := h.service.UserID(r.Context(), input.UserID)
+	userID, err := h.service.UserID(r.Context(), sessionUserID(r))
 	if err != nil {
 		dbError(w, err, http.StatusNotFound, "user not found")
 		return
@@ -155,7 +151,7 @@ func (h *Handler) GetServiceComparison(w http.ResponseWriter, r *http.Request) {
 		FROM service_comparison c
 		LEFT JOIN service_comparison_item ci ON ci.comparison_id=c.id
 		LEFT JOIN service s ON s.id=ci.service_id
-		WHERE c.id=$1 GROUP BY c.id`, id)
+		WHERE c.id=$1 AND c.user_id=$2 GROUP BY c.id`, id, sessionUserID(r))
 	if err != nil {
 		dbError(w, err, http.StatusInternalServerError, "could not load service comparison")
 		return
@@ -178,7 +174,7 @@ func (h *Handler) DeleteServiceComparison(w http.ResponseWriter, r *http.Request
 		badRequest(w, "invalid service comparison id")
 		return
 	}
-	result, err := h.db.Exec(r.Context(), `DELETE FROM service_comparison WHERE id=$1`, id)
+	result, err := h.db.Exec(r.Context(), `DELETE FROM service_comparison WHERE id=$1 AND user_id=$2`, id, sessionUserID(r))
 	if err != nil || result.RowsAffected() == 0 {
 		dbError(w, err, http.StatusNotFound, "service comparison not found")
 		return
@@ -210,7 +206,7 @@ func (h *Handler) AddServiceComparisonItem(w http.ResponseWriter, r *http.Reques
 	if err := tx.QueryRow(r.Context(), `SELECT COUNT(ci.id)::int
 		FROM service_comparison c
 		LEFT JOIN service_comparison_item ci ON ci.comparison_id=c.id
-		WHERE c.id=$1 GROUP BY c.id`, comparisonID).Scan(&itemCount); err != nil {
+		WHERE c.id=$1 AND c.user_id=$2 GROUP BY c.id`, comparisonID, sessionUserID(r)).Scan(&itemCount); err != nil {
 		apiutil.WriteError(w, http.StatusNotFound, "service comparison not found")
 		return
 	}
@@ -242,8 +238,10 @@ func (h *Handler) DeleteServiceComparisonItem(w http.ResponseWriter, r *http.Req
 		badRequest(w, "invalid comparison or service id")
 		return
 	}
-	result, err := h.db.Exec(r.Context(), `DELETE FROM service_comparison_item
-		WHERE comparison_id=$1 AND service_id=$2`, comparisonID, serviceID)
+	result, err := h.db.Exec(r.Context(), `DELETE FROM service_comparison_item ci
+		USING service_comparison c
+		WHERE ci.comparison_id=c.id AND c.id=$1 AND c.user_id=$3 AND ci.service_id=$2`,
+		comparisonID, serviceID, sessionUserID(r))
 	if err != nil || result.RowsAffected() == 0 {
 		dbError(w, err, http.StatusNotFound, "service comparison item not found")
 		return

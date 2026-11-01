@@ -107,21 +107,14 @@ func badRequest(w http.ResponseWriter, message string) {
 	apiutil.WriteError(w, http.StatusBadRequest, message)
 }
 
-func normalizeUserID(r *http.Request, userID int32) int32 {
-	if session, ok := authz.SessionFrom(r.Context()); ok {
-		return session.UserID
-	}
-	if userID == 0 {
-		userID, _ = queryInt(r, "userId")
-	}
-	return userID
-}
-
-func requestUserID(r *http.Request) (int32, bool) {
-	if session, ok := authz.SessionFrom(r.Context()); ok {
-		return session.UserID, true
-	}
-	return queryInt(r, "userId")
+// sessionUserID es el usuario de la sesión que validó requireSession. El
+// userId del body o del query se ignora: confiar en él permitía leer o
+// modificar los datos de otro usuario (TAL-105 H1). Los inputs aún aceptan
+// el campo userId porque el frontend lo envía y el decoder rechaza campos
+// desconocidos.
+func sessionUserID(r *http.Request) int32 {
+	session, _ := authz.SessionFrom(r.Context())
+	return session.UserID
 }
 
 func rawJSON(value json.RawMessage) string {

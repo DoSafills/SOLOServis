@@ -262,8 +262,10 @@ func TestIntegracion_Comercial(t *testing.T) {
 		var review struct {
 			ID string `json:"id"`
 		}
-		data := e.expect(http.StatusCreated, "comercial", "POST", "/reviews/product/"+productID, "",
-			map[string]any{"userId": user, "rating": 4, "title": e.tag, "content": "integración"})
+		e.expect(http.StatusUnauthorized, "comercial", "POST", "/reviews/product/"+productID, "",
+			map[string]any{"userId": user, "rating": 4})
+		data := e.expect(http.StatusCreated, "comercial", "POST", "/reviews/product/"+productID, s.AccessToken,
+			map[string]any{"rating": 4, "title": e.tag, "content": "integración"})
 		_ = json.Unmarshal(data, &review)
 		if data := e.expect(http.StatusOK, "comercial", "GET", "/reviews/product/"+productID, "", nil); !strings.Contains(string(data), e.tag) {
 			t.Errorf("la reseña no aparece en el listado")
@@ -271,12 +273,13 @@ func TestIntegracion_Comercial(t *testing.T) {
 		if n := e.count(`SELECT count(*) FROM product_review WHERE user_id = $1 AND title = $2`, user, e.tag); n != 1 {
 			t.Errorf("product_review en la base = %d", n)
 		}
-		e.expect(http.StatusNoContent, "comercial", "DELETE", fmt.Sprintf("/reviews/%s?userId=%d", review.ID, user), "", nil)
+		e.expect(http.StatusNoContent, "comercial", "DELETE", "/reviews/"+review.ID, s.AccessToken, nil)
 	})
 
 	t.Run("watchlist llama a pricing y guarda el precio objetivo", func(t *testing.T) {
-		e.expect(http.StatusCreated, "comercial", "POST", "/watchlist", "", map[string]any{"userId": user, "productId": productID, "targetPrice": 1})
-		if data := e.expect(http.StatusOK, "comercial", "GET", fmt.Sprintf("/watchlist?userId=%d", user), "", nil); !strings.Contains(string(data), productID) {
+		e.expect(http.StatusUnauthorized, "comercial", "GET", fmt.Sprintf("/watchlist?userId=%d", user), "", nil)
+		e.expect(http.StatusCreated, "comercial", "POST", "/watchlist", s.AccessToken, map[string]any{"productId": productID, "targetPrice": 1})
+		if data := e.expect(http.StatusOK, "comercial", "GET", "/watchlist", s.AccessToken, nil); !strings.Contains(string(data), productID) {
 			t.Errorf("GET /watchlist = %s", data)
 		}
 		if n := e.count(`SELECT count(*) FROM product_user_interest WHERE user_id = $1 AND target_price = 1 AND notify_price_drop`, user); n != 1 {
@@ -285,12 +288,16 @@ func TestIntegracion_Comercial(t *testing.T) {
 	})
 
 	t.Run("notification escribe notification", func(t *testing.T) {
-		e.expect(http.StatusCreated, "comercial", "POST", "/notifications", "",
-			map[string]any{"userId": user, "type": "test", "title": e.tag, "message": "integración"})
-		if data := e.expect(http.StatusOK, "comercial", "GET", fmt.Sprintf("/notifications?userId=%d", user), "", nil); !strings.Contains(string(data), e.tag) {
+		// Crear es solo interno (pricing e ingestion), ni siquiera el dueño.
+		notification := map[string]any{"userId": user, "type": "test", "title": e.tag, "message": "integración"}
+		e.expect(http.StatusUnauthorized, "comercial", "POST", "/notifications", "", notification)
+		e.expect(http.StatusForbidden, "comercial", "POST", "/notifications", s.AccessToken, notification)
+		e.expect(http.StatusCreated, "comercial", "POST", "/notifications", internalToken, notification)
+		e.expect(http.StatusUnauthorized, "comercial", "GET", fmt.Sprintf("/notifications?userId=%d", user), "", nil)
+		if data := e.expect(http.StatusOK, "comercial", "GET", "/notifications", s.AccessToken, nil); !strings.Contains(string(data), e.tag) {
 			t.Errorf("GET /notifications = %s", data)
 		}
-		e.expect(http.StatusOK, "comercial", "PUT", fmt.Sprintf("/notifications/read-all?userId=%d", user), "", nil)
+		e.expect(http.StatusOK, "comercial", "PUT", "/notifications/read-all", s.AccessToken, nil)
 		if n := e.count(`SELECT count(*) FROM notification WHERE user_id = $1 AND read_at IS NOT NULL`, user); n != 1 {
 			t.Errorf("notificaciones leídas = %d", n)
 		}
@@ -336,7 +343,7 @@ func TestIntegracion_IngestionNotificaAComercial(t *testing.T) {
 		WHERE b.name = 'LG' AND p.model = 'GM53'`).Scan(&productID); err != nil {
 		t.Fatalf("producto del seed: %v", err)
 	}
-	e.expect(http.StatusCreated, "comercial", "POST", "/watchlist", "", map[string]any{"userId": s.UserID, "productId": productID, "targetPrice": 500000})
+	e.expect(http.StatusCreated, "comercial", "POST", "/watchlist", s.AccessToken, map[string]any{"productId": productID, "targetPrice": 500000})
 
 	var run struct {
 		ID int32 `json:"id"`
@@ -370,4 +377,91 @@ func TestIntegracion_IngestionNotificaAComercial(t *testing.T) {
 	}
 	e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/finish", run.ID), internalToken, map[string]any{"status": "success"})
 	e.expect(http.StatusUnauthorized, "ingestion", "GET", "/ingestion/runs", "", nil)
+}
+
+// Cada usuario solo lee y modifica lo suyo: el usuario sale del token, nunca
+// del userId que manda el cliente (TAL-125, H1). Antes, cambiar el userId del
+// query o del body bastaba para leer o borrar los datos de otro.
+func TestIntegracion_AccesoCruzado(t *testing.T) {
+	e := newEnv(t)
+	ana, _ := e.register("ana-idor")
+	beto, _ := e.register("beto-idor")
+	productID, _, _ := e.seedOffer()
+	var serviceID string
+	if err := e.pool.QueryRow(context.Background(), `SELECT public_id::text FROM service WHERE active ORDER BY id LIMIT 1`).Scan(&serviceID); err != nil {
+		t.Fatalf("seed sin servicios: %v", err)
+	}
+	asAna := fmt.Sprintf("?userId=%d", ana.UserID)
+
+	t.Run("review", func(t *testing.T) {
+		var review struct {
+			ID     string `json:"id"`
+			UserID int32  `json:"userId"`
+		}
+		// El userId del body se ignora: la reseña queda a nombre del token.
+		data := e.expect(http.StatusCreated, "comercial", "POST", "/reviews/product/"+productID, ana.AccessToken,
+			map[string]any{"userId": beto.UserID, "rating": 5, "title": e.tag})
+		_ = json.Unmarshal(data, &review)
+		if review.UserID != ana.UserID {
+			t.Errorf("autor de la reseña = %d, quiero %d (el del token)", review.UserID, ana.UserID)
+		}
+		e.expect(http.StatusNotFound, "comercial", "PUT", "/reviews/"+review.ID, beto.AccessToken,
+			map[string]any{"userId": ana.UserID, "rating": 1})
+		e.expect(http.StatusNotFound, "comercial", "DELETE", "/reviews/"+review.ID+asAna, beto.AccessToken, nil)
+		if n := e.count(`SELECT count(*) FROM product_review WHERE user_id = $1 AND rating = 5`, ana.UserID); n != 1 {
+			t.Errorf("la reseña de ana cambió: %d filas con rating 5", n)
+		}
+	})
+
+	t.Run("watchlist", func(t *testing.T) {
+		e.expect(http.StatusCreated, "comercial", "POST", "/watchlist", ana.AccessToken, map[string]any{"productId": productID, "targetPrice": 1})
+		if data := e.expect(http.StatusOK, "comercial", "GET", "/watchlist"+asAna, beto.AccessToken, nil); string(data) != "[]\n" {
+			t.Errorf("beto ve la watchlist de ana: %s", data)
+		}
+		e.expect(http.StatusNotFound, "comercial", "PUT", "/watchlist/"+productID, beto.AccessToken, map[string]any{"userId": ana.UserID, "targetPrice": 2})
+		e.expect(http.StatusNotFound, "comercial", "DELETE", "/watchlist/"+productID+asAna, beto.AccessToken, nil)
+		if n := e.count(`SELECT count(*) FROM product_user_interest WHERE user_id = $1 AND target_price = 1 AND notify_price_drop`, ana.UserID); n != 1 {
+			t.Errorf("la watchlist de ana cambió")
+		}
+	})
+
+	t.Run("notification", func(t *testing.T) {
+		var notification struct {
+			ID int32 `json:"id"`
+		}
+		data := e.expect(http.StatusCreated, "comercial", "POST", "/notifications", internalToken,
+			map[string]any{"userId": ana.UserID, "type": "test", "title": e.tag, "message": "solo para ana"})
+		_ = json.Unmarshal(data, &notification)
+		if data := e.expect(http.StatusOK, "comercial", "GET", "/notifications"+asAna, beto.AccessToken, nil); strings.Contains(string(data), e.tag) {
+			t.Errorf("beto ve las notificaciones de ana: %s", data)
+		}
+		e.expect(http.StatusNotFound, "comercial", "PUT", fmt.Sprintf("/notifications/%d/read%s", notification.ID, asAna), beto.AccessToken, nil)
+		e.expect(http.StatusOK, "comercial", "PUT", "/notifications/read-all"+asAna, beto.AccessToken, map[string]any{"userId": ana.UserID})
+		if n := e.count(`SELECT count(*) FROM notification WHERE user_id = $1 AND read_at IS NULL`, ana.UserID); n != 1 {
+			t.Errorf("beto marcó como leídas las notificaciones de ana")
+		}
+	})
+
+	t.Run("comparación de servicios", func(t *testing.T) {
+		e.expect(http.StatusUnauthorized, "comercial", "POST", "/comparisons/services", "", map[string]any{"userId": ana.UserID, "serviceIds": []string{serviceID}})
+		var comparison struct {
+			ID     int32 `json:"id"`
+			UserID int32 `json:"userId"`
+		}
+		data := e.expect(http.StatusCreated, "comercial", "POST", "/comparisons/services", ana.AccessToken,
+			map[string]any{"userId": beto.UserID, "serviceIds": []string{serviceID}})
+		_ = json.Unmarshal(data, &comparison)
+		if comparison.UserID != ana.UserID {
+			t.Errorf("dueño de la comparación = %d, quiero %d", comparison.UserID, ana.UserID)
+		}
+		path := fmt.Sprintf("/comparisons/services/%d", comparison.ID)
+		e.expect(http.StatusNotFound, "comercial", "GET", path, beto.AccessToken, nil)
+		e.expect(http.StatusNotFound, "comercial", "DELETE", path+"/items/"+serviceID, beto.AccessToken, nil)
+		e.expect(http.StatusNotFound, "comercial", "DELETE", path, beto.AccessToken, nil)
+		e.expect(http.StatusOK, "comercial", "GET", path, ana.AccessToken, nil)
+		if n := e.count(`SELECT count(*) FROM service_comparison_item WHERE comparison_id = $1`, comparison.ID); n != 1 {
+			t.Errorf("ítems de la comparación de ana = %d, quiero 1", n)
+		}
+		e.expect(http.StatusNoContent, "comercial", "DELETE", path, ana.AccessToken, nil)
+	})
 }
