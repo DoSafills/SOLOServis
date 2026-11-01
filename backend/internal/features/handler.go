@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -35,7 +36,7 @@ func (h *Handler) requireSession(next http.Handler) http.Handler {
 			WHERE s.access_token_hash=$1 AND s.access_expires_at>NOW() AND u.active`,
 			tokenHash(token)).Scan(&userID)
 		if err != nil {
-			apiutil.WriteError(w, http.StatusUnauthorized, "invalid or expired access token")
+			dbError(w, err, http.StatusUnauthorized, "invalid or expired access token")
 			return
 		}
 
@@ -62,7 +63,7 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) rows(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "database operation failed")
+		dbError(w, err, http.StatusInternalServerError, "database operation failed")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, result)
@@ -71,7 +72,7 @@ func (h *Handler) rows(w http.ResponseWriter, r *http.Request, query string, arg
 func (h *Handler) created(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusBadRequest, "could not create resource")
+		dbError(w, err, http.StatusBadRequest, "could not create resource")
 		return
 	}
 	if len(result) == 0 {
@@ -84,7 +85,7 @@ func (h *Handler) created(w http.ResponseWriter, r *http.Request, query string, 
 func (h *Handler) one(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "database operation failed")
+		dbError(w, err, http.StatusInternalServerError, "database operation failed")
 		return
 	}
 	if len(result) == 0 {
@@ -106,6 +107,18 @@ func intParam(r *http.Request, key string) (int32, bool) {
 func queryInt(r *http.Request, key string) (int32, bool) {
 	value, err := strconv.ParseInt(r.URL.Query().Get(key), 10, 32)
 	return int32(value), err == nil && value > 0
+}
+
+// dbError responde status y message, salvo que err sea una falla para llegar a
+// la base (httpx.IsUnavailable): entonces 503. Así una base caída no se
+// confunde con un error del cliente (400/404) ni con una sesión vencida (401),
+// que haría que el frontend cierre la sesión del usuario.
+func dbError(w http.ResponseWriter, err error, status int, message string) {
+	if httpx.IsUnavailable(err) {
+		apiutil.WriteError(w, http.StatusServiceUnavailable, "database unavailable")
+		return
+	}
+	apiutil.WriteError(w, status, message)
 }
 
 func badRequest(w http.ResponseWriter, message string) {

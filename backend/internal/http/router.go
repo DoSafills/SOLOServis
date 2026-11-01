@@ -236,13 +236,13 @@ func registerIngestionRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger
 	})
 }
 
-func registerServiceRoutes(r chi.Router, db *pgxpool.Pool, _ *slog.Logger) {
-	handler := services.NewHandler(services.NewRepository(db))
+func registerServiceRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	handler := services.NewHandler(services.NewRepository(db), logger)
 	r.Get("/services", handler.List)
 	r.Get("/services/{publicID}", handler.GetByPublicID)
 }
 
-func registerUserRoutes(r chi.Router, db *pgxpool.Pool, _ *slog.Logger) {
+func registerUserRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	r.Get("/users", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
@@ -266,6 +266,10 @@ func registerUserRoutes(r chi.Router, db *pgxpool.Pool, _ *slog.Logger) {
 			JOIN user_session s ON s.user_id=u.id
 			WHERE u.id=$1 AND u.active AND s.access_token_hash=$2 AND s.access_expires_at>NOW()`,
 			chi.URLParam(req, "id"), tokenHash[:]).Scan(&user.ID, &user.Name, &user.Email)
+		if httpx.IsUnavailable(err) {
+			httpx.WriteInternal(w, req, logger, err)
+			return
+		}
 		if err != nil {
 			apiutil.WriteError(w, http.StatusNotFound, "user not found")
 			return

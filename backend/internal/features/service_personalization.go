@@ -2,6 +2,7 @@ package features
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -30,14 +31,14 @@ func (h *Handler) AddServiceFavorite(w http.ResponseWriter, r *http.Request) {
 	userID, err := h.service.UserID(r.Context(), input.UserID)
 	serviceID, serviceErr := h.service.ServiceID(r.Context(), chi.URLParam(r, "serviceId"))
 	if err != nil || serviceErr != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "user or service not found")
+		dbError(w, errors.Join(err, serviceErr), http.StatusNotFound, "user or service not found")
 		return
 	}
 	_, err = h.db.Exec(r.Context(), `INSERT INTO service_user_interest (user_id,service_id,is_favorite)
 		VALUES ($1,$2,TRUE) ON CONFLICT (user_id,service_id)
 		DO UPDATE SET is_favorite=TRUE,updated_at=NOW()`, userID, serviceID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not save service favorite")
+		dbError(w, err, http.StatusInternalServerError, "could not save service favorite")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{
@@ -57,7 +58,7 @@ func (h *Handler) DeleteServiceFavorite(w http.ResponseWriter, r *http.Request) 
 		SET is_favorite=FALSE,updated_at=NOW()
 		WHERE user_id=$1 AND service_id=$2 AND is_favorite`, userID, serviceID)
 	if err != nil || result.RowsAffected() == 0 {
-		apiutil.WriteError(w, http.StatusNotFound, "service favorite not found")
+		dbError(w, err, http.StatusNotFound, "service favorite not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -88,7 +89,7 @@ func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request
 	}
 	userID, err := h.service.UserID(r.Context(), input.UserID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "user not found")
+		dbError(w, err, http.StatusNotFound, "user not found")
 		return
 	}
 
@@ -96,7 +97,7 @@ func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request
 	for _, publicID := range input.Services {
 		serviceID, err := h.service.ServiceID(r.Context(), publicID)
 		if err != nil {
-			apiutil.WriteError(w, http.StatusNotFound, "service not found")
+			dbError(w, err, http.StatusNotFound, "service not found")
 			return
 		}
 		serviceIDs = append(serviceIDs, serviceID)
@@ -104,13 +105,13 @@ func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request
 
 	var categoryID int32
 	if err := h.db.QueryRow(r.Context(), `SELECT category_id FROM service WHERE id=$1`, serviceIDs[0]).Scan(&categoryID); err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "service not found")
+		dbError(w, err, http.StatusNotFound, "service not found")
 		return
 	}
 
 	tx, err := h.db.Begin(r.Context())
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not start service comparison")
+		dbError(w, err, http.StatusInternalServerError, "could not start service comparison")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -129,7 +130,7 @@ func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not save service comparison")
+		dbError(w, err, http.StatusInternalServerError, "could not save service comparison")
 		return
 	}
 
@@ -156,7 +157,7 @@ func (h *Handler) GetServiceComparison(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN service s ON s.id=ci.service_id
 		WHERE c.id=$1 GROUP BY c.id`, id)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not load service comparison")
+		dbError(w, err, http.StatusInternalServerError, "could not load service comparison")
 		return
 	}
 	if len(result) == 0 {
@@ -179,7 +180,7 @@ func (h *Handler) DeleteServiceComparison(w http.ResponseWriter, r *http.Request
 	}
 	result, err := h.db.Exec(r.Context(), `DELETE FROM service_comparison WHERE id=$1`, id)
 	if err != nil || result.RowsAffected() == 0 {
-		apiutil.WriteError(w, http.StatusNotFound, "service comparison not found")
+		dbError(w, err, http.StatusNotFound, "service comparison not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -194,13 +195,13 @@ func (h *Handler) AddServiceComparisonItem(w http.ResponseWriter, r *http.Reques
 	}
 	serviceID, err := h.service.ServiceID(r.Context(), input.ServiceID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "service not found")
+		dbError(w, err, http.StatusNotFound, "service not found")
 		return
 	}
 
 	tx, err := h.db.Begin(r.Context())
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not start service comparison update")
+		dbError(w, err, http.StatusInternalServerError, "could not start service comparison update")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -225,7 +226,7 @@ func (h *Handler) AddServiceComparisonItem(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not save service comparison item")
+		dbError(w, err, http.StatusInternalServerError, "could not save service comparison item")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{
@@ -244,7 +245,7 @@ func (h *Handler) DeleteServiceComparisonItem(w http.ResponseWriter, r *http.Req
 	result, err := h.db.Exec(r.Context(), `DELETE FROM service_comparison_item
 		WHERE comparison_id=$1 AND service_id=$2`, comparisonID, serviceID)
 	if err != nil || result.RowsAffected() == 0 {
-		apiutil.WriteError(w, http.StatusNotFound, "service comparison item not found")
+		dbError(w, err, http.StatusNotFound, "service comparison item not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

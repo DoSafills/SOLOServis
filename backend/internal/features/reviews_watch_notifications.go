@@ -22,7 +22,7 @@ type reviewInput struct {
 func (h *Handler) ListProductReviews(w http.ResponseWriter, r *http.Request) {
 	productID, err := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
 	if err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "product not found")
+		dbError(w, err, http.StatusNotFound, "product not found")
 		return
 	}
 	h.rows(w, r, `SELECT jsonb_build_object('id','product:'||id,'userId',user_id,'rating',rating,'title',title,'content',content,'verified',verified,'createdAt',created_at)
@@ -78,7 +78,7 @@ func (h *Handler) CreateStoreReview(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListServiceReviews(w http.ResponseWriter, r *http.Request) {
 	serviceID, err := h.resolveServiceID(r.Context(), chi.URLParam(r, "serviceId"))
 	if err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "service not found")
+		dbError(w, err, http.StatusNotFound, "service not found")
 		return
 	}
 	h.rows(w, r, `SELECT jsonb_build_object('id','service:'||id,'userId',user_id,'rating',rating,'title',title,'content',content,'verified',verified,'createdAt',created_at)
@@ -109,7 +109,7 @@ func (h *Handler) createReview(w http.ResponseWriter, r *http.Request, query str
 	var result json.RawMessage
 	err := h.db.QueryRow(r.Context(), query, input.UserID, subjectID, input.Rating, input.Title, input.Content).Scan(&result)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusBadRequest, "could not save review")
+		dbError(w, err, http.StatusBadRequest, "could not save review")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, result)
@@ -202,13 +202,13 @@ func (h *Handler) AddWatchlist(w http.ResponseWriter, r *http.Request) {
 	}
 	productID, err := h.service.ProductID(r.Context(), input.ProductID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "product not found")
+		dbError(w, err, http.StatusNotFound, "product not found")
 		return
 	}
 	_, err = h.db.Exec(r.Context(), `INSERT INTO product_user_interest(user_id,product_id,target_price,notify_price_drop)
 		VALUES($1,$2,$3,TRUE) ON CONFLICT(user_id,product_id) DO UPDATE SET target_price=EXCLUDED.target_price,notify_price_drop=TRUE,updated_at=NOW()`, input.UserID, productID, input.TargetPrice)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusBadRequest, "could not add watchlist item")
+		dbError(w, err, http.StatusBadRequest, "could not add watchlist item")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{"productId": input.ProductID, "targetPrice": input.TargetPrice})
@@ -228,13 +228,13 @@ func (h *Handler) UpdateWatchlist(w http.ResponseWriter, r *http.Request) {
 	}
 	productID, err := h.service.ProductID(r.Context(), productKey)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "product not found")
+		dbError(w, err, http.StatusNotFound, "product not found")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `UPDATE product_user_interest SET target_price=$3,notify_price_drop=TRUE,updated_at=NOW()
 		WHERE user_id=$1 AND product_id=$2 AND notify_price_drop`, input.UserID, productID, input.TargetPrice)
 	if err != nil || result.RowsAffected() == 0 {
-		apiutil.WriteError(w, http.StatusNotFound, "watchlist item not found")
+		dbError(w, err, http.StatusNotFound, "watchlist item not found")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"productId": chi.URLParam(r, "productId"), "targetPrice": input.TargetPrice})
@@ -249,7 +249,7 @@ func (h *Handler) DeleteWatchlist(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.db.Exec(r.Context(), `UPDATE product_user_interest SET notify_price_drop=FALSE,updated_at=NOW() WHERE user_id=$1 AND product_id=$2 AND notify_price_drop`, userID, productID)
 	if err != nil || result.RowsAffected() == 0 {
-		apiutil.WriteError(w, http.StatusNotFound, "watchlist item not found")
+		dbError(w, err, http.StatusNotFound, "watchlist item not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -307,7 +307,7 @@ func (h *Handler) ReadNotification(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.db.Exec(r.Context(), `UPDATE notification SET read_at=NOW() WHERE id=$1 AND user_id=$2 AND read_at IS NULL`, id, userID)
 	if err != nil || result.RowsAffected() == 0 {
-		apiutil.WriteError(w, http.StatusNotFound, "unread notification not found")
+		dbError(w, err, http.StatusNotFound, "unread notification not found")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "read": true})
@@ -328,7 +328,7 @@ func (h *Handler) ReadAllNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err := h.db.Exec(r.Context(), `UPDATE notification SET read_at=NOW() WHERE user_id=$1 AND read_at IS NULL`, input.UserID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not update notifications")
+		dbError(w, err, http.StatusInternalServerError, "could not update notifications")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"readAll": true})

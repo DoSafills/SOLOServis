@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
 )
 
 type searchInput struct {
@@ -82,7 +80,7 @@ func (h *Handler) DeleteSavedSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.db.Exec(r.Context(), `DELETE FROM saved_search WHERE id=$1 AND user_id=$2`, id, userID)
 	if err != nil || result.RowsAffected() == 0 {
-		apiutil.WriteError(w, http.StatusNotFound, "saved search not found")
+		dbError(w, err, http.StatusNotFound, "saved search not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

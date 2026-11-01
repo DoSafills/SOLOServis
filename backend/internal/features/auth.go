@@ -37,7 +37,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	err = h.db.QueryRow(r.Context(), `INSERT INTO user_account(name,email,password_hash) VALUES ($1,$2,$3) RETURNING id`,
 		strings.TrimSpace(input.Name), strings.ToLower(strings.TrimSpace(input.Email)), hash).Scan(&userID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusConflict, "email is already registered")
+		dbError(w, err, http.StatusConflict, "email is already registered")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusCreated)
@@ -54,7 +54,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE email=$1 AND active`,
 		strings.ToLower(strings.TrimSpace(input.Email))).Scan(&userID, &hash)
 	if err != nil || !checkPassword(hash, input.Password) {
-		apiutil.WriteError(w, http.StatusUnauthorized, "invalid credentials")
+		dbError(w, err, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusOK)
@@ -69,12 +69,12 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 	}
 	access, err := newToken()
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not create session")
+		dbError(w, err, http.StatusInternalServerError, "could not create session")
 		return
 	}
 	refresh, err := newToken()
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not create session")
+		dbError(w, err, http.StatusInternalServerError, "could not create session")
 		return
 	}
 	accessExpiry := time.Now().Add(15 * time.Minute)
@@ -83,7 +83,7 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 		(user_id,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at)
 		VALUES ($1,$2,$3,$4,$5)`, userID, tokenHash(access), tokenHash(refresh), accessExpiry, refreshExpiry)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not save session")
+		dbError(w, err, http.StatusInternalServerError, "could not save session")
 		return
 	}
 	apiutil.WriteJSON(w, status, map[string]any{"userId": userID, "accessToken": access, "refreshToken": refresh,
@@ -101,7 +101,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRow(r.Context(), `DELETE FROM user_session WHERE refresh_token_hash=$1 AND refresh_expires_at>NOW()
 		RETURNING user_id`, tokenHash(input.RefreshToken)).Scan(&userID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusUnauthorized, "invalid or expired refresh token")
+		dbError(w, err, http.StatusUnauthorized, "invalid or expired refresh token")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusOK)
@@ -129,7 +129,7 @@ func (h *Handler) ValidateToken(w http.ResponseWriter, r *http.Request) {
 	var userID int32
 	err := h.db.QueryRow(r.Context(), `SELECT user_id FROM user_session WHERE access_token_hash=$1 AND access_expires_at>NOW()`, tokenHash(token)).Scan(&userID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusUnauthorized, "invalid or expired access token")
+		dbError(w, err, http.StatusUnauthorized, "invalid or expired access token")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"valid": true, "userId": userID})
