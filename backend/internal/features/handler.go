@@ -45,7 +45,7 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) rows(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
-		dbError(w, err, http.StatusInternalServerError, "database operation failed")
+		h.dbError(w, r, err, http.StatusInternalServerError, "database operation failed")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, result)
@@ -54,11 +54,11 @@ func (h *Handler) rows(w http.ResponseWriter, r *http.Request, query string, arg
 func (h *Handler) created(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
-		dbError(w, err, http.StatusBadRequest, "could not create resource")
+		h.dbError(w, r, err, http.StatusBadRequest, "could not create resource")
 		return
 	}
 	if len(result) == 0 {
-		apiutil.WriteError(w, http.StatusInternalServerError, "database returned no resource")
+		writeError(w, r, http.StatusInternalServerError, "database returned no resource")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, result[0])
@@ -67,11 +67,11 @@ func (h *Handler) created(w http.ResponseWriter, r *http.Request, query string, 
 func (h *Handler) one(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
-		dbError(w, err, http.StatusInternalServerError, "database operation failed")
+		h.dbError(w, r, err, http.StatusInternalServerError, "database operation failed")
 		return
 	}
 	if len(result) == 0 {
-		apiutil.WriteError(w, http.StatusNotFound, "resource not found")
+		writeError(w, r, http.StatusNotFound, "resource not found")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, result[0])
@@ -91,20 +91,46 @@ func queryInt(r *http.Request, key string) (int32, bool) {
 	return int32(value), err == nil && value > 0
 }
 
+// writeError responde problem+json, como las APIs del estándar TAL-78
+// (TAL-125, H3). El code sale del status.
+func writeError(w http.ResponseWriter, r *http.Request, status int, message string) {
+	httpx.WriteProblem(w, r, status, problemCode(status), message)
+}
+
+func problemCode(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return httpx.CodeInvalidParameter
+	case http.StatusUnauthorized:
+		return httpx.CodeUnauthorized
+	case http.StatusForbidden:
+		return httpx.CodeForbidden
+	case http.StatusNotFound:
+		return httpx.CodeNotFound
+	case http.StatusConflict:
+		return httpx.CodeConflict
+	case http.StatusServiceUnavailable:
+		return httpx.CodeServiceUnavailable
+	default:
+		return httpx.CodeInternalError
+	}
+}
+
 // dbError responde status y message, salvo que err sea una falla para llegar a
 // la base (httpx.IsUnavailable): entonces 503. Así una base caída no se
 // confunde con un error del cliente (400/404) ni con una sesión vencida (401),
-// que haría que el frontend cierre la sesión del usuario.
-func dbError(w http.ResponseWriter, err error, status int, message string) {
-	if httpx.IsUnavailable(err) {
-		apiutil.WriteError(w, http.StatusServiceUnavailable, "database unavailable")
+// que haría que el frontend cierre la sesión del usuario. Los 5xx quedan en el
+// log con su request_id (httpx.WriteInternal).
+func (h *Handler) dbError(w http.ResponseWriter, r *http.Request, err error, status int, message string) {
+	if err != nil && (httpx.IsUnavailable(err) || status >= http.StatusInternalServerError) {
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
-	apiutil.WriteError(w, status, message)
+	writeError(w, r, status, message)
 }
 
-func badRequest(w http.ResponseWriter, message string) {
-	apiutil.WriteError(w, http.StatusBadRequest, message)
+func badRequest(w http.ResponseWriter, r *http.Request, message string) {
+	writeError(w, r, http.StatusBadRequest, message)
 }
 
 // sessionUserID es el usuario de la sesión que validó requireSession. El

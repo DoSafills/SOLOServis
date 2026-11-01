@@ -12,9 +12,12 @@ import (
 )
 
 func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
+	// Estándar TAL-78, en el mismo orden que las demás APIs
+	// (internal/http.useStandardMiddleware): RequestID → AccessLog → Recover.
 	logger := httpx.NewLogger(os.Stdout, httpx.ParseLevel(os.Getenv("LOG_LEVEL")))
 	h := NewHandler(name, db, logger)
 	r := chi.NewRouter()
+	r.Use(httpx.RequestID, httpx.AccessLog(logger), httpx.Recover(logger))
 	r.Use(cors(frontendURL))
 	r.Get("/health", h.Health)
 

@@ -17,7 +17,7 @@ type searchInput struct {
 func (h *Handler) CreateSearchHistory(w http.ResponseWriter, r *http.Request) {
 	var input searchInput
 	if !decode(r, &input) || strings.TrimSpace(input.Query) == "" {
-		badRequest(w, "query is required")
+		badRequest(w, r, "query is required")
 		return
 	}
 	input.UserID = sessionUserID(r)
@@ -39,7 +39,7 @@ func (h *Handler) GetSearchHistory(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SaveSearch(w http.ResponseWriter, r *http.Request) {
 	var input searchInput
 	if !decode(r, &input) || strings.TrimSpace(input.Name) == "" {
-		badRequest(w, "userId and name are required")
+		badRequest(w, r, "userId and name are required")
 		return
 	}
 	input.UserID = sessionUserID(r)
@@ -59,12 +59,12 @@ func (h *Handler) DeleteSavedSearch(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
 	userID := sessionUserID(r)
 	if !ok {
-		badRequest(w, "valid id and userId are required")
+		badRequest(w, r, "valid id and userId are required")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `DELETE FROM saved_search WHERE id=$1 AND user_id=$2`, id, userID)
 	if err != nil || result.RowsAffected() == 0 {
-		dbError(w, err, http.StatusNotFound, "saved search not found")
+		h.dbError(w, r, err, http.StatusNotFound, "saved search not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

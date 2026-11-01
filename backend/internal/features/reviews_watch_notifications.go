@@ -22,7 +22,7 @@ type reviewInput struct {
 func (h *Handler) ListProductReviews(w http.ResponseWriter, r *http.Request) {
 	productID, err := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
 	if err != nil {
-		dbError(w, err, http.StatusNotFound, "product not found")
+		h.dbError(w, r, err, http.StatusNotFound, "product not found")
 		return
 	}
 	h.rows(w, r, `SELECT jsonb_build_object('id','product:'||id,'userId',user_id,'rating',rating,'title',title,'content',content,'verified',verified,'createdAt',created_at)
@@ -34,12 +34,12 @@ func (h *Handler) CreateProductReview(w http.ResponseWriter, r *http.Request) {
 	productID, err := h.service.ProductID(r.Context(), productKey)
 	var input reviewInput
 	if err != nil || !decode(r, &input) || input.Rating < 1 || input.Rating > 5 {
-		badRequest(w, "valid productId and rating from 1 to 5 are required")
+		badRequest(w, r, "valid productId and rating from 1 to 5 are required")
 		return
 	}
 	if len(productKey) == 36 {
 		if err := verifyProductService(r.Context(), productKey); err != nil {
-			apiutil.WriteError(w, http.StatusServiceUnavailable, "product service is unavailable")
+			writeError(w, r, http.StatusServiceUnavailable, "product service is unavailable")
 			return
 		}
 	}
@@ -51,7 +51,7 @@ func (h *Handler) CreateProductReview(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListStoreReviews(w http.ResponseWriter, r *http.Request) {
 	storeID, ok := intParam(r, "storeId")
 	if !ok {
-		badRequest(w, "invalid store id")
+		badRequest(w, r, "invalid store id")
 		return
 	}
 	h.rows(w, r, `SELECT jsonb_build_object('id','store:'||id,'userId',user_id,'rating',rating,'title',title,'content',content,'createdAt',created_at)
@@ -62,12 +62,12 @@ func (h *Handler) CreateStoreReview(w http.ResponseWriter, r *http.Request) {
 	storeID, ok := intParam(r, "storeId")
 	var input reviewInput
 	if !ok || !decode(r, &input) || input.Rating < 1 || input.Rating > 5 {
-		badRequest(w, "valid storeId and rating from 1 to 5 are required")
+		badRequest(w, r, "valid storeId and rating from 1 to 5 are required")
 		return
 	}
 	var store json.RawMessage
 	if err := remoteJSON(r.Context(), "STORE_API_URL", "http://localhost:8082", http.MethodGet, "/stores/"+strconv.Itoa(int(storeID)), nil, &store); err != nil {
-		apiutil.WriteError(w, http.StatusServiceUnavailable, "store service is unavailable")
+		writeError(w, r, http.StatusServiceUnavailable, "store service is unavailable")
 		return
 	}
 	h.createReview(w, r, `INSERT INTO store_review (user_id,store_id,rating,title,content) VALUES ($1,$2,$3,$4,$5)
@@ -78,7 +78,7 @@ func (h *Handler) CreateStoreReview(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListServiceReviews(w http.ResponseWriter, r *http.Request) {
 	serviceID, err := h.resolveServiceID(r.Context(), chi.URLParam(r, "serviceId"))
 	if err != nil {
-		dbError(w, err, http.StatusNotFound, "service not found")
+		h.dbError(w, r, err, http.StatusNotFound, "service not found")
 		return
 	}
 	h.rows(w, r, `SELECT jsonb_build_object('id','service:'||id,'userId',user_id,'rating',rating,'title',title,'content',content,'verified',verified,'createdAt',created_at)
@@ -90,13 +90,13 @@ func (h *Handler) CreateServiceReview(w http.ResponseWriter, r *http.Request) {
 	serviceID, err := h.resolveServiceID(r.Context(), serviceKey)
 	var input reviewInput
 	if err != nil || !decode(r, &input) || input.Rating < 1 || input.Rating > 5 {
-		badRequest(w, "valid serviceId and rating from 1 to 5 are required")
+		badRequest(w, r, "valid serviceId and rating from 1 to 5 are required")
 		return
 	}
 	if len(serviceKey) == 36 {
 		var service json.RawMessage
 		if err := remoteJSON(r.Context(), "SERVICE_API_URL", "http://localhost:8083", http.MethodGet, "/services/"+serviceKey, nil, &service); err != nil {
-			apiutil.WriteError(w, http.StatusServiceUnavailable, "service catalog API is unavailable")
+			writeError(w, r, http.StatusServiceUnavailable, "service catalog API is unavailable")
 			return
 		}
 	}
@@ -109,7 +109,7 @@ func (h *Handler) createReview(w http.ResponseWriter, r *http.Request, query str
 	var result json.RawMessage
 	err := h.db.QueryRow(r.Context(), query, sessionUserID(r), subjectID, input.Rating, input.Title, input.Content).Scan(&result)
 	if err != nil {
-		dbError(w, err, http.StatusBadRequest, "could not save review")
+		h.dbError(w, r, err, http.StatusBadRequest, "could not save review")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, result)
@@ -132,7 +132,7 @@ func (h *Handler) UpdateReview(w http.ResponseWriter, r *http.Request) {
 	table, id, ok := parseReviewID(chi.URLParam(r, "id"))
 	var input reviewInput
 	if !ok || !decode(r, &input) || input.Rating < 1 || input.Rating > 5 {
-		badRequest(w, "valid review id and rating from 1 to 5 are required")
+		badRequest(w, r, "valid review id and rating from 1 to 5 are required")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `UPDATE `+table+` SET rating=$3,title=$4,content=$5,updated_at=NOW() WHERE id=$1 AND user_id=$2`, id, sessionUserID(r), input.Rating, input.Title, input.Content)
@@ -140,14 +140,14 @@ func (h *Handler) UpdateReview(w http.ResponseWriter, r *http.Request) {
 		apiutil.WriteJSON(w, http.StatusOK, map[string]any{"id": chi.URLParam(r, "id"), "rating": input.Rating, "updated": true})
 		return
 	}
-	apiutil.WriteError(w, http.StatusNotFound, "review not found")
+	writeError(w, r, http.StatusNotFound, "review not found")
 }
 
 func (h *Handler) DeleteReview(w http.ResponseWriter, r *http.Request) {
 	table, id, ok := parseReviewID(chi.URLParam(r, "id"))
 	userID := sessionUserID(r)
 	if !ok {
-		badRequest(w, "invalid review id")
+		badRequest(w, r, "invalid review id")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `DELETE FROM `+table+` WHERE id=$1 AND user_id=$2`, id, userID)
@@ -155,7 +155,7 @@ func (h *Handler) DeleteReview(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	apiutil.WriteError(w, http.StatusNotFound, "review not found")
+	writeError(w, r, http.StatusNotFound, "review not found")
 }
 
 func parseReviewID(value string) (string, int64, bool) {
@@ -188,23 +188,23 @@ func (h *Handler) GetWatchlist(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AddWatchlist(w http.ResponseWriter, r *http.Request) {
 	var input watchlistInput
 	if !decode(r, &input) || input.ProductID == "" || input.TargetPrice < 0 {
-		badRequest(w, "productId and non-negative targetPrice are required")
+		badRequest(w, r, "productId and non-negative targetPrice are required")
 		return
 	}
 	var offers []json.RawMessage
 	if err := remoteJSON(r.Context(), "PRICING_API_URL", "http://localhost:8085", http.MethodGet, "/offers/product/"+input.ProductID, nil, &offers); err != nil {
-		apiutil.WriteError(w, http.StatusServiceUnavailable, "pricing service is unavailable")
+		writeError(w, r, http.StatusServiceUnavailable, "pricing service is unavailable")
 		return
 	}
 	productID, err := h.service.ProductID(r.Context(), input.ProductID)
 	if err != nil {
-		dbError(w, err, http.StatusNotFound, "product not found")
+		h.dbError(w, r, err, http.StatusNotFound, "product not found")
 		return
 	}
 	_, err = h.db.Exec(r.Context(), `INSERT INTO product_user_interest(user_id,product_id,target_price,notify_price_drop)
 		VALUES($1,$2,$3,TRUE) ON CONFLICT(user_id,product_id) DO UPDATE SET target_price=EXCLUDED.target_price,notify_price_drop=TRUE,updated_at=NOW()`, sessionUserID(r), productID, input.TargetPrice)
 	if err != nil {
-		dbError(w, err, http.StatusBadRequest, "could not add watchlist item")
+		h.dbError(w, r, err, http.StatusBadRequest, "could not add watchlist item")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{"productId": input.ProductID, "targetPrice": input.TargetPrice})
@@ -213,24 +213,24 @@ func (h *Handler) AddWatchlist(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateWatchlist(w http.ResponseWriter, r *http.Request) {
 	var input watchlistInput
 	if !decode(r, &input) || input.TargetPrice < 0 {
-		badRequest(w, "non-negative targetPrice is required")
+		badRequest(w, r, "non-negative targetPrice is required")
 		return
 	}
 	productKey := chi.URLParam(r, "productId")
 	var offers []json.RawMessage
 	if err := remoteJSON(r.Context(), "PRICING_API_URL", "http://localhost:8085", http.MethodGet, "/offers/product/"+productKey, nil, &offers); err != nil {
-		apiutil.WriteError(w, http.StatusServiceUnavailable, "pricing service is unavailable")
+		writeError(w, r, http.StatusServiceUnavailable, "pricing service is unavailable")
 		return
 	}
 	productID, err := h.service.ProductID(r.Context(), productKey)
 	if err != nil {
-		dbError(w, err, http.StatusNotFound, "product not found")
+		h.dbError(w, r, err, http.StatusNotFound, "product not found")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `UPDATE product_user_interest SET target_price=$3,notify_price_drop=TRUE,updated_at=NOW()
 		WHERE user_id=$1 AND product_id=$2 AND notify_price_drop`, sessionUserID(r), productID, input.TargetPrice)
 	if err != nil || result.RowsAffected() == 0 {
-		dbError(w, err, http.StatusNotFound, "watchlist item not found")
+		h.dbError(w, r, err, http.StatusNotFound, "watchlist item not found")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"productId": chi.URLParam(r, "productId"), "targetPrice": input.TargetPrice})
@@ -240,12 +240,12 @@ func (h *Handler) DeleteWatchlist(w http.ResponseWriter, r *http.Request) {
 	userID := sessionUserID(r)
 	productID, err := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
 	if err != nil {
-		badRequest(w, "valid productId is required")
+		badRequest(w, r, "valid productId is required")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `UPDATE product_user_interest SET notify_price_drop=FALSE,updated_at=NOW() WHERE user_id=$1 AND product_id=$2 AND notify_price_drop`, userID, productID)
 	if err != nil || result.RowsAffected() == 0 {
-		dbError(w, err, http.StatusNotFound, "watchlist item not found")
+		h.dbError(w, r, err, http.StatusNotFound, "watchlist item not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -262,7 +262,7 @@ type notificationInput struct {
 func (h *Handler) CreateNotification(w http.ResponseWriter, r *http.Request) {
 	var input notificationInput
 	if !decode(r, &input) || input.UserID <= 0 || strings.TrimSpace(input.Type) == "" || strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.Message) == "" {
-		badRequest(w, "userId, type, title and message are required")
+		badRequest(w, r, "userId, type, title and message are required")
 		return
 	}
 	h.created(w, r, `WITH inserted AS (INSERT INTO notification(user_id,type,title,message,data)
@@ -294,12 +294,12 @@ func (h *Handler) ReadNotification(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
 	userID := sessionUserID(r)
 	if !ok {
-		badRequest(w, "invalid notification id")
+		badRequest(w, r, "invalid notification id")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `UPDATE notification SET read_at=NOW() WHERE id=$1 AND user_id=$2 AND read_at IS NULL`, id, userID)
 	if err != nil || result.RowsAffected() == 0 {
-		dbError(w, err, http.StatusNotFound, "unread notification not found")
+		h.dbError(w, r, err, http.StatusNotFound, "unread notification not found")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "read": true})
@@ -309,14 +309,14 @@ func (h *Handler) ReadAllNotifications(w http.ResponseWriter, r *http.Request) {
 	var input notificationInput
 	if r.ContentLength != 0 {
 		if !decode(r, &input) {
-			badRequest(w, "invalid request body")
+			badRequest(w, r, "invalid request body")
 			return
 		}
 	}
 	input.UserID = sessionUserID(r)
 	_, err := h.db.Exec(r.Context(), `UPDATE notification SET read_at=NOW() WHERE user_id=$1 AND read_at IS NULL`, input.UserID)
 	if err != nil {
-		dbError(w, err, http.StatusInternalServerError, "could not update notifications")
+		h.dbError(w, r, err, http.StatusInternalServerError, "could not update notifications")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"readAll": true})

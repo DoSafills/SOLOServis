@@ -5,6 +5,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,22 +98,36 @@ func TestBaseCaida_CadaAPIResponde503(t *testing.T) {
 	}
 }
 
-// Las APIs del estándar TAL-78 responden problem+json con un código estable.
+// Todas las APIs responden problem+json con un código estable y el
+// request_id que queda en el log; las de features también desde TAL-125 (H3).
 func TestBaseCaida_ProblemJSON(t *testing.T) {
 	pool, err := pgxpool.New(context.Background(), "postgres://x:x@127.0.0.1:1/x?connect_timeout=2")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	r := allapis.NewDomainRouter(allapis.Domains["comercial"])(pool, "http://localhost:5173")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/products", nil))
-	if ct := rec.Header().Get("Content-Type"); ct != "application/problem+json" {
-		t.Errorf("Content-Type = %q", ct)
+	cases := []struct{ domain, method, path, body string }{
+		{"comercial", "GET", "/products", ""},
+		{"comercial", "GET", "/reviews/product/0976cfb5-d003-4918-ad55-e72e6df8b797", ""},
+		{"usuarios", "POST", "/auth/login", `{"email":"ana@test.cl","password":"Clave12345!"}`},
 	}
-	for _, want := range []string{`"status":503`, `"code":"service_unavailable"`, `"request_id":"`} {
-		if !strings.Contains(rec.Body.String(), want) {
-			t.Errorf("falta %s en %s", want, rec.Body.String())
+	for _, c := range cases {
+		r := allapis.NewDomainRouter(allapis.Domains[c.domain])(pool, "http://localhost:5173")
+		req := httptest.NewRequest(c.method, c.path, strings.NewReader(c.body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if ct := rec.Header().Get("Content-Type"); ct != "application/problem+json" {
+			t.Errorf("%s: Content-Type = %q", c.path, ct)
+		}
+		var problem struct {
+			Status    int    `json:"status"`
+			Code      string `json:"code"`
+			RequestID string `json:"request_id"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &problem); err != nil || problem.Status != 503 ||
+			problem.Code != "service_unavailable" || problem.RequestID == "" {
+			t.Errorf("%s: %s", c.path, rec.Body.String())
 		}
 	}
 }
