@@ -38,55 +38,55 @@ type HealthResponse struct {
 type routeRegistrar func(chi.Router, *pgxpool.Pool, *slog.Logger)
 
 func NewRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	return newRouter(db, frontendURL, registerProductRoutes, registerStoreRoutes, registerServiceRoutes, registerUserRoutes)
+	return newRouter("soloservis-api", db, frontendURL, registerProductRoutes, registerStoreRoutes, registerServiceRoutes, registerUserRoutes)
 }
 
 func NewProductsRouter(db *pgxpool.Pool) *chi.Mux {
-	return newRouter(db, configuredFrontendURL(), registerProductRoutes)
+	return newRouter("product-api", db, configuredFrontendURL(), registerProductRoutes)
 }
 
 func NewStoresRouter(db *pgxpool.Pool) *chi.Mux {
-	return newRouter(db, configuredFrontendURL(), registerStoreRoutes)
+	return newRouter("store-api", db, configuredFrontendURL(), registerStoreRoutes)
 }
 
 func NewServicesRouter(db *pgxpool.Pool) *chi.Mux {
-	return newRouter(db, configuredFrontendURL(), registerServiceRoutes)
+	return newRouter("service-api", db, configuredFrontendURL(), registerServiceRoutes)
 }
 
 func NewProductRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	return newRouter(db, frontendURL, registerProductRoutes)
+	return newRouter("product-api", db, frontendURL, registerProductRoutes)
 }
 
 func NewServiceRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	return newRouter(db, frontendURL, registerServiceRoutes)
+	return newRouter("service-api", db, frontendURL, registerServiceRoutes)
 }
 
 func NewStoreRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	return newRouter(db, frontendURL, registerStoreRoutes)
+	return newRouter("store-api", db, frontendURL, registerStoreRoutes)
 }
 
 func NewUserRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	return newRouter(db, frontendURL, registerUserRoutes)
+	return newRouter("user-api", db, frontendURL, registerUserRoutes)
 }
 
 // NewPricingRouter es el router de Pricing API (TAL-74); cmd/pricing-api lo usa.
 func NewPricingRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	return newRouter(db, frontendURL, registerPricingRoutes)
+	return newRouter("pricing-api", db, frontendURL, registerPricingRoutes)
 }
 
 // NewSearchRouter es el router de Search API (TAL-75); cmd/search-api lo usa.
 func NewSearchRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	return newRouter(db, frontendURL, registerSearchRoutes)
+	return newRouter("search-api", db, frontendURL, registerSearchRoutes)
 }
 
 // NewComparisonRouter es el router de Comparison API (TAL-76); cmd/comparison-api lo usa.
 func NewComparisonRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	return newRouter(db, frontendURL, registerComparisonRoutes)
+	return newRouter("comparison-api", db, frontendURL, registerComparisonRoutes)
 }
 
 // NewIngestionRouter es el router de Ingestion API (TAL-77); cmd/ingestion-api lo usa.
 func NewIngestionRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	return newRouter(db, frontendURL, registerIngestionRoutes)
+	return newRouter("ingestion-api", db, frontendURL, registerIngestionRoutes)
 }
 
 // adminOnly protege escrituras: sesión con rol admin o INTERNAL_API_TOKEN (TAL-70).
@@ -94,11 +94,11 @@ func adminOnly(db *pgxpool.Pool, logger *slog.Logger) func(http.Handler) http.Ha
 	return authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
 }
 
-func newRouter(db *pgxpool.Pool, frontendURL string, registrars ...routeRegistrar) *chi.Mux {
+func newRouter(name string, db *pgxpool.Pool, frontendURL string, registrars ...routeRegistrar) *chi.Mux {
 	r := chi.NewRouter()
 	logger := useStandardMiddleware(r)
 	r.Use(corsMiddleware(frontendURL))
-	registerHealth(r, db)
+	r.Get("/health", HealthHandler(name, db))
 	for _, register := range registrars {
 		register(r, db, logger)
 	}
@@ -136,11 +136,6 @@ func useStandardMiddleware(r chi.Router) *slog.Logger {
 	return logger
 }
 
-func registerHealth(r chi.Router, db *pgxpool.Pool) {
-	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
-		healthHandler(w, db)
-	})
-}
 
 func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	handler := products.NewHandler(products.NewRepository(db), logger)
@@ -279,22 +274,21 @@ func registerUserRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	})
 }
 
-func healthHandler(w http.ResponseWriter, db *pgxpool.Pool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	w.Header().Set("Content-Type", "application/json")
-	if err := db.Ping(ctx); err != nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(HealthResponse{
-			Status:   "error",
-			Service:  "soloservis-api",
-			Database: "disconnected",
-		})
-		return
+// HealthHandler responde el estado de la API y de su conexión a PostgreSQL:
+// 200 si responde el ping, 503 si no (la readinessProbe saca al pod de
+// rotación). name identifica a la API o al pod (TAL-125, H6).
+func HealthHandler(name string, db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		ctx, cancel := context.WithTimeout(req.Context(), 2*time.Second)
+		defer cancel()
+		response := HealthResponse{Status: "ok", Service: name, Database: "connected"}
+		status := http.StatusOK
+		if err := db.Ping(ctx); err != nil {
+			response = HealthResponse{Status: "error", Service: name, Database: "disconnected"}
+			status = http.StatusServiceUnavailable
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(response)
 	}
-	_ = json.NewEncoder(w).Encode(HealthResponse{
-		Status:   "ok",
-		Service:  "soloservis-api",
-		Database: "connected",
-	})
 }

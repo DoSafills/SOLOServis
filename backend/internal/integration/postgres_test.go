@@ -465,3 +465,14 @@ func TestIntegracion_AccesoCruzado(t *testing.T) {
 		e.expect(http.StatusNoContent, "comercial", "DELETE", path, ana.AccessToken, nil)
 	})
 }
+
+// /health de cada pod dice su dominio, para saber cuál contestó (TAL-125, H6).
+func TestIntegracion_HealthPorDominio(t *testing.T) {
+	e := newEnv(t)
+	for domain := range allapis.Domains {
+		data := e.expect(http.StatusOK, domain, "GET", "/health", "", nil)
+		if want := `"service":"` + domain + `"`; !strings.Contains(string(data), want) {
+			t.Errorf("GET /health de %s = %s, quiero %s", domain, data, want)
+		}
+	}
+}

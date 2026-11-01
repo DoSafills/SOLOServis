@@ -89,8 +89,17 @@ func TestDomains_Comercial(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("comercial = %v, quiero %v", got, want)
 	}
-	if Domains["comercial"][0] != "product" {
-		t.Errorf("/health de comercial lo responde %s, quiero product", Domains["comercial"][0])
+}
+
+// /health dice qué pod contestó: el dominio, o all-apis en el consolidado.
+func TestDomainName(t *testing.T) {
+	for name, apis := range Domains {
+		if got := domainName(apis); got != name {
+			t.Errorf("domainName(%v) = %s, quiero %s", apis, got, name)
+		}
+	}
+	if got := domainName(allAPIs); got != "all-apis" {
+		t.Errorf("domainName(allAPIs) = %s", got)
 	}
 }
 

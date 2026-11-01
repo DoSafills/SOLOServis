@@ -9,6 +9,7 @@ package allapis
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -109,18 +110,20 @@ func NewRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 }
 
 // NewDomainRouter sirve solo las APIs dadas: cada request va al router de su
-// API, y las rutas de APIs que no están en la lista responden 404. /health lo
-// responde la primera API (todas hacen el mismo ping a PostgreSQL).
+// API, y las rutas de APIs que no están en la lista responden 404. /health
+// responde con el nombre del dominio (comercial, usuarios, ingestion) o
+// all-apis en el modo consolidado, para saber qué pod contestó.
 func NewDomainRouter(apis []string) RouterFactory {
 	return func(db *pgxpool.Pool, frontendURL string) *chi.Mux {
 		routers := build(apis, db, frontendURL)
+		health := apphttp.HealthHandler(domainName(apis), db)
 		r := chi.NewRouter()
 		r.HandleFunc("/*", func(w http.ResponseWriter, req *http.Request) {
-			api := APIFor(req.URL.Path)
 			if req.URL.Path == "/health" {
-				api = apis[0]
+				health(w, req)
+				return
 			}
-			router, ok := routers[api]
+			router, ok := routers[APIFor(req.URL.Path)]
 			if !ok {
 				httpx.WriteProblem(w, req, http.StatusNotFound, httpx.CodeNotFound, "La ruta no existe.")
 				return
@@ -129,4 +132,14 @@ func NewDomainRouter(apis []string) RouterFactory {
 		})
 		return r
 	}
+}
+
+// domainName devuelve el dominio que sirve exactamente apis, o all-apis.
+func domainName(apis []string) string {
+	for name, list := range Domains {
+		if slices.Equal(list, apis) {
+			return name
+		}
+	}
+	return "all-apis"
 }
