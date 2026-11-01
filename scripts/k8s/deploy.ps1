@@ -51,7 +51,7 @@ param(
   [string]$StorageClass = '',
   [string]$IngressClass = '',
   [string]$IngressHost = '',
-  [ValidateSet('http', 'https')][string]$IngressScheme = 'http',
+  [ValidateSet('http', 'https')][string]$IngressScheme = 'https',
   [string]$ImagePullSecret = '',
   [ValidateRange(0, 10)][int]$FromPhase = 0,
   [ValidateRange(0, 10)][int]$ToPhase = 10,
