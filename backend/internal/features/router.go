@@ -1,14 +1,18 @@
 package features
 
 import (
+	"log/slog"
 	"net/http"
+	"os"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	h := NewHandler(name, db)
+	logger := httpx.NewLogger(os.Stdout, httpx.ParseLevel(os.Getenv("LOG_LEVEL")))
+	h := NewHandler(name, db, logger)
 	r := chi.NewRouter()
 	r.Use(cors(frontendURL))
 	r.Get("/health", h.Health)
@@ -75,8 +79,8 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 
 // RegisterSearchSessionRoutes monta el historial y las búsquedas guardadas
 // (requieren sesión) en el router de Search API (TAL-75).
-func RegisterSearchSessionRoutes(r chi.Router, db *pgxpool.Pool) {
-	registerSearchSessionRoutes(r, NewHandler("search-api", db))
+func RegisterSearchSessionRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	registerSearchSessionRoutes(r, NewHandler("search-api", db, logger))
 }
 
 func registerSearchSessionRoutes(r chi.Router, h *Handler) {
@@ -92,8 +96,8 @@ func registerSearchSessionRoutes(r chi.Router, h *Handler) {
 
 // RegisterServiceComparisonRoutes monta las comparaciones de servicios en el
 // router de Comparison API (TAL-76).
-func RegisterServiceComparisonRoutes(r chi.Router, db *pgxpool.Pool) {
-	registerServiceComparisonRoutes(r, NewHandler("comparison-api", db))
+func RegisterServiceComparisonRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	registerServiceComparisonRoutes(r, NewHandler("comparison-api", db, logger))
 }
 
 func registerServiceComparisonRoutes(r chi.Router, h *Handler) {

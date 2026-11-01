@@ -3,11 +3,13 @@ package features
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,36 +20,16 @@ type Handler struct {
 	db      *pgxpool.Pool
 	repo    *Repository
 	service *Service
+	logger  *slog.Logger
+	// requireSession es authz.RequireSession: la misma validación de sesión
+	// que usan comparison y user (TAL-125, H4).
+	requireSession func(http.Handler) http.Handler
 }
 
-type sessionUserIDKey struct{}
-
-func (h *Handler) requireSession(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := bearerToken(r)
-		if token == "" {
-			apiutil.WriteError(w, http.StatusUnauthorized, "bearer token is required")
-			return
-		}
-
-		var userID int32
-		err := h.db.QueryRow(r.Context(), `SELECT s.user_id FROM user_session s
-			JOIN user_account u ON u.id=s.user_id
-			WHERE s.access_token_hash=$1 AND s.access_expires_at>NOW() AND u.active`,
-			tokenHash(token)).Scan(&userID)
-		if err != nil {
-			dbError(w, err, http.StatusUnauthorized, "invalid or expired access token")
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), sessionUserIDKey{}, userID)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-func NewHandler(name string, db *pgxpool.Pool) *Handler {
+func NewHandler(name string, db *pgxpool.Pool, logger *slog.Logger) *Handler {
 	repository := NewRepository(db)
-	return &Handler{name: name, db: db, repo: repository, service: NewService(repository)}
+	return &Handler{name: name, db: db, repo: repository, service: NewService(repository), logger: logger,
+		requireSession: authz.New(authz.NewPostgresSessions(db), "", logger).RequireSession}
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
@@ -126,8 +108,8 @@ func badRequest(w http.ResponseWriter, message string) {
 }
 
 func normalizeUserID(r *http.Request, userID int32) int32 {
-	if authenticatedID, ok := r.Context().Value(sessionUserIDKey{}).(int32); ok {
-		return authenticatedID
+	if session, ok := authz.SessionFrom(r.Context()); ok {
+		return session.UserID
 	}
 	if userID == 0 {
 		userID, _ = queryInt(r, "userId")
@@ -136,8 +118,8 @@ func normalizeUserID(r *http.Request, userID int32) int32 {
 }
 
 func requestUserID(r *http.Request) (int32, bool) {
-	if userID, ok := r.Context().Value(sessionUserIDKey{}).(int32); ok {
-		return userID, true
+	if session, ok := authz.SessionFrom(r.Context()); ok {
+		return session.UserID, true
 	}
 	return queryInt(r, "userId")
 }

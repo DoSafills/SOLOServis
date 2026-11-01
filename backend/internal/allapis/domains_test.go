@@ -154,7 +154,7 @@ func TestNewDomainRouter_UsuariosSoloSirveSusRutas(t *testing.T) {
 		body         string
 	}{
 		{http.MethodGet, "/users", http.StatusOK, `"user-api-ready"`},
-		{http.MethodGet, "/users/1", http.StatusUnauthorized, `"bearer token is required"`},
+		{http.MethodGet, "/users/1", http.StatusUnauthorized, `"code":"unauthorized"`},
 		{http.MethodOptions, "/auth/login", http.StatusNoContent, ""},
 		{http.MethodGet, "/products", http.StatusNotFound, `"code":"not_found"`},
 		{http.MethodPost, "/cart/items", http.StatusNotFound, `"code":"not_found"`},

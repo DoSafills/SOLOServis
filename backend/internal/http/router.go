@@ -2,12 +2,12 @@ package http
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
+	"strconv"
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
@@ -23,6 +23,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/services"
 	"github.com/DoSafills/SOLOServis/backend/internal/stores"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -192,7 +193,7 @@ func registerSearchRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	r.Get("/search/categories", handler.Categories)
 	r.Get("/search/brands", handler.Brands)
 	// Historial y búsquedas guardadas (requieren sesión): siguen en features.
-	features.RegisterSearchSessionRoutes(r, db)
+	features.RegisterSearchSessionRoutes(r, db, logger)
 }
 
 func registerComparisonRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
@@ -216,7 +217,7 @@ func registerComparisonRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logge
 	})
 
 	// Comparaciones de servicios: siguen en features (fuera de TAL-76).
-	features.RegisterServiceComparisonRoutes(r, db)
+	features.RegisterServiceComparisonRoutes(r, db, logger)
 }
 
 func registerIngestionRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
@@ -250,40 +251,32 @@ func registerUserRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 			"note":   "User profile endpoints are available.",
 		})
 	})
-	r.Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) {
-		token := userBearerToken(req)
-		if token == "" {
-			apiutil.WriteError(w, http.StatusUnauthorized, "bearer token is required")
+	// El token debe ser del mismo usuario que se pide; otro id responde 404,
+	// como si no existiera (TAL-125, H4: la sesión la valida authz).
+	session := authz.New(authz.NewPostgresSessions(db), "", logger).RequireSession
+	r.With(session).Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) {
+		current, _ := authz.SessionFrom(req.Context())
+		if chi.URLParam(req, "id") != strconv.Itoa(int(current.UserID)) {
+			httpx.WriteProblem(w, req, http.StatusNotFound, httpx.CodeNotFound, "Usuario no encontrado.")
 			return
 		}
-		tokenHash := sha256.Sum256([]byte(token))
 		var user struct {
 			ID    int32  `json:"id"`
 			Name  string `json:"name"`
 			Email string `json:"email"`
 		}
-		err := db.QueryRow(req.Context(), `SELECT u.id,u.name,u.email FROM user_account u
-			JOIN user_session s ON s.user_id=u.id
-			WHERE u.id=$1 AND u.active AND s.access_token_hash=$2 AND s.access_expires_at>NOW()`,
-			chi.URLParam(req, "id"), tokenHash[:]).Scan(&user.ID, &user.Name, &user.Email)
-		if httpx.IsUnavailable(err) {
-			httpx.WriteInternal(w, req, logger, err)
+		err := db.QueryRow(req.Context(), `SELECT id,name,email FROM user_account WHERE id=$1 AND active`,
+			current.UserID).Scan(&user.ID, &user.Name, &user.Email)
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpx.WriteProblem(w, req, http.StatusNotFound, httpx.CodeNotFound, "Usuario no encontrado.")
 			return
 		}
 		if err != nil {
-			apiutil.WriteError(w, http.StatusNotFound, "user not found")
+			httpx.WriteInternal(w, req, logger, err)
 			return
 		}
 		apiutil.WriteJSON(w, http.StatusOK, user)
 	})
-}
-
-func userBearerToken(req *http.Request) string {
-	value := req.Header.Get("Authorization")
-	if len(value) > 7 && strings.EqualFold(value[:7], "Bearer ") {
-		return strings.TrimSpace(value[7:])
-	}
-	return ""
 }
 
 func healthHandler(w http.ResponseWriter, db *pgxpool.Pool) {
