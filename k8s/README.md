@@ -260,13 +260,13 @@ El script guarda el registry, el tag y la StorageClass elegida en `k8s/overlays/
 
 ## 5. Pod de test
 
-Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **Solo hace lecturas: no escribe nada en la base.** Detecta solo la topología (dominios o consolidado).
+Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **No escribe nada en la base:** solo hace lecturas, y los dos POST van sin token y se rechazan antes de tocarla. Detecta solo la topología (dominios o consolidado). Son 29 verificaciones en `dominios`.
 
 | Verificación | Qué espera |
 |---|---|
-| `/health` de `comercial`, `usuarios` e `ingestion` | 200 y `"database":"connected"` |
-| Una lectura por API (product, store, service, pricing, search, comparison, review, watchlist, notification, user) | 200 con datos |
-| Rutas con sesión sin token: `/favorites`, `/cart`, `/comparisons/products`, `/auth/validate`, `/ingestion/runs` | 401 |
+| `/health` de `comercial`, `usuarios` e `ingestion` | 200, `"service"` con el nombre del dominio y `"database":"connected"` |
+| Una lectura por API pública (product, store, service, pricing, search, comparison, review, user) | 200 con datos |
+| Rutas con sesión o internas, sin token: `/favorites`, `/cart`, `/comparisons/products`, `/comparisons/services/1`, `POST /reviews/product/{id}`, `/watchlist?userId=1`, `/notifications?userId=1`, `POST /notifications`, `/auth/validate`, `/ingestion/runs` | 401: mandar un `userId` no basta (TAL-125) |
 | Ruta interna con `INTERNAL_API_TOKEN`: `GET /ingestion/runs` | 200 |
 | Aislamiento: `comercial` no sirve `/auth` ni `/ingestion`; `usuarios` e `ingestion` no sirven `/products` | 404 |
 | nginx del frontend: `/` → app, `/products` → comercial, `/auth` → usuarios | 200, 200, 401 |
@@ -456,7 +456,7 @@ curl -s -k "$BASE/stores"
 
 ### Registro y sesión
 
-`/auth` lo atiende el pod `usuarios`; `/comparisons` lo atiende `comercial`, que valida el mismo token leyendo `user_session`.
+`/auth` lo atiende el pod `usuarios`; `/comparisons` y `/watchlist` los atiende `comercial`, que valida el mismo token leyendo `user_session`. Las rutas con datos de un usuario toman el usuario del token: un `userId` en la URL o en el body se ignora.
 
 **PowerShell**
 
@@ -467,6 +467,7 @@ $session = Invoke-RestMethod -Method Post -Uri "$BASE/auth/register" -ContentTyp
 $TOKEN = $session.accessToken
 curl.exe -s -k -H "Authorization: Bearer $TOKEN" "$BASE/auth/validate"
 curl.exe -s -k -H "Authorization: Bearer $TOKEN" "$BASE/comparisons/products"
+curl.exe -s -k -H "Authorization: Bearer $TOKEN" "$BASE/watchlist"
 ```
 
 **bash**
@@ -477,6 +478,7 @@ TOKEN=$(curl -s -k -X POST -H 'Content-Type: application/json' \
   "$BASE/auth/register" | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
 curl -s -k -H "Authorization: Bearer $TOKEN" "$BASE/auth/validate"
 curl -s -k -H "Authorization: Bearer $TOKEN" "$BASE/comparisons/products"
+curl -s -k -H "Authorization: Bearer $TOKEN" "$BASE/watchlist"
 ```
 
 Si el correo ya existe, usa `/auth/login` con `{"email": ..., "password": ...}`.

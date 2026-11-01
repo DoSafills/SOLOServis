@@ -7,6 +7,7 @@
 | Código auditado | `develop` @ `3e5e856` |
 | Tipo | Solo lectura y documentación. No se modificó código. |
 | Siguiente | [TAL-95](TAL-95-inventario-despliegue.md): inventario de lo **desplegado** (pods, Services, variables reales, health), después de TAL-103 |
+| Correcciones | [TAL-125](TAL-125-responsabilidades-y-datos.md) corrige H1–H7 y H10 (ver la columna Estado de la [sección 7](#7-hallazgos-y-a-qué-tarea-van)). Las secciones 2 a 6 describen el código **auditado**, antes de esas correcciones |
 
 **Cómo se obtuvo el inventario de rutas:** se recorrió el router real de cada API con `chi.Walk`, la misma técnica del test `backend/internal/allapis/router_test.go`. Salen **101 rutas** en las 14 APIs: 87 de negocio y 14 `/health`.
 
@@ -237,18 +238,18 @@ cart ──────┴──► pricing ◄── watchlist
 
 ## 7. Hallazgos y a qué tarea van
 
-| # | Severidad | Hallazgo | Propuesta | Tarea |
-| --- | --- | --- | --- | --- |
-| H1 | 🔴 alta | review, watchlist, notification y comparaciones de servicios confían en el `userId` del cliente; las comparaciones de servicios ni siquiera revisan el dueño al leer o borrar | protegerlas con sesión y sacar el usuario del token, como ya hacen cart y favorites (`normalizeUserID`) | TAL-125 |
-| H2 | 🟠 media | `POST /notifications` no exige token | protegerla con `ADMIN` (pricing e ingestion ya envían el token) | TAL-125 |
-| H3 | 🟠 media | las 6 APIs de features no tienen los middlewares TAL-78 ni `problem+json` | montarlas con `useStandardMiddleware` | TAL-125 |
-| H4 | 🟡 baja | 3 implementaciones de validación de sesión | usar solo `authz.RequireSession` | TAL-125 |
-| H5 | 🟡 baja | `product_user_interest` la escriben favorites y watchlist | documentar quién es dueño de cada columna o separar la tabla | TAL-125 |
-| H6 | 🟡 baja | `/health` del estándar dice `soloservis-api` en las 8 APIs | poner el nombre de cada API | TAL-125 |
-| H7 | ⚪ info | variables `*_API_URL` sin uso en search y comparison; binarios antiguos sin uso | limpiar | TAL-125 |
-| H8 | ⚪ info | las llamadas HTTP solo cruzan dentro de comercial, y de ingestion a notification | confirma la agrupación de TAL-106 y TAL-107 | TAL-106/107 |
-| H9 | 🟡 baja | los defaults de `*_API_URL` apuntan a `localhost`: dentro de un contenedor, si falta la variable, la llamada falla en silencio | que el proceso no arranque si falta una URL que sale de su dominio | TAL-107/103 |
-| H10 | ⚪ info | los `main` de product, store, service y user copian `runner.Run` | usar `runner.Run` en todos | TAL-125 |
+| # | Severidad | Hallazgo | Propuesta | Tarea | Estado |
+| --- | --- | --- | --- | --- | --- |
+| H1 | 🔴 alta | review, watchlist, notification y comparaciones de servicios confían en el `userId` del cliente; las comparaciones de servicios ni siquiera revisan el dueño al leer o borrar | protegerlas con sesión y sacar el usuario del token, como ya hacen cart y favorites (`normalizeUserID`) | TAL-125 | ✅ TAL-125: el usuario sale del token; acceso cruzado probado (404) |
+| H2 | 🟠 media | `POST /notifications` no exige token | protegerla con `ADMIN` (pricing e ingestion ya envían el token) | TAL-125 | ✅ TAL-125: `ADMIN` (`INTERNAL_API_TOKEN` o admin) |
+| H3 | 🟠 media | las 6 APIs de features no tienen los middlewares TAL-78 ni `problem+json` | montarlas con `useStandardMiddleware` | TAL-125 | ✅ TAL-125: middlewares TAL-78 y `problem+json` |
+| H4 | 🟡 baja | 3 implementaciones de validación de sesión | usar solo `authz.RequireSession` | TAL-125 | ✅ TAL-125: solo `authz.RequireSession` |
+| H5 | 🟡 baja | `product_user_interest` la escriben favorites y watchlist | documentar quién es dueño de cada columna o separar la tabla | TAL-125 | ✅ TAL-125: migración 016 documenta el dueño de cada columna |
+| H6 | 🟡 baja | `/health` del estándar dice `soloservis-api` en las 8 APIs | poner el nombre de cada API | TAL-125 | ✅ TAL-125: nombre de la API y, en los pods, del dominio |
+| H7 | ⚪ info | variables `*_API_URL` sin uso en search y comparison; binarios antiguos sin uso | limpiar | TAL-125 | ✅ TAL-125: borrados |
+| H8 | ⚪ info | las llamadas HTTP solo cruzan dentro de comercial, y de ingestion a notification | confirma la agrupación de TAL-106 y TAL-107 | TAL-106/107 | — (informativo) |
+| H9 | 🟡 baja | los defaults de `*_API_URL` apuntan a `localhost`: dentro de un contenedor, si falta la variable, la llamada falla en silencio | que el proceso no arranque si falta una URL que sale de su dominio | TAL-107/103 | ✅ TAL-107: `allapis.InternalURLs` no arranca si falta una URL de otro dominio |
+| H10 | ⚪ info | los `main` de product, store, service y user copian `runner.Run` | usar `runner.Run` en todos | TAL-125 | ✅ TAL-125: los 14 `main` usan `runner.Run` |
 
 ---
 

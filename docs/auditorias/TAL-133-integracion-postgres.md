@@ -79,7 +79,7 @@
 | Familia | Dónde | Respuesta con la base caída |
 | --- | --- | --- |
 | Estándar TAL-78 | `httpx.WriteInternal` (un solo lugar) | 503 `problem+json`, `code: "service_unavailable"` |
-| features (auth, cart, favorites, review, watchlist, notification, búsquedas guardadas) | `features.dbError` en 50 lugares | 503 `{"error":"database unavailable"}`; el formato `{"error"}` se unifica en TAL-125 (H3) |
+| features (auth, cart, favorites, review, watchlist, notification, búsquedas guardadas) | `features.dbError` en 50 lugares | al cerrar TAL-133: 503 `{"error":"database unavailable"}`. Desde TAL-125 (H3): 503 `problem+json`, `code: "service_unavailable"`, como las demás |
 | services | `httpx.WriteInternal` | 503 `problem+json` |
 | user | `httpx.WriteInternal` | 503 `problem+json` |
 
@@ -131,5 +131,6 @@ Los tests de errores de conexión (`TestBaseCaida_*`) no necesitan Docker: corre
 
 ## 8. Pendiente
 
-- **El clúster UCT sigue con la imagen `33b8358`**, anterior a estas correcciones. Para llevarlas: `.\scripts\k8s\deploy.ps1 -Modo uct -FromPhase 3 -SkipCleanup` (construye la imagen nueva y re-despliega sin borrar nada).
-- El formato de error de las 6 APIs de features (`{"error": ...}` en vez de `problem+json`) queda para TAL-125 (H3).
+Nada. Ambos pendientes se cerraron el 2026-11-01:
+- El clúster UCT corre estas correcciones desde el re-despliegue de TAL-125 (imagen `bf2a897`, 21 migraciones, pod de test 29 de 29).
+- Las 6 APIs de features responden `problem+json` desde TAL-125 (H3). Los tests de este documento se actualizaron con TAL-125: review, watchlist y notifications ahora con sesión, y `TestBaseCaida_*` cubre 26 rutas y exige `request_id` también en features. Ver [TAL-125](TAL-125-responsabilidades-y-datos.md).
