@@ -90,6 +90,14 @@ proceso main
 | `SCRAPER_TIMEOUT` | `15` | Timeout HTTP en segundos |
 | `SCRAPER_MAX_RETRIES` | `3` | Intentos ante errores transitorios (408/429/5xx) |
 | `SCRAPER_BACKOFF_BASE` | `1.0` | Base del backoff exponencial |
+| `SCRAPER_STORE_ID` | *(vacío)* | Tienda por defecto para las seeds de `SCRAPER_SEEDS` (`DATA_SOURCE.store_id`) |
+| `INGESTION_API_URL` | `http://localhost:8094` | Base de Ingestion API |
+| `INGESTION_API_TOKEN` | *(vacío)* | Bearer token; si falta o mide menos de 32 caracteres, la ingesta queda desactivada |
+| `INGESTION_TIMEOUT` | `15` | Timeout por petición, en segundos |
+| `INGESTION_MAX_RETRIES` | `3` | Reintentos ante 408/429/5xx y errores de red |
+| `INGESTION_BACKOFF_BASE` | `1.0` | Base del backoff exponencial de la ingesta |
+| `INGESTION_BATCH_SIZE` | `100` | Ítems por lote (1–100, límite del contrato) |
+| `SCRAPER_REJECTS_DIR` | `out/rejected` | Carpeta de los JSONL con ítems descartados |
 
 Ejemplo de run corto multi-sitio:
 
@@ -272,14 +280,115 @@ en silencio. `entity_type`, `fields`, `mode`, `attribute`, `transform` y
 
 > Estas claves son las del **bundle**. El `parser_config` de página que consume
 > `scraper.py` (`entity_type` + `external_id_selector`) no cambia: son dos
-> niveles distintos. El bundle se guardará en `parser_config` cuando el scraper
-> se conecte a la ingesta; hoy se usa desde código o desde los ejemplos.
+> niveles distintos. El bundle vive en `parser_config["bundle"]` y el crawler lo
+> carga en cada run (ver la sección siguiente).
 
 `crawler/examples/` tiene configuraciones reales de Falabella y Ripley, con el
 DOM observado y las limitaciones de cada tienda documentadas en
 `crawler/examples/README.md`. El contrato normativo (campos, límites,
 versionado) está en `docs/estandares/formato-datos-extraidos.md`; el JSON Schema
 en `crawler/schema/normalized-item.schema.json`.
+
+## Integración con Ingestion API (flujo B)
+
+El crawler extrae ítems normalizados de cada página y los entrega a Ingestion
+API (contrato en `backend/README.md` §12.7, implementación en
+`backend/internal/ingestion`). Las páginas se siguen archivando completas en
+`SCRAPED_DATA.raw_data`: la entrega remota es adicional, no reemplaza la
+auditoría local.
+
+### Activación
+
+La ingesta se activa solo cuando se cumplen las tres condiciones:
+
+1. `DATA_SOURCE.store_id` no es `NULL` (la tienda es un dato de la ejecución,
+   no del ítem);
+2. `INGESTION_API_TOKEN` existe y tiene al menos 32 caracteres (el backend
+   ignora tokens más cortos);
+3. el `parser_config` declara un `bundle` válido.
+
+Si falta cualquiera, el crawl termina igual y los ítems quedan solo en local.
+`SCRAPER_STORE_ID` asigna la tienda a las seeds creadas con `SCRAPER_SEEDS`;
+las fuentes insertadas por SQL declaran su propio `store_id`:
+
+```sql
+INSERT INTO DATA_SOURCE (name, base_url, source_type, store_id)
+VALUES ('Falabella Chile', 'https://www.falabella.com/falabella-cl', 'web', 1);
+
+INSERT INTO SCRAPER_CONFIG (data_source_id, scraper_type, target_type,
+                            rate_limit, parser_config)
+VALUES (
+  last_insert_rowid(), 'http', 'webpage', '30/min',
+  json('{
+    "entity_type": "webpage",
+    "external_id_selector": null,
+    "bundle": { ... }   -- el bundle de examples/falabella-cl.json
+  }')
+);
+```
+
+No hay migraciones: `init_db` usa `CREATE TABLE IF NOT EXISTS`. Una base creada
+antes de esta versión no recibe las columnas nuevas automáticamente; se
+recomienda recrear el fichero SQLite (`*.db` es descartable y está ignorado por
+git).
+
+### Ciclo de una ejecución
+
+```
+SCRAPE_RUN (local)                    Ingestion API
+  running ─────────────────────────►  POST /ingestion/runs        → running
+     │                                   (abre antes de la 1.ª página)
+     │  página → extraer → dedupe
+     │         → validar → buffer
+     │  buffer ≥ batch_size ─────────►  POST /runs/{id}/items
+     │  fin de crawl (flush) ────────►  POST /runs/{id}/items
+     └────────────────────────────────►  POST /runs/{id}/finish    → success|failed
+```
+
+* **Dedupe por ejecución.** Se usa `externalId`; si la tarjeta no lo publica,
+  `externalUrl`. Falabella repite pods dentro del mismo listado y el duplicado
+  no se vuelve a enviar.
+* **Filtro local.** `NormalizedItem.validate()` aplica las mismas reglas del
+  backend (campos obligatorios, largos, montos, URLs). Los ítems inválidos no
+  viajan: se cuentan en `items_rejected` y se escriben en
+  `out/rejected/run-{id}.jsonl` con el envelope completo y los errores.
+* **Lotes de 1–100.** El cliente trocea y reintenta solo lo transitorio
+  (408/429/5xx y red). Un ítem rechazado por Ingestion no detiene el lote; se
+  registra su error y también va a `rejected/`.
+* **Éxito remoto.** Solo si el crawl local terminó `success` y no hubo ningún
+  error de ingesta. En cualquier otro caso el run remoto se cierra `failed` con
+  el motivo real (`problem+json`: `code`, `detail`, `errors[]`).
+
+### Si Ingestion no responde
+
+El crawl local **no** se aborta. El comportamiento es:
+
+| Situación | Crawl local | Run remoto | Qué queda registrado |
+|---|---|---|---|
+| `open` falla (red, 5xx, 422) | termina normal | no se crea | `SCRAPE_RUN.ingestion_error` |
+| `items` falla | termina normal | se cierra `failed` | `ingestion_error`, ítems en `rejected/` |
+| algún ítem es rechazado | termina normal | `success` | `items_failed`, detalle en `rejected/` |
+| Ctrl+C | se cierra `failed` | se cierra `failed` | ítems en buffer van a `rejected/` |
+
+En todos los casos `SCRAPED_DATA` conserva el HTML y las filas ya extraídas, y
+`SCRAPE_RUN` guarda contadores parciales.
+
+### Columnas locales
+
+`SCRAPE_RUN` mantiene dos familias de contadores que no se mezclan:
+
+| Columna | Significado |
+|---|---|
+| `records_found` / `records_processed` / `records_failed` | Páginas |
+| `items_found` | Ítems únicos extraídos (antes de validar) |
+| `items_sent` | Ítems aceptados por Ingestion (`processed`) |
+| `items_failed` | Ítems enviados que Ingestion o el transporte rechazaron |
+| `items_rejected` | Ítems descartados localmente por `validate()` |
+| `ingestion_run_id` | Id de `scrape_run` en PostgreSQL |
+| `ingestion_error` | Último error de ingesta (máx. 2000 caracteres) |
+
+`DATA_SOURCE.store_id` es la única columna nueva del lado de la fuente; el
+resto son columnas nullable con default `0` en la tabla de ejecuciones.
 
 ## Logging
 
@@ -291,6 +400,7 @@ Mensajes en inglés con etiqueta por componente:
 | `[SEED]` | Alta de nuevas `DATA_SOURCE` desde `SCRAPER_SEEDS` |
 | `[TASK]` | Inicio/fin de cada run, errores por fuente |
 | `[RETRY]` | Reintentos con backoff ante errores transitorios |
+| `[INGEST]` | Apertura/cierre de la ejecución remota, lotes, rechazos y `problem+json` |
 | `[SHUTDOWN]` | Cancelación de tareas, cierre de hilos y conexiones |
 | `[SUMMARY]` | Resumen final: fuentes completadas/fallidas, páginas, errores |
 

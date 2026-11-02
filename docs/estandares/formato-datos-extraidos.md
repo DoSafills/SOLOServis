@@ -367,6 +367,30 @@ servicios; emitirlo hoy produciría registros que el backend no sabe procesar.
 * El body se envía en lotes de 1 a 100 ítems; un ítem inválido no detiene el
   lote.
 
+### 9.1 Entrega desde el crawler
+
+`crawler/src/ingestion.py` implementa el cliente (`IngestionClient`) y el
+crawler lo usa por ejecución:
+
+1. `POST /ingestion/runs` abre la ejecución **antes** de la primera página;
+   `storeId` sale de `DATA_SOURCE.store_id`.
+2. Cada página se extrae con `BundleExtractor`; los ítems se deduplican por
+   `externalId` (fallback `externalUrl`) y `validate()` descarta los inválidos.
+3. Los válidos se acumulan y se envían en lotes de `INGESTION_BATCH_SIZE`
+   (máximo 100). Al terminar el crawl se envía el remanente.
+4. `POST /ingestion/runs/{id}/finish` cierra como `success` solo si el crawl
+   local terminó bien y ningún lote falló; si no, como `failed` con el motivo.
+
+La entrega es best-effort respecto del crawl: un fallo de Ingestion no cancela
+la extracción ni borra lo ya guardado. El HTML completo permanece en
+`SCRAPED_DATA.raw_data`, y los ítems descartados (inválidos o rechazados por el
+servidor) se anexan a `out/rejected/run-{id}.jsonl` con el sobre completo para
+revisión y replay.
+
+`ingestion.py` lee `application/problem+json` (RFC 9457) y conserva `code`,
+`detail` y `errors[]`; reintenta solo 408/429/5xx y errores de red. No hay
+dependencias nuevas: usa `urllib` en un hilo.
+
 La correspondencia es 1:1 con `internal/ingestion/model.go`. Si ese contrato
 cambia, este documento y `normalized.py` cambian en el mismo commit.
 
@@ -380,6 +404,10 @@ cambia, este documento y `normalized.py` cambian en el mismo commit.
   (el sitio responde con muro anti-bot).
 * `crawler/tests/test_normalized.py`: contrato, validación, atributos,
   categoría, exportación y tarjetas reales recortadas.
+* `crawler/tests/test_ingestion.py`: cliente HTTP contra un servidor falso
+  (lotes, auth, `problem+json`, reintentos, conexión rechazada).
+* `crawler/tests/test_crawler_ingestion.py`: flujo B de punta a punta con
+  cliente falso (dedupe, filtro local, fallo al abrir/enviar, abort).
 * `crawler/schema/normalized-item.schema.json`: JSON Schema 2020-12 del sobre.
 
 ```bash
@@ -394,9 +422,12 @@ cd crawler
 
 Este documento **no** define:
 
-* El envío HTTP a Ingestion (cliente, reintentos, lotes): TAL-79/TAL-90.
+* La operación de Ingestion API (rutas, validación del servidor, upsert): ver
+  `backend/README.md` §12.7. El cliente del crawler consume ese contrato, no lo
+  reescribe.
 * La persistencia local del registro: hoy `export_jsonl` escribe el sobre y la
   ingesta lo archiva en `scraped_data.raw_data`.
+* La tienda concreta de cada fuente: se configura en `DATA_SOURCE.store_id`.
 * El catálogo de categorías y atributos: TAL-71/TAL-72.
 * La resolución de marca, SKU y producto: la hace el servidor.
 * Tiendas que requieren navegador (Paris, Lider): el contrato es el mismo, pero

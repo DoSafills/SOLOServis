@@ -54,9 +54,9 @@ Observaciones que condicionan el spec:
 * El precio "de lista" es `li.prices-1`; el vigente, `li.prices-0`.
 * **La página repite algunas tarjetas.** En el listado inspeccionado, 28
   tarjetas corresponden a 25 `externalId` distintos (tres pods aparecen dos
-  veces). El bundle no deduplica: emite lo que ve. La ingesta hace upsert por
-  producto + tienda + URL, así que la repetición no crea ofertas nuevas, pero
-  conviene deduplicar por `externalId` antes de enviar.
+  veces). El bundle no deduplica: emite lo que ve. El crawler sí deduplica por
+  `externalId` (fallback `externalUrl`) antes de enviar, así que la repetición
+  no llega a Ingestion.
 * Las clases `jsx-…` son hashes de Emotion y cambian con cada despliegue; el
   spec usa solo las clases semánticas (`pod-details`, `copy2 primary`, …).
 
@@ -111,6 +111,27 @@ productos. El ejemplo se basa en el markup público de las tarjetas
 Antes de usarlo en producción hay que ejecutarlo contra una sesión que supere
 el muro (proxy residencial o `StealthyFetcher`) y ajustar los selectores a lo
 que realmente llegue. Está marcado como no verificado a propósito.
+
+## Disponibilidad (TAL-86)
+
+El contrato acepta `offer.available` (booleano) y `offer.stock` (entero), pero
+ninguno de los ejemplos los declara todavía: la señal no está verificada.
+
+* **Ripley**: el JSON-LD de la página trae `"availability":
+  "https://schema.org/InStock"` en las 57 tarjetas del listado inspeccionado.
+  Es la fuente más fiable, pero no se observó ninguna tarjeta `OutOfStock`, así
+  que el selector y su transformación quedan pendientes de comprobar.
+* **Falabella**: la hoja de estilos define `.prices.isOutOfStock`, pero ninguna
+  de las 28 tarjetas del listado la usa y no hay datos schema.org de
+  disponibilidad. El listado inspeccionado era todo disponible; no se puede
+  afirmar que la clase aparezca cuando el producto se agota.
+* **Mercado Libre**: sin verificar por el muro anti-bot.
+
+Mientras no exista una tarjeta agotada real, `available` conserva su default
+`true`. No debe interpretarse como "hay stock": es "no se observó lo
+contrario". El seguimiento vive en TAL-86; cuando se capture un listado con
+productos agotados, se agrega el selector a `offer.fields`, una tarjeta de
+prueba en `tests/test_normalized.py` y se actualiza esta nota.
 
 ## Tiendas descartadas para los ejemplos
 

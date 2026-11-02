@@ -28,6 +28,7 @@ from database import (
     get_active_jobs,
     init_db,
 )
+from ingestion import IngestionClient
 from models import RUN_STATUS_FAILED, RUN_STATUS_SUCCESS, DataSource, ScraperConfig
 from utils import configure_logging, get_logger
 
@@ -59,11 +60,19 @@ def _finalize(crawler, status: str, error_message: str | None) -> None:
         records_found=crawler.records_found,
         records_processed=crawler.records_processed,
         records_failed=crawler.records_failed,
+        items_found=crawler.items_found,
+        items_sent=crawler.items_sent,
+        items_failed=crawler.items_failed,
+        items_rejected=crawler.items_rejected,
+        ingestion_run_id=crawler.ingestion_run_id,
+        ingestion_error=crawler.ingestion_error,
     )
 
 
 async def _finalize_interrupted(crawler) -> None:
     await crawler.aclose()
+    await crawler.abort_ingestion(
+        "interrupted by user (Ctrl+C); partial items were not sent")
     _finalize(
         crawler,
         RUN_STATUS_FAILED,
@@ -82,7 +91,16 @@ async def run_job(
     if stop_event.is_set():
         return None
 
-    crawler = start_run(source, scraper_config, db_path=db_path)
+    try:
+        crawler = start_run(
+            source,
+            scraper_config,
+            db_path=db_path,
+            ingestion=IngestionClient.from_config(),
+        )
+    except ValueError as exc:  # invalid bundle in parser_config
+        _log_task.error("source %r has an invalid bundle: %s", source.name, exc)
+        return None
     started = time.monotonic()
     _log_task.info("run #%d started: %s (%s)", crawler.run_id, source.name,
                    source.base_url)
@@ -96,6 +114,12 @@ async def run_job(
             pages_found=crawler.records_found,
             pages_processed=crawler.records_processed,
             pages_failed=crawler.records_failed,
+            items_found=crawler.items_found,
+            items_sent=crawler.items_sent,
+            items_failed=crawler.items_failed,
+            items_rejected=crawler.items_rejected,
+            ingestion_run_id=crawler.ingestion_run_id,
+            ingestion_error=crawler.ingestion_error,
         )
     except Exception as exc:  # a broken source must not kill its siblings
         await crawler.aclose()
@@ -208,7 +232,8 @@ def _register_seed_sources() -> int:
     """Register every ``SCRAPER_SEEDS`` URL as an active DATA_SOURCE row."""
     created = 0
     for url in cfg.SEED_URLS:
-        _, was_created = ensure_source(cfg.DB_PATH, url)
+        _, was_created = ensure_source(
+            cfg.DB_PATH, url, store_id=cfg.SEED_STORE_ID)
         if was_created:
             created += 1
             _log_seed.info("registered new seed source: %s", url)
@@ -307,9 +332,15 @@ def _report(results: list) -> None:
     totals_found = sum(s.pages_found for s in results)
     totals_ok = sum(s.pages_processed for s in results)
     totals_bad = sum(s.pages_failed for s in results)
+    items_found = sum(s.items_found for s in results)
+    items_sent = sum(s.items_sent for s in results)
+    items_failed = sum(s.items_failed for s in results)
+    items_rejected = sum(s.items_rejected for s in results)
     _log_summary.info(
-        "sources=%d succeeded=%d failed=%d | pages found=%d processed=%d errors=%d",
+        "sources=%d succeeded=%d failed=%d | pages found=%d processed=%d "
+        "errors=%d | items found=%d sent=%d failed=%d rejected=%d",
         len(results), succeeded, failed, totals_found, totals_ok, totals_bad,
+        items_found, items_sent, items_failed, items_rejected,
     )
     if failed:
         _log_summary.warning("%d run(s) did not complete successfully", failed)
