@@ -20,3 +20,5 @@
 014_product_attributes.sql
 015_ingestion_data_source_store.sql
 016_product_user_interest_owners.sql
+016_fk_indexes.sql
+017_nm_uniqueness.sql
