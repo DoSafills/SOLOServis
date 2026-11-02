@@ -320,7 +320,23 @@ def to_number(raw: str, column: Column, base_url: str | None) -> Decimal | None:
 
 
 def _resolve_separator(text: str, separator: str) -> str:
-    head, _, tail = text.rpartition(separator)
+    """Decide whether ``separator`` groups thousands or marks decimals.
+
+    ``"1.349.990"`` repeats the separator: every group after the first has
+    three digits, so all of them are thousands separators. A single separator
+    followed by exactly three digits is read the same way; anything else is the
+    decimal point.
+    """
+    parts = text.split(separator)
+    head = separator.join(parts[:-1])
+    if len(parts) > 2:
+        if (parts[0].lstrip("+-").isdigit()
+                and all(len(part) == 3 and part.isdigit()
+                        for part in parts[1:])):
+            return text.replace(separator, "")
+        return f"{head}.{parts[-1]}" if head else parts[-1]
+
+    _, _, tail = text.rpartition(separator)
     if head and len(tail) == 3 and head.lstrip("+-").isdigit():
         return text.replace(separator, "")
     return f"{head}.{tail}" if head else tail

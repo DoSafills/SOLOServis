@@ -112,6 +112,7 @@ CREATE TABLE DATA_SOURCE (
     name TEXT NOT NULL,
     base_url TEXT NOT NULL,
     source_type TEXT NOT NULL,
+    store_id INTEGER, -- store that owns the offers; NULL = local-only source
     active BOOLEAN NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -141,8 +142,17 @@ CREATE TABLE SCRAPE_RUN (
     records_found INTEGER DEFAULT 0,
     records_processed INTEGER DEFAULT 0,
     records_failed INTEGER DEFAULT 0,
-    status TEXT NOT NULL, -- e.g., 'pending', 'running', 'completed', 'failed'
+    status TEXT NOT NULL
+        CHECK (status IN ('pending', 'running', 'success', 'failed')),
     error_message TEXT,
+    -- Bridge to Ingestion API (flow B); item counters are independent from
+    -- page counters because one listing page can yield N products.
+    ingestion_run_id INTEGER,
+    items_found INTEGER DEFAULT 0,
+    items_sent INTEGER DEFAULT 0,
+    items_failed INTEGER DEFAULT 0,
+    items_rejected INTEGER DEFAULT 0,
+    ingestion_error TEXT,
     FOREIGN KEY (scraper_config_id) REFERENCES SCRAPER_CONFIG(id) ON DELETE CASCADE
 );
 
@@ -260,6 +270,21 @@ project/
 * Applying concurrency and rate limits (using `SCRAPER_CONFIG.rate_limit`).
 * Invoking the scraper/fetcher.
 * Updating `SCRAPE_RUN` stats (`records_found`, `records_processed`, `records_failed`, `status`, `finished_at`).
+
+### Ingestion Responsibilities (flow B)
+
+* Opening one remote run per local `SCRAPE_RUN` when the source has a
+  `store_id` and an ingestion token is configured, then linking it through
+  `SCRAPE_RUN.ingestion_run_id`.
+* Extracting normalized items from the same documents, deduplicating per run by
+  `externalId` (fallback `externalUrl`) and filtering locally invalid items with
+  `NormalizedItem.validate()`.
+* Sending the rest in batches of 1–100 and closing the remote run as `success`
+  or `failed` with the real reason.
+* Keeping the local crawl independent from Ingestion: a network or API failure
+  must never abort the crawl or lose already extracted data. Unsent and
+  rejected items are appended to `out/rejected/run-{id}.jsonl` for replay.
+* Keeping page counters (`records_*`) and item counters (`items_*`) separate.
 
 ### Scraper Responsibilities
 

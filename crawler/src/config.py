@@ -75,3 +75,22 @@ DEFAULT_PARSER_CONFIG: dict = {
     "entity_type": "webpage",
     "external_id_selector": None,
 }
+
+# Ingestion API (TAL-77) -------------------------------------------------------
+# El crawler entrega los ítems normalizados a Ingestion cuando hay token. Sin
+# token la integración queda desactivada y el crawl sigue siendo local.
+INGESTION_API_URL: str = os.getenv(
+    "INGESTION_API_URL", "http://localhost:8094").rstrip("/")
+INGESTION_API_TOKEN: str = (
+    os.getenv("INGESTION_API_TOKEN") or os.getenv("INTERNAL_API_TOKEN") or "")
+INGESTION_TIMEOUT: float = float(os.getenv("INGESTION_TIMEOUT", "15"))
+INGESTION_MAX_RETRIES: int = int(os.getenv("INGESTION_MAX_RETRIES", "3"))
+INGESTION_BACKOFF_BASE: float = float(os.getenv("INGESTION_BACKOFF_BASE", "1.0"))
+INGESTION_BATCH_SIZE: int = int(os.getenv("INGESTION_BATCH_SIZE", "100"))
+
+# Tienda por defecto para las fuentes registradas desde SCRAPER_SEEDS. Las
+# fuentes insertadas por SQL declaran su propio DATA_SOURCE.store_id.
+SEED_STORE_ID: int | None = int(os.getenv("SCRAPER_STORE_ID", "0") or 0) or None
+
+# Ítems descartados (inválidos o no enviables) para revisión y replay.
+REJECTS_DIR: str = os.getenv("SCRAPER_REJECTS_DIR", "out/rejected")

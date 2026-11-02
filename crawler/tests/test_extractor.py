@@ -67,6 +67,9 @@ class TestTransforms:
         ("5499.90", Decimal("5499.90")),
         ("$0", Decimal("0")),
         ("-12", Decimal("-12")),
+        ("$  1.349.990", Decimal("1349990")),
+        ("1.234.567", Decimal("1234567")),
+        ("1.234.567,89", Decimal("1234567.89")),
     ])
     def test_to_number(self, raw, expected):
         assert to_number(raw, Column("x", "NUMERIC(12,2)"), None) == expected
