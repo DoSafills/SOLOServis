@@ -295,7 +295,11 @@ class Crawler:
             await self._send_batch(batch)
 
     async def _send_batch(self, batch: list[NormalizedItem]) -> None:
-        if self.ingestion is None or self.ingestion_run_id is None:
+        # Un fallo previo corta los envíos: reintentar cada lote contra un
+        # servicio caído solo alarga el crawl. Lo que llegue después se
+        # conserva como rechazado para replay.
+        if (self.ingestion is None or self.ingestion_run_id is None
+                or self.ingestion_error):
             reason = self.ingestion_error or "ingestion disabled"
             self.items_failed += len(batch)
             await self._record_rejects(batch, reason)

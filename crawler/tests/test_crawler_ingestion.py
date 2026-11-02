@@ -87,6 +87,7 @@ class FakeIngestion:
         self.opened: list[dict] = []
         self.batches: list[list[dict]] = []
         self.finished: list[dict] = []
+        self.send_attempts = 0
 
     async def open_run(self, source_name, base_url, store_id,
                        scraper_type="http"):
@@ -102,6 +103,7 @@ class FakeIngestion:
                        store_id=store_id)
 
     async def send_items(self, run_id, items):
+        self.send_attempts += 1
         if self.fail_send:
             raise IngestionError("service unavailable", status=503,
                                  retriable=True)
@@ -283,13 +285,17 @@ class TestFailures:
         assert "could not open ingestion run" in row["ingestion_error"]
 
     def test_send_failure_closes_the_remote_run_as_failed(self, env):
-        ingestion = FakeIngestion(fail_send=True)
+        ingestion = FakeIngestion(fail_send=True, batch_size=1)
 
-        summary = _run(_crawler(env, {"https://site.test/": card()}, ingestion))
+        summary = _run(_crawler(
+            env, {"https://site.test/": card("sku-1") + card("sku-2")},
+            ingestion))
 
         assert summary.status == "success"  # el crawl local terminó bien
-        assert summary.items_failed == 1
+        assert summary.items_failed == 2
         assert summary.items_sent == 0
+        # El primer fallo corta los envíos: no se reintenta cada lote.
+        assert ingestion.send_attempts == 1
         assert "service unavailable" in summary.ingestion_error
         assert ingestion.finished == [{
             "run_id": 99, "status": "failed",
@@ -297,8 +303,11 @@ class TestFailures:
         }]
         row = db.get_run(env["db_path"], summary.run_id)
         assert row["status"] == "success"
-        assert row["items_failed"] == 1
+        assert row["items_failed"] == 2
         assert row["ingestion_error"]
+        rejects = (env["rejects_dir"] + f"/run-{summary.run_id}.jsonl")
+        lines = [json.loads(line) for line in open(rejects, encoding="utf-8")]
+        assert len(lines) == 2
 
     def test_item_rejected_by_ingestion_is_counted_and_kept(self, env):
         ingestion = FakeIngestion(fail_indices={1})

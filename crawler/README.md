@@ -354,7 +354,10 @@ SCRAPE_RUN (local)                    Ingestion API
   `out/rejected/run-{id}.jsonl` con el envelope completo y los errores.
 * **Lotes de 1–100.** El cliente trocea y reintenta solo lo transitorio
   (408/429/5xx y red). Un ítem rechazado por Ingestion no detiene el lote; se
-  registra su error y también va a `rejected/`.
+  registra su error y también va a `rejected/`. En cambio, un fallo de
+  transporte en un lote corta los envíos siguientes (circuit breaker): lo que
+  llegue después se guarda como rechazado para replay en vez de golpear un
+  servicio caído.
 * **Éxito remoto.** Solo si el crawl local terminó `success` y no hubo ningún
   error de ingesta. En cualquier otro caso el run remoto se cierra `failed` con
   el motivo real (`problem+json`: `code`, `detail`, `errors[]`).
