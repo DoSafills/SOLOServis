@@ -22,11 +22,13 @@ Tres decisiones sostienen el diseño:
 """
 
 import asyncio
+import http.client
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 import config as cfg
@@ -182,8 +184,11 @@ class IngestionClient:
         if not token:
             _log.info("ingestion disabled: INGESTION_API_TOKEN is not set")
             return None
-        if not cfg.INGESTION_API_URL:
-            _log.info("ingestion disabled: INGESTION_API_URL is not set")
+        parsed = urlparse(cfg.INGESTION_API_URL)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            _log.warning(
+                "ingestion disabled: INGESTION_API_URL must be an absolute "
+                "http(s) URL, got %r", cfg.INGESTION_API_URL)
             return None
         if len(token) < MIN_TOKEN_LENGTH:
             _log.warning(
@@ -313,11 +318,17 @@ def _post_json(
             field_errors=tuple(body.get("errors") or ()),
             retriable=exc.code in TRANSIENT_STATUS,
         ) from None
-    except (URLError, TimeoutError, OSError) as exc:
+    except (URLError, TimeoutError, OSError,
+            http.client.HTTPException) as exc:
         reason = getattr(exc, "reason", exc)
         raise IngestionError(
             f"no se pudo conectar con {url}: {reason}",
             retriable=True,
+        ) from None
+    except ValueError as exc:  # URL malformada: reintentar no la arregla
+        raise IngestionError(
+            f"la URL de Ingestion no es válida ({url}): {exc}",
+            retriable=False,
         ) from None
 
 

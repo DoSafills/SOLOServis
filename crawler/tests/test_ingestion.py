@@ -231,6 +231,8 @@ class TestRetries:
         assert "no se pudo conectar" in str(caught.value)
 
 
+
+
 class TestFromConfig:
     def test_disabled_without_token(self, monkeypatch):
         monkeypatch.setattr(cfg, "INGESTION_API_TOKEN", "")
@@ -243,6 +245,11 @@ class TestFromConfig:
     def test_disabled_without_url(self, monkeypatch):
         monkeypatch.setattr(cfg, "INGESTION_API_TOKEN", TOKEN)
         monkeypatch.setattr(cfg, "INGESTION_API_URL", "")
+        assert IngestionClient.from_config() is None
+
+    def test_disabled_with_malformed_url(self, monkeypatch):
+        monkeypatch.setattr(cfg, "INGESTION_API_TOKEN", TOKEN)
+        monkeypatch.setattr(cfg, "INGESTION_API_URL", "localhost:8094")
         assert IngestionClient.from_config() is None
 
     def test_builds_with_valid_token(self, monkeypatch):
