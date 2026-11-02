@@ -19,6 +19,7 @@ var (
 	ErrIncompatibleCategory = errors.New("product category differs from the comparison")
 	ErrComparisonFull       = errors.New("comparison is full")
 	ErrAlreadyIncluded      = errors.New("product already in comparison")
+	ErrInvalidComparison    = errors.New("comparison requires at least one product")
 )
 
 // Límites.

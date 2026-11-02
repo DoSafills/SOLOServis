@@ -173,7 +173,11 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 		VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id,offer_id) DO UPDATE SET
 		quantity=cart_item.quantity+EXCLUDED.quantity,saved_price=EXCLUDED.saved_price,
 		saved_shipping_cost=EXCLUDED.saved_shipping_cost,updated_at=NOW()`, userID, productID, input.OfferID, input.Quantity, price, shipping)
-	if err != nil || tx.Commit(r.Context()) != nil {
+	if err != nil {
+		h.dbError(w, r, err, http.StatusBadRequest, "could not add offer to cart")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
 		h.dbError(w, r, err, http.StatusBadRequest, "could not add offer to cart")
 		return
 	}
