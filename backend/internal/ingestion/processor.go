@@ -211,6 +211,7 @@ func validateItem(item Item) (ItemProduct, pricing.OfferWrite, []httpx.FieldErro
 	v.MaxLength("product.brand", p.Brand, MaxBrandName)
 	v.Check(p.CategorySlug == "" || categories.ValidSlug(p.CategorySlug), "product.categorySlug", "format",
 		"product.categorySlug debe tener entre 1 y 64 caracteres: minúsculas, dígitos o guiones")
+	v.MaxLength("product.imageUrl", p.ImageURL, MaxImageURL)
 	v.Check(p.ImageURL == "" || isHTTPURL(p.ImageURL), "product.imageUrl", "format",
 		"product.imageUrl debe ser una URL http(s) válida")
 

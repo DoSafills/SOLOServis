@@ -235,6 +235,27 @@ class TestIngestionProjection:
         assert schema["properties"]["schemaVersion"]["const"] == SCHEMA_VERSION
         assert schema["$defs"]["money"]["pattern"] == MONEY_RE.pattern
 
+    def test_schema_accepts_integer_and_decimal_attributes(self):
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        payload = extract(FALABELLA_CARD)[0].to_dict()
+        payload["product"]["attributes"] = {
+            "capacidad_litros": 350,
+            "peso_kg": 65.5,
+        }
+
+        assert list(validator.iter_errors(payload)) == []
+
+    def test_schema_rejects_stock_above_int32(self):
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        payload = extract(FALABELLA_CARD)[0].to_dict()
+        payload["offer"]["stock"] = 2147483648
+
+        assert any(
+            list(error.path) == ["offer", "stock"]
+            for error in validator.iter_errors(payload))
+
     @pytest.mark.parametrize(("html", "config", "url"), [
         (FALABELLA_CARD, "falabella-cl.json", FALABELLA_URL),
         (RIPLEY_CARD, "ripley-cl.json", RIPLEY_URL),
@@ -245,6 +266,26 @@ class TestIngestionProjection:
         validator = Draft202012Validator(schema, format_checker=FormatChecker())
         payload = extract(html, config, url)[0].to_dict()
         assert list(validator.iter_errors(payload)) == []
+
+    @pytest.mark.parametrize("path", [
+        ("externalUrl",),
+        ("source", "baseUrl"),
+        ("product", "imageUrl"),
+        ("offer", "productUrl"),
+        ("provenance", "pageUrl"),
+    ])
+    def test_schema_http_url_requires_authority(self, path):
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        payload = extract(FALABELLA_CARD)[0].to_dict()
+        target = payload
+        for key in path[:-1]:
+            target = target.setdefault(key, {})
+        target[path[-1]] = "https://?q=1"
+
+        assert any(
+            list(error.path) == list(path)
+            for error in validator.iter_errors(payload))
 
     def test_schema_rejects_a_record_without_a_name(self):
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))

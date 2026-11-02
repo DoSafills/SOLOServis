@@ -105,7 +105,7 @@ presente pero vacío y un campo ausente son equivalentes para el consumidor.
 | `brand` | string | no | 150 | `product.references.brand` |
 | `categorySlug` | string | sí¹ | `^[a-z0-9-]{1,64}$` | `category_slug` |
 | `description` | string | no | 5000 | `product.fields.description` |
-| `imageUrl` | string | no | URL `http(s)` absoluta | `images.fields.image_url` |
+| `imageUrl` | string | no | URL `http(s)` absoluta, ≤ 2048 | `images.fields.image_url` |
 | `attributes` | objeto | no | claves `^[a-z][a-z0-9_]{0,63}$` | `attributes` |
 
 ¹ Obligatorio para el scraper: sin categoría el producto nuevo no se puede
@@ -135,7 +135,7 @@ Reglas:
 | `shippingCost` | string | sí | `"0.00"` | mismo patrón de monto |
 | `shippingFree` | boolean | sí | `false` | — |
 | `available` | boolean | sí | `true` | — |
-| `stock` | integer | no | — | ≥ 0 |
+| `stock` | integer | no | — | 0–2147483647 (`INTEGER`/`int32`) |
 | `condition` | string | sí | `new` | `new` \| `used` \| `refurbished` |
 | `productUrl` | string | no | — | URL `http(s)` absoluta, ≤ 2048 |
 
