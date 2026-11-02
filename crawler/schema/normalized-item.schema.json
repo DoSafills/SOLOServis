@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soloservis.cl/schemas/normalized-item-1.0.json",
+  "title": "SOLOServis normalized item",
+  "description": "Store-independent record for one product card. The product and offer objects are the wire contract of Ingestion API (TAL-77); schemaVersion, source and provenance are audit metadata that Ingestion never receives.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "entityType", "externalUrl", "product", "offer", "provenance"],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "entityType": {
+      "const": "product"
+    },
+    "externalId": {
+      "type": "string",
+      "maxLength": 255,
+      "description": "The store's own identifier, when it publishes one."
+    },
+    "externalUrl": {
+      "$ref": "#/$defs/httpUrl",
+      "description": "Canonical URL of the product in this store."
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "product": {
+      "$ref": "#/$defs/product"
+    },
+    "offer": {
+      "$ref": "#/$defs/offer"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    }
+  },
+  "$defs": {
+    "httpUrl": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^https?://[^\\s]+$"
+    },
+    "money": {
+      "type": "string",
+      "pattern": "^\\d{1,10}(\\.\\d{1,2})?$",
+      "description": "NUMERIC(12,2) rendered as text so cents never travel through a float."
+    },
+    "slug": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z0-9-]{1,64}$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "baseUrl"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 150
+        },        "baseUrl": {
+          "$ref": "#/$defs/httpUrl"
+        },
+        "storeId": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Assigned once per ingestion run, never per item."
+        }
+      }
+    },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "categorySlug"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "sku": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "brand": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "categorySlug": {
+          "$ref": "#/$defs/slug"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "imageUrl": {
+          "$ref": "#/$defs/httpUrl"
+        },
+        "attributes": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string", "maxLength": 255 },
+              { "type": "integer" },
+              { "type": "number" },
+              { "type": "boolean" }
+            ]
+          },
+          "description": "Typed per category_attributes.data_type; no implicit conversions."
+        }
+      }
+    },
+    "offer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["price", "currency", "shippingCost", "shippingFree", "available", "condition"],
+      "properties": {
+        "price": {
+          "$ref": "#/$defs/money"
+        },
+        "listPrice": {
+          "$ref": "#/$defs/money"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "shippingCost": {
+          "$ref": "#/$defs/money"
+        },
+        "shippingFree": {
+          "type": "boolean"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "stock": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "condition": {
+          "enum": ["new", "used", "refurbished"]
+        },
+        "productUrl": {
+          "$ref": "#/$defs/httpUrl"
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scrapedAt"],
+      "properties": {
+        "scrapedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pageUrl": {
+          "$ref": "#/$defs/httpUrl"
+        },
+        "runId": {
+          "type": "integer"
+        },
+        "configId": {
+          "type": "integer"
+        },
+        "references": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Natural keys seen on the page, before ingestion resolves them."
+        },
+        "errors": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

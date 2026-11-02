@@ -187,6 +187,100 @@ Tablas con contrato completo: `product`, `product_image`, `brand`,
 `product_category`, `product_offer`, `service`, `service_category`,
 `service_offer`, `store`, `provider`, `location`.
 
+## Formato común de datos extraídos (`normalized.py`)
+
+El extractor produce *filas*; una tarjeta de producto no es una fila. Una
+tarjeta trae nombre, marca, precio, precio de lista, imagen, identificador y
+atributos, y cada tienda los ordena distinto. `normalized.py` declara un
+**bundle** (`BundleSpec`) con una raíz compartida y colapsa esas partes en un
+único `NormalizedItem`, independiente de la tienda.
+
+```python
+import json
+from scraper import Scraper
+from normalized import BundleExtractor, BundleSpec, export_jsonl
+
+spec = BundleSpec.from_parser_config(json.load(open("examples/ripley-cl.json")))
+outcome = await Scraper().fetch("https://simple.ripley.cl/search/refrigerador")
+items = BundleExtractor(spec).extract_all(outcome.document, outcome.final_url)
+
+export_jsonl(items, "out/ripley.jsonl")     # envelope completo, para auditar
+body = items[0].to_ingestion()              # body exacto de Ingestion API
+```
+
+### El registro
+
+```json
+{
+  "schemaVersion": "1.0",
+  "entityType": "product",
+  "externalId": "testId-pod-14873869",
+  "externalUrl": "https://www.falabella.com/falabella-cl/search?Ntt=refrigerador",
+  "source": { "name": "Falabella Chile", "baseUrl": "https://www.falabella.com/falabella-cl" },
+  "product": {
+    "name": "Refrigerador Side by Side de 608 Litros Family Hub",
+    "brand": "SAMSUNG",
+    "categorySlug": "refrigeradores",
+    "imageUrl": "https://media.falabella.com/falabellaCL/14873869_1/width=240"
+  },
+  "offer": {
+    "price": "1349990.00", "listPrice": "2349990.00", "currency": "CLP",
+    "shippingCost": "0.00", "shippingFree": false, "available": true, "condition": "new"
+  },
+  "provenance": {
+    "scrapedAt": "2026-11-02T12:00:00Z", "pageUrl": "https://…",
+    "references": { "brand": "SAMSUNG" }
+  }
+}
+```
+
+* `product` y `offer` son **el contrato de Ingestion API** (TAL-77): mismas
+  claves, mismos límites. `to_ingestion()` proyecta exactamente
+  `{externalId, product, offer}`; el envelope (`schemaVersion`, `source`,
+  `provenance`) no se envía porque Ingestion rechaza campos desconocidos.
+* **La tienda no está dentro del ítem.** Se asigna una vez por ejecución
+  (`POST /ingestion/runs`), así que el mismo registro sirve para cualquier
+  tienda.
+* **Solo claves naturales.** `sku`, `brand`, `categorySlug`; nunca ids del
+  servidor.
+* **Los montos viajan como texto** (`"1349990.00"`): un float perdería centavos
+  antes de llegar a `NUMERIC(12,2)`. Go acepta un número entrecomillado en un
+  `json.Number`.
+* **Los atributos son JSON nativos.** Un atributo `integer` sale como `608`, no
+  como `"608"`; el backend no convierte tipos implícitamente.
+* **`categorySlug` se declara, no se adivina.** El spec trae un literal o un
+  selector + mapa de alias; si no hay forma de resolverlo, el ítem lo reporta y
+  la validación falla en vez de inventar una categoría.
+
+### `parser_config` de un bundle
+
+| Clave | Obligatoria | Significado |
+|---|---|---|
+| `entity_type` | no (`product`) | Único valor soportado hoy; `service` se rechaza hasta que exista contrato. |
+| `root` | no | CSS de la tarjeta. Sin `root`, el documento entero es un ítem (página de detalle). |
+| `product` | sí | `{fields, references}` con las columnas de `product`; `brand` va en `references`. |
+| `offer` | sí | `{fields}` con las columnas de `product_offer`. |
+| `images` | no | `{fields: {image_url: …}}`; se toma el primer match. |
+| `external_id` | no | Selector, o `{"attribute": "id"}` para leer el atributo del propio nodo. |
+| `category_slug` | no | String literal o `{value \| selector, alias}`. |
+| `attributes` | no | Mapa `clave → {selector, type, choices?, default?, max_length?}`. |
+| `source` | no | `{name, base_url, store_id?}`; viaja en el envelope, nunca en `product`/`offer`. |
+
+Las claves desconocidas se rechazan: un typo no puede descartar media tarjeta
+en silencio. `entity_type`, `fields`, `mode`, `attribute`, `transform` y
+`default` funcionan igual que en el extractor.
+
+> Estas claves son las del **bundle**. El `parser_config` de página que consume
+> `scraper.py` (`entity_type` + `external_id_selector`) no cambia: son dos
+> niveles distintos. El bundle se guardará en `parser_config` cuando el scraper
+> se conecte a la ingesta; hoy se usa desde código o desde los ejemplos.
+
+`crawler/examples/` tiene configuraciones reales de Falabella y Ripley, con el
+DOM observado y las limitaciones de cada tienda documentadas en
+`crawler/examples/README.md`. El contrato normativo (campos, límites,
+versionado) está en `docs/estandares/formato-datos-extraidos.md`; el JSON Schema
+en `crawler/schema/normalized-item.schema.json`.
+
 ## Logging
 
 Mensajes en inglés con etiqueta por componente:
