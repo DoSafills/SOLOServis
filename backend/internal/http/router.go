@@ -81,14 +81,20 @@ func adminOnly(db *pgxpool.Pool, logger *slog.Logger) func(http.Handler) http.Ha
 func newRouter(name string, db *pgxpool.Pool, frontendURL string, registrars ...routeRegistrar) *chi.Mux {
 	r := chi.NewRouter()
 	logger := useStandardMiddleware(r)
+<<<<<<< Updated upstream
 	r.Use(corsMiddleware(frontendURL))
 	r.Get("/health", HealthHandler(name, db))
+=======
+	r.Use(httpx.CORS(frontendURL))
+	registerHealth(r, db)
+>>>>>>> Stashed changes
 	for _, register := range registrars {
 		register(r, db, logger)
 	}
 	return r
 }
 
+<<<<<<< Updated upstream
 func corsMiddleware(frontendURL string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -102,6 +108,13 @@ func corsMiddleware(frontendURL string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 		})
 	}
+=======
+func configuredFrontendURL() string {
+	if value := os.Getenv("FRONTEND_URL"); value != "" {
+		return value
+	}
+	return "http://localhost:8443"
+>>>>>>> Stashed changes
 }
 
 // useStandardMiddleware aplica el estándar TAL-78: RequestID → AccessLog → Recover.

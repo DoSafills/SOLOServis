@@ -46,9 +46,13 @@ Además corren `frontend` (nginx con la app de Vite) y `postgres` (StatefulSet c
 - La **única llamada entre pods** es ingestion → notification: `NOTIFICATION_API_URL=http://comercial:8080`. Si falta esa variable, ingestion **no arranca** y dice cuál falta.
 - `comercial` lee las tablas de sesión (`user_session`) para validar el token: es una dependencia por la base, no por HTTP.
 
+<<<<<<< Updated upstream
 El nginx del frontend (`docker/frontend/default.conf.template`) enruta por path, porque la plataforma UCT solo admite el path `/` en el Ingress. El navegador usa siempre el mismo origen, así que no hay CORS. Estas son las rutas públicas:
 
 | Ruta | Pod | Métodos |
+=======
+| Ruta | API | Métodos |+
+>>>>>>> Stashed changes
 |---|---|---|
 | `/products`, `/product-categories`, `/categories`, `/stores`, `/services` | comercial | GET |
 | `/auth` | usuarios | GET, POST |

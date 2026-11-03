@@ -1946,14 +1946,21 @@ http://localhost:8080
 
 Por esta razón el backend configura CORS.
 
-Actualmente permite:
+En desarrollo local permite:
 
 ```text
-Origin:
 http://localhost:8443
+http://127.0.0.1:8443
+http://<IP-privada-del-PC>:8443
 ```
 
-y los métodos:
+El frontend elige las URLs de las APIs usando el mismo host con el que se abrió
+la página. Así funciona tanto con `localhost` en el PC como con la IP privada
+desde otro dispositivo de la red. Las URLs `VITE_*_API_URL` explícitas siguen
+teniendo prioridad. En despliegues públicos, CORS continúa limitado al
+`FRONTEND_URL` configurado.
+
+Se permiten los métodos:
 
 ```text
 GET

@@ -1,0 +1,5 @@
+# PostgreSQL Docker local
+.\scripts\switch-database.ps1 postgres
+
+# Neon
+.\scripts\switch-database.ps1 neon

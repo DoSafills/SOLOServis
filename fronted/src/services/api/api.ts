@@ -7,10 +7,11 @@ import type {
   StoreProduct,
 } from "../../types";
 import { parseAmount, toProduct, type ApiProduct } from "./products";
+import { getApiBaseUrl } from "./config";
 
-const PRODUCT_API_URL = import.meta.env.VITE_PRODUCT_API_URL ?? "http://localhost:8081";
-const SERVICE_API_URL = import.meta.env.VITE_SERVICE_API_URL ?? "http://localhost:8083";
-const STORE_API_URL = import.meta.env.VITE_STORE_API_URL ?? "http://localhost:8082";
+const PRODUCT_API_URL = getApiBaseUrl(import.meta.env.VITE_PRODUCT_API_URL, 8081);
+const SERVICE_API_URL = getApiBaseUrl(import.meta.env.VITE_SERVICE_API_URL, 8083);
+const STORE_API_URL = getApiBaseUrl(import.meta.env.VITE_STORE_API_URL, 8082);
 
 interface ApiStore {
   id: string;
