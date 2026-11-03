@@ -1,0 +1,81 @@
+>> # Usa el host DIRECTO de Neon, sin "-pooler".                                                       
+>> $env:PGHOST = "ep-silent-bonus-b5l2dcfy.c-7.us-east-2.aws.neon.tech"                                
+>> $env:PGPORT = "5432"                                   
+>> $env:PGUSER = "neondb_owner"
+>> $env:PGDATABASE = "neondb"  
+>> $env:PGSSLMODE = "require"
+>>                           
+>> # Ingresa la contraseña sin mostrarla en pantalla.
+>> $secure = Read-Host "Contraseña de Neon" -AsSecureString
+>> $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+>> $env:PGPASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+>> 
+>> $repo = (Get-Location).Path
+>> 
+>> try {
+>>     docker run --rm `
+>>       --env PGHOST --env PGPORT --env PGUSER --env PGDATABASE --env PGSSLMODE --env PGPASSWORD `
+>>       --env MIGRATIONS_DIR=/migrations `
+>>       --env MIGRATION_ORDER_FILE=/migration_order.txt `
+>>       --volume "$repo\backend\database\migrations:/migrations:ro" `
+>>       --volume "$repo\backend\database\migration_order.txt:/migration_order.txt:ro" `
+>>       --volume "$repo\k8s\base\migrations\migrate.sh:/migrate.sh:ro" `
+>>       postgres:18 bash /migrate.sh
+>> 
+>>     if ($LASTEXITCODE -ne 0) {
+>>         throw "El runner de migraciones terminó con error."
+>>     }
+>> }
+>> finally {
+>>     $env:PGPASSWORD = $null
+>>     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+>> }
+Contraseña de Neon: ****************
+Esperando PostgreSQL en ep-silent-bonus-b5l2dcfy.c-7.us-east-2.aws.neon.tech:5432...
+ep-silent-bonus-b5l2dcfy.c-7.us-east-2.aws.neon.tech:5432 - accepting connections
+APPLY 001_schema.sql
+APPLY 002_views.sql
+APPLY 003_seed.sql
+APPLY 004_platform_apis.sql
+APPLY 004_user_email_verified.sql
+APPLY 005_demo_catalog.sql
+APPLY 005_seed_catalogo.sql
+APPLY 006_demo_catalog_services.sql
+APPLY 006_refrigeradores.sql
+APPLY 007_Computacion.sql
+APPLY 007_service_cart.sql
+APPLY 008_Telefonia.sql
+APPLY 008_normalize_prices_to_clp.sql
+psql:/migrations/008_normalize_prices_to_clp.sql:26: NOTICE:  trigger "product_offer_currency_to_clp" for relation "product_offer" does not exist, skipping
+psql:/migrations/008_normalize_prices_to_clp.sql:32: NOTICE:  trigger "service_offer_currency_to_clp" for relation "service_offer" does not exist, skipping
+APPLY 009_product_offer_identity_and_timestamps.sql
+APPLY 010_product_price_history_on_price_change.sql
+APPLY 011_catalog_history_uniqueness_and_indexes.sql
+APPLY 012_categories.sql
+APPLY 013_categories_seed.sql
+APPLY 014_product_attributes.sql
+APPLY 015_ingestion_data_source_store.sql
+Migraciones aplicadas:
+001_schema.sql  2026-10-29 17:57:58.732825+00
+002_views.sql  2026-10-29 17:58:02.31627+00
+003_seed.sql  2026-10-29 17:58:11.681852+00
+004_platform_apis.sql  2026-10-29 17:58:16.557501+00
+004_user_email_verified.sql  2026-10-29 17:58:20.13831+00
+005_demo_catalog.sql  2026-10-29 17:58:25.718204+00
+005_seed_catalogo.sql  2026-10-29 17:58:31.488448+00
+006_demo_catalog_services.sql  2026-10-29 17:58:40.351531+00
+006_refrigeradores.sql  2026-10-29 17:58:48.594185+00
+007_Computacion.sql  2026-10-29 17:58:56.507851+00
+007_service_cart.sql  2026-10-29 17:59:00.093585+00
+008_Telefonia.sql  2026-10-29 17:59:06.317572+00
+008_normalize_prices_to_clp.sql  2026-10-29 17:59:11.169762+00
+009_product_offer_identity_and_timestamps.sql  2026-10-29 17:59:15.584335+00
+010_product_price_history_on_price_change.sql  2026-10-29 17:59:19.475982+00
+011_catalog_history_uniqueness_and_indexes.sql  2026-10-29 17:59:23.861281+00
+012_categories.sql  2026-10-29 17:59:27.446425+00
+013_categories_seed.sql  2026-10-29 17:59:31.05803+00
+014_product_attributes.sql  2026-10-29 17:59:35.408271+00
+015_ingestion_data_source_store.sql  2026-10-29 17:59:39.135449+00
+
+
+la migrición de la base de datos se ha completado exitosamente.
