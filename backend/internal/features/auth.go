@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const passwordIterations = 120000
@@ -28,6 +30,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, r, "name, valid email and password of at least 10 characters are required")
 		return
 	}
+	email := strings.ToLower(strings.TrimSpace(input.Email))
 	hash, err := passwordHash(input.Password)
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, "could not secure password")
@@ -35,8 +38,13 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	var userID int32
 	err = h.db.QueryRow(r.Context(), `INSERT INTO user_account(name,email,password_hash) VALUES ($1,$2,$3) RETURNING id`,
-		strings.TrimSpace(input.Name), strings.ToLower(strings.TrimSpace(input.Email)), hash).Scan(&userID)
+		strings.TrimSpace(input.Name), email, hash).Scan(&userID)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			h.dbError(w, r, err, http.StatusConflict, "email is already registered")
+			return
+		}
 		h.dbError(w, r, err, http.StatusConflict, "email is already registered")
 		return
 	}
@@ -49,10 +57,11 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, r, "email and password are required")
 		return
 	}
+	email := strings.ToLower(strings.TrimSpace(input.Email))
 	var userID int32
 	var hash string
-	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE email=$1 AND active`,
-		strings.ToLower(strings.TrimSpace(input.Email))).Scan(&userID, &hash)
+	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE lower(btrim(email))=$1 AND active`,
+		email).Scan(&userID, &hash)
 	if err != nil || !checkPassword(hash, input.Password) {
 		h.dbError(w, r, err, http.StatusUnauthorized, "invalid credentials")
 		return

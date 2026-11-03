@@ -23,3 +23,8 @@
 016_fk_indexes.sql
 017_nm_uniqueness.sql
 018_product_offer_currency_conversion_to_clp.sql
+019_email_case_insensitive.sql
+020_product_offer_price_positive.sql
+021_cart_item_indexes.sql
+022_cart_item_constraints.sql
+023_fk_indexes.sql
