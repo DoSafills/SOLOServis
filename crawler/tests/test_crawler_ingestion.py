@@ -8,6 +8,7 @@ cuando Ingestion falla.
 
 import asyncio
 import json
+import os
 import re
 
 import pytest
@@ -148,7 +149,9 @@ def env(tmp_path):
     source, config = db.get_active_jobs(path)[0]
     return {
         "db_path": path,
-        "rejects_dir": str(tmp_path / "rejects"),
+        "rejects_dir": cfg.REJECTS_DIR,
+        "items_dir": cfg.ITEMS_DIR,
+        "raw_dir": cfg.RAW_DIR,
         "source": source,
         "config": config,
     }
@@ -168,6 +171,7 @@ def _crawler(env, pages, ingestion=None, store_id=4, **kwargs):
         ingestion=ingestion,
         rejects_dir=env["rejects_dir"],
         bundle=BundleSpec.from_parser_config(BUNDLE),
+        bundle_config=BUNDLE,
     )
     defaults.update(kwargs)
     return Crawler(
@@ -379,3 +383,96 @@ class TestDisabledIngestion:
 
         with pytest.raises(ValueError):
             bundle_from_config({"bundle": bad})
+
+
+class TestArtifacts:
+    """TAL-136: los ítems se exportan sin re-parsear y sin depender de Ingestion."""
+
+    def _items(self, env, run_id):
+        path = f"{env['items_dir']}/run-{run_id}.jsonl"
+        return [json.loads(line) for line in open(path, encoding="utf-8")]
+
+    def test_valid_items_are_exported_as_jsonl(self, env):
+        summary = _run(_crawler(
+            env, {"https://site.test/": card("sku-1") + card("sku-2")}, None))
+
+        records = self._items(env, summary.run_id)
+        assert [record["externalId"] for record in records] == ["sku-1", "sku-2"]
+        assert records[0]["schemaVersion"] == "1.0"
+        assert records[0]["source"]["storeId"] == 4
+
+    def test_invalid_items_do_not_reach_the_items_file(self, env):
+        summary = _run(_crawler(
+            env, {"https://site.test/": card("sku-1") + card("sku-2", price="")},
+            None))
+
+        assert [record["externalId"] for record in self._items(env, summary.run_id)] \
+            == ["sku-1"]
+        rejects = f"{env['rejects_dir']}/run-{summary.run_id}.jsonl"
+        assert [json.loads(line)["externalId"]
+                for line in open(rejects, encoding="utf-8")] == ["sku-2"]
+
+    def test_pretty_json_documents_the_run(self, env):
+        summary = _run(_crawler(
+            env, {"https://site.test/": card("sku-1")}, None))
+
+        path = f"{env['items_dir']}/run-{summary.run_id}.json"
+        payload = json.loads(open(path, encoding="utf-8").read())
+
+        assert payload["runId"] == summary.run_id
+        assert payload["status"] == "success"
+        assert payload["source"] == {
+            "name": "Tienda Test",
+            "baseUrl": "https://site.test/",
+            "storeId": 4,
+        }
+        assert payload["counters"]["found"] == 1
+        assert payload["counters"]["exported"] == 1
+        assert payload["bundle"]["root"] == ".card"
+        assert payload["items"][0]["externalId"] == "sku-1"
+
+    def test_items_are_exported_even_when_ingestion_fails(self, env):
+        ingestion = FakeIngestion(fail_open=True)
+
+        summary = _run(_crawler(
+            env, {"https://site.test/": card("sku-1")}, ingestion))
+
+        assert summary.ingestion_run_id is None
+        assert [record["externalId"] for record in self._items(env, summary.run_id)] \
+            == ["sku-1"]
+
+    def test_abort_publishes_the_partial_json(self, env):
+        crawler = _crawler(env, {"https://site.test/": card("sku-1")}, None)
+
+        async def scenario():
+            await crawler._ingest_page(
+                Adaptor(card("sku-1")), "https://site.test/")
+            await crawler.abort_ingestion("interrupted by user")
+
+        asyncio.run(scenario())
+
+        path = f"{env['items_dir']}/run-{crawler.run_id}.json"
+        payload = json.loads(open(path, encoding="utf-8").read())
+        assert payload["status"] == "failed"
+        assert payload["errorMessage"] == "interrupted by user"
+        assert [item["externalId"] for item in payload["items"]] == ["sku-1"]
+
+    def test_raw_html_is_archived_and_indexed(self, env):
+        summary = _run(_crawler(
+            env, {"https://site.test/": card("sku-1")}, None))
+
+        index_path = f"{env['raw_dir']}/run-{summary.run_id}/index.jsonl"
+        entries = [json.loads(line)
+                   for line in open(index_path, encoding="utf-8")]
+        assert [entry["url"] for entry in entries] == ["https://site.test/"]
+
+        html_path = f"{env['raw_dir']}/run-{summary.run_id}/{entries[0]['file']}"
+        assert "Refrigerador A" in open(html_path, encoding="utf-8").read()
+
+    def test_export_can_be_disabled(self, env):
+        summary = _run(_crawler(
+            env, {"https://site.test/": card("sku-1")}, None,
+            items_dir="", raw_dir=""))
+
+        assert summary.items_found == 1
+        assert not os.path.exists(env["items_dir"])

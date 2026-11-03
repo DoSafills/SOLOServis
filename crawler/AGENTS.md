@@ -286,6 +286,20 @@ project/
   rejected items are appended to `out/rejected/run-{id}.jsonl` for replay.
 * Keeping page counters (`records_*`) and item counters (`items_*`) separate.
 
+### Artifact Responsibilities (TAL-136)
+
+* Exporting every valid item to `out/items/run-{id}.jsonl` during the crawl,
+  using the same `NormalizedItem` objects that were extracted and validated.
+  No second HTML parse on the normal path.
+* Writing `out/items/run-{id}.json` (atomic, human-readable) when the run
+  closes, including source, store, status, counters and the effective bundle.
+* Archiving the fetched HTML under `out/raw/run-{id}/` with an `index.jsonl`
+  mapping URL to file.
+* Keeping every directory configurable (`SCRAPER_ITEMS_DIR`, `SCRAPER_RAW_DIR`,
+  `SCRAPER_REJECTS_DIR`) and git-ignored (`out/`).
+* Providing `scripts/export_items.py` for offline JSON regeneration and an
+  explicit `--from-db` replay from `SCRAPED_DATA.raw_data`.
+
 ### Scraper Responsibilities
 
 * Extracting information from a fetched document using Scrapling based on `parser_config`.

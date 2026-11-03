@@ -13,6 +13,7 @@ before exiting.
 """
 
 import asyncio
+import json
 import logging
 import os
 import signal
@@ -27,9 +28,11 @@ from database import (
     finish_scrape_run,
     get_active_jobs,
     init_db,
+    set_source_bundle,
 )
 from ingestion import IngestionClient
 from models import RUN_STATUS_FAILED, RUN_STATUS_SUCCESS, DataSource, ScraperConfig
+from normalized import BundleSpec
 from utils import configure_logging, get_logger
 
 _log_init = get_logger("INIT")
@@ -124,6 +127,8 @@ async def run_job(
     except Exception as exc:  # a broken source must not kill its siblings
         await crawler.aclose()
         _finalize(crawler, RUN_STATUS_FAILED, f"{type(exc).__name__}: {exc}")
+        await crawler.write_items_manifest(
+            RUN_STATUS_FAILED, f"{type(exc).__name__}: {exc}")
         _log_task.error("run #%d crashed: %s: %s", crawler.run_id,
                         type(exc).__name__, exc)
         return None
@@ -228,17 +233,41 @@ class _ThreadRunner(threading.Thread):
             pass
 
 
+def _load_bundle() -> dict | None:
+    """Read ``SCRAPER_BUNDLE_PATH`` and validate it before touching the DB."""
+    if not cfg.BUNDLE_PATH:
+        return None
+    with open(cfg.BUNDLE_PATH, encoding="utf-8") as handle:
+        bundle = json.load(handle)
+    if not isinstance(bundle, dict):
+        raise ValueError(
+            f"{cfg.BUNDLE_PATH} must contain a JSON object (a bundle)")
+    # Falla temprano si el archivo no describe una tarjeta válida.
+    BundleSpec.from_parser_config(bundle)
+    return bundle
+
+
 def _register_seed_sources() -> int:
-    """Register every ``SCRAPER_SEEDS`` URL as an active DATA_SOURCE row."""
+    """Register every ``SCRAPER_SEEDS`` URL as an active DATA_SOURCE row.
+
+    If ``SCRAPER_BUNDLE_PATH`` is set, the bundle is stored in the source's
+    ``parser_config`` so the run can extract normalized items (TAL-90).
+    """
+    bundle = _load_bundle()
     created = 0
     for url in cfg.SEED_URLS:
-        _, was_created = ensure_source(
+        source_id, was_created = ensure_source(
             cfg.DB_PATH, url, store_id=cfg.SEED_STORE_ID)
+        if bundle is not None:
+            set_source_bundle(cfg.DB_PATH, source_id, bundle)
         if was_created:
             created += 1
             _log_seed.info("registered new seed source: %s", url)
         else:
             _log_seed.info("seed source already exists: %s", url)
+    if bundle is not None:
+        _log_seed.info("bundle loaded from %s and applied to %d seed(s)",
+                       cfg.BUNDLE_PATH, len(cfg.SEED_URLS))
     return created
 
 

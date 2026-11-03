@@ -92,5 +92,15 @@ INGESTION_BATCH_SIZE: int = int(os.getenv("INGESTION_BATCH_SIZE", "100"))
 # fuentes insertadas por SQL declaran su propio DATA_SOURCE.store_id.
 SEED_STORE_ID: int | None = int(os.getenv("SCRAPER_STORE_ID", "0") or 0) or None
 
+# Bundle (TAL-90) para las fuentes registradas desde SCRAPER_SEEDS. Es la ruta
+# a un JSON como los de `crawler/examples/`; se guarda en
+# `parser_config["bundle"]`. Las fuentes insertadas por SQL ya lo declaran ahí.
+BUNDLE_PATH: str = os.getenv("SCRAPER_BUNDLE_PATH", "")
+
+# Artefactos locales por ejecución (TAL-136). Vaciar una variable desactiva
+# esa salida; `out/` está ignorado por git y en Kubernetes se monta un PVC.
+ITEMS_DIR: str = os.getenv("SCRAPER_ITEMS_DIR", "out/items")
+RAW_DIR: str = os.getenv("SCRAPER_RAW_DIR", "out/raw")
+
 # Ítems descartados (inválidos o no enviables) para revisión y replay.
 REJECTS_DIR: str = os.getenv("SCRAPER_REJECTS_DIR", "out/rejected")

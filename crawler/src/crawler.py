@@ -6,6 +6,7 @@ scraper and persistence to :mod:`crawler.database`.
 """
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,16 @@ from typing import Any
 from urllib.parse import urlparse
 
 import config as cfg
+from artifacts import (
+    append_items,
+    append_raw_index,
+    build_manifest,
+    items_json_path,
+    items_jsonl_path,
+    read_items,
+    write_items_json,
+    write_raw_page,
+)
 from database import (
     create_scrape_run,
     finish_scrape_run,
@@ -29,7 +40,13 @@ from models import (
     ScraperConfig,
     ScrapeResult,
 )
-from normalized import BundleExtractor, BundleSpec, NormalizedItem, export_jsonl
+from normalized import (
+    BundleExtractor,
+    BundleSpec,
+    NormalizedItem,
+    SourceInfo,
+    export_jsonl,
+)
 from processor import process_links
 from scraper import Scraper
 from utils import get_logger, parse_rate_limit, same_site
@@ -121,7 +138,10 @@ class Crawler:
         concurrency: int | None = None,
         ingestion: IngestionClient | None = None,
         rejects_dir: str | None = None,
+        items_dir: str | None = None,
+        raw_dir: str | None = None,
         bundle: BundleSpec | None = None,
+        bundle_config: dict | None = None,
     ):
         self.source = source
         self.config = config
@@ -135,10 +155,16 @@ class Crawler:
 
         # Ingestion (flujo B). Sin bundle no hay ítems que enviar; sin tienda o
         # sin token la integración queda desactivada y el crawl sigue local.
+        raw_bundle = (config.parser_config or {}).get("bundle")
         self.bundle = bundle if bundle is not None else bundle_from_config(
             config.parser_config)
+        self.bundle_config = (bundle_config if bundle_config is not None else
+                              raw_bundle if isinstance(raw_bundle, dict) else
+                              None)
         self.ingestion = ingestion
         self.rejects_dir = rejects_dir or cfg.REJECTS_DIR
+        self.items_dir = items_dir if items_dir is not None else cfg.ITEMS_DIR
+        self.raw_dir = raw_dir if raw_dir is not None else cfg.RAW_DIR
         self.ingestion_run_id: int | None = None
         self.ingestion_error: str | None = None
         # Solo se envía cuando hay cliente, tienda y ejecución remota abierta.
@@ -151,9 +177,20 @@ class Crawler:
         self._seen_items: set[str] = set()
         self._ingest_lock = asyncio.Lock()
         self._reject_lock = asyncio.Lock()
+        self._export_lock = asyncio.Lock()
+        self._raw_lock = asyncio.Lock()
+        self._items_exported = 0
+        self._raw_exported = 0
+        # La fuente viaja en cada ítem: la tienda es un dato de la ejecución,
+        # no del producto, y el export debe poder reconstruirla sin la base.
+        source_info = SourceInfo(
+            name=source.name,
+            base_url=source.base_url,
+            store_id=source.store_id,
+        )
         self._bundle_extractor = (BundleExtractor(
             self.bundle,
-            source=None,
+            source=source_info,
             run_id=run_id,
             config_id=config.id,
         ) if self.bundle else None)
@@ -219,6 +256,9 @@ class Crawler:
             result.links = process_links(result.links, result.external_url)
             await asyncio.to_thread(save_scraped_data, self.db_path,
                                     self.run_id, result)
+            # TAL-136: el mismo HTML que va a SQLite queda como archivo local
+            # por ejecución, para revisión y replay sin depender de la base.
+            await self._export_raw_page(result)
             self.visited.add(url)
             self.records_processed += 1
 
@@ -279,8 +319,13 @@ class Crawler:
             self.items_rejected += len(rejected)
             await self._record_rejects(rejected, "invalid item")
 
+        # TAL-136: se exporta antes de decidir el envío. El archivo local no
+        # depende de que Ingestion esté disponible.
+        if valid:
+            await self._export_items(valid)
+
         # Sin ejecución remota no hay a quién entregar: los ítems válidos
-        # quedan en el HTML archivado y en la base local.
+        # quedan en el HTML archivado y en el JSONL de la ejecución.
         if valid and self._ingesting:
             async with self._ingest_lock:
                 self._buffer.extend(valid)
@@ -354,6 +399,88 @@ class Crawler:
             _ingest_log.error("run #%d: could not write %s: %s",
                               self.run_id, path, exc)
 
+    # -- artefactos locales (TAL-136) -----------------------------------------
+
+    async def _export_items(self, items: list[NormalizedItem]) -> None:
+        """Append the items just extracted to this run's JSONL.
+
+        The caller passes the same objects that were validated, so nothing is
+        parsed twice. Append-only keeps a crash from losing earlier pages.
+        """
+        if not self.items_dir:
+            return
+        path = items_jsonl_path(self.items_dir, self.run_id)
+        try:
+            async with self._export_lock:
+                await asyncio.to_thread(append_items, items, path)
+        except OSError as exc:
+            _ingest_log.error("run #%d: could not write %s: %s",
+                              self.run_id, path, exc)
+            return
+        self._items_exported += len(items)
+
+    async def _export_raw_page(self, result: ScrapeResult) -> None:
+        """Archive the fetched HTML as a per-run file plus its index entry."""
+        if not self.raw_dir or not result.raw_data:
+            return
+        try:
+            async with self._raw_lock:
+                entry = await asyncio.to_thread(
+                    write_raw_page,
+                    self.raw_dir,
+                    self.run_id,
+                    result.external_url,
+                    result.raw_data,
+                    entity_type=result.entity_type,
+                )
+                await asyncio.to_thread(
+                    append_raw_index, self.raw_dir, self.run_id, entry)
+        except OSError as exc:
+            _ingest_log.error("run #%d: could not archive raw HTML for %s: %s",
+                              self.run_id, result.external_url, exc)
+            return
+        self._raw_exported += 1
+
+    async def write_items_manifest(
+        self, status: str, error_message: str | None = None,
+    ) -> Path | None:
+        """Write the readable ``run-{id}.json`` for this run.
+
+        Reads the JSONL (JSON parsing, not HTML) and is safe to call twice: the
+        last call wins. Returns the path, or ``None`` when there is nothing to
+        export or the write failed.
+        """
+        if not self.items_dir:
+            return None
+        jsonl = items_jsonl_path(self.items_dir, self.run_id)
+        target = items_json_path(self.items_dir, self.run_id)
+        try:
+            items = await asyncio.to_thread(read_items, jsonl)
+            manifest = build_manifest(
+                run_id=self.run_id,
+                source_name=self.source.name,
+                source_url=self.source.base_url,
+                store_id=self.source.store_id,
+                status=status,
+                counters={
+                    "found": self.items_found,
+                    "exported": len(items),
+                    "sent": self.items_sent,
+                    "failed": self.items_failed,
+                    "rejected": self.items_rejected,
+                },
+                bundle=self.bundle_config,
+                error_message=error_message or self.ingestion_error,
+            )
+            await asyncio.to_thread(write_items_json, items, target, manifest)
+        except (OSError, json.JSONDecodeError) as exc:
+            _ingest_log.error("run #%d: could not write %s: %s",
+                              self.run_id, target, exc)
+            return None
+        _ingest_log.info("run #%d: %d item(s) exported to %s",
+                         self.run_id, len(items), target)
+        return target
+
     async def _open_ingestion(self) -> None:
         if self._bundle_extractor is None:
             return
@@ -416,6 +543,9 @@ class Crawler:
         if self._buffer:
             await self._record_rejects(self._buffer, message)
             self._buffer.clear()
+        # El JSONL ya tiene lo extraído hasta el corte; se publica el JSON
+        # legible para que la ejecución abortada no quede huérfana.
+        await self.write_items_manifest(RUN_STATUS_FAILED, message)
         if self.ingestion is None or self.ingestion_run_id is None:
             return
         try:
@@ -508,6 +638,9 @@ class Crawler:
             error_message = "; ".join(self.errors[:10])
 
         await self._finish_ingestion(status, error_message)
+        # TAL-136: el JSON legible se escribe al cerrar, tanto en éxito como en
+        # fallo parcial. Se construye desde el JSONL ya exportado.
+        await self.write_items_manifest(status, error_message)
 
         summary = CrawlSummary(
             run_id=self.run_id,

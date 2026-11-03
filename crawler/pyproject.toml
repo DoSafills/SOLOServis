@@ -19,6 +19,11 @@ dev = [
     "ruff>=0.6",
 ]
 
+[tool.setuptools]
+# El proyecto se ejecuta como `python src/main.py` (imports absolutos), no se
+# importa como paquete. Declararlo evita que setuptools descubra `scripts/`.
+packages = ["src"]
+
 [project.scripts]
 # NOTE: entry point removed; run directly with `python src/__main__.py`
 # (src/ uses plain absolute imports, not package-relative ones).

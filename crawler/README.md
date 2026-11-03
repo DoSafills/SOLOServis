@@ -91,12 +91,15 @@ proceso main
 | `SCRAPER_MAX_RETRIES` | `3` | Intentos ante errores transitorios (408/429/5xx) |
 | `SCRAPER_BACKOFF_BASE` | `1.0` | Base del backoff exponencial |
 | `SCRAPER_STORE_ID` | *(vacío)* | Tienda por defecto para las seeds de `SCRAPER_SEEDS` (`DATA_SOURCE.store_id`) |
+| `SCRAPER_BUNDLE_PATH` | *(vacío)* | JSON de bundle aplicado a las seeds de `SCRAPER_SEEDS` (`parser_config["bundle"]`) |
 | `INGESTION_API_URL` | `http://localhost:8094` | Base de Ingestion API |
 | `INGESTION_API_TOKEN` | *(vacío)* | Bearer token; si falta o mide menos de 32 caracteres, la ingesta queda desactivada |
 | `INGESTION_TIMEOUT` | `15` | Timeout por petición, en segundos |
 | `INGESTION_MAX_RETRIES` | `3` | Reintentos ante 408/429/5xx y errores de red |
 | `INGESTION_BACKOFF_BASE` | `1.0` | Base del backoff exponencial de la ingesta |
 | `INGESTION_BATCH_SIZE` | `100` | Ítems por lote (1–100, límite del contrato) |
+| `SCRAPER_ITEMS_DIR` | `out/items` | JSONL/JSON de ítems por ejecución; vacío desactiva la salida |
+| `SCRAPER_RAW_DIR` | `out/raw` | HTML crudo por ejecución; vacío desactiva la salida |
 | `SCRAPER_REJECTS_DIR` | `out/rejected` | Carpeta de los JSONL con ítems descartados |
 
 Ejemplo de run corto multi-sitio:
@@ -392,6 +395,55 @@ En todos los casos `SCRAPED_DATA` conserva el HTML y las filas ya extraídas, y
 
 `DATA_SOURCE.store_id` es la única columna nueva del lado de la fuente; el
 resto son columnas nullable con default `0` en la tabla de ejecuciones.
+
+## Artefactos locales por ejecución (TAL-136)
+
+SQLite guarda el HTML completo y el historial, pero no es cómodo para revisar
+una ejecución ni para entregarla a otra persona. El crawler escribe además un
+juego de archivos identificado por `run_id`, **sin volver a parsear el HTML**:
+exporta los mismos `NormalizedItem` que acaba de extraer y validar.
+
+```text
+out/
+├── items/
+│   ├── run-12.jsonl     # un ítem por línea (append-only, resistente a cortes)
+│   └── run-12.json      # manifiesto legible: fuente, bundle, contadores, items
+├── raw/
+│   └── run-12/
+│       ├── <sha1>.html  # HTML completo de cada página
+│       └── index.jsonl  # URL -> archivo, bytes y fecha
+└── rejected/
+    └── run-12.jsonl     # inválidos + rechazados por Ingestion
+```
+
+* El **JSONL** se escribe durante el crawl, después del dedupe y la validación
+  y **antes** de decidir el envío: funciona aunque Ingestion esté caída o
+  desactivada.
+* El **JSON** se genera al cerrar la ejecución (éxito, fallo o Ctrl+C) leyendo
+  el JSONL. Es un único objeto con `schemaVersion`, `runId`, `source`
+  (incluye `storeId`), `status`, `counters`, `bundle`, `errorMessage?` e
+  `items`. Se escribe de forma atómica (`*.tmp` + `os.replace`).
+* El **bundle** viaja en el manifiesto, así que la ejecución es reproducible
+  aunque `parser_config` cambie después.
+* `SCRAPER_ITEMS_DIR` / `SCRAPER_RAW_DIR` permiten mover o desactivar cada
+  salida (valor vacío). `out/` está ignorado por git.
+* En Kubernetes las tres carpetas viven en el PVC `scraper-data` montado en
+  `/data` (ver `k8s/README.md`).
+
+### Script offline (`scripts/export_items.py`)
+
+```bash
+# Regenerar el JSON legible desde el JSONL (no parsea HTML)
+python scripts/export_items.py --run-id 12
+
+# Replay explícito desde SCRAPED_DATA.raw_data con un bundle
+python scripts/export_items.py --run-id 12 --from-db \
+    --config examples/falabella-cl.json --out out/audit/run-12.json
+```
+
+El modo por defecto solo lee JSON. `--from-db` es la única ruta que re-parsea:
+sirve para auditar ejecuciones antiguas o probar selectores nuevos, y por eso
+exige un bundle explícito (o uno ya guardado en `parser_config["bundle"]`).
 
 ## Logging
 

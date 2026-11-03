@@ -246,6 +246,35 @@ def set_ingestion_run(db_path: str, run_id: int,
         )
 
 
+def set_source_bundle(db_path: str, source_id: int,
+                      bundle: dict) -> None:
+    """Store the effective bundle in ``SCRAPER_CONFIG.parser_config``.
+
+    Used for seeds declared through ``SCRAPER_SEEDS``: the URL creates the
+    source, and the bundle file (``SCRAPER_BUNDLE_PATH``) fills in the
+    extraction rules. Page-level keys are preserved; only ``bundle`` changes.
+    """
+    with closing(connect(db_path)) as conn, conn:
+        row = conn.execute(
+            "SELECT id, parser_config FROM SCRAPER_CONFIG"
+            " WHERE data_source_id = ?",
+            (source_id, ),
+        ).fetchone()
+        if row is None:
+            return
+        try:
+            parser_config = json.loads(row["parser_config"] or "{}")
+        except json.JSONDecodeError:
+            parser_config = {}
+        if not isinstance(parser_config, dict):
+            parser_config = {}
+        parser_config["bundle"] = bundle
+        conn.execute(
+            "UPDATE SCRAPER_CONFIG SET parser_config = ? WHERE id = ?",
+            (json.dumps(parser_config), row["id"]),
+        )
+
+
 def finish_scrape_run(
     db_path: str,
     run_id: int,

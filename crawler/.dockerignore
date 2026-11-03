@@ -1,0 +1,10 @@
+# El contexto de build es crawler/: no copiar entorno local ni artefactos.
+venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+*.db
+*.sqlite3
+out/
+tests/

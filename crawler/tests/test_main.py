@@ -62,6 +62,55 @@ class TestParseSeedUrls:
             importlib.reload(config_module)
 
 
+class TestSeedBundle:
+    """TAL-90: el bundle de las seeds vive en parser_config["bundle"]."""
+
+    def test_bundle_file_is_stored_on_the_seed(self, tmp_path, monkeypatch):
+        import json
+
+        from main import _register_seed_sources
+
+        db_path = str(tmp_path / "seed.db")
+        init_db(db_path)
+        bundle = {
+            "entity_type": "product",
+            "root": ".card",
+            "product": {"fields": {"name": ".title"}},
+            "offer": {"fields": {"price": ".price"}},
+        }
+        bundle_path = tmp_path / "bundle.json"
+        bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+
+        monkeypatch.setattr(cfg, "DB_PATH", db_path)
+        monkeypatch.setattr(cfg, "SEED_URLS", ["https://seed.test/"])
+        monkeypatch.setattr(cfg, "SEED_STORE_ID", 7)
+        monkeypatch.setattr(cfg, "BUNDLE_PATH", str(bundle_path))
+
+        assert _register_seed_sources() == 1
+        source, config = get_active_jobs(db_path)[0]
+        assert source.store_id == 7
+        assert config.parser_config["bundle"] == bundle
+        assert config.parser_config["entity_type"] == "webpage"
+
+    def test_invalid_bundle_fails_before_registering(self, tmp_path, monkeypatch):
+        import pytest
+
+        from main import _register_seed_sources
+
+        db_path = str(tmp_path / "seed.db")
+        init_db(db_path)
+        bundle_path = tmp_path / "bundle.json"
+        bundle_path.write_text('{"entity_type": "product"}', encoding="utf-8")
+
+        monkeypatch.setattr(cfg, "DB_PATH", db_path)
+        monkeypatch.setattr(cfg, "SEED_URLS", ["https://seed.test/"])
+        monkeypatch.setattr(cfg, "BUNDLE_PATH", str(bundle_path))
+
+        with pytest.raises(ValueError):
+            _register_seed_sources()
+        assert get_active_jobs(db_path) == []
+
+
 class TestConcurrentSources:
     """Dos crawlers (una seed cada uno) corriendo en paralelo en un mismo loop."""
 

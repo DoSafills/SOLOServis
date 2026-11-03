@@ -394,6 +394,31 @@ dependencias nuevas: usa `urllib` en un hilo.
 La correspondencia es 1:1 con `internal/ingestion/model.go`. Si ese contrato
 cambia, este documento y `normalized.py` cambian en el mismo commit.
 
+### 9.2 Artefactos por ejecución
+
+El crawler escribe, además de la base, un juego de archivos por `run_id`
+(`crawler/src/artifacts.py`):
+
+| Archivo | Contenido |
+|---|---|
+| `out/items/run-{id}.jsonl` | un sobre completo por línea, append-only |
+| `out/items/run-{id}.json` | manifiesto legible con `schemaVersion`, `runId`, `source`, `status`, `counters`, `bundle` e `items` |
+| `out/raw/run-{id}/<sha1>.html` | HTML completo de cada página |
+| `out/raw/run-{id}/index.jsonl` | URL → archivo, bytes y fecha |
+
+El camino normal **no re-parsea**: exporta los mismos `NormalizedItem` que se
+validaron y enviaron. El JSONL se escribe antes de decidir el envío, así que
+existe aunque Ingestion esté caída o desactivada. El JSON se genera al cerrar
+(éxito, fallo o Ctrl+C) leyendo el JSONL, y es atómico.
+
+El manifiesto incluye el **bundle efectivo**: una ejecución antigua se puede
+auditar sin depender del `parser_config` actual. `scripts/export_items.py`
+regenera el JSON desde el JSONL; `--from-db` es la única ruta que re-parsea
+`SCRAPED_DATA.raw_data` y exige un bundle explícito.
+
+En Kubernetes las tres carpetas y `scraper.db` viven en el PVC `scraper-data`
+montado en `/data` (TAL-144), de modo que recrear el Pod no pierde nada.
+
 ---
 
 ## 10. Ejemplos y pruebas
@@ -408,6 +433,9 @@ cambia, este documento y `normalized.py` cambian en el mismo commit.
   (lotes, auth, `problem+json`, reintentos, conexión rechazada).
 * `crawler/tests/test_crawler_ingestion.py`: flujo B de punta a punta con
   cliente falso (dedupe, filtro local, fallo al abrir/enviar, abort).
+* `crawler/tests/test_artifacts.py`: JSONL/JSON por ejecución, HTML crudo,
+  contexto de run y replay desde SQLite.
+* `crawler/tests/test_export_items.py`: CLI offline (JSONL→JSON y `--from-db`).
 * `crawler/schema/normalized-item.schema.json`: JSON Schema 2020-12 del sobre.
 
 ```bash
