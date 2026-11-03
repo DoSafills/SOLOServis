@@ -131,7 +131,7 @@ Reglas:
 | --- | --- | --- | --- | --- |
 | `price` | string | sí | — | `^\d{1,10}(\.\d{1,2})?$` |
 | `listPrice` | string | no | — | mismo patrón que `price` |
-| `currency` | string | sí | `CLP` | `^[A-Z]{3}$` |
+| `currency` | string | sí | `CLP` | `^[A-Z]{3}$`; CLP, USD, EUR, GBP, CAD, AUD, CHF, JPY, CNY, BRL, MXN o ARS |
 | `shippingCost` | string | sí | `"0.00"` | mismo patrón de monto |
 | `shippingFree` | boolean | sí | `false` | — |
 | `available` | boolean | sí | `true` | — |
@@ -153,6 +153,33 @@ contrato de Ingestion se cumple igual.
 
 El scraper normaliza siempre a **dos decimales** (`_money_text` cuantiza). Un
 precio `"599990"` sale como `"599990.00"`.
+
+### Conversión temporal de moneda a CLP
+
+En `product_offer`, el backend convierte `price`, `listPrice` y `shippingCost`
+al insertar o actualizar una oferta. El valor almacenado queda en CLP y se
+redondea a dos decimales. Se usan tasas de referencia fijas, en CLP por unidad,
+consultadas el 2026-11-02 a ExchangeRate-API ([feed USD](https://open.er-api.com/v6/latest/USD));
+no son una cotización comercial ni incluyen comisiones.
+
+| Moneda | CLP por unidad |
+| --- | ---: |
+| USD | 990.838267 |
+| EUR | 1106.884487 |
+| GBP | 1327.730260 |
+| CAD | 709.317924 |
+| AUD | 696.380805 |
+| CHF | 1203.301938 |
+| JPY | 6.296872 |
+| CNY | 148.755925 |
+| BRL | 182.528068 |
+| MXN | 52.520264 |
+| ARS | 0.644511 |
+
+Un código con formato inválido se rechaza como `format`; una moneda sin tasa
+configurada se rechaza como `one_of`. Esta conversión no reconstruye filas
+históricas: la migración previa ya las etiquetó como CLP sin conservar la moneda
+original. `service_offer` queda fuera de este alcance.
 
 ---
 

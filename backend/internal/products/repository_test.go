@@ -90,7 +90,7 @@ func TestUpsertOfferRecordsOnlyChangedPrices(t *testing.T) {
 		}
 	})
 
-	assertOfferHistory(t, pool, first.ID, []string{"10.25"})
+	assertOfferHistory(t, pool, first.ID, []string{"10156.09"})
 
 	time.Sleep(20 * time.Millisecond)
 
@@ -101,7 +101,7 @@ func TestUpsertOfferRecordsOnlyChangedPrices(t *testing.T) {
 	if samePrice.ID != first.ID || samePrice.Available {
 		t.Fatalf("same-price upsert = %+v, want existing unavailable offer", samePrice)
 	}
-	assertOfferHistory(t, pool, first.ID, []string{"10.25"})
+	assertOfferHistory(t, pool, first.ID, []string{"10156.09"})
 
 	second, err := repository.UpsertOffer(ctx, repositoryTestUpsertParams(t, productID, storeIDs[0], "20.50", "USD", " HTTPS://EXAMPLE.TEST/tal64-"+url[strings.LastIndex(url, "-")+1:], false))
 	if err != nil {
@@ -113,7 +113,7 @@ func TestUpsertOfferRecordsOnlyChangedPrices(t *testing.T) {
 	if !second.LastUpdated.Valid || !second.LastUpdated.Time.After(first.LastUpdated.Time) {
 		t.Fatalf("last_updated did not advance: before %v, after %v", first.LastUpdated, second.LastUpdated)
 	}
-	assertOfferHistory(t, pool, first.ID, []string{"10.25", "20.50"})
+	assertOfferHistory(t, pool, first.ID, []string{"10156.09", "20312.18"})
 
 	var price, currency string
 	var historyCount int
@@ -125,8 +125,8 @@ func TestUpsertOfferRecordsOnlyChangedPrices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read updated offer: %v", err)
 	}
-	if price != "20.50" || currency != "CLP" {
-		t.Fatalf("stored price/currency = %s/%s, want 20.50/CLP", price, currency)
+	if price != "20312.18" || currency != "CLP" {
+		t.Fatalf("stored price/currency = %s/%s, want 20312.18/CLP", price, currency)
 	}
 	if historyCount != 2 {
 		t.Fatalf("upsert wrote %d price-history rows, want 2", historyCount)
@@ -206,6 +206,40 @@ func assertOfferHistory(t *testing.T, pool *pgxpool.Pool, offerID int32, wantPri
 		if i > 0 && !entries[i].recordedAt.After(entries[i-1].recordedAt) {
 			t.Fatalf("history timestamps are not increasing: %v then %v", entries[i-1].recordedAt, entries[i].recordedAt)
 		}
+	}
+}
+
+func TestProductOfferCurrencyConversionToCLP(t *testing.T) {
+	ctx := context.Background()
+	pool := repositoryTestPool(t)
+	productID, storeIDs := repositoryTestProductAndStores(t, pool)
+	productURL := fmt.Sprintf("https://example.test/tal138-fx-%d", time.Now().UnixNano())
+
+	var offerID int32
+	err := pool.QueryRow(ctx, `
+		INSERT INTO product_offer (product_id, store_id, price, list_price, currency, shipping_cost, product_url)
+		VALUES ($1, $2, 10.25, 12.50, 'EUR', 3.75, $3)
+		RETURNING id`, productID, storeIDs[0], productURL).Scan(&offerID)
+	if err != nil {
+		t.Fatalf("insert EUR offer: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM product_offer WHERE id = $1`, offerID); err != nil {
+			t.Errorf("delete test offer %d: %v", offerID, err)
+		}
+	})
+
+	var price, listPrice, currency, shippingCost string
+	err = pool.QueryRow(ctx, `
+		SELECT price::text, list_price::text, currency, shipping_cost::text
+		FROM product_offer
+		WHERE id = $1`, offerID).Scan(&price, &listPrice, &currency, &shippingCost)
+	if err != nil {
+		t.Fatalf("read converted EUR offer: %v", err)
+	}
+	if price != "11345.57" || listPrice != "13836.06" || shippingCost != "4150.82" || currency != "CLP" {
+		t.Fatalf("converted offer = price:%s listPrice:%s shippingCost:%s currency:%s, want price:11345.57 listPrice:13836.06 shippingCost:4150.82 currency:CLP",
+			price, listPrice, shippingCost, currency)
 	}
 }
 

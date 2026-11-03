@@ -257,6 +257,7 @@ func TestCreateOffer_Reglas(t *testing.T) {
 		{"listPrice negativo", `{` + base + `,"price":1,"listPrice":-5}`, []string{"listPrice/min"}},
 		{"shippingCost inválido", `{` + base + `,"price":1,"shippingCost":1.234}`, []string{"shippingCost/format"}},
 		{"moneda inválida", `{` + base + `,"price":1,"currency":"US1"}`, []string{"currency/format"}},
+		{"moneda sin tasa", `{` + base + `,"price":1,"currency":"NZD"}`, []string{"currency/one_of"}},
 		{"condición inválida", `{` + base + `,"price":1,"condition":"damaged"}`, []string{"condition/one_of"}},
 		{"stock negativo", `{` + base + `,"price":1,"stock":-1}`, []string{"stock/min"}},
 		{"url no http", `{` + base + `,"price":1,"productUrl":"ftp://x.test/a"}`, []string{"productUrl/format"}},
