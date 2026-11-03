@@ -1,0 +1,18 @@
+# Parámetros operativos del scraper. Los valores vacíos son intencionales:
+# sin seeds el CronJob termina sin crawl. El operador los completa con
+# `kubectl -n soloservis edit configmap scraper-config` o desde el overlay.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scraper-config
+  labels:
+    app.kubernetes.io/name: scraper
+    app.kubernetes.io/component: crawler
+data:
+  # Lista separada por comas, igual que SCRAPER_SEEDS en local.
+  SCRAPER_SEEDS: ""
+  # Tienda de PostgreSQL a la que pertenecen las ofertas de esas seeds.
+  SCRAPER_STORE_ID: ""
+  # Ruta a un bundle JSON (ejemplos en crawler/examples/). Si se monta desde
+  # otro ConfigMap, ajusta el path y el volumen del CronJob.
+  SCRAPER_BUNDLE_PATH: ""

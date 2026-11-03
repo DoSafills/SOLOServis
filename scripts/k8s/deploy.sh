@@ -190,11 +190,16 @@ new_tag() {
 # Imagenes: "nombre|Dockerfile|contexto"
 images() {
   echo "frontend|docker/frontend/Dockerfile|."
+  echo "crawler|docker/crawler/Dockerfile|crawler"
   local a n
   for a in $APIS; do
     n="${a%%:*}"
     if [ "$n" = backend ]; then echo "backend|docker/all-apis/Dockerfile|backend"; else echo "$n|docker/$n/Dockerfile|backend"; fi
   done
+}
+# Base de Ingestion API dentro del cluster, segun la topologia.
+ingestion_url() {
+  if [ "$TOPOLOGIA" = microservicios ]; then echo "http://ingestion-api:8094"; else echo "http://backend:8080"; fi
 }
 image_ref() {
   if [ $IS_LOCAL = 1 ]; then echo "soloservis/$1:$TAG"; else echo "$REGISTRY/soloservis-$1:$TAG"; fi
@@ -232,6 +237,7 @@ write_overlay() {
     echo "    behavior: merge"
     echo "    literals:"
     echo "      - FRONTEND_URL=$(frontend_url)"
+    echo "      - INGESTION_API_URL=$(ingestion_url)"
     echo "images:"
     while IFS='|' read -r name _ _; do
       ref="$(image_ref "$name")"
@@ -246,6 +252,7 @@ write_overlay() {
     fi
     if [ -n "$STORAGE_CLASS" ]; then
       printf '%s\n' "  - target: {kind: StatefulSet, name: postgres}" "    patch: |-" "      - op: add" "        path: /spec/volumeClaimTemplates/0/spec/storageClassName" "        value: $STORAGE_CLASS"
+      printf '%s\n' "  - target: {kind: PersistentVolumeClaim, name: scraper-data}" "    patch: |-" "      - op: add" "        path: /spec/storageClassName" "        value: $STORAGE_CLASS"
     fi
     if [ $IS_LOCAL = 0 ] && [ -n "$INGRESS_CLASS" ]; then
       printf '%s\n' "  - target: {kind: Ingress, name: soloservis}" "    patch: |-" "      - op: add" "        path: /spec/ingressClassName" "        value: $INGRESS_CLASS"
@@ -312,7 +319,7 @@ phase1() {
   # Recursos de un despliegue anterior (por ejemplo, de la otra topologia).
   # El Secret de postgres y el PVC se conservan.
   step "Borrando recursos etiquetados app.kubernetes.io/part-of=soloservis (PVC y Secrets se conservan)"
-  k delete deployment,statefulset,service,configmap,job,ingress,pod -l app.kubernetes.io/part-of=soloservis --ignore-not-found --wait=true --timeout=180s 2>&1 | show
+  k delete deployment,statefulset,service,configmap,job,cronjob,ingress,pod -l app.kubernetes.io/part-of=soloservis --ignore-not-found --wait=true --timeout=180s 2>&1 | show
   local phase
   phase="$(k get pvc postgres-data-postgres-0 -o 'jsonpath={.status.phase}' 2>/dev/null)"
   if [ -n "$phase" ] && [ "$phase" != Bound ]; then
@@ -321,11 +328,22 @@ phase1() {
   elif [ "$phase" = Bound ]; then
     step "PVC postgres-data-postgres-0 esta Bound: se conserva (datos)"
   fi
+  local scraper_phase
+  scraper_phase="$(k get pvc scraper-data -o 'jsonpath={.status.phase}' 2>/dev/null)"
+  if [ -n "$scraper_phase" ] && [ "$scraper_phase" != Bound ]; then
+    step "PVC scraper-data en $scraper_phase: se elimina"
+    k delete pvc scraper-data --wait=true --timeout=180s 2>&1 | show
+  elif [ "$scraper_phase" = Bound ]; then
+    step "PVC scraper-data esta Bound: se conserva (SQLite, ítems y HTML)"
+  fi
   local left
-  left="$(k get deployment,statefulset,service,job,ingress -l app.kubernetes.io/part-of=soloservis -o name 2>/dev/null | tr '\n' ' ')"
+  left="$(k get deployment,statefulset,service,job,cronjob,ingress -l app.kubernetes.io/part-of=soloservis -o name 2>/dev/null | tr '\n' ' ')"
   if [ -n "${left// /}" ]; then cp_set Limpieza ERROR; stop_phase 1 "quedaron recursos sin borrar: $left"; fi
   cp_set Limpieza OK
-  if [ "$phase" = Bound ]; then cp_set Conservado "PVC de PostgreSQL (Bound, con datos)"; else cp_set Conservado ninguno; fi
+  local kept=""
+  [ "$phase" = Bound ] && kept="PVC de PostgreSQL"
+  [ "$scraper_phase" = Bound ] && kept="${kept:+$kept + }PVC del scraper"
+  if [ -n "$kept" ]; then cp_set Conservado "$kept (Bound, con datos)"; else cp_set Conservado ninguno; fi
   cp_set Bloqueos ninguno
   checkpoint 1
 }
@@ -398,6 +416,13 @@ phase2() {
       cp_set Storage "OK (${STORAGE_CLASS:-clase por defecto})"
     else
       cp_set Storage "ERROR (el PVC de prueba no quedo Bound/escribible; prueba --storage-class)"; block="$block almacenamiento"
+    fi
+    # El PVC del scraper es inmutable una vez creado: si existe, su clase manda.
+    local scraper_sc
+    scraper_sc="$(k get pvc scraper-data -o 'jsonpath={.spec.storageClassName}' 2>/dev/null)"
+    if [ -n "$scraper_sc" ] && [ "$scraper_sc" != "$STORAGE_CLASS" ]; then
+      STORAGE_CLASS="$scraper_sc"; STORAGE_RESOLVED=1
+      cp_set Storage "OK (PVC scraper-data existente, sc=$STORAGE_CLASS)"
     fi
     if [ -z "$INGRESS_CLASS" ]; then
       INGRESS_CLASS="$(k get ingressclass -o 'jsonpath={range .items[?(@.metadata.annotations.ingressclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{end}' 2>/dev/null)"
@@ -538,6 +563,10 @@ phase6() {
     fi
     stop_phase 6 "no quedaron Ready:$failed"
   fi
+  step "Aplicando ConfigMap, PVC y CronJob del scraper"
+  apply_selector app.kubernetes.io/component=crawler || stop_phase 6 "kubectl apply fallo (scraper)"
+  cp_set "PVC scraper-data" "$(k get pvc scraper-data -o 'jsonpath={.status.phase} (sc={.spec.storageClassName}, {.status.capacity.storage})' 2>/dev/null)"
+  cp_set "CronJob scraper" "$(k get cronjob scraper -o 'jsonpath={.spec.schedule} (suspend={.spec.suspend})' 2>/dev/null)"
   cp_set Bloqueos ninguno
   checkpoint 6
 }
@@ -625,6 +654,7 @@ phase9() {
   sleep 10
   for a in $APIS; do api_health "${a%%:*}" "${a##*:}" || { apis_ok=0; cp_set "${a%%:*}" "ERROR (no reconecto a PostgreSQL)"; }; done
   if [ $apis_ok = 1 ]; then cp_set APIs "FUNCIONAL ($(echo $APIS | wc -w | tr -d ' ') Deployment(s), reconectan a PostgreSQL)"; else cp_set APIs ERROR; fi
+  cp_set "PVC scraper-data" "$(k get pvc scraper-data -o 'jsonpath={.status.phase} ({.status.capacity.storage})' 2>/dev/null)"
   checkpoint 9
   echo "${C_GREEN}Para abrir la app:${C_OFF}"
   if [ $IS_LOCAL = 1 ]; then

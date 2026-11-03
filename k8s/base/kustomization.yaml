@@ -19,6 +19,9 @@ resources:
   - postgres/service.yaml
   - postgres/statefulset.yaml
   - migrations/job.yaml
+  - crawler/configmap.yaml
+  - crawler/pvc.yaml
+  - crawler/cronjob.yaml
   - frontend/deployment.yaml
   - frontend/service.yaml
   - ingress.yaml
@@ -42,4 +45,6 @@ configMapGenerator:
 
 images:
   - name: soloservis/frontend
+    newTag: dev
+  - name: soloservis/crawler
     newTag: dev

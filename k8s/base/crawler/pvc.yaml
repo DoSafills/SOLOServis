@@ -1,0 +1,17 @@
+# Almacenamiento persistente del scraper (TAL-144).
+#
+# Aquí viven la base SQLite, los ítems exportados (JSONL/JSON), el HTML crudo y
+# los rechazos. Sin este PVC, un Pod recreado perdería todo el historial.
+# storageClassName lo fija el overlay generado (scripts/k8s/deploy.*).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scraper-data
+  labels:
+    app.kubernetes.io/name: scraper
+    app.kubernetes.io/component: crawler
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi

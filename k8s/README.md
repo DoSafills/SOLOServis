@@ -26,6 +26,7 @@ La misma aplicación se puede desplegar de dos formas. Solo cambia cómo se agru
 | APIs | **14 Deployments**, uno por API (microservicios, igual que `docker/compose.yml`) | **1 Deployment `backend`** con las 14 APIs en un solo proceso (`backend/cmd/all-apis`) |
 | Imágenes | Se construyen en tu máquina; no hace falta registry | Se publican en Docker Hub (`docker.io/<tu-usuario>`) |
 | Cómo se entra | `kubectl port-forward` → <http://localhost:8080> | Ingress → `http://soloservis-<usuario>.dev.censei.cl` |
+| Scraper | **1 CronJob `scraper`** + PVC `scraper-data` (SQLite, ítems y HTML) | igual |
 | Pods / Services | 16 / 17 | 3 / 4 |
 
 **¿Por qué dos topologías?** La cuota de cada namespace UCT es de **12 pods, 10 Services, 1 CPU y 1 GB de memoria reservada**, y 14 APIs separadas no caben. `all-apis` sirve las mismas rutas con el mismo código: cada request llega sin cambios al router de su API. Para el frontend y para quien llame a las APIs, las dos topologías son idénticas.
@@ -406,6 +407,64 @@ Para conectarte desde DBeaver, pgAdmin u otro cliente: abre un port-forward y co
 kubectl --context docker-desktop -n soloservis port-forward svc/postgres 15432:5432
 ```
 
+### Scraper: configuración y persistencia
+
+El crawler corre como **CronJob** (diario a las 03:00 UTC, `concurrencyPolicy: Forbid`) y escribe en el PVC `scraper-data`, montado en `/data`:
+
+```text
+/data/scraper.db          SQLite: fuentes, configuraciones y ejecuciones
+/data/items/run-N.jsonl   un ítem normalizado por línea
+/data/items/run-N.json    manifiesto legible (fuente, tienda, bundle, ítems)
+/data/raw/run-N/          HTML completo + index.jsonl
+/data/rejected/run-N.jsonl ítems descartados
+```
+
+Sin ese PVC, recrear el Pod perdería el historial y los archivos. El PVC se conserva aunque se borren los Jobs (la Fase 1 solo elimina PVCs que nunca llegaron a `Bound`).
+
+**1. Definir qué crawlear.** Edita el ConfigMap `scraper-config` (o crea uno propio en el overlay):
+
+```bash
+kubectl -n soloservis patch configmap scraper-config --type merge -p \
+  '{"data":{"SCRAPER_SEEDS":"https://www.falabella.com/falabella-cl/search?Ntt=refrigerador","SCRAPER_STORE_ID":"1","SCRAPER_BUNDLE_PATH":"/etc/scraper/bundle.json"}}'
+```
+
+`SCRAPER_STORE_ID` es la tienda de PostgreSQL a la que se atribuyen las ofertas. Sin tienda o sin token, el crawl sigue siendo local: los ítems quedan igual en `/data/items`.
+
+**2. Montar el bundle (TAL-90).** El CronJob monta el ConfigMap opcional `scraper-bundle` en `/etc/scraper`:
+
+```bash
+kubectl -n soloservis create configmap scraper-bundle \
+  --from-file=bundle.json=crawler/examples/falabella-cl.json
+```
+
+Si prefieres declarar el bundle directamente en SQL, va en `SCRAPER_CONFIG.parser_config["bundle"]` y no necesitas este ConfigMap.
+
+**3. Ejecutar sin esperar al horario.** Un Job manual a partir del CronJob:
+
+```bash
+kubectl -n soloservis create job --from=cronjob/scraper scraper-manual
+kubectl -n soloservis logs -f job/scraper-manual
+```
+
+**4. Revisar los artefactos.** El PVC es `ReadWriteOnce`: no lo montes a la vez en dos Pods. Para inspeccionarlo, lanza un Pod efímero con la imagen del scraper y el mismo PVC:
+
+```bash
+kubectl -n soloservis run scraper-shell --rm -it --restart=Never \
+  --image=soloservis/crawler:dev \
+  --overrides='{"spec":{"containers":[{"name":"scraper-shell","image":"soloservis/crawler:dev","command":["sh","-c","sleep 3600"],"volumeMounts":[{"name":"data","mountPath":"/data"}]}],"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"scraper-data"}}]}}'
+```
+
+Dentro del Pod: `ls /data/items`, `cat /data/items/run-12.json` y `python scripts/export_items.py --run-id 12 --items-dir /data/items`.
+
+**5. Replay explícito.** Para reprocesar el HTML guardado con un bundle concreto (dentro del mismo Pod):
+
+```bash
+python scripts/export_items.py --run-id 12 --from-db \
+  --config /etc/scraper/bundle.json --db /data/scraper.db --items-dir /data/items
+```
+
+**Si cambias `SCRAPER_SEEDS` o el bundle**, el siguiente Job aplica el cambio; las ejecuciones antiguas conservan su bundle en `run-N.json`.
+
 ### Borrar todo
 
 Local:
@@ -572,6 +631,7 @@ k8s/
 ├── base/                         común a los dos modos
 │   ├── postgres/                 Secret (credenciales de desarrollo), Services, StatefulSet + PVC
 │   ├── migrations/               Job + migrate.sh (aplica migration_order.txt y registra schema_migrations)
+│   ├── crawler/                  ConfigMap, PVC `scraper-data` y CronJob `scraper` (TAL-136/TAL-144)
 │   ├── frontend/                 Deployment (nginx sin root, solo lectura) + Service
 │   ├── ingress.yaml              host *.dev.censei.cl (se elimina en modo local)
 │   └── kustomization.yaml
@@ -584,6 +644,7 @@ scripts/k8s/deploy.ps1            despliegue por fases (PowerShell 5.1+)
 scripts/k8s/deploy.sh             el mismo despliegue en bash (Linux, macOS, Git Bash)
 docker/<api>/Dockerfile           imagen de cada API (binario estático, usuario 10001)
 docker/all-apis/Dockerfile        imagen del backend consolidado
+docker/crawler/Dockerfile         imagen del scraper (TAL-136)
 docker/frontend/                  build de Vite + nginx (default.conf.template, proxy.conf)
 ```
 

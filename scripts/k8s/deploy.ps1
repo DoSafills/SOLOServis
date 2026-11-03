@@ -277,14 +277,23 @@ function New-ImageTag {
   return "$sha"
 }
 
-# Imagenes de este despliegue: frontend + (backend | una por API).
+# Imagenes de este despliegue: frontend + crawler + (backend | una por API).
 function Get-Images {
-  $list = @(@{ Name = 'frontend'; File = 'docker/frontend/Dockerfile'; Ctx = '.' })
+  $list = @(
+    @{ Name = 'frontend'; File = 'docker/frontend/Dockerfile'; Ctx = '.' },
+    @{ Name = 'crawler'; File = 'docker/crawler/Dockerfile'; Ctx = 'crawler' }
+  )
   foreach ($n in $Apis.Keys) {
     $file = $(if ($n -eq 'backend') { 'docker/all-apis/Dockerfile' } else { "docker/$n/Dockerfile" })
     $list += @{ Name = $n; File = $file; Ctx = 'backend' }
   }
   return $list
+}
+
+# Base de Ingestion API dentro del cluster, segun la topologia.
+function Get-IngestionUrl {
+  if ($Topologia -eq 'microservicios') { return 'http://ingestion-api:8094' }
+  return 'http://backend:8080'
 }
 
 function Get-ImageRef([string]$Name) {
@@ -328,6 +337,7 @@ function Write-Overlay {
   $L.Add('    behavior: merge')
   $L.Add('    literals:')
   $L.Add("      - FRONTEND_URL=$(Get-FrontendUrl)")
+  $L.Add("      - INGESTION_API_URL=$(Get-IngestionUrl)")
   $L.Add('images:')
   foreach ($i in Get-Images) {
     $ref = Get-ImageRef $i.Name
@@ -350,6 +360,11 @@ function Write-Overlay {
     $L.Add('    patch: |-')
     $L.Add('      - op: add')
     $L.Add('        path: /spec/volumeClaimTemplates/0/spec/storageClassName')
+    $L.Add("        value: $StorageClass")
+    $L.Add('  - target: {kind: PersistentVolumeClaim, name: scraper-data}')
+    $L.Add('    patch: |-')
+    $L.Add('      - op: add')
+    $L.Add('        path: /spec/storageClassName')
     $L.Add("        value: $StorageClass")
   }
   if (-not $IsLocal -and $IngressClass) {
@@ -461,7 +476,7 @@ function Phase1 {
   # Deployments, Services, ConfigMaps, Jobs e Ingress de un despliegue anterior
   # (por ejemplo, de la otra topologia). El Secret de postgres y el PVC se conservan.
   Step 'Borrando recursos etiquetados app.kubernetes.io/part-of=soloservis (PVC y Secrets se conservan)'
-  Show (K delete 'deployment,statefulset,service,configmap,job,ingress,pod' -l 'app.kubernetes.io/part-of=soloservis' --ignore-not-found --wait=true --timeout=180s)
+  Show (K delete 'deployment,statefulset,service,configmap,job,cronjob,ingress,pod' -l 'app.kubernetes.io/part-of=soloservis' --ignore-not-found --wait=true --timeout=180s)
 
   # PVC de PostgreSQL: solo se borra si NO esta Bound (nunca llego a tener datos).
   $pvc = KJson get pvc postgres-data-postgres-0
@@ -473,11 +488,25 @@ function Phase1 {
       Step 'PVC postgres-data-postgres-0 esta Bound: se conserva (datos)'
     }
   }
+  # PVC del scraper: misma regla; conserva SQLite, ítems y HTML.
+  $scraperPvc = KJson get pvc scraper-data
+  if ($scraperPvc) {
+    if ($scraperPvc.status.phase -ne 'Bound') {
+      Step "PVC scraper-data en $($scraperPvc.status.phase): se elimina"
+      Show (K delete pvc scraper-data --wait=true --timeout=180s)
+    } else {
+      Step 'PVC scraper-data esta Bound: se conserva (SQLite, items y HTML)'
+    }
+  }
 
-  $left = @(K get 'deployment,statefulset,service,job,ingress' -l 'app.kubernetes.io/part-of=soloservis' -o name | Where-Object { $_ -match '/' })
+  $left = @(K get 'deployment,statefulset,service,job,cronjob,ingress' -l 'app.kubernetes.io/part-of=soloservis' -o name | Where-Object { $_ -match '/' })
   $keptPvc = @(K get pvc -o name | Where-Object { $_ -match 'postgres-data-postgres-0' })
+  $keptScraper = @(K get pvc -o name | Where-Object { $_ -match 'scraper-data' })
   $cp['Limpieza'] = $(if ($left.Count -eq 0) { 'OK' } else { 'ERROR' })
-  $cp['Conservado'] = $(if ($keptPvc) { 'PVC de PostgreSQL (Bound, con datos)' } else { 'ninguno' })
+  $kept = @()
+  if ($keptPvc) { $kept += 'PVC de PostgreSQL' }
+  if ($keptScraper) { $kept += 'PVC del scraper' }
+  $cp['Conservado'] = $(if ($kept) { "$($kept -join ' + ') (Bound, con datos)" } else { 'ninguno' })
   if ($left.Count -gt 0) { Stop-Phase 1 $cp "quedaron recursos sin borrar: $($left -join ', ')" }
   $cp['Bloqueos'] = 'ninguno'
   Checkpoint 1 $cp
@@ -599,6 +628,14 @@ function Phase2 {
         $cp['Storage'] = 'ERROR (ninguna StorageClass dejo el PVC Bound y persistente)'
         $block += 'almacenamiento persistente'
       }
+    }
+
+    # El PVC del scraper es inmutable una vez creado: si existe, su clase manda.
+    $scraperPvc = KJson get pvc scraper-data
+    if ($scraperPvc -and $scraperPvc.spec.storageClassName -and $scraperPvc.spec.storageClassName -ne $script:StorageClass) {
+      $script:StorageClass = $scraperPvc.spec.storageClassName
+      $script:StorageResolved = $true
+      $cp['Storage'] = "OK (PVC scraper-data existente, sc=$($script:StorageClass))"
     }
 
     # --- Ingress Controller
@@ -793,6 +830,14 @@ function Phase6 {
     }
     Stop-Phase 6 $cp "no quedaron Ready: $($failed -join ', ')"
   }
+
+  Step 'Aplicando ConfigMap, PVC y CronJob del scraper'
+  $ok = Apply-Component 'app.kubernetes.io/component=crawler'
+  if (-not $ok) { Stop-Phase 6 $cp 'kubectl apply fallo (scraper)' }
+  $scraperPvc = KJson get pvc scraper-data
+  $cp['PVC scraper-data'] = $(if ($scraperPvc) { "$($scraperPvc.status.phase) (sc=$($scraperPvc.spec.storageClassName), $($scraperPvc.status.capacity.storage))" } else { 'ERROR (no existe)' })
+  $cron = KJson get cronjob scraper
+  $cp['CronJob scraper'] = $(if ($cron) { "$($cron.spec.schedule) (suspend=$($cron.spec.suspend))" } else { 'ERROR (no existe)' })
   $cp['Bloqueos'] = 'ninguno'
   Checkpoint 6 $cp
 }
@@ -890,6 +935,8 @@ function Phase9 {
   $cp['Kubernetes'] = $(if ($recreated) { "FUNCIONAL (recreo el pod de $probe)" } else { 'ERROR (no se verifico la recreacion)' })
   $cp['Persistencia'] = $(if ($persist) { "FUNCIONAL (mismos datos tras reiniciar: $after migraciones)" } else { "ERROR (antes=$before despues=$after)" })
   $cp['APIs'] = $(if ($apisOk) { "FUNCIONAL ($($Apis.Count) Deployment(s), reconectan a PostgreSQL)" } else { 'ERROR' })
+  $scraperPvc = KJson get pvc scraper-data
+  $cp['PVC scraper-data'] = $(if ($scraperPvc) { "$($scraperPvc.status.phase) ($($scraperPvc.status.capacity.storage))" } else { 'ERROR (no existe)' })
   Checkpoint 9 $cp
 
   Write-Host 'Para abrir la app:' -ForegroundColor Green
