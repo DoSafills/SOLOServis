@@ -1,4 +1,5 @@
-// Package allapis sirve las 14 APIs en un solo proceso (cmd/all-apis).
+// Package allapis sirve varias APIs en un solo proceso (cmd/all-apis): las de
+// un dominio (API_DOMAIN, ver domains.go) o las 14 (modo consolidado).
 //
 // Existe por la cuota del clúster UCT (12 pods y 10 Services por estudiante):
 // ahí no caben 14 Deployments. Cada request se entrega sin cambios al router
@@ -8,6 +9,7 @@ package allapis
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -43,24 +45,42 @@ var Prefixes = map[string]string{
 	"/watchlist":          "watchlist",
 }
 
+// RouterFactory construye el router de una API.
+type RouterFactory = func(db *pgxpool.Pool, frontendURL string) *chi.Mux
+
+// factories tiene el constructor del router de cada API.
+var factories = map[string]RouterFactory{
+	"product":      apphttp.NewProductRouter,
+	"store":        apphttp.NewStoreRouter,
+	"service":      apphttp.NewServiceRouter,
+	"user":         apphttp.NewUserRouter,
+	"pricing":      apphttp.NewPricingRouter,
+	"search":       apphttp.NewSearchRouter,
+	"comparison":   apphttp.NewComparisonRouter,
+	"ingestion":    apphttp.NewIngestionRouter,
+	"auth":         auth.NewRouter,
+	"cart":         cart.NewRouter,
+	"favorites":    favorites.NewRouter,
+	"notification": notifications.NewRouter,
+	"review":       reviews.NewRouter,
+	"watchlist":    watchlist.NewRouter,
+}
+
+// allAPIs son las 14 APIs del modo consolidado; product responde /health.
+var allAPIs = []string{"product", "store", "service", "user", "pricing", "search", "comparison",
+	"ingestion", "auth", "cart", "favorites", "notification", "review", "watchlist"}
+
 // Routers construye el router de cada API, indexado por nombre.
 func Routers(db *pgxpool.Pool, frontendURL string) map[string]*chi.Mux {
-	return map[string]*chi.Mux{
-		"product":      apphttp.NewProductRouter(db, frontendURL),
-		"store":        apphttp.NewStoreRouter(db, frontendURL),
-		"service":      apphttp.NewServiceRouter(db, frontendURL),
-		"user":         apphttp.NewUserRouter(db, frontendURL),
-		"pricing":      apphttp.NewPricingRouter(db, frontendURL),
-		"search":       apphttp.NewSearchRouter(db, frontendURL),
-		"comparison":   apphttp.NewComparisonRouter(db, frontendURL),
-		"ingestion":    apphttp.NewIngestionRouter(db, frontendURL),
-		"auth":         auth.NewRouter(db, frontendURL),
-		"cart":         cart.NewRouter(db, frontendURL),
-		"favorites":    favorites.NewRouter(db, frontendURL),
-		"notification": notifications.NewRouter(db, frontendURL),
-		"review":       reviews.NewRouter(db, frontendURL),
-		"watchlist":    watchlist.NewRouter(db, frontendURL),
+	return build(allAPIs, db, frontendURL)
+}
+
+func build(apis []string, db *pgxpool.Pool, frontendURL string) map[string]*chi.Mux {
+	routers := make(map[string]*chi.Mux, len(apis))
+	for _, api := range apis {
+		routers[api] = factories[api](db, frontendURL)
 	}
+	return routers
 }
 
 // APIFor devuelve la API dueña de path, o "" si ningún prefijo coincide.
@@ -84,21 +104,42 @@ var sortedPrefixes = func() []string {
 	return list
 }()
 
-// NewRouter entrega cada request al router de su API. /health lo responde
-// Product API (todas hacen el mismo ping a PostgreSQL).
+// NewRouter sirve las 14 APIs (modo consolidado).
 func NewRouter(db *pgxpool.Pool, frontendURL string) *chi.Mux {
-	routers := Routers(db, frontendURL)
-	r := chi.NewRouter()
-	r.HandleFunc("/*", func(w http.ResponseWriter, req *http.Request) {
-		api := APIFor(req.URL.Path)
-		if req.URL.Path == "/health" {
-			api = "product"
+	return NewDomainRouter(allAPIs)(db, frontendURL)
+}
+
+// NewDomainRouter sirve solo las APIs dadas: cada request va al router de su
+// API, y las rutas de APIs que no están en la lista responden 404. /health
+// responde con el nombre del dominio (comercial, usuarios, ingestion) o
+// all-apis en el modo consolidado, para saber qué pod contestó.
+func NewDomainRouter(apis []string) RouterFactory {
+	return func(db *pgxpool.Pool, frontendURL string) *chi.Mux {
+		routers := build(apis, db, frontendURL)
+		health := apphttp.HealthHandler(domainName(apis), db)
+		r := chi.NewRouter()
+		r.HandleFunc("/*", func(w http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == "/health" {
+				health(w, req)
+				return
+			}
+			router, ok := routers[APIFor(req.URL.Path)]
+			if !ok {
+				httpx.WriteProblem(w, req, http.StatusNotFound, httpx.CodeNotFound, "La ruta no existe.")
+				return
+			}
+			router.ServeHTTP(w, req)
+		})
+		return r
+	}
+}
+
+// domainName devuelve el dominio que sirve exactamente apis, o all-apis.
+func domainName(apis []string) string {
+	for name, list := range Domains {
+		if slices.Equal(list, apis) {
+			return name
 		}
-		if api == "" {
-			httpx.WriteProblem(w, req, http.StatusNotFound, httpx.CodeNotFound, "La ruta no existe.")
-			return
-		}
-		routers[api].ServeHTTP(w, req)
-	})
-	return r
+	}
+	return "all-apis"
 }

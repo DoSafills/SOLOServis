@@ -1,9 +1,8 @@
-# Browser -> Ingress (/) -> frontend (nginx) -> APIs (backend o una por API)
+# Browser -> Ingress (/) -> frontend (nginx) -> APIs (pods por dominio o backend)
 # La plataforma UCT (ValidatingAdmissionPolicy rke2-edu-ingress-hostname) exige
 # que cada hostname use SOLO el path "/". Por eso /products, /auth, ... los enruta
 # el nginx del frontend hacia los Services internos (docker/frontend/default.conf.template).
 # El host (*.dev.censei.cl) lo agrega el overlay generado por el script de deploy.
-# En modo local el overlay elimina el Ingress (se usa kubectl port-forward).
 # Clase y anotacion exigidas por el manual de la plataforma UCT.
 apiVersion: networking.k8s.io/v1
 kind: Ingress

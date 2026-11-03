@@ -181,16 +181,16 @@ backend/
 
 ---
 
-# 4. `cmd/server/main.go`
+# 4. Puntos de entrada (`cmd/`)
 
-Es el punto de entrada de la aplicación.
+Hay un binario por API (`cmd/product-api`, `cmd/auth-api`, ...) y uno que sirve varias en un solo proceso, `cmd/all-apis`: el que corre en Kubernetes, uno por dominio (`API_DOMAIN=comercial|usuarios|ingestion`), o las 14 si `API_DOMAIN` está vacía.
 
-Su responsabilidad es:
+Todos arrancan igual, con `runner.Run`:
 
-1. Cargar la configuración.
+1. Cargar la configuración (`PORT`, `DATABASE_URL`, `FRONTEND_URL`).
 2. Crear el pool de conexiones PostgreSQL.
-3. Comprobar la conexión.
-4. Crear el router.
+3. Comprobar la conexión (si falla, el proceso termina).
+4. Crear el router de la API o del dominio.
 5. Iniciar el servidor HTTP.
 
 Flujo:
@@ -198,15 +198,13 @@ Flujo:
 ```text
 main.go
    │
-   ├── config.Load()
-   │
-   ├── database.NewPostgresPool()
-   │
-   ├── database.Ping()
-   │
-   ├── http.NewRouter()
-   │
-   └── ListenAndServe()
+   └── runner.Run(nombre, router)
+          │
+          ├── config.Load()
+          ├── database.NewPostgresPool()
+          ├── database.Ping()
+          ├── router(db, frontendURL)
+          └── ListenAndServe()
 ```
 
 El servidor actualmente utiliza:
@@ -808,6 +806,8 @@ docker run -d --name soloservis-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRE
 # aplicar las migraciones en el orden de backend/database/migration_order.txt, igual que k8s/base/migrations/migrate.sh
 cd backend && TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/soloservis go test -run Integration ./internal/categories/
 ```
+
+- Integración por dominio (TAL-133, `internal/integration/`): levanta `comercial`, `usuarios` e `ingestion` como servidores HTTP sobre la misma base y verifica que las 14 APIs leen y escriben sus tablas, incluidas las llamadas entre APIs. `TestBaseCaida_*` no necesita base: comprueba que con PostgreSQL caído todas responden 503. `TestIntegracion_AccesoCruzado` (TAL-125) comprueba que un usuario no puede leer ni modificar las reseñas, la watchlist, las notificaciones ni las comparaciones de otro aunque mande su `userId`. Detalle en `docs/auditorias/TAL-133-integracion-postgres.md` y `TAL-125-responsabilidades-y-datos.md`.
 
 ---
 
@@ -2010,14 +2010,13 @@ SoloServise/backend
 ejecutar:
 
 ```powershell
-go run ./cmd/server
+go run ./cmd/all-apis
 ```
 
 Debe aparecer:
 
 ```text
-PostgreSQL connection established
-SoloServis API running on http://localhost:8080
+All APIs escuchando en :8080
 ```
 
 ### 3. Frontend

@@ -25,19 +25,19 @@ type authInput struct {
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var input authInput
 	if !decode(r, &input) || strings.TrimSpace(input.Name) == "" || !strings.Contains(input.Email, "@") || len(input.Password) < 10 {
-		badRequest(w, "name, valid email and password of at least 10 characters are required")
+		badRequest(w, r, "name, valid email and password of at least 10 characters are required")
 		return
 	}
 	hash, err := passwordHash(input.Password)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not secure password")
+		writeError(w, r, http.StatusInternalServerError, "could not secure password")
 		return
 	}
 	var userID int32
 	err = h.db.QueryRow(r.Context(), `INSERT INTO user_account(name,email,password_hash) VALUES ($1,$2,$3) RETURNING id`,
 		strings.TrimSpace(input.Name), strings.ToLower(strings.TrimSpace(input.Email)), hash).Scan(&userID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusConflict, "email is already registered")
+		h.dbError(w, r, err, http.StatusConflict, "email is already registered")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusCreated)
@@ -46,7 +46,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var input authInput
 	if !decode(r, &input) || input.Email == "" || input.Password == "" {
-		badRequest(w, "email and password are required")
+		badRequest(w, r, "email and password are required")
 		return
 	}
 	var userID int32
@@ -54,7 +54,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE email=$1 AND active`,
 		strings.ToLower(strings.TrimSpace(input.Email))).Scan(&userID, &hash)
 	if err != nil || !checkPassword(hash, input.Password) {
-		apiutil.WriteError(w, http.StatusUnauthorized, "invalid credentials")
+		h.dbError(w, r, err, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusOK)
@@ -64,26 +64,28 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 	var name, email string
 	if err := h.db.QueryRow(r.Context(), `SELECT name,email FROM user_account WHERE id=$1 AND active`,
 		userID).Scan(&name, &email); err != nil {
-		apiutil.WriteError(w, http.StatusNotFound, "user not found")
+		writeError(w, r, http.StatusNotFound, "user not found")
 		return
 	}
 	access, err := newToken()
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not create session")
+		h.dbError(w, r, err, http.StatusInternalServerError, "could not create session")
 		return
 	}
 	refresh, err := newToken()
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not create session")
+		h.dbError(w, r, err, http.StatusInternalServerError, "could not create session")
 		return
 	}
-	accessExpiry := time.Now().Add(15 * time.Minute)
 	refreshExpiry := time.Now().Add(30 * 24 * time.Hour)
+	// Los vencimientos los calcula la base con NOW(), el mismo reloj con que
+	// se validan: las columnas son TIMESTAMP sin zona y un time.Time de Go
+	// llega con la hora local del proceso (en -03:00 el token nacía vencido).
 	_, err = h.db.Exec(r.Context(), `INSERT INTO user_session
 		(user_id,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at)
-		VALUES ($1,$2,$3,$4,$5)`, userID, tokenHash(access), tokenHash(refresh), accessExpiry, refreshExpiry)
+		VALUES ($1,$2,$3,NOW()+INTERVAL '15 minutes',NOW()+INTERVAL '30 days')`, userID, tokenHash(access), tokenHash(refresh))
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "could not save session")
+		h.dbError(w, r, err, http.StatusInternalServerError, "could not save session")
 		return
 	}
 	apiutil.WriteJSON(w, status, map[string]any{"userId": userID, "accessToken": access, "refreshToken": refresh,
@@ -94,14 +96,14 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var input authInput
 	if !decode(r, &input) || input.RefreshToken == "" {
-		badRequest(w, "refreshToken is required")
+		badRequest(w, r, "refreshToken is required")
 		return
 	}
 	var userID int32
 	err := h.db.QueryRow(r.Context(), `DELETE FROM user_session WHERE refresh_token_hash=$1 AND refresh_expires_at>NOW()
 		RETURNING user_id`, tokenHash(input.RefreshToken)).Scan(&userID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusUnauthorized, "invalid or expired refresh token")
+		h.dbError(w, r, err, http.StatusUnauthorized, "invalid or expired refresh token")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusOK)
@@ -123,13 +125,13 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ValidateToken(w http.ResponseWriter, r *http.Request) {
 	token := bearerToken(r)
 	if token == "" {
-		apiutil.WriteError(w, http.StatusUnauthorized, "bearer token is required")
+		writeError(w, r, http.StatusUnauthorized, "bearer token is required")
 		return
 	}
 	var userID int32
 	err := h.db.QueryRow(r.Context(), `SELECT user_id FROM user_session WHERE access_token_hash=$1 AND access_expires_at>NOW()`, tokenHash(token)).Scan(&userID)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusUnauthorized, "invalid or expired access token")
+		h.dbError(w, r, err, http.StatusUnauthorized, "invalid or expired access token")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"valid": true, "userId": userID})

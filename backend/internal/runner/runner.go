@@ -27,7 +27,7 @@ func Run(name string, factory RouterFactory) {
 		log.Fatal(err)
 	}
 	server := &http.Server{Addr: ":" + cfg.Port, Handler: factory(db, cfg.FrontendURL)}
-	log.Printf("%s running on http://localhost:%s", name, cfg.Port)
+	log.Printf("%s escuchando en :%s", name, cfg.Port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}

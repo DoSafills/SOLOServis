@@ -307,6 +307,9 @@ func (r *Repository) Compatible(ctx context.Context, p Product, limit, offset in
 
 // Create guarda una comparación del usuario con sus productos (en orden).
 func (r *Repository) Create(ctx context.Context, userID int32, name string, products []Product) (int32, error) {
+	if len(products) == 0 {
+		return 0, ErrInvalidComparison
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return 0, err

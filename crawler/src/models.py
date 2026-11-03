@@ -26,6 +26,9 @@ class DataSource:
     base_url: str
     source_type: str
     active: bool = True
+    # Tienda a la que pertenecen las ofertas de esta fuente (Ingestion la exige
+    # para abrir la ejecución). NULL = fuente solo local, sin ingesta.
+    store_id: int | None = None
 
 
 @dataclass(slots=True)
@@ -51,6 +54,14 @@ class ScrapeRun:
     records_failed: int = 0
     status: str = RUN_STATUS_PENDING
     error_message: str | None = None
+    # Espejo local de la ejecución de Ingestion. Los contadores de ítems son
+    # distintos de los de páginas: una página puede producir N productos.
+    ingestion_run_id: int | None = None
+    items_found: int = 0
+    items_sent: int = 0
+    items_failed: int = 0
+    items_rejected: int = 0
+    ingestion_error: str | None = None
 
 
 @dataclass(slots=True)

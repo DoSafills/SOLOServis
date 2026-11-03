@@ -1,0 +1,493 @@
+﻿TAL-127 barrido 2026-10-29T18:12:07
+
+=== 0. STACK (archivos de dependencias) ===
+backend\go.mod
+crawler\pyproject.toml
+crawler\requirements.txt
+fronted\package.json
+package.json
+
+=== 1. EJECUCION DE SQL (query/execute/raw) ===
+backend\internal\categories\handler.go:49: params, fieldErrors := parseListParams(r.URL.Query())
+backend\internal\categories\repository.go:48: rows, err := r.db.Query(ctx, listCategoriesSQL, params.ItemType, params.Limit, params.Offset)
+backend\internal\categories\repository.go:107: rows, err := r.db.Query(ctx, listAttributesSQL, categoryID)
+backend\internal\comparison\handler.go:53: ids := parseUUIDList(&v, "ids", r.URL.Query().Get("ids"), MinCompare)
+backend\internal\comparison\handler.go:93: limit, offset := parsePage(&v, r.URL.Query())
+backend\internal\comparison\handler.go:174: limit, offset := parsePage(&v, r.URL.Query())
+backend\internal\comparison\repository.go:29: rows, err := r.db.Query(ctx, `
+backend\internal\comparison\repository.go:80: rows, err := r.db.Query(ctx, summariesSQL, ids)
+backend\internal\comparison\repository.go:158: rows, err := r.db.Query(ctx, `
+backend\internal\comparison\repository.go:217: rows, err := r.db.Query(ctx, `
+backend\internal\comparison\repository.go:292: rows, err := r.db.Query(ctx, `
+backend\internal\comparison\repository.go:341: rows, err := r.db.Query(ctx, `
+backend\internal\comparison\repository.go:376: rows, err := r.db.Query(ctx, `
+backend\internal\database\generated\products.sql.go:450: rows, err := q.db.Query(ctx, listProductCategories)
+backend\internal\database\generated\products.sql.go:489: rows, err := q.db.Query(ctx, listProductImages, productID)
+backend\internal\database\generated\products.sql.go:555: rows, err := q.db.Query(ctx, listProductOffers, productID)
+backend\internal\database\generated\products.sql.go:608: rows, err := q.db.Query(ctx, listProductPriceHistory, productID)
+backend\internal\database\generated\products.sql.go:653: rows, err := q.db.Query(ctx, listProductReviews, productID)
+backend\internal\database\generated\products.sql.go:697: rows, err := q.db.Query(ctx, listProductSpecifications, productID)
+backend\internal\database\generated\products.sql.go:763: rows, err := q.db.Query(ctx, listProducts)
+backend\internal\database\generated\products.sql.go:858: rows, err := q.db.Query(ctx, listProductsByCategory, categoryID)
+backend\internal\database\generated\services.sql.go:120: rows, err := q.db.Query(ctx, listServiceOffers, serviceID)
+backend\internal\database\generated\services.sql.go:175: rows, err := q.db.Query(ctx, listServicePriceHistory, serviceID)
+backend\internal\database\generated\services.sql.go:216: rows, err := q.db.Query(ctx, listServiceSpecifications, serviceID)
+backend\internal\database\generated\services.sql.go:278: rows, err := q.db.Query(ctx, listServices)
+backend\internal\database\generated\stores.sql.go:120: rows, err := q.db.Query(ctx, listStoreLocations, storeID)
+backend\internal\database\generated\stores.sql.go:194: rows, err := q.db.Query(ctx, listStoreOffers, storeID)
+backend\internal\database\generated\stores.sql.go:308: rows, err := q.db.Query(ctx, listStoreProducts, storeID)
+backend\internal\database\generated\stores.sql.go:403: rows, err := q.db.Query(ctx, listStores)
+backend\internal\features\handler.go:107: value, err := strconv.ParseInt(r.URL.Query().Get(key), 10, 32)
+backend\internal\features\repository.go:22: rows, err := r.db.Query(ctx, query, args...)
+backend\internal\http\router_integration_test.go:199: rows, err := pool.Query(ctx, `
+backend\internal\ingestion\handler.go:152: query := r.URL.Query()
+backend\internal\ingestion\integration_test.go:164: rows, err := pool.Query(ctx, `SELECT h.price::text FROM product_price_history h
+backend\internal\ingestion\repository.go:118: rows, err := r.db.Query(ctx, runColumnsSQL+` ORDER BY r.started_at DESC, r.id DESC LIMIT $1 OFFSET $2`, limit, offset)
+backend\internal\pricing\handler.go:392: query := r.URL.Query()
+backend\internal\pricing\integration_test.go:104: rows, err := e.pool.Query(context.Background(),
+backend\internal\pricing\repository.go:84: rows, err := r.db.Query(ctx, offerColumnsSQL+`
+backend\internal\pricing\repository.go:186: rows, err := r.db.Query(ctx, `
+backend\internal\pricing\repository.go:231: rows, err := r.db.Query(ctx, `
+backend\internal\pricing\repository.go:270: rows, err := r.db.Query(ctx, `
+backend\internal\products\catalog_repository.go:93: rows, err := r.db.Query(ctx, listProductsPageSQL,
+backend\internal\products\catalog_repository.go:186: rows, err := r.db.Query(ctx, sql, ids)
+backend\internal\products\handler.go:239: params, fieldErrors := parseListParams(r.URL.Query())
+backend\internal\products\repository_test.go:173: rows, err := pool.Query(context.Background(), `
+backend\internal\products\repository_test.go:317: rows, err := pool.Query(ctx, `SELECT id FROM store WHERE active = true ORDER BY id LIMIT 2`)
+backend\internal\search\handler.go:80: query := r.URL.Query()
+backend\internal\search\handler.go:108: text := strings.TrimSpace(r.URL.Query().Get("q"))
+backend\internal\search\handler.go:126: query := r.URL.Query()
+backend\internal\search\repository.go:141: rows, err := r.db.Query(ctx, matchedSQL+`
+backend\internal\search\repository.go:180: attrRows, err := r.db.Query(ctx, `
+backend\internal\search\repository.go:213: rows, err := r.db.Query(ctx, matchedSQL+`
+backend\internal\search\repository.go:250: rows, err = r.db.Query(ctx, matchedSQL+`
+backend\internal\search\repository.go:290: rows, err := r.db.Query(ctx, `
+backend\internal\search\repository.go:315: rows, err := r.db.Query(ctx, `
+backend\internal\stores\handler.go:30: page := parsePage(&v, r.URL.Query())
+backend\internal\stores\handler.go:69: query := r.URL.Query()
+backend\internal\stores\handler.go:103: filter := parseOfferFilter(&v, r.URL.Query())
+backend\internal\stores\repository.go:120: rows, err := r.db.Query(ctx, listStoresSQL, page.Limit, page.Offset)
+backend\internal\stores\repository.go:205: rows, err := r.db.Query(ctx, listSQL, key, filter.Available, filter.Limit, filter.Offset)
+backend\src\database\database.service.ts:33: return this.query('SELECT * FROM product LIMIT $1', [limit]);
+backend\src\database\database.service.ts:37: await this.pool.query('SELECT 1');
+crawler\src\database.py:79: conn.execute("PRAGMA foreign_keys = ON")
+crawler\src\database.py:90: cursor = conn.execute(
+crawler\src\database.py:95: conn.execute(
+crawler\src\database.py:124: row = conn.execute("SELECT id FROM DATA_SOURCE WHERE base_url = ?",
+crawler\src\database.py:148: for row in conn.execute(query):
+crawler\src\database.py:180: cursor = conn.execute(
+crawler\src\database.py:210: conn.execute(f"UPDATE SCRAPE_RUN SET {', '.join(fields)} WHERE id = ?",
+crawler\src\database.py:245: conn.execute(
+crawler\src\database.py:260: conn.executemany(
+crawler\src\database.py:271: return conn.execute("SELECT * FROM SCRAPE_RUN WHERE id = ?",
+crawler\src\database.py:280: row = conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
+crawler\src\normalize.py:561: target.execute("PRAGMA foreign_keys = OFF")
+crawler\src\normalize.py:621: rows = source.execute(
+crawler\src\normalize.py:641: for row in target.execute(
+crawler\src\normalize.py:658: found = target.execute(
+crawler\src\normalize.py:669: rows = source.execute(
+crawler\src\normalize.py:680: rows = source.execute(
+crawler\src\normalize.py:698: rows = source.execute(
+crawler\src\normalize.py:849: found = target.execute(
+crawler\src\normalize.py:864: for row in target.execute(f"SELECT id, name FROM {table}"):
+crawler\src\normalize.py:893: target.execute(
+crawler\src\normalize.py:901: found = target.execute(
+crawler\src\normalize.py:1043: existing = target.execute(
+crawler\src\normalize.py:1055: target.execute(
+crawler\src\normalize.py:1122: cursor = target.execute(
+crawler\src\normalize.py:1150: found = target.execute(
+crawler\src\normalize.py:1162: rows = conn.execute(f"SELECT * FROM {table.name}").fetchall()
+crawler\tests\test_database.py:19: cursor = conn.execute(
+crawler\tests\test_database.py:71: conn.execute(
+crawler\tests\test_database.py:77: conn.execute(
+crawler\tests\test_database.py:82: conn.execute("UPDATE DATA_SOURCE SET active = 0 WHERE id = ?", (inactive_source,))
+crawler\tests\test_database.py:98: cursor = conn.execute(
+crawler\tests\test_database.py:134: config_id = conn.execute(
+crawler\tests\test_database.py:139: run_id = conn.execute(
+crawler\tests\test_database.py:160: conn.execute("DELETE FROM SCRAPE_RUN WHERE id = ?", (run_id,))
+crawler\tests\test_database.py:184: config_id = conn.execute(
+crawler\tests\test_database.py:200: config_id = conn.execute(
+crawler\tests\test_database.py:208: conn.execute(
+crawler\tests\test_main.py:120: urls = {row[0] for row in conn.execute("SELECT external_url FROM SCRAPED_DATA")}
+crawler\tests\test_normalize.py:93: conn.execute("PRAGMA legacy_alter_table = ON")
+crawler\tests\test_normalize.py:117: source_id = conn.execute(
+crawler\tests\test_normalize.py:120: config_id = conn.execute(
+crawler\tests\test_normalize.py:125: run_id = conn.execute(
+crawler\tests\test_normalize.py:128: conn.execute(
+crawler\tests\test_normalize.py:141: return [dict(row) for row in conn.execute(
+crawler\tests\test_normalize.py:151: row = conn.execute(sql, params).fetchone()
+crawler\tests\test_normalize.py:170: tables = {row[0] for row in conn.execute(
+crawler\tests\test_normalize.py:198: conn.execute(
+crawler\tests\test_normalize.py:211: conn.execute(
+crawler\tests\test_normalize.py:401: source_id = conn.execute(
+crawler\tests\test_normalize.py:404: config_id = conn.execute(
+crawler\tests\test_normalize.py:409: conn.execute(
+crawler\tests\test_normalize.py:468: conn.execute(
+
+=== 2. SQL CON CONCATENACION/INTERPOLACION (riesgo injection) ===
+backend\internal\comparison\handler_test.go:251: {http.MethodDelete, "/comparisons/products/4/items/" + uuidA, ""},
+backend\internal\comparison\handler_test.go:365: requireStatus(t, serve(t, store, http.MethodDelete, "/comparisons/products/4/items/"+uuidB, tokenAna, ""), http.StatusNoContent)
+backend\internal\comparison\handler_test.go:371: requireStatus(t, serve(t, notIn, http.MethodDelete, "/comparisons/products/4/items/"+uuidB, tokenAna, ""), http.StatusNotFound)
+backend\internal\comparison\handler_test.go:376: rec = serve(t, broken, http.MethodDelete, "/comparisons/products/4/items/"+uuidB, tokenAna, "")
+backend\internal\comparison\integration_test.go:105: must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL76 A "+tag).Scan(&storeA), "tienda")
+backend\internal\comparison\integration_test.go:107: must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL76 B "+tag).Scan(&storeB), "tienda")
+backend\internal\ingestion\integration_test.go:59: must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda "+tag).Scan(&storeID), "tienda")
+backend\internal\ingestion\integration_test.go:60: must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Otra "+tag).Scan(&otherStoreID), "otra tienda")
+backend\internal\pricing\integration_test.go:61: scan([]any{&env.storeA}, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL74 Tienda A "+env.tag)
+backend\internal\pricing\integration_test.go:62: scan([]any{&env.storeB}, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL74 Tienda B "+env.tag)
+backend\internal\pricing\integration_test.go:67: _, _ = pool.Exec(ctx, `DELETE FROM user_account WHERE email LIKE $1`, "tal74-%-"+env.tag+"@example.test")
+backend\internal\products\catalog_integration_test.go:104: t.Fatalf("detalle tras Update = %s %s %s", *detail.CategorySlug, detail.Name, encoded)
+backend\internal\search\integration_test.go:57: must(pool.QueryRow(ctx, `INSERT INTO brand (name) VALUES ($1) RETURNING id`, "Ñandú "+f.tag).Scan(&f.brandA), "marca A")
+backend\internal\search\integration_test.go:59: must(pool.QueryRow(ctx, `INSERT INTO brand (name) VALUES ($1) RETURNING id`, "Polaris "+f.tag).Scan(&f.brandB), "marca B")
+backend\internal\search\integration_test.go:62: must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL75 A "+f.tag).Scan(&storeA), "tienda A")
+backend\internal\search\integration_test.go:63: must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL75 B "+f.tag).Scan(&storeB), "tienda B")
+backend\internal\stores\repository_integration_test.go:48: scan(&f.storeA, `INSERT INTO store (name, rating) VALUES ($1, 4.5) RETURNING id`, "TAL73 Tienda A "+tag)
+backend\internal\stores\repository_integration_test.go:49: scan(&f.storeB, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL73 Tienda B "+tag)
+backend\internal\stores\repository_integration_test.go:50: scan(&f.storeInactive, `INSERT INTO store (name, active) VALUES ($1, false) RETURNING id`, "TAL73 Tienda C "+tag)
+backend\internal\stores\repository_integration_test.go:52: SELECT id, $1 FROM product_category WHERE active ORDER BY id LIMIT 1 RETURNING id`, "TAL73 Producto "+tag)
+backend\internal\stores\repository_integration_test.go:54: SELECT id, $1, false FROM product_category WHERE active ORDER BY id LIMIT 1 RETURNING id`, "TAL73 Inactivo "+tag)
+crawler\src\normalize.py:1056: f"UPDATE {table} SET " + ", ".join(assignments) + " WHERE id = ?",
+
+=== 3. SELECT * ===
+backend\src\database\database.service.ts:33: return this.query('SELECT * FROM product LIMIT $1', [limit]);
+crawler\src\database.py:271: return conn.execute("SELECT * FROM SCRAPE_RUN WHERE id = ?",
+crawler\src\normalize.py:1162: rows = conn.execute(f"SELECT * FROM {table.name}").fetchall()
+crawler\tests\test_normalize.py:142: f"SELECT * FROM {table} ORDER BY {order_by}")]
+crawler\tests\test_normalize.py:288: category = _one(target, "SELECT * FROM product_category WHERE id = ?",
+crawler\tests\test_normalize.py:290: brand = _one(target, "SELECT * FROM brand WHERE id = ?",
+
+=== 4. TRANSACCIONES (BEGIN/COMMIT/ROLLBACK) ===
+backend\internal\categories\repository_integration_test.go:135: tx, err := pool.Begin(ctx)
+backend\internal\categories\repository_integration_test.go:139: defer tx.Rollback(ctx)
+backend\internal\comparison\repository.go:310: tx, err := r.db.Begin(ctx)
+backend\internal\comparison\repository.go:314: defer tx.Rollback(ctx)
+backend\internal\comparison\repository.go:332: return id, tx.Commit(ctx)
+backend\internal\comparison\repository.go:416: tx, err := r.db.Begin(ctx)
+backend\internal\comparison\repository.go:420: defer tx.Rollback(ctx)
+backend\internal\comparison\repository.go:457: return tx.Commit(ctx)
+backend\internal\comparison\repository.go:463: tx, err := r.db.Begin(ctx)
+backend\internal\comparison\repository.go:467: defer tx.Rollback(ctx)
+backend\internal\comparison\repository.go:483: return tx.Commit(ctx)
+backend\internal\features\favorites_cart.go:140: tx, err := h.db.Begin(r.Context())
+backend\internal\features\favorites_cart.go:145: defer tx.Rollback(r.Context())
+backend\internal\features\favorites_cart.go:183: if err != nil || tx.Commit(r.Context()) != nil {
+backend\internal\features\service_personalization.go:111: tx, err := h.db.Begin(r.Context())
+backend\internal\features\service_personalization.go:116: defer tx.Rollback(r.Context())
+backend\internal\features\service_personalization.go:131: if err := tx.Commit(r.Context()); err != nil {
+backend\internal\features\service_personalization.go:201: tx, err := h.db.Begin(r.Context())
+backend\internal\features\service_personalization.go:206: defer tx.Rollback(r.Context())
+backend\internal\features\service_personalization.go:227: if err := tx.Commit(r.Context()); err != nil {
+backend\internal\ingestion\repository.go:26: tx, err := r.db.Begin(ctx)
+backend\internal\ingestion\repository.go:30: defer tx.Rollback(ctx)
+backend\internal\ingestion\repository.go:84: return runID, tx.Commit(ctx)
+backend\internal\products\catalog_integration_test.go:289: tx, err := pool.Begin(ctx)
+backend\internal\products\catalog_integration_test.go:293: defer tx.Rollback(ctx)
+backend\internal\products\catalog_repository.go:316: tx, err := r.db.Begin(ctx)
+backend\internal\products\catalog_repository.go:320: defer tx.Rollback(ctx)
+backend\internal\products\catalog_repository.go:346: return publicID, tx.Commit(ctx)
+backend\internal\products\catalog_repository.go:351: tx, err := r.db.Begin(ctx)
+backend\internal\products\catalog_repository.go:355: defer tx.Rollback(ctx)
+backend\internal\products\catalog_repository.go:386: return tx.Commit(ctx)
+crawler\src\normalize.py:568: target.commit()
+crawler\tests\test_database.py:24: conn.commit()
+crawler\tests\test_database.py:83: conn.commit()
+crawler\tests\test_database.py:104: conn.commit()
+crawler\tests\test_database.py:144: conn.commit()
+crawler\tests\test_database.py:161: conn.commit()
+crawler\tests\test_database.py:189: conn.commit()
+crawler\tests\test_database.py:205: conn.commit()
+crawler\tests\test_normalize.py:107: conn.commit()
+crawler\tests\test_normalize.py:132: conn.commit()
+crawler\tests\test_normalize.py:471: conn.commit()
+
+=== 5. POOL Y CONEXIONES ===
+backend\src\database\database.service.ts:10: this.pool = new Pool({
+
+=== 6. POSIBLE N+1 (bucle + query a menos de 6 lineas) ===
+backend\internal\comparison\repository.go:157: bucle -> consulta en linea 158
+backend\internal\comparison\repository.go:216: bucle -> consulta en linea 217
+backend\internal\ingestion\integration_test.go:158: bucle -> consulta en linea 164
+backend\internal\ingestion\integration_test.go:159: bucle -> consulta en linea 164
+crawler\src\normalize.py:635: bucle -> consulta en linea 641
+crawler\src\normalize.py:862: bucle -> consulta en linea 864
+crawler\src\normalize.py:1051: bucle -> consulta en linea 1055
+crawler\src\normalize.py:1053: bucle -> consulta en linea 1055
+crawler\src\normalize.py:1144: bucle -> consulta en linea 1150
+crawler\src\normalize.py:1146: bucle -> consulta en linea 1150
+crawler\src\normalize.py:1149: bucle -> consulta en linea 1150
+
+=== 7. LIMIT/OFFSET/paginacion ===
+backend\internal\categories\handler.go:47: // List atiende GET /categories?itemType=&limit=&offset=.
+backend\internal\categories\handler.go:65: writeJSON(w, CategoryPage{Items: items, Total: total, Limit: params.Limit, Offset: params.Offset})
+backend\internal\categories\handler.go:96: params := ListParams{Limit: DefaultLimit}
+backend\internal\categories\handler.go:108: if query.Has("limit") {
+backend\internal\categories\handler.go:109: limit, err := strconv.Atoi(query.Get("limit"))
+backend\internal\categories\handler.go:112: v.Add("limit", "invalid_type", "limit debe ser un número entero")
+backend\internal\categories\handler.go:113: case limit < 1:
+backend\internal\categories\handler.go:114: v.Add("limit", "min", "limit debe ser mayor o igual a 1")
+backend\internal\categories\handler.go:115: case limit > MaxLimit:
+backend\internal\categories\handler.go:116: v.Add("limit", "max", fmt.Sprintf("limit no puede superar %d", MaxLimit))
+backend\internal\categories\handler.go:118: params.Limit = limit
+backend\internal\categories\handler.go:122: if query.Has("offset") {
+backend\internal\categories\handler.go:123: offset, err := strconv.Atoi(query.Get("offset"))
+backend\internal\categories\handler.go:126: v.Add("offset", "invalid_type", "offset debe ser un número entero")
+backend\internal\categories\handler.go:127: case offset < 0:
+backend\internal\categories\handler.go:128: v.Add("offset", "min", "offset debe ser mayor o igual a 0")
+backend\internal\categories\handler.go:130: params.Offset = offset
+backend\internal\categories\handler_test.go:109: want := CategoryPage{Items: repo.items, Total: 4, Limit: DefaultLimit, Offset: 0}
+backend\internal\categories\handler_test.go:113: if repo.gotParams != (ListParams{Limit: DefaultLimit}) {
+backend\internal\categories\handler_test.go:121: rec, _ := serve(t, repo, "/categories?itemType=service&limit=100&offset=5")
+backend\internal\categories\handler_test.go:125: if got.Limit != 100 || got.Offset != 5 || got.Total != 1 {
+backend\internal\categories\handler_test.go:129: if p.ItemType == nil || *p.ItemType != ItemTypeService || p.Limit != 100 || p.Offset != 5 {
+backend\internal\categories\handler_test.go:135: rec, _ := serve(t, &fakeRepository{items: nil}, "/categories?offset=1000")
+backend\internal\categories\handler_test.go:154: {"limit cero", "limit=0", "limit", "min"},
+backend\internal\categories\handler_test.go:155: {"limit negativo", "limit=-1", "limit", "min"},
+backend\internal\categories\handler_test.go:156: {"limit no numérico", "limit=abc", "limit", "invalid_type"},
+backend\internal\categories\handler_test.go:157: {"limit sobre el máximo", "limit=101", "limit", "max"},
+backend\internal\categories\handler_test.go:158: {"limit enorme", "limit=1000000", "limit", "max"},
+backend\internal\categories\handler_test.go:159: {"limit desborda int", "limit=99999999999999999999", "limit", "invalid_type"},
+backend\internal\categories\handler_test.go:160: {"offset negativo", "offset=-1", "offset", "min"},
+backend\internal\categories\handler_test.go:161: {"offset no numérico", "offset=1.5", "offset", "invalid_type"},
+backend\internal\categories\handler_test.go:187: rec, _ := serve(t, &fakeRepository{}, "/categories?itemType=x&limit=0&offset=-2")
+backend\internal\categories\model.go:24: Limit  int               `json:"limit"`
+backend\internal\categories\model.go:25: Offset int               `json:"offset"`
+backend\internal\categories\model.go:58: Limit    int
+backend\internal\categories\model.go:59: Offset   int
+backend\internal\categories\repository.go:38: LIMIT $2 OFFSET $3`
+backend\internal\categories\repository.go:48: rows, err := r.db.Query(ctx, listCategoriesSQL, params.ItemType, params.Limit, params.Offset)
+backend\internal\categories\repository.go:54: items := make([]CategorySummary, 0, params.Limit)
+backend\internal\categories\repository_integration_test.go:161: {"primera página", ListParams{Limit: 2}, []string{"internet-fibra-optica", "notebooks"}, 4},
+backend\internal\categories\repository_integration_test.go:162: {"segunda página", ListParams{Limit: 2, Offset: 2}, []string{"refrigeradores", "televisores"}, 4},
+backend\internal\categories\repository_integration_test.go:163: {"offset fuera de rango", ListParams{Limit: 20, Offset: 10}, []string{}, 4},
+backend\internal\categories\repository_integration_test.go:164: {"filtro servicio", ListParams{ItemType: &service, Limit: 20}, []string{"internet-fibra-optica"}, 1},
+backend\internal\categories\repository_integration_test.go:183: items, _, err := repo.List(ctx, ListParams{Limit: 1, Offset: 2})
+backend\internal\categories\validate.go:144: limit := maxTextLength
+backend\internal\categories\validate.go:146: limit = int(*def.MaxLength)
+backend\internal\categories\validate.go:148: if utf8.RuneCountInString(s) > limit {
+backend\internal\categories\validate.go:149: v.Add(field, "max_length", fmt.Sprintf("%s no puede superar %d caracteres", field, limit))
+backend\internal\comparison\handler.go:28: Compatible(ctx context.Context, p Product, limit, offset int) ([]ProductSummary, int64, error)
+backend\internal\comparison\handler.go:30: List(ctx context.Context, userID int32, limit, offset int) ([]Summary, int64, error)
+backend\internal\comparison\handler.go:93: limit, offset := parsePage(&v, r.URL.Query())
+backend\internal\comparison\handler.go:108: summaries, total, err := h.store.Compatible(r.Context(), products[0], limit, offset)
+backend\internal\comparison\handler.go:174: limit, offset := parsePage(&v, r.URL.Query())
+backend\internal\comparison\handler.go:179: summaries, total, err := h.store.List(r.Context(), userID, limit, offset)
+backend\internal\comparison\handler.go:457: limit, offset := DefaultLimit, 0
+backend\internal\comparison\handler.go:458: if query.Has("limit") {
+backend\internal\comparison\handler.go:459: value, err := strconv.Atoi(query.Get("limit"))
+backend\internal\comparison\handler.go:462: v.Add("limit", "invalid_type", "limit debe ser un número entero")
+backend\internal\comparison\handler.go:464: v.Add("limit", "min", "limit debe ser mayor o igual a 1")
+backend\internal\comparison\handler.go:466: v.Add("limit", "max", fmt.Sprintf("limit no puede superar %d", MaxLimit))
+backend\internal\comparison\handler.go:468: limit = value
+backend\internal\comparison\handler.go:471: if query.Has("offset") {
+backend\internal\comparison\handler.go:472: value, err := strconv.Atoi(query.Get("offset"))
+backend\internal\comparison\handler.go:475: v.Add("offset", "invalid_type", "offset debe ser un número entero")
+backend\internal\comparison\handler.go:477: v.Add("offset", "min", "offset debe ser mayor o igual a 0")
+backend\internal\comparison\handler.go:479: offset = value
+backend\internal\comparison\handler.go:482: return limit, offset
+backend\internal\comparison\handler_test.go:92: func (f *fakeStore) Compatible(_ context.Context, p Product, limit, offset int) ([]ProductSummary, int64, error) {
+backend\internal\comparison\handler_test.go:101: func (f *fakeStore) List(_ context.Context, userID int32, limit, offset int) ([]Summary, int64, error) {
+backend\internal\comparison\handler_test.go:231: rec := serve(t, store, http.MethodGet, "/comparisons/compatible/"+uuidA+"?limit=5", "", "")
+backend\internal\comparison\handler_test.go:237: requireStatus(t, serve(t, newFakeStore(), http.MethodGet, "/comparisons/compatible/"+uuidA+"?limit=0", "", ""), http.StatusBadRequest)
+backend\internal\comparison\handler_test.go:303: rec := serve(t, store, http.MethodGet, "/comparisons/products?limit=10", tokenAna, "")
+backend\internal\comparison\repository.go:62: ORDER BY i.sort_order, i.id LIMIT 1),
+backend\internal\comparison\repository.go:74: LIMIT 1
+backend\internal\comparison\repository.go:286: func (r *Repository) Compatible(ctx context.Context, p Product, limit, offset int) ([]ProductSummary, int64, error) {
+backend\internal\comparison\repository.go:294: ORDER BY name, id LIMIT $3 OFFSET $4`, p.CategoryID, p.ID, limit, offset)
+backend\internal\comparison\repository.go:336: func (r *Repository) List(ctx context.Context, userID int32, limit, offset int) ([]Summary, int64, error) {
+backend\internal\comparison\repository.go:350: LIMIT $2 OFFSET $3`, userID, limit, offset)
+backend\internal\database\generated\stores.sql.go:262: LIMIT 1
+backend\internal\features\catalog.go:46: FROM search_query WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, userID)
+backend\internal\features\reviews_watch_notifications.go:293: FROM notification WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`
+backend\internal\features\reviews_watch_notifications.go:296: FROM notification WHERE user_id=$1 AND read_at IS NULL ORDER BY created_at DESC LIMIT 100`
+backend\internal\http\router_integration_test.go:153: rec := do(http.MethodGet, "/products?category=refrigeradores&limit=100", "", "")
+backend\internal\http\router_integration_test.go:201: WHERE c.slug = 'refrigeradores' AND p.active ORDER BY p.id LIMIT 2`)
+backend\internal\http\router_test.go:41: {"search parámetro inválido", NewSearchRouter(nil, frontendURL), http.MethodGet, "/search/products?limit=0", "", "", 400, "", httpx.CodeInvalidParameter},
+backend\internal\httpx\decode_test.go:17: const limit = 64
+backend\internal\httpx\decode_test.go:31: {name: "body exactamente en el límite", contentType: "application/json", body: `{"name":"` + strings.Repeat("a", limit-11) + `"}`, maxBytes: limit},
+backend\internal\httpx\decode_test.go:32: {name: "body excedido", contentType: "application/json", body: `{"name":"` + strings.Repeat("a", 200) + `"}`, maxBytes: limit, wantStatus: 413, wantCode: CodeBodyTooLarge},
+backend\internal\httpx\decode_test.go:33: {name: "datos extra que exceden el límite", contentType: "application/json", body: `{"name":"x"}` + strings.Repeat(" ", 200) + `{}`, maxBytes: limit, wantStatus: 413, wantCode: CodeBodyTooLarge},
+backend\internal\ingestion\handler.go:150: // ListRuns atiende GET /ingestion/runs?limit=&offset= (X-Total-Count).
+backend\internal\ingestion\handler.go:153: limit, offset := DefaultListLimit, 0
+backend\internal\ingestion\handler.go:155: if query.Has("limit") {
+backend\internal\ingestion\handler.go:156: value, err := strconv.Atoi(query.Get("limit"))
+backend\internal\ingestion\handler.go:159: v.Add("limit", "invalid_type", "limit debe ser un número entero")
+backend\internal\ingestion\handler.go:161: v.Add("limit", "min", "limit debe ser mayor o igual a 1")
+backend\internal\ingestion\handler.go:163: v.Add("limit", "max", fmt.Sprintf("limit no puede superar %d", MaxListLimit))
+backend\internal\ingestion\handler.go:165: limit = value
+backend\internal\ingestion\handler.go:168: if query.Has("offset") {
+backend\internal\ingestion\handler.go:169: value, err := strconv.Atoi(query.Get("offset"))
+backend\internal\ingestion\handler.go:172: v.Add("offset", "invalid_type", "offset debe ser un número entero")
+backend\internal\ingestion\handler.go:174: v.Add("offset", "min", "offset debe ser mayor o igual a 0")
+backend\internal\ingestion\handler.go:176: offset = value
+backend\internal\ingestion\handler.go:185: runs, total, err := h.runs.ListRuns(r.Context(), limit, offset)
+backend\internal\ingestion\handler_test.go:287: rec = newEnv().serve(t, http.MethodGet, "/ingestion/runs?limit=5", "")
+backend\internal\ingestion\handler_test.go:292: requireStatus(t, newEnv().serve(t, http.MethodGet, "/ingestion/runs?limit=101", ""), http.StatusBadRequest)
+backend\internal\ingestion\processor.go:23: ListRuns(ctx context.Context, limit, offset int) ([]Run, int64, error)
+backend\internal\ingestion\repository.go:69: ORDER BY id LIMIT 1`, sourceID, scraperType).Scan(&configID)
+backend\internal\ingestion\repository.go:113: func (r *Repository) ListRuns(ctx context.Context, limit, offset int) ([]Run, int64, error) {
+backend\internal\ingestion\repository.go:118: rows, err := r.db.Query(ctx, runColumnsSQL+` ORDER BY r.started_at DESC, r.id DESC LIMIT $1 OFFSET $2`, limit, offset)
+backend\internal\ingestion\repository.go:201: ORDER BY p.active DESC, p.id LIMIT 1`, brand, model).Scan(&p.ID, &p.PublicID, &p.Active)
+backend\internal\ingestion\repository.go:212: err := r.db.QueryRow(ctx, `SELECT id FROM brand WHERE lower(name) = lower($1) ORDER BY id LIMIT 1`, name).Scan(&id)
+backend\internal\pricing\handler.go:315: // OfferHistory atiende GET /offers/{id}/price-history?from=&to=&limit=&offset=.
+backend\internal\pricing\handler.go:393: filter := HistoryFilter{Limit: DefaultHistoryLimit}
+backend\internal\pricing\handler.go:413: if query.Has("limit") {
+backend\internal\pricing\handler.go:414: limit, err := strconv.Atoi(query.Get("limit"))
+backend\internal\pricing\handler.go:417: v.Add("limit", "invalid_type", "limit debe ser un número entero")
+backend\internal\pricing\handler.go:418: case limit < 1:
+backend\internal\pricing\handler.go:419: v.Add("limit", "min", "limit debe ser mayor o igual a 1")
+backend\internal\pricing\handler.go:420: case limit > MaxHistoryLimit:
+backend\internal\pricing\handler.go:421: v.Add("limit", "max", fmt.Sprintf("limit no puede superar %d", MaxHistoryLimit))
+backend\internal\pricing\handler.go:423: filter.Limit = limit
+backend\internal\pricing\handler.go:426: if query.Has("offset") {
+backend\internal\pricing\handler.go:427: offset, err := strconv.Atoi(query.Get("offset"))
+backend\internal\pricing\handler.go:430: v.Add("offset", "invalid_type", "offset debe ser un número entero")
+backend\internal\pricing\handler.go:431: case offset < 0:
+backend\internal\pricing\handler.go:432: v.Add("offset", "min", "offset debe ser mayor o igual a 0")
+backend\internal\pricing\handler.go:434: filter.Offset = offset
+backend\internal\pricing\handler_test.go:405: rec, _ := serve(t, store, nil, http.MethodGet, "/offers/5/price-history?from=2026-01-01&to=2026-12-31&limit=500&offset=2", "")
+backend\internal\pricing\handler_test.go:408: if rec.Header().Get("X-Total-Count") != "9" || *f.From != "2026-01-01" || *f.To != "2026-12-31" || f.Limit != 500 || f.Offset != 2 {
+backend\internal\pricing\handler_test.go:416: if store.gotFilter.Limit != DefaultHistoryLimit || store.gotFilter.From != nil ||
+backend\internal\pricing\handler_test.go:425: {"limit=501", "limit/max"},
+backend\internal\pricing\handler_test.go:426: {"limit=0", "limit/min"},
+backend\internal\pricing\handler_test.go:427: {"offset=-1", "offset/min"},
+backend\internal\pricing\integration_test.go:59: SELECT id, $1 FROM product_category WHERE active ORDER BY id LIMIT 1 RETURNING id, public_id::text`,
+backend\internal\pricing\integration_test.go:178: req := httptest.NewRequest(http.MethodGet, "/offers/"+strconv.Itoa(int(created.ID))+"/price-history?limit=2", nil)
+backend\internal\pricing\model.go:63: Limit  int
+backend\internal\pricing\model.go:64: Offset int
+backend\internal\pricing\repository.go:110: LIMIT 1`, productID))
+backend\internal\pricing\repository.go:236: LIMIT $4 OFFSET $5`, offerID, f.From, f.To, f.Limit, f.Offset)
+backend\internal\pricing\repository.go:273: LIMIT $4 OFFSET $5`, productID, f.From, f.To, f.Limit, f.Offset)
+backend\internal\products\catalog_integration_test.go:108: items, total, err := repo.List(ctx, ListParams{CategorySlug: strp("notebooks"), Limit: 100})
+backend\internal\products\catalog_integration_test.go:186: first, total, err := repo.List(ctx, ListParams{Limit: 5})
+backend\internal\products\catalog_integration_test.go:190: second, total2, err := repo.List(ctx, ListParams{Limit: 5, Offset: 5})
+backend\internal\products\catalog_integration_test.go:219: items, total, err := repo.List(ctx, ListParams{LegacyCategoryID: &computacionID, Limit: 100})
+backend\internal\products\catalog_integration_test.go:228: empty, total, err := repo.List(ctx, ListParams{Limit: 10, Offset: 100000})
+backend\internal\products\catalog_repository.go:54: LIMIT $3 OFFSET $4`
+backend\internal\products\catalog_repository.go:94: params.LegacyCategoryID, params.CategorySlug, params.Limit, params.Offset)
+backend\internal\products\catalog_repository.go:100: items := make([]dto.ProductListItem, 0, params.Limit)
+backend\internal\products\catalog_repository.go:101: ids := make([]int32, 0, params.Limit)
+backend\internal\products\catalog_repository.go:102: index := make(map[int32]int, params.Limit)
+backend\internal\products\handler.go:236: // List atiende GET /products?category=&limit=&offset=. category acepta el id
+backend\internal\products\handler.go:259: params := ListParams{Limit: DefaultListLimit}
+backend\internal\products\handler.go:275: if query.Has("limit") {
+backend\internal\products\handler.go:276: limit, err := strconv.Atoi(query.Get("limit"))
+backend\internal\products\handler.go:279: v.Add("limit", "invalid_type", "limit debe ser un número entero")
+backend\internal\products\handler.go:280: case limit < 1:
+backend\internal\products\handler.go:281: v.Add("limit", "min", "limit debe ser mayor o igual a 1")
+backend\internal\products\handler.go:282: case limit > MaxListLimit:
+backend\internal\products\handler.go:283: v.Add("limit", "max", fmt.Sprintf("limit no puede superar %d", MaxListLimit))
+backend\internal\products\handler.go:285: params.Limit = limit
+backend\internal\products\handler.go:289: if query.Has("offset") {
+backend\internal\products\handler.go:290: offset, err := strconv.Atoi(query.Get("offset"))
+backend\internal\products\handler.go:293: v.Add("offset", "invalid_type", "offset debe ser un número entero")
+backend\internal\products\handler.go:294: case offset < 0:
+backend\internal\products\handler.go:295: v.Add("offset", "min", "offset debe ser mayor o igual a 0")
+backend\internal\products\handler.go:297: params.Offset = offset
+backend\internal\products\handler_test.go:171: if *store.gotList != (ListParams{Limit: DefaultListLimit}) {
+backend\internal\products\handler_test.go:185: {"limit=10&offset=20", func(p ListParams) bool { return p.Limit == 10 && p.Offset == 20 }},
+backend\internal\products\handler_test.go:200: rec, _ := serve(t, &fakeStore{}, http.MethodGet, "/products?offset=500", "")
+backend\internal\products\handler_test.go:213: {"limit=0", "limit/min"},
+backend\internal\products\handler_test.go:214: {"limit=101", "limit/max"},
+backend\internal\products\handler_test.go:215: {"limit=1000000", "limit/max"},
+backend\internal\products\handler_test.go:216: {"limit=abc", "limit/invalid_type"},
+backend\internal\products\handler_test.go:217: {"offset=-1", "offset/min"},
+backend\internal\products\repository_test.go:30: if err := pool.QueryRow(ctx, `SELECT id FROM product_offer ORDER BY id LIMIT 1`).Scan(&offerID); err != nil {
+backend\internal\products\repository_test.go:285: if err := pool.QueryRow(ctx, `SELECT id FROM product_offer ORDER BY id LIMIT 1`).Scan(&offerID); err != nil {
+backend\internal\products\repository_test.go:313: SELECT id FROM product WHERE active = true ORDER BY id LIMIT 1`).Scan(&productID); err != nil {
+backend\internal\products\repository_test.go:317: rows, err := pool.Query(ctx, `SELECT id FROM store WHERE active = true ORDER BY id LIMIT 2`)
+backend\internal\products\store.go:30: Limit            int
+backend\internal\products\store.go:31: Offset           int
+backend\internal\products\tal66_constraints_test.go:17: LIMIT 1`)
+backend\internal\products\tal66_constraints_test.go:27: LIMIT 1`)
+backend\internal\products\tal66_constraints_test.go:37: LIMIT 1`)
+backend\internal\search\handler.go:124: // paginated indica si se aceptan sort, limit y offset.
+backend\internal\search\handler.go:127: q := Query{Sort: "name", Limit: DefaultLimit}
+backend\internal\search\handler.go:316: if query.Has("limit") {
+backend\internal\search\handler.go:317: limit, err := strconv.Atoi(query.Get("limit"))
+backend\internal\search\handler.go:320: v.Add("limit", "invalid_type", "limit debe ser un número entero")
+backend\internal\search\handler.go:321: case limit < 1:
+backend\internal\search\handler.go:322: v.Add("limit", "min", "limit debe ser mayor o igual a 1")
+backend\internal\search\handler.go:323: case limit > MaxLimit:
+backend\internal\search\handler.go:324: v.Add("limit", "max", fmt.Sprintf("limit no puede superar %d", MaxLimit))
+backend\internal\search\handler.go:326: q.Limit = limit
+backend\internal\search\handler.go:329: if query.Has("offset") {
+backend\internal\search\handler.go:330: offset, err := strconv.Atoi(query.Get("offset"))
+backend\internal\search\handler.go:333: v.Add("offset", "invalid_type", "offset debe ser un número entero")
+backend\internal\search\handler.go:334: case offset < 0:
+backend\internal\search\handler.go:335: v.Add("offset", "min", "offset debe ser mayor o igual a 0")
+backend\internal\search\handler.go:337: q.Offset = offset
+backend\internal\search\handler_test.go:124: if q.Sort != "name" || q.Limit != DefaultLimit || q.Offset != 0 || len(q.Words) != 0 || q.Available {
+backend\internal\search\handler_test.go:133: "&minPrice=100000&maxPrice=500000.50&available=true&sort=price_asc&limit=50&offset=10"+
+backend\internal\search\handler_test.go:141: !q.Available || q.Sort != "price_asc" || q.Limit != 50 || q.Offset != 10 {
+backend\internal\search\handler_test.go:187: {"limit=101", "limit/max"},
+backend\internal\search\handler_test.go:188: {"limit=0", "limit/min"},
+backend\internal\search\handler_test.go:189: {"offset=-1", "offset/min"},
+backend\internal\search\handler_test.go:268: // Las facetas no paginan: sort/limit no son parámetros válidos aquí, se ignoran.
+backend\internal\search\handler_test.go:270: rec, _ = serve(t, s, "/search/facets?limit=9999")
+backend\internal\search\integration_test.go:115: if q.Limit == 0 {
+backend\internal\search\integration_test.go:116: q.Limit = 100
+backend\internal\search\integration_test.go:215: page, total := f.search(t, Query{Limit: 1, Offset: 1})
+backend\internal\search\model.go:51: Limit            int
+backend\internal\search\model.go:52: Offset           int
+backend\internal\search\repository.go:145: ORDER BY i.sort_order, i.id LIMIT 1),
+backend\internal\search\repository.go:153: LIMIT $11 OFFSET $12`, append(args, q.Limit, q.Offset)...)
+backend\internal\search\repository.go:159: results := make([]ProductResult, 0, q.Limit)
+backend\internal\search\repository.go:161: ids := make([]int32, 0, q.Limit)
+backend\internal\stores\handler.go:27: // List atiende GET /stores?limit=&offset=.
+backend\internal\stores\handler.go:96: // ListStoreOffers atiende GET /stores/{id}/offers?available=&limit=&offset=.
+backend\internal\stores\handler.go:150: page := Page{Limit: DefaultLimit}
+backend\internal\stores\handler.go:152: if query.Has("limit") {
+backend\internal\stores\handler.go:153: limit, err := strconv.Atoi(query.Get("limit"))
+backend\internal\stores\handler.go:156: v.Add("limit", "invalid_type", "limit debe ser un número entero")
+backend\internal\stores\handler.go:157: case limit < 1:
+backend\internal\stores\handler.go:158: v.Add("limit", "min", "limit debe ser mayor o igual a 1")
+backend\internal\stores\handler.go:159: case limit > MaxLimit:
+backend\internal\stores\handler.go:160: v.Add("limit", "max", fmt.Sprintf("limit no puede superar %d", MaxLimit))
+backend\internal\stores\handler.go:162: page.Limit = limit
+backend\internal\stores\handler.go:166: if query.Has("offset") {
+backend\internal\stores\handler.go:167: offset, err := strconv.Atoi(query.Get("offset"))
+backend\internal\stores\handler.go:170: v.Add("offset", "invalid_type", "offset debe ser un número entero")
+backend\internal\stores\handler.go:171: case offset < 0:
+backend\internal\stores\handler.go:172: v.Add("offset", "min", "offset debe ser mayor o igual a 0")
+backend\internal\stores\handler.go:174: page.Offset = offset
+backend\internal\stores\handler_test.go:119: rec, _ := serve(t, reader, "/stores?limit=10&offset=0")
+backend\internal\stores\handler_test.go:129: if *reader.gotPage != (Page{Limit: 10}) {
+backend\internal\stores\handler_test.go:139: if strings.TrimSpace(rec.Body.String()) != "[]" || *reader.gotPage != (Page{Limit: DefaultLimit}) {
+backend\internal\stores\handler_test.go:201: rec, _ := serve(t, reader, "/stores/offers?product="+testProductID+"&available=true&limit=2")
+backend\internal\stores\handler_test.go:209: !*reader.gotFilter.Available || reader.gotFilter.Limit != 2 {
+backend\internal\stores\handler_test.go:233: {"product=" + testProductID + "&limit=101", []string{"limit/max"}},
+backend\internal\stores\handler_test.go:234: {"product=" + testProductID + "&offset=-1", []string{"offset/min"}},
+backend\internal\stores\handler_test.go:235: {"product=x&available=1&limit=0", []string{"product/format", "available/one_of", "limit/min"}},
+backend\internal\stores\handler_test.go:273: rec, _ := serve(t, reader, "/stores/3/offers?available=false&offset=5")
+backend\internal\stores\handler_test.go:275: if reader.gotStoreID != 3 || *reader.gotFilter.Available || reader.gotFilter.Offset != 5 ||
+backend\internal\stores\handler_test.go:289: rec, _ := serve(t, &fakeReader{}, "/stores/3/offers?limit=abc")
+backend\internal\stores\handler_test.go:291: if got := fieldCodes(decodeProblem(t, rec)); !reflect.DeepEqual(got, []string{"limit/invalid_type"}) {
+backend\internal\stores\reader.go:26: Limit  int
+backend\internal\stores\reader.go:27: Offset int
+backend\internal\stores\repository.go:47: LIMIT $1 OFFSET $2`
+backend\internal\stores\repository.go:73: LIMIT $3 OFFSET $4`
+backend\internal\stores\repository.go:84: LIMIT $3 OFFSET $4`
+backend\internal\stores\repository.go:120: rows, err := r.db.Query(ctx, listStoresSQL, page.Limit, page.Offset)
+backend\internal\stores\repository.go:126: stores := make([]dto.Store, 0, page.Limit)
+backend\internal\stores\repository.go:205: rows, err := r.db.Query(ctx, listSQL, key, filter.Available, filter.Limit, filter.Offset)
+backend\internal\stores\repository.go:211: offers := make([]dto.Offer, 0, filter.Limit)
+backend\internal\stores\repository_integration_test.go:52: SELECT id, $1 FROM product_category WHERE active ORDER BY id LIMIT 1 RETURNING id`, "TAL73 Producto "+tag)
+backend\internal\stores\repository_integration_test.go:54: SELECT id, $1, false FROM product_category WHERE active ORDER BY id LIMIT 1 RETURNING id`, "TAL73 Inactivo "+tag)
+backend\internal\stores\repository_integration_test.go:118: {"todas", OfferFilter{Page: Page{Limit: 100}},
+backend\internal\stores\repository_integration_test.go:120: {"solo disponibles", OfferFilter{Available: &yes, Page: Page{Limit: 100}},
+backend\internal\stores\repository_integration_test.go:122: {"solo no disponibles", OfferFilter{Available: &no, Page: Page{Limit: 100}},
+backend\internal\stores\repository_integration_test.go:124: {"paginado", OfferFilter{Page: Page{Limit: 1, Offset: 1}}, []string{"200.00@" + a + "/true"}, 3},
+backend\internal\stores\repository_integration_test.go:125: {"fuera de rango", OfferFilter{Page: Page{Limit: 10, Offset: 50}}, []string{}, 3},
+backend\internal\stores\repository_integration_test.go:139: offers, _, err := repo.ListProductOffers(ctx, f.product, OfferFilter{Page: Page{Limit: 100}})
+backend\internal\stores\repository_integration_test.go:150: if _, _, err := repo.ListProductOffers(ctx, id, OfferFilter{Page: Page{Limit: 10}}); !errors.Is(err, ErrProductNotFound) {
+backend\internal\stores\repository_integration_test.go:162: offers, total, err := repo.ListStoreOffers(ctx, f.storeA, OfferFilter{Page: Page{Limit: 100}})
+backend\internal\stores\repository_integration_test.go:172: if _, _, err := repo.ListStoreOffers(ctx, id, OfferFilter{Page: Page{Limit: 10}}); !errors.Is(err, ErrNotFound) {
+backend\internal\stores\repository_integration_test.go:199: for offset := 0; ; offset += 3 {
+backend\internal\stores\repository_integration_test.go:200: page, total, err := repo.List(ctx, Page{Limit: 3, Offset: offset})
+backend\internal\stores\repository_test.go:40: LIMIT 1
+backend\src\database\database.service.ts:32: async getProducts(limit = 5) {
+backend\src\database\database.service.ts:33: return this.query('SELECT * FROM product LIMIT $1', [limit]);
+crawler\src\extractor.py:139: limit = self.length_limit
+crawler\src\extractor.py:140: if limit is None or len(value) <= limit:
+crawler\src\extractor.py:144: return value[:limit], [
+crawler\src\extractor.py:145: f"{self.name}: truncated to {limit} chars to fit {self.sql_type}"]

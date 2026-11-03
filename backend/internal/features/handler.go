@@ -3,11 +3,14 @@ package features
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/authz"
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,36 +20,16 @@ type Handler struct {
 	db      *pgxpool.Pool
 	repo    *Repository
 	service *Service
+	logger  *slog.Logger
+	// requireSession es authz.RequireSession: la misma validación de sesión
+	// que usan comparison y user (TAL-125, H4).
+	requireSession func(http.Handler) http.Handler
 }
 
-type sessionUserIDKey struct{}
-
-func (h *Handler) requireSession(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := bearerToken(r)
-		if token == "" {
-			apiutil.WriteError(w, http.StatusUnauthorized, "bearer token is required")
-			return
-		}
-
-		var userID int32
-		err := h.db.QueryRow(r.Context(), `SELECT s.user_id FROM user_session s
-			JOIN user_account u ON u.id=s.user_id
-			WHERE s.access_token_hash=$1 AND s.access_expires_at>NOW() AND u.active`,
-			tokenHash(token)).Scan(&userID)
-		if err != nil {
-			apiutil.WriteError(w, http.StatusUnauthorized, "invalid or expired access token")
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), sessionUserIDKey{}, userID)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-func NewHandler(name string, db *pgxpool.Pool) *Handler {
+func NewHandler(name string, db *pgxpool.Pool, logger *slog.Logger) *Handler {
 	repository := NewRepository(db)
-	return &Handler{name: name, db: db, repo: repository, service: NewService(repository)}
+	return &Handler{name: name, db: db, repo: repository, service: NewService(repository), logger: logger,
+		requireSession: authz.New(authz.NewPostgresSessions(db), "", logger).RequireSession}
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +45,7 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) rows(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "database operation failed")
+		h.dbError(w, r, err, http.StatusInternalServerError, "database operation failed")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, result)
@@ -71,11 +54,11 @@ func (h *Handler) rows(w http.ResponseWriter, r *http.Request, query string, arg
 func (h *Handler) created(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusBadRequest, "could not create resource")
+		h.dbError(w, r, err, http.StatusBadRequest, "could not create resource")
 		return
 	}
 	if len(result) == 0 {
-		apiutil.WriteError(w, http.StatusInternalServerError, "database returned no resource")
+		writeError(w, r, http.StatusInternalServerError, "database returned no resource")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, result[0])
@@ -84,11 +67,11 @@ func (h *Handler) created(w http.ResponseWriter, r *http.Request, query string, 
 func (h *Handler) one(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
-		apiutil.WriteError(w, http.StatusInternalServerError, "database operation failed")
+		h.dbError(w, r, err, http.StatusInternalServerError, "database operation failed")
 		return
 	}
 	if len(result) == 0 {
-		apiutil.WriteError(w, http.StatusNotFound, "resource not found")
+		writeError(w, r, http.StatusNotFound, "resource not found")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, result[0])
@@ -108,25 +91,56 @@ func queryInt(r *http.Request, key string) (int32, bool) {
 	return int32(value), err == nil && value > 0
 }
 
-func badRequest(w http.ResponseWriter, message string) {
-	apiutil.WriteError(w, http.StatusBadRequest, message)
+// writeError responde problem+json, como las APIs del estándar TAL-78
+// (TAL-125, H3). El code sale del status.
+func writeError(w http.ResponseWriter, r *http.Request, status int, message string) {
+	httpx.WriteProblem(w, r, status, problemCode(status), message)
 }
 
-func normalizeUserID(r *http.Request, userID int32) int32 {
-	if authenticatedID, ok := r.Context().Value(sessionUserIDKey{}).(int32); ok {
-		return authenticatedID
+func problemCode(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return httpx.CodeInvalidParameter
+	case http.StatusUnauthorized:
+		return httpx.CodeUnauthorized
+	case http.StatusForbidden:
+		return httpx.CodeForbidden
+	case http.StatusNotFound:
+		return httpx.CodeNotFound
+	case http.StatusConflict:
+		return httpx.CodeConflict
+	case http.StatusServiceUnavailable:
+		return httpx.CodeServiceUnavailable
+	default:
+		return httpx.CodeInternalError
 	}
-	if userID == 0 {
-		userID, _ = queryInt(r, "userId")
-	}
-	return userID
 }
 
-func requestUserID(r *http.Request) (int32, bool) {
-	if userID, ok := r.Context().Value(sessionUserIDKey{}).(int32); ok {
-		return userID, true
+// dbError responde status y message, salvo que err sea una falla para llegar a
+// la base (httpx.IsUnavailable): entonces 503. Así una base caída no se
+// confunde con un error del cliente (400/404) ni con una sesión vencida (401),
+// que haría que el frontend cierre la sesión del usuario. Los 5xx quedan en el
+// log con su request_id (httpx.WriteInternal).
+func (h *Handler) dbError(w http.ResponseWriter, r *http.Request, err error, status int, message string) {
+	if err != nil && (httpx.IsUnavailable(err) || status >= http.StatusInternalServerError) {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
 	}
-	return queryInt(r, "userId")
+	writeError(w, r, status, message)
+}
+
+func badRequest(w http.ResponseWriter, r *http.Request, message string) {
+	writeError(w, r, http.StatusBadRequest, message)
+}
+
+// sessionUserID es el usuario de la sesión que validó requireSession. El
+// userId del body o del query se ignora: confiar en él permitía leer o
+// modificar los datos de otro usuario (TAL-105 H1). Los inputs aún aceptan
+// el campo userId porque el frontend lo envía y el decoder rechaza campos
+// desconocidos.
+func sessionUserID(r *http.Request) int32 {
+	session, _ := authz.SessionFrom(r.Context())
+	return session.UserID
 }
 
 func rawJSON(value json.RawMessage) string {

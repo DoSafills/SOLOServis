@@ -19,7 +19,8 @@ server {
     # hostname en el Ingress, así que el enrutamiento por path se hace aquí:
     # Browser -> Ingress (/) -> frontend (nginx) -> Service de cada API.
     # Cada destino (*_UPSTREAM) lo completa envsubst al arrancar el contenedor:
-    # microservicios -> product-api:8081, ...; consolidado (UCT) -> backend:8080.
+    # compose -> product-api:8081, ...; k8s dominios -> comercial:8080 (auth -> usuarios:8080);
+    # k8s consolidado -> backend:8080.
     # Pricing, User, Notification e Ingestion no se exponen: solo red interna.
 
     # Catálogo: público solo lectura (las escrituras requieren admin o token y van por la red interna).

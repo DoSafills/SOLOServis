@@ -1,8 +1,8 @@
-# SOLOServis en Kubernetes: piezas comunes a los dos modos (PostgreSQL,
+# SOLOServis en Kubernetes: piezas comunes a las dos topologías (PostgreSQL,
 # migraciones, frontend, configuración e Ingress). Las APIs las agrega un
-# componente: components/microservicios (local) o components/consolidado (UCT).
+# componente: components/dominios (por defecto) o components/consolidado (respaldo).
 # No aplicar directo: scripts/k8s/deploy.ps1 / deploy.sh generan
-# k8s/overlays/<modo> con namespace, imágenes, StorageClass, host y los .sql.
+# k8s/overlays/uct con namespace, imágenes, StorageClass, host y los .sql.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

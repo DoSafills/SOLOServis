@@ -62,6 +62,22 @@ class TestEnsureSource:
         assert id_a != id_b
         assert len(db.get_active_jobs(db_path)) == 2
 
+    def test_store_id_is_stored_and_survives_a_rerun(self, db_path):
+        source_id, _ = db.ensure_source(db_path, "https://x.com/", store_id=4)
+        source, _ = db.get_active_jobs(db_path)[0]
+        assert source.store_id == 4
+
+        # La tienda es una decisión operativa: un re-seed no la sobreescribe.
+        same_id, created = db.ensure_source(db_path, "https://x.com/",
+                                            store_id=99)
+        assert created is False
+        assert same_id == source_id
+        assert db.get_active_jobs(db_path)[0][0].store_id == 4
+
+    def test_source_without_store_id_stays_null(self, db_path):
+        db.ensure_source(db_path, "https://x.com/")
+        assert db.get_active_jobs(db_path)[0][0].store_id is None
+
 
 class TestJobs:
     def test_returns_active_pairs_only(self, db_path):
@@ -162,6 +178,78 @@ class TestRunLifecycle:
         conn.close()
 
         assert db.count_table(db_path, "SCRAPED_DATA") == 0
+
+
+class TestIngestionColumns:
+    """El puente local con Ingestion: id remoto y contadores de ítems."""
+
+    def _run(self, db_path):
+        source_id = _insert_source(db_path)
+        conn = db.connect(db_path)
+        config_id = conn.execute(
+            "INSERT INTO SCRAPER_CONFIG (data_source_id, scraper_type, target_type)"
+            " VALUES (?, 'http', 'webpage')",
+            (source_id,),
+        ).lastrowid
+        conn.commit()
+        conn.close()
+        return db.create_scrape_run(db_path, config_id)
+
+    def test_counts_are_separate_from_page_counts(self, db_path):
+        run_id = self._run(db_path)
+
+        db.update_run_stats(
+            db_path,
+            run_id,
+            records_processed=2,
+            items_found=30,
+            items_sent=25,
+            items_failed=3,
+            items_rejected=2,
+        )
+
+        row = db.get_run(db_path, run_id)
+        assert row["records_processed"] == 2
+        assert (row["items_found"], row["items_sent"], row["items_failed"],
+                row["items_rejected"]) == (30, 25, 3, 2)
+
+    def test_set_ingestion_run_links_the_row(self, db_path):
+        run_id = self._run(db_path)
+
+        db.set_ingestion_run(db_path, run_id, 77)
+
+        assert db.get_run(db_path, run_id)["ingestion_run_id"] == 77
+        assert db.get_run(db_path, run_id)["items_found"] == 0
+
+    def test_finish_persists_ingestion_state(self, db_path):
+        run_id = self._run(db_path)
+
+        db.finish_scrape_run(
+            db_path,
+            run_id,
+            "success",
+            items_found=5,
+            items_sent=4,
+            items_failed=1,
+            items_rejected=0,
+            ingestion_run_id=77,
+            ingestion_error="HTTP 503 service unavailable",
+        )
+
+        row = db.get_run(db_path, run_id)
+        assert row["status"] == "success"
+        assert row["ingestion_run_id"] == 77
+        assert row["items_sent"] == 4
+        assert row["items_failed"] == 1
+        assert row["ingestion_error"] == "HTTP 503 service unavailable"
+
+    def test_ingestion_error_is_truncated_to_the_column_size(self, db_path):
+        run_id = self._run(db_path)
+
+        db.finish_scrape_run(
+            db_path, run_id, "failed", ingestion_error="x" * 3000)
+
+        assert len(db.get_run(db_path, run_id)["ingestion_error"]) == 2000
 
 
 class TestRunStatusVocabulary:

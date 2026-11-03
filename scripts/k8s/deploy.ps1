@@ -1,25 +1,23 @@
 <#
 .SYNOPSIS
-  Despliega SOLOServis en Kubernetes por fases (0-9), con checkpoint por fase.
+  Despliega SOLOServis en el cluster UCT por fases (0-10), con checkpoint por fase.
 
 .DESCRIPTION
-  Dos modos (ver k8s/README.md):
-    local  Kubernetes de Docker Desktop. Una API por Deployment (microservicios),
-           imagenes construidas en tu maquina (sin registry) y acceso con
-           kubectl port-forward en http://localhost:8080.
-    uct    Cluster de la universidad con TU kubeconfig. Las 14 APIs en un solo
-           Deployment "backend" (la cuota no admite 14), imagenes publicadas en
-           un registry y acceso por Ingress en soloservis-<usuario>.dev.censei.cl.
+  Usa TU kubeconfig del cluster de la universidad, publica las imagenes en un
+  registry y deja la app en soloservis-<usuario>.dev.censei.cl (ver k8s/README.md).
+
+  Topologias (-Topologia):
+    dominios     (por defecto) 3 Deployments por contexto de negocio, misma imagen
+                 y API_DOMAIN distinto: comercial (11 APIs), usuarios (auth, user)
+                 e ingestion.
+    consolidado  (respaldo) las 14 APIs en un solo Deployment "backend".
+  La Fase 10 corre el pod de test (k8s/tests): solo lecturas, no escribe nada.
 
   Cada fase ejecuta, comprueba y muestra su checkpoint. Si un checkpoint falla, el
   script se detiene y muestra que lo bloquea (eventos, logs). Nunca imprime Secrets,
   tokens ni el contenido del kubeconfig.
 
   Requiere: kubectl, docker y git (en uct, ademas docker login al registry).
-
-.EXAMPLE
-  # Local (Docker Desktop con Kubernetes activado)
-  .\scripts\k8s\deploy.ps1 -Modo local
 
 .EXAMPLE
   # Cluster UCT
@@ -32,29 +30,31 @@
 
 .EXAMPLE
   # Re-desplegar desde las APIs reutilizando las imagenes ya construidas
-  .\scripts\k8s\deploy.ps1 -Modo local -FromPhase 6 -SkipCleanup
+  .\scripts\k8s\deploy.ps1 -Modo uct -FromPhase 6 -SkipCleanup
+
+.EXAMPLE
+  # Solo el pod de test
+  .\scripts\k8s\deploy.ps1 -Modo uct -FromPhase 10
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)][ValidateSet('local', 'uct')][string]$Modo,
-  # Por defecto: microservicios en local, consolidado en uct.
-  [ValidateSet('', 'microservicios', 'consolidado')][string]$Topologia = '',
+  # Solo existe uct (el modo local se retiro en TAL-103); se acepta por compatibilidad.
+  [ValidateSet('uct')][string]$Modo = 'uct',
+  [ValidateSet('dominios', 'consolidado')][string]$Topologia = 'dominios',
   [string]$Kubeconfig = '',
   [string]$Context = '',
   [string]$Namespace = '',
-  # Solo uct: registry accesible por los nodos (ej. docker.io/miusuario).
+  # Registry accesible por los nodos (ej. docker.io/miusuario).
   [string]$Registry = '',
   [string]$Tag = '',
-  # Solo uct: autodetectados en la Fase 2 si no se indican.
+  # Autodetectados en la Fase 2 si no se indican.
   [string]$StorageClass = '',
   [string]$IngressClass = '',
   [string]$IngressHost = '',
-  [ValidateSet('http', 'https')][string]$IngressScheme = 'http',
+  [ValidateSet('http', 'https')][string]$IngressScheme = 'https',
   [string]$ImagePullSecret = '',
-  # Solo local: puerto de tu maquina para kubectl port-forward.
-  [int]$LocalPort = 8080,
-  [ValidateRange(0, 9)][int]$FromPhase = 0,
-  [ValidateRange(0, 9)][int]$ToPhase = 9,
+  [ValidateRange(0, 10)][int]$FromPhase = 0,
+  [ValidateRange(0, 10)][int]$ToPhase = 10,
   [switch]$SkipCleanup
 )
 
@@ -64,44 +64,37 @@ $OverlayDir = Join-Path $RepoRoot "k8s/overlays/$Modo"
 $StateFile = Join-Path $OverlayDir 'state.json'
 $Rendered = Join-Path $OverlayDir 'rendered.yaml'
 $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
-$IsLocal = ($Modo -eq 'local')
-if (-not $Topologia) { $Topologia = $(if ($IsLocal) { 'microservicios' } else { 'consolidado' }) }
 
-# APIs que se despliegan segun la topologia (nombre del Deployment y puerto).
-$MicroApis = [ordered]@{
-  'product-api' = 8081; 'store-api' = 8082; 'service-api' = 8083; 'user-api' = 8084
-  'pricing-api' = 8085; 'search-api' = 8086; 'comparison-api' = 8087; 'auth-api' = 8088
-  'favorites-api' = 8089; 'cart-api' = 8090; 'review-api' = 8091; 'watchlist-api' = 8092
-  'notification-api' = 8093; 'ingestion-api' = 8094
+# Deployments de API segun la topologia (nombre y puerto). Todos usan la imagen
+# del backend (cmd/all-apis); en dominios solo cambia API_DOMAIN.
+if ($Topologia -eq 'dominios') {
+  $Apis = [ordered]@{ 'comercial' = 8080; 'usuarios' = 8080; 'ingestion' = 8080 }
+} else {
+  $Apis = [ordered]@{ 'backend' = 8080 }
 }
-if ($Topologia -eq 'microservicios') { $Apis = $MicroApis } else { $Apis = [ordered]@{ 'backend' = 8080 } }
 
 # --- kubeconfig, contexto y namespace
 if (-not $Kubeconfig) {
   if ($env:KUBECONFIG) { $Kubeconfig = ($env:KUBECONFIG -split [IO.Path]::PathSeparator)[0] }
   elseif (Test-Path (Join-Path $HOME '.kube/config')) { $Kubeconfig = Join-Path $HOME '.kube/config' }
-  elseif (-not $IsLocal) {
+  else {
     $found = @(Get-ChildItem (Join-Path $HOME 'Downloads'), (Join-Path $HOME '.kube') -Filter 'estudiantes-*.kubeconfig' -ErrorAction SilentlyContinue)
     if ($found.Count -eq 1) { $Kubeconfig = $found[0].FullName }
   }
 }
 if (-not $Kubeconfig -or -not (Test-Path $Kubeconfig)) {
-  if ($IsLocal) { Write-Host 'ERROR: no hay ~/.kube/config. Activa Kubernetes en Docker Desktop (Settings > Kubernetes).' -ForegroundColor Red }
-  else { Write-Host 'ERROR: indica tu kubeconfig con -Kubeconfig (descargalo desde https://estudiantes.dev.censei.cl).' -ForegroundColor Red }
+  Write-Host 'ERROR: indica tu kubeconfig con -Kubeconfig (descargalo desde https://estudiantes.dev.censei.cl).' -ForegroundColor Red
   exit 1
 }
-if ($IsLocal -and -not $Context) { $Context = 'docker-desktop' }
 $KBase = @('--kubeconfig', $Kubeconfig)
 if ($Context) { $KBase += @('--context', $Context) }
 if (-not $Namespace) {
-  if ($IsLocal) { $Namespace = 'soloservis' }
-  else { $Namespace = ((& kubectl @KBase config view --minify -o 'jsonpath={..namespace}' 2>$null) -join '').Trim() }
+  $Namespace = ((& kubectl @KBase config view --minify -o 'jsonpath={..namespace}' 2>$null) -join '').Trim()
 }
 if (-not $Namespace) {
   Write-Host 'ERROR: el kubeconfig no define namespace; usa -Namespace student-<usuario>.' -ForegroundColor Red
   exit 1
 }
-$KNoNs = $KBase
 $KBase += @('-n', $Namespace)
 # student-marcelo-vidal-22843887e32d -> marcelo-vidal (sin el sufijo hash)
 $StudentUser = ($Namespace -replace '^student-', '') -replace '-[0-9a-f]{8,}$', ''
@@ -149,7 +142,7 @@ function Stop-Phase([int]$N, $Items, [string]$Reason) {
   $Items['Bloqueos'] = $Reason
   Checkpoint $N $Items
   Write-Host "Proceso detenido en la Fase $N." -ForegroundColor Red
-  Write-Host "Corrige el bloqueo y vuelve a correr con: -Modo $Modo -FromPhase $N" -ForegroundColor Yellow
+  Write-Host "Corrige el bloqueo y vuelve a correr con: -Modo uct -Topologia $Topologia -FromPhase $N" -ForegroundColor Yellow
   exit 1
 }
 
@@ -235,16 +228,7 @@ function Test-PublicRoutes([string]$Base, $Cp) {
   return $allOk
 }
 
-# kubectl port-forward temporal (modo local) para probar desde tu maquina.
-function Start-PortForward {
-  # Start-Process (PowerShell 5.1) no cita los argumentos: se citan aqui.
-  $args2 = (@($KBase) + @('port-forward', 'svc/frontend', "$($LocalPort):80")) | ForEach-Object { '"' + $_ + '"' }
-  $p = Start-Process kubectl -ArgumentList $args2 -PassThru -WindowStyle Hidden
-  Start-Sleep -Seconds 3
-  return $p
-}
-
-# ---------------------------------------------------------------- estado local
+# ---------------------------------------------------------------- estado en disco
 
 function Read-State {
   if (Test-Path $StateFile) {
@@ -277,27 +261,24 @@ function New-ImageTag {
   return "$sha"
 }
 
-# Imagenes de este despliegue: frontend + (backend | una por API).
+# Imagenes de este despliegue: frontend y backend (cmd/all-apis). En las dos
+# topologias todos los Deployments de API usan la misma imagen del backend.
 function Get-Images {
-  $list = @(@{ Name = 'frontend'; File = 'docker/frontend/Dockerfile'; Ctx = '.' })
-  foreach ($n in $Apis.Keys) {
-    $file = $(if ($n -eq 'backend') { 'docker/all-apis/Dockerfile' } else { "docker/$n/Dockerfile" })
-    $list += @{ Name = $n; File = $file; Ctx = 'backend' }
-  }
-  return $list
+  return @(
+    @{ Name = 'frontend'; File = 'docker/frontend/Dockerfile'; Ctx = '.' },
+    @{ Name = 'backend'; File = 'docker/all-apis/Dockerfile'; Ctx = 'backend' }
+  )
 }
 
 function Get-ImageRef([string]$Name) {
-  if ($IsLocal) { return "soloservis/${Name}:$Tag" }
   return "$Registry/soloservis-${Name}:$Tag"
 }
 
 function Get-FrontendUrl {
-  if ($IsLocal) { return "http://localhost:$LocalPort" }
   return "${IngressScheme}://$IngressHost"
 }
 
-# Genera k8s/overlays/<modo> (ignorado por git) a partir de base + componente.
+# Genera k8s/overlays/uct (ignorado por git) a partir de base + componente.
 function Write-Overlay {
   $migDir = Join-Path $OverlayDir 'migrations'
   New-Item -ItemType Directory -Force $migDir | Out-Null
@@ -336,15 +317,6 @@ function Write-Overlay {
     $L.Add("    newTag: `"$Tag`"")
   }
   $L.Add('patches:')
-  if ($IsLocal) {
-    # Sin Ingress Controller en Docker Desktop: se entra con kubectl port-forward.
-    $L.Add('  - patch: |-')
-    $L.Add('      $patch: delete')
-    $L.Add('      apiVersion: networking.k8s.io/v1')
-    $L.Add('      kind: Ingress')
-    $L.Add('      metadata:')
-    $L.Add('        name: soloservis')
-  }
   if ($StorageClass) {
     $L.Add('  - target: {kind: StatefulSet, name: postgres}')
     $L.Add('    patch: |-')
@@ -352,14 +324,14 @@ function Write-Overlay {
     $L.Add('        path: /spec/volumeClaimTemplates/0/spec/storageClassName')
     $L.Add("        value: $StorageClass")
   }
-  if (-not $IsLocal -and $IngressClass) {
+  if ($IngressClass) {
     $L.Add('  - target: {kind: Ingress, name: soloservis}')
     $L.Add('    patch: |-')
     $L.Add('      - op: add')
     $L.Add('        path: /spec/ingressClassName')
     $L.Add("        value: $IngressClass")
   }
-  if (-not $IsLocal -and $IngressHost) {
+  if ($IngressHost) {
     $L.Add('  - target: {kind: Ingress, name: soloservis}')
     $L.Add('    patch: |-')
     $L.Add('      - op: add')
@@ -379,7 +351,7 @@ function Write-Overlay {
 }
 
 function Build-Rendered {
-  if (-not $IsLocal -and -not $Registry) { return 'falta -Registry' }
+  if (-not $Registry) { return 'falta -Registry' }
   Write-Overlay
   $out = & kubectl kustomize $OverlayDir 2>&1
   if ($LASTEXITCODE -ne 0) { return ($out | ForEach-Object { "$_" }) -join ' ' }
@@ -402,37 +374,25 @@ function Phase0 {
             (Test-Path (Join-Path $RepoRoot 'backend/cmd/all-apis')) -and
             (Test-Path (Join-Path $RepoRoot 'fronted/package.json'))
   $cp['Repositorio'] = $(if ($repoOk) { 'OK' } else { 'ERROR' })
-  $cp['Modo'] = "$Modo (${Topologia}: $($Apis.Count) Deployment(s) de API)"
+  $cp['Topologia'] = "$Topologia ($($Apis.Count) Deployment(s) de API: $($Apis.Keys -join ', '))"
 
   $missing = @('kubectl', 'docker', 'git') | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) }
   if ($missing -contains 'kubectl') { Stop-Phase 0 $cp 'kubectl no esta instalado' }
 
-  if ($IsLocal) {
-    $ctxs = @(& kubectl --kubeconfig $Kubeconfig config get-contexts -o name 2>$null)
-    if ($ctxs -notcontains $Context) {
-      Stop-Phase 0 $cp "no existe el contexto '$Context': activa Kubernetes en Docker Desktop (Settings > Kubernetes > Enable Kubernetes)"
-    }
-    $nodes = (& kubectl @KNoNs get nodes 2>&1) -join ' '
-    if ($LASTEXITCODE -ne 0) { Stop-Phase 0 $cp "el cluster local no responde: $nodes" }
-    $cp['Acceso Kubernetes'] = "OK (contexto $Context)"
-  } else {
-    Step 'kubectl auth can-i (puede abrir el navegador para el login OIDC)'
-    $can = (K auth can-i list pods) -join ' '
-    if ($script:KExit -ne 0 -or $can -notmatch 'yes') {
-      $cp['Acceso Kubernetes'] = 'ERROR'
-      Stop-Phase 0 $cp "sin acceso al namespace $Namespace : $can"
-    }
-    $cp['Acceso Kubernetes'] = 'OK'
+  Step 'kubectl auth can-i (puede abrir el navegador para el login OIDC)'
+  $can = (K auth can-i list pods) -join ' '
+  if ($script:KExit -ne 0 -or $can -notmatch 'yes') {
+    $cp['Acceso Kubernetes'] = 'ERROR'
+    Stop-Phase 0 $cp "sin acceso al namespace $Namespace : $can"
   }
+  $cp['Acceso Kubernetes'] = 'OK'
 
   Write-Host "  Recursos actuales en ${Namespace}:" -ForegroundColor DarkGray
   Show (K get 'all,pvc,ingress,configmap,job' -o wide)
   Write-Host '  Secrets (solo nombres):' -ForegroundColor DarkGray
   Show (K get secret -o name)
-  if (-not $IsLocal) {
-    Write-Host '  ResourceQuota / LimitRange:' -ForegroundColor DarkGray
-    Show (K get 'resourcequota,limitrange')
-  }
+  Write-Host '  ResourceQuota / LimitRange:' -ForegroundColor DarkGray
+  Show (K get 'resourcequota,limitrange')
   Write-Host '  StorageClasses:' -ForegroundColor DarkGray
   Show (K get storageclass)
 
@@ -446,13 +406,6 @@ function Phase0 {
 
 function Phase1 {
   $cp = [ordered]@{}
-  if ($IsLocal) {
-    $null = K get namespace $Namespace -o name
-    if ($script:KExit -ne 0) {
-      Step "Creando el namespace $Namespace"
-      Show (& kubectl @KNoNs create namespace $Namespace 2>&1)
-    }
-  }
   if ($SkipCleanup) {
     $cp['Limpieza'] = 'OMITIDA (-SkipCleanup)'
     Checkpoint 1 $cp
@@ -561,67 +514,61 @@ function Phase2 {
   $cp = [ordered]@{}
   $block = @()
 
-  if ($IsLocal) {
-    # Docker Desktop trae la StorageClass "hostpath" por defecto.
-    $cp['Storage'] = 'OK (clase por defecto del cluster local)'
-    $cp['Ingress'] = "NO SE USA (modo local: kubectl port-forward en localhost:$LocalPort)"
+  # --- Storage: probar clases hasta encontrar una que deje el PVC Bound y persista.
+  $candidates = @()
+  if ($StorageClass) { $candidates = @($StorageClass) }
+  elseif ($script:StorageResolved) { $candidates = @($StorageClass) }
+  else {
+    $sc = KJson get storageclass
+    if ($sc -and $sc.items) {
+      $defs = @($sc.items | Where-Object { $_.metadata.annotations -and $_.metadata.annotations.'storageclass.kubernetes.io/is-default-class' -eq 'true' } | ForEach-Object { $_.metadata.name })
+      $rest = @($sc.items | Where-Object { $defs -notcontains $_.metadata.name } | ForEach-Object { $_.metadata.name })
+      # '' = sin storageClassName (usa la clase por defecto del cluster)
+      if ($defs.Count -gt 0) { $candidates = @('') + $rest } else { $candidates = $rest }
+    } else { $candidates = @('') }
+  }
+  # Si el PVC de PostgreSQL ya existe, su clase manda (no se puede cambiar).
+  $pvc = KJson get pvc postgres-data-postgres-0
+  if ($pvc -and $pvc.status.phase -eq 'Bound') {
+    $script:StorageClass = $pvc.spec.storageClassName
+    $script:StorageResolved = $true
+    $cp['Storage'] = "OK (PVC existente, sc=$($pvc.spec.storageClassName), se conservan los datos)"
   } else {
-    # --- Storage: probar clases hasta encontrar una que deje el PVC Bound y persista.
-    $candidates = @()
-    if ($StorageClass) { $candidates = @($StorageClass) }
-    elseif ($script:StorageResolved) { $candidates = @($StorageClass) }
-    else {
-      $sc = KJson get storageclass
-      if ($sc -and $sc.items) {
-        $defs = @($sc.items | Where-Object { $_.metadata.annotations -and $_.metadata.annotations.'storageclass.kubernetes.io/is-default-class' -eq 'true' } | ForEach-Object { $_.metadata.name })
-        $rest = @($sc.items | Where-Object { $defs -notcontains $_.metadata.name } | ForEach-Object { $_.metadata.name })
-        # '' = sin storageClassName (usa la clase por defecto del cluster)
-        if ($defs.Count -gt 0) { $candidates = @('') + $rest } else { $candidates = $rest }
-      } else { $candidates = @('') }
+    $chosen = $null
+    foreach ($c in $candidates) {
+      $r = Test-StorageClass $c
+      if ($r.Ok -and $r.Persist) { $chosen = $c; break }
     }
-    # Si el PVC de PostgreSQL ya existe, su clase manda (no se puede cambiar).
-    $pvc = KJson get pvc postgres-data-postgres-0
-    if ($pvc -and $pvc.status.phase -eq 'Bound') {
-      $script:StorageClass = $pvc.spec.storageClassName
+    if ($null -ne $chosen) {
+      $script:StorageClass = $chosen
       $script:StorageResolved = $true
-      $cp['Storage'] = "OK (PVC existente, sc=$($pvc.spec.storageClassName), se conservan los datos)"
+      $cp['Storage'] = "OK ($(if ($chosen) { $chosen } else { 'clase por defecto' }); persistencia verificada)"
     } else {
-      $chosen = $null
-      foreach ($c in $candidates) {
-        $r = Test-StorageClass $c
-        if ($r.Ok -and $r.Persist) { $chosen = $c; break }
-      }
-      if ($null -ne $chosen) {
-        $script:StorageClass = $chosen
-        $script:StorageResolved = $true
-        $cp['Storage'] = "OK ($(if ($chosen) { $chosen } else { 'clase por defecto' }); persistencia verificada)"
-      } else {
-        $cp['Storage'] = 'ERROR (ninguna StorageClass dejo el PVC Bound y persistente)'
-        $block += 'almacenamiento persistente'
-      }
+      $cp['Storage'] = 'ERROR (ninguna StorageClass dejo el PVC Bound y persistente)'
+      $block += 'almacenamiento persistente'
     }
+  }
 
-    # --- Ingress Controller
-    if ($IngressClass) {
-      $cp['Ingress'] = "OK (clase indicada: $IngressClass)"
+  # --- Ingress Controller
+  if ($IngressClass) {
+    $cp['Ingress'] = "OK (clase indicada: $IngressClass)"
+  } else {
+    $ic = KJson get ingressclass
+    if ($ic -and $ic.items -and @($ic.items).Count -gt 0) {
+      $def = @($ic.items | Where-Object { $_.metadata.annotations -and $_.metadata.annotations.'ingressclass.kubernetes.io/is-default-class' -eq 'true' })
+      if ($def.Count -ge 1) { $script:IngressClass = $def[0].metadata.name }
+      elseif (@($ic.items).Count -eq 1) { $script:IngressClass = @($ic.items)[0].metadata.name }
+      if ($script:IngressClass) { $cp['Ingress'] = "OK ($($script:IngressClass))" }
+      else { $cp['Ingress'] = 'ERROR (varias IngressClass sin default: usar -IngressClass)'; $block += 'IngressClass ambigua' }
     } else {
-      $ic = KJson get ingressclass
-      if ($ic -and $ic.items -and @($ic.items).Count -gt 0) {
-        $def = @($ic.items | Where-Object { $_.metadata.annotations -and $_.metadata.annotations.'ingressclass.kubernetes.io/is-default-class' -eq 'true' })
-        if ($def.Count -ge 1) { $script:IngressClass = $def[0].metadata.name }
-        elseif (@($ic.items).Count -eq 1) { $script:IngressClass = @($ic.items)[0].metadata.name }
-        if ($script:IngressClass) { $cp['Ingress'] = "OK ($($script:IngressClass))" }
-        else { $cp['Ingress'] = 'ERROR (varias IngressClass sin default: usar -IngressClass)'; $block += 'IngressClass ambigua' }
-      } else {
-        $cp['Ingress'] = 'SIN VERIFICAR (no se puede listar IngressClass; se usa la del manifiesto: nginx)'
-      }
+      $cp['Ingress'] = 'SIN VERIFICAR (no se puede listar IngressClass; se usa la del manifiesto: nginx)'
     }
-    if (-not $Registry) {
-      $cp['Registry'] = 'ERROR (falta -Registry, ej. docker.io/miusuario)'
-      $block += 'registry de imagenes'
-    } else {
-      $cp['Registry'] = "OK ($Registry, tag $Tag)"
-    }
+  }
+  if (-not $Registry) {
+    $cp['Registry'] = 'ERROR (falta -Registry, ej. docker.io/miusuario)'
+    $block += 'registry de imagenes'
+  } else {
+    $cp['Registry'] = "OK ($Registry, tag $Tag)"
   }
 
   if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -634,7 +581,7 @@ function Phase2 {
   }
   $err = Build-Rendered
   if ($err) { $cp['Kubernetes preparado'] = 'ERROR'; Stop-Phase 2 $cp "kustomize: $err" }
-  $cp['Kubernetes preparado'] = "OK (overlay k8s/overlays/$Modo generado)"
+  $cp['Kubernetes preparado'] = 'OK (overlay k8s/overlays/uct generado)'
   $cp['Bloqueos'] = 'ninguno'
   Checkpoint 2 $cp
 }
@@ -643,17 +590,15 @@ function Phase2 {
 
 function Phase3 {
   $cp = [ordered]@{}
-  if (-not $IsLocal -and -not $Registry) { Stop-Phase 3 $cp 'falta -Registry' }
+  if (-not $Registry) { Stop-Phase 3 $cp 'falta -Registry' }
   $allOk = $true
   foreach ($i in Get-Images) {
     $ref = Get-ImageRef $i.Name
     Step "docker build $ref"
-    # En uct los nodos son amd64; en local se usa la arquitectura de tu maquina.
-    $platform = @()
-    if (-not $IsLocal) { $platform = @('--platform', 'linux/amd64') }
-    & docker build @platform -f (Join-Path $RepoRoot $i.File) -t $ref (Join-Path $RepoRoot $i.Ctx)
+    # Los nodos del cluster son amd64.
+    & docker build --platform linux/amd64 -f (Join-Path $RepoRoot $i.File) -t $ref (Join-Path $RepoRoot $i.Ctx)
     $ok = ($LASTEXITCODE -eq 0)
-    if ($ok -and -not $IsLocal) {
+    if ($ok) {
       Step "docker push $ref"
       & docker push $ref
       $ok = ($LASTEXITCODE -eq 0)
@@ -661,12 +606,8 @@ function Phase3 {
     $cp["$($i.Name)"] = $(if ($ok) { "OK ($ref)" } else { 'ERROR' })
     if (-not $ok) { $allOk = $false; break }
   }
-  $where = $(if ($IsLocal) { 'en Docker local (el cluster de Docker Desktop las ve directo)' } else { 'publicadas en el registry' })
-  $cp['Imagenes disponibles para Kubernetes'] = $(if ($allOk) { "OK ($where)" } else { 'ERROR' })
-  if (-not $allOk) {
-    $hint = $(if ($IsLocal) { 'revisa el error de docker build' } else { 'revisa docker login y el nombre del registry' })
-    Stop-Phase 3 $cp "build/push fallo ($hint)"
-  }
+  $cp['Imagenes disponibles para Kubernetes'] = $(if ($allOk) { 'OK (publicadas en el registry)' } else { 'ERROR' })
+  if (-not $allOk) { Stop-Phase 3 $cp 'build/push fallo (revisa docker login y el nombre del registry)' }
   Save-State
   $cp['Bloqueos'] = 'ninguno'
   Checkpoint 3 $cp
@@ -788,7 +729,6 @@ function Phase6 {
   }
   if ($failed.Count -gt 0) {
     if (@($cp.Values | Where-Object { "$_" -match 'ImagePull|ErrImage' }).Count -gt 0) {
-      if ($IsLocal) { Stop-Phase 6 $cp 'el cluster no ve las imagenes locales: en Docker Desktop usa Kubernetes con el aprovisionador kubeadm (ver k8s/README.md)' }
       Stop-Phase 6 $cp 'el cluster no puede descargar la imagen (registry privado: crear Secret docker-registry y usar -ImagePullSecret)'
     }
     Stop-Phase 6 $cp "no quedaron Ready: $($failed -join ', ')"
@@ -823,15 +763,6 @@ function Phase7 {
 
 function Phase8 {
   $cp = [ordered]@{}
-  if ($IsLocal) {
-    Step "Abriendo kubectl port-forward temporal en localhost:$LocalPort"
-    $pf = Start-PortForward
-    $ok = Test-PublicRoutes "http://localhost:$LocalPort" $cp
-    if ($pf -and -not $pf.HasExited) { Stop-Process -Id $pf.Id -Force -ErrorAction SilentlyContinue }
-    Checkpoint 8 $cp
-    if (-not $ok) { Stop-Phase 8 $cp 'alguna ruta publica no respondio (revisa los logs del frontend y de la API)' }
-    return
-  }
   $err = Build-Rendered
   if ($err) { Stop-Phase 8 $cp "kustomize: $err" }
   $ok = Apply-Component 'app.kubernetes.io/component=ingress'
@@ -892,13 +823,43 @@ function Phase9 {
   $cp['APIs'] = $(if ($apisOk) { "FUNCIONAL ($($Apis.Count) Deployment(s), reconectan a PostgreSQL)" } else { 'ERROR' })
   Checkpoint 9 $cp
 
-  Write-Host 'Para abrir la app:' -ForegroundColor Green
-  if ($IsLocal) {
-    Write-Host "  kubectl --context $Context -n $Namespace port-forward svc/frontend $($LocalPort):80" -ForegroundColor Green
-    Write-Host "  y abre http://localhost:$LocalPort (deja esa terminal abierta)" -ForegroundColor Green
-  } else {
-    Write-Host "  $(Get-FrontendUrl)" -ForegroundColor Green
+}
+
+# ---------------------------------------------------------------- FASE 10
+
+# Pod de test (k8s/tests): un Job con curl que verifica health, una lectura por
+# API, rutas protegidas, aislamiento entre dominios y el nginx. Solo lee.
+function Phase10 {
+  $cp = [ordered]@{}
+  Step 'Recreando el Job soloservis-smoke-test (los Jobs son inmutables)'
+  Show (K delete job soloservis-smoke-test --ignore-not-found --wait=true --timeout=120s)
+  Show (K apply -k (Join-Path $RepoRoot 'k8s/tests'))
+  if ($script:KExit -ne 0) { $cp['Pod de test'] = 'ERROR'; Stop-Phase 10 $cp 'kubectl apply -k k8s/tests fallo' }
+
+  Step 'Esperando el Job (max 3 min)'
+  $state = 'timeout'
+  $deadline = (Get-Date).AddSeconds(180)
+  while ((Get-Date) -lt $deadline) {
+    $j = KJson get job soloservis-smoke-test
+    if ($j -and $j.status.succeeded -ge 1) { $state = 'complete'; break }
+    if ($j -and $j.status.failed -ge 1) { $state = 'failed'; break }
+    Start-Sleep -Seconds 3
   }
+  Write-Host '  Resultado del pod de test:' -ForegroundColor DarkGray
+  $log = @(K logs job/soloservis-smoke-test)
+  Show $log
+  $summary = "$(@($log | Where-Object { $_ -match '^Resultado:' })[0])" -replace '^Resultado: ', ''
+  if ($state -ne 'complete') {
+    $cp['Pod de test'] = "ERROR ($state $summary)"
+    Show (K get events --sort-by=.lastTimestamp) -Tail 10
+    Stop-Phase 10 $cp 'alguna verificacion del pod de test fallo (ver las lineas FALLA)'
+  }
+  $cp['Pod de test'] = "OK ($summary)"
+  $cp['Bloqueos'] = 'ninguno'
+  Checkpoint 10 $cp
+
+  Write-Host 'Para abrir la app:' -ForegroundColor Green
+  Write-Host "  $(Get-FrontendUrl)" -ForegroundColor Green
 }
 
 # ---------------------------------------------------------------- main
@@ -914,7 +875,7 @@ if ($prev) {
   if (-not $ImagePullSecret) { $ImagePullSecret = $prev.ImagePullSecret }
 }
 # Dominio publico segun el manual: <proyecto>-<usuario>.dev.censei.cl
-if (-not $IsLocal -and -not $IngressHost) { $IngressHost = "soloservis-$StudentUser.dev.censei.cl" }
+if (-not $IngressHost) { $IngressHost = "soloservis-$StudentUser.dev.censei.cl" }
 if ($Registry -and $Registry -notmatch '^[a-z0-9.\-:]+(/[a-z0-9._\-]+)+$') {
   Write-Host "ERROR: -Registry '$Registry' no es valido. Usa tu usuario real en minusculas, ej: docker.io/miusuario" -ForegroundColor Red
   exit 1
@@ -924,12 +885,13 @@ if (-not $Tag) {
   $Tag = New-ImageTag
 }
 
-Write-Host "SOLOServis -> Kubernetes | modo=$Modo topologia=$Topologia contexto=$(if ($Context) { $Context } else { '(el del kubeconfig)' }) namespace=$Namespace fases=$FromPhase..$ToPhase" -ForegroundColor Cyan
-Write-Host "Kubeconfig: $(Split-Path $Kubeconfig -Leaf) | tag=$Tag$(if (-not $IsLocal) { " registry=$(if ($Registry) { $Registry } else { '(sin definir)' })" })" -ForegroundColor Cyan
+Write-Host "SOLOServis -> Kubernetes | topologia=$Topologia contexto=$(if ($Context) { $Context } else { '(el del kubeconfig)' }) namespace=$Namespace fases=$FromPhase..$ToPhase" -ForegroundColor Cyan
+Write-Host "Kubeconfig: $(Split-Path $Kubeconfig -Leaf) | tag=$Tag registry=$(if ($Registry) { $Registry } else { '(sin definir)' })" -ForegroundColor Cyan
 
 $phases = @{
   0 = { Phase0 }; 1 = { Phase1 }; 2 = { Phase2 }; 3 = { Phase3 }; 4 = { Phase4 }
   5 = { Phase5 }; 6 = { Phase6 }; 7 = { Phase7 }; 8 = { Phase8 }; 9 = { Phase9 }
+  10 = { Phase10 }
 }
 for ($n = $FromPhase; $n -le $ToPhase; $n++) {
   Write-Host ''

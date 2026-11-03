@@ -105,8 +105,9 @@ async function request<T>(
   if (!response.ok) {
     let message = `Error ${response.status} al consultar ${path}`;
     try {
-      const body = (await response.json()) as { error?: string; message?: string };
-      message = body.error ?? body.message ?? message;
+      // problem+json (estándar TAL-78) trae el mensaje en detail.
+      const body = (await response.json()) as { detail?: string; error?: string; message?: string };
+      message = body.detail ?? body.error ?? body.message ?? message;
     } catch {
       // Keep the HTTP status message when an endpoint does not return JSON.
     }

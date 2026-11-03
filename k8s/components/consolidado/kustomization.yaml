@@ -1,8 +1,16 @@
-# Modo consolidado: las 14 APIs en un solo Deployment "backend" (cmd/all-apis).
-# Es el modo del clúster UCT: postgres + backend + frontend = 3 pods y 4
+# Modo consolidado (respaldo): las 14 APIs en un solo Deployment "backend" (cmd/all-apis).
+# Sirve si la cuota no alcanza para los 3 dominios: postgres + backend + frontend = 3 pods y 4
 # Services, dentro de la cuota (12 pods, 10 Services, 1 CPU / 1G de requests).
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
+
+# Los recursos de un componente no reciben las etiquetas de base: sin esta, la
+# limpieza de la Fase 1 (part-of=soloservis) no los borraría al cambiar de topología.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: soloservis
+    includeSelectors: false
+    includeTemplates: true
 
 resources:
   - backend.yaml

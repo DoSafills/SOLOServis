@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS DATA_SOURCE (
     name TEXT NOT NULL,
     base_url TEXT NOT NULL,
     source_type TEXT NOT NULL,
+    -- Tienda a la que pertenecen las ofertas (Ingestion la exige). NULL =
+    -- fuente solo local; se crawlea pero no se envía nada.
+    store_id INTEGER,
     active BOOLEAN NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -57,6 +60,14 @@ CREATE TABLE IF NOT EXISTS SCRAPE_RUN (
     status TEXT NOT NULL
         CHECK (status IN ('pending', 'running', 'success', 'failed')),
     error_message TEXT,
+    -- Puente con Ingestion API: id remoto y contadores de ítems (los de
+    -- páginas de arriba no sirven para una tarjeta que produce 28 productos).
+    ingestion_run_id INTEGER,
+    items_found INTEGER DEFAULT 0,
+    items_sent INTEGER DEFAULT 0,
+    items_failed INTEGER DEFAULT 0,
+    items_rejected INTEGER DEFAULT 0,
+    ingestion_error TEXT,
     FOREIGN KEY (scraper_config_id) REFERENCES SCRAPER_CONFIG(id) ON DELETE CASCADE
 );
 
@@ -86,10 +97,12 @@ def init_db(db_path: str = cfg.DB_PATH) -> None:
 
 
 def _insert_source_with_config(conn: sqlite3.Connection, name: str,
-                               base_url: str, source_type: str) -> int:
+                               base_url: str, source_type: str,
+                               store_id: int | None = None) -> int:
     cursor = conn.execute(
-        "INSERT INTO DATA_SOURCE (name, base_url, source_type) VALUES (?, ?, ?)",
-        (name, base_url, source_type),
+        "INSERT INTO DATA_SOURCE (name, base_url, source_type, store_id)"
+        " VALUES (?, ?, ?, ?)",
+        (name, base_url, source_type, store_id),
     )
     source_id = cursor.lastrowid
     conn.execute(
@@ -114,11 +127,13 @@ def ensure_source(
     base_url: str,
     name: str | None = None,
     source_type: str = "web",
+    store_id: int | None = None,
 ) -> tuple[int, bool]:
     """Idempotently register a seed URL as DATA_SOURCE + default SCRAPER_CONFIG.
 
     Returns ``(source_id, created)``. When a row with the same ``base_url``
-    already exists it is left untouched.
+    already exists it is left untouched, including its ``store_id``: the store
+    is an operational decision, not something a re-run should overwrite.
     """
     with closing(connect(db_path)) as conn, conn:
         row = conn.execute("SELECT id FROM DATA_SOURCE WHERE base_url = ?",
@@ -127,7 +142,8 @@ def ensure_source(
             return int(row["id"]), False
         source_id = _insert_source_with_config(conn, name
                                                or f"Source {base_url}",
-                                               base_url, source_type)
+                                               base_url, source_type,
+                                               store_id)
         return source_id, True
 
 
@@ -136,7 +152,7 @@ def get_active_jobs(
     """Return every active (DATA_SOURCE, SCRAPER_CONFIG) pair."""
     query = """
         SELECT s.id AS sid, s.name AS s_name, s.base_url, s.source_type,
-               s.active AS source_active,
+               s.store_id, s.active AS source_active,
                c.id AS cid, c.data_source_id, c.scraper_type, c.target_type,
                c.schedule, c.rate_limit, c.parser_config, c.active AS config_active
         FROM DATA_SOURCE s
@@ -152,6 +168,7 @@ def get_active_jobs(
                 base_url=row["base_url"],
                 source_type=row["source_type"],
                 active=bool(row["source_active"]),
+                store_id=row["store_id"],
             )
             config = ScraperConfig(
                 id=row["cid"],
@@ -191,24 +208,42 @@ def update_run_stats(
     records_found: int | None = None,
     records_processed: int | None = None,
     records_failed: int | None = None,
+    items_found: int | None = None,
+    items_sent: int | None = None,
+    items_failed: int | None = None,
+    items_rejected: int | None = None,
 ) -> None:
+    counters = {
+        "records_found": records_found,
+        "records_processed": records_processed,
+        "records_failed": records_failed,
+        "items_found": items_found,
+        "items_sent": items_sent,
+        "items_failed": items_failed,
+        "items_rejected": items_rejected,
+    }
     fields: list[str] = []
     values: list[int] = []
-    if records_found is not None:
-        fields.append("records_found = ?")
-        values.append(records_found)
-    if records_processed is not None:
-        fields.append("records_processed = ?")
-        values.append(records_processed)
-    if records_failed is not None:
-        fields.append("records_failed = ?")
-        values.append(records_failed)
+    for column, value in counters.items():
+        if value is not None:
+            fields.append(f"{column} = ?")
+            values.append(value)
     if not fields:
         return
     values.append(run_id)
     with closing(connect(db_path)) as conn, conn:
         conn.execute(f"UPDATE SCRAPE_RUN SET {', '.join(fields)} WHERE id = ?",
                      values)
+
+
+def set_ingestion_run(db_path: str, run_id: int,
+                      ingestion_run_id: int) -> None:
+    """Bind the local SCRAPE_RUN to its Ingestion counterpart."""
+    with closing(connect(db_path)) as conn, conn:
+        conn.execute(
+            "UPDATE SCRAPE_RUN SET ingestion_run_id = ? WHERE id = ?",
+            (ingestion_run_id, run_id),
+        )
 
 
 def finish_scrape_run(
@@ -219,32 +254,46 @@ def finish_scrape_run(
     records_found: int | None = None,
     records_processed: int | None = None,
     records_failed: int | None = None,
+    items_found: int | None = None,
+    items_sent: int | None = None,
+    items_failed: int | None = None,
+    items_rejected: int | None = None,
+    ingestion_run_id: int | None = None,
+    ingestion_error: str | None = None,
 ) -> None:
     if status not in RUN_STATUSES:
         raise ValueError(
             f"invalid scrape_run status {status!r}: the schema accepts only "
             f"{sorted(RUN_STATUSES)}")
-    stats_sql = ""
+    fields: list[str] = ["status = ?"]
     values: list = [status]
     counters = {
         "records_found": records_found,
         "records_processed": records_processed,
         "records_failed": records_failed,
+        "items_found": items_found,
+        "items_sent": items_sent,
+        "items_failed": items_failed,
+        "items_rejected": items_rejected,
+        "ingestion_run_id": ingestion_run_id,
     }
     for column, value in counters.items():
         if value is not None:
-            stats_sql += f", {column} = ?"
+            fields.append(f"{column} = ?")
             values.append(value)
 
-    error_sql = ", error_message = ?" if error_message is not None else ""
     if error_message is not None:
+        fields.append("error_message = ?")
         values.append(error_message[:2000])
+    if ingestion_error is not None:
+        fields.append("ingestion_error = ?")
+        values.append(ingestion_error[:2000])
 
     values.append(run_id)
     with closing(connect(db_path)) as conn, conn:
         conn.execute(
-            "UPDATE SCRAPE_RUN SET status = ?, finished_at = CURRENT_TIMESTAMP"
-            f"{stats_sql}{error_sql} WHERE id = ?",
+            "UPDATE SCRAPE_RUN SET finished_at = CURRENT_TIMESTAMP, "
+            f"{', '.join(fields)} WHERE id = ?",
             values,
         )
 
