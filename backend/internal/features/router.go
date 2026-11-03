@@ -1,14 +1,10 @@
 package features
 
 import (
-<<<<<<< Updated upstream
 	"log/slog"
-	"net/http"
 	"os"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/authz"
-=======
->>>>>>> Stashed changes
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,12 +16,8 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	logger := httpx.NewLogger(os.Stdout, httpx.ParseLevel(os.Getenv("LOG_LEVEL")))
 	h := NewHandler(name, db, logger)
 	r := chi.NewRouter()
-<<<<<<< Updated upstream
 	r.Use(httpx.RequestID, httpx.AccessLog(logger), httpx.Recover(logger))
-	r.Use(cors(frontendURL))
-=======
 	r.Use(httpx.CORS(frontendURL))
->>>>>>> Stashed changes
 	r.Get("/health", h.Health)
 
 	switch name {
@@ -85,7 +77,6 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 			r.Delete("/watchlist/{productId}", h.DeleteWatchlist)
 		})
 	case "notification-api":
-<<<<<<< Updated upstream
 		// Crear es interno: lo llaman pricing e ingestion con INTERNAL_API_TOKEN.
 		admin := authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
 		r.With(admin).Post("/notifications", h.CreateNotification)
@@ -96,13 +87,6 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 			r.Put("/notifications/{id}/read", h.ReadNotification)
 			r.Put("/notifications/read-all", h.ReadAllNotifications)
 		})
-=======
-		r.Post("/notifications", h.CreateNotification)
-		r.Get("/notifications", h.GetNotifications)
-		r.Get("/notifications/unread", h.GetUnreadNotifications)
-		r.Put("/notifications/{id}/read", h.ReadNotification)
-		r.Put("/notifications/read-all", h.ReadAllNotifications)
->>>>>>> Stashed changes
 		// ingestion-api se movió a internal/ingestion (TAL-77).
 	}
 	return r
