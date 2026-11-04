@@ -1,0 +1,86 @@
+# The scraper is a long-running service, not a CronJob: it owns the SQLite
+# database, a queue and a controlled-stop protocol.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scraper-api
+  labels:
+    app.kubernetes.io/name: scraper-api
+    app.kubernetes.io/component: scraper
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # RWO PVC + SQLite: never run two pods against the same file.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scraper-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: scraper-api
+        app.kubernetes.io/component: scraper
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: scraper
+          image: soloservis/scraper
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8095
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: scraper-config
+          env:
+            # The control API and Ingestion share the internal service token.
+            - name: SCRAPER_API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+            - name: INGESTION_API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: scraper-data

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "1.0",
+  "store": {
+    "slug": "ripley-cl",
+    "name": "Ripley Chile",
+    "baseUrl": "https://simple.ripley.cl",
+    "storeId": 2
+  },
+  "match": {
+    "hosts": ["simple.ripley.cl"],
+    "pathPrefixes": ["/"]
+  },
+  "listing": {
+    "url": "https://simple.ripley.cl/search/refrigerador",
+    "root": "a.product-link",
+    "pagination": {
+      "mode": "next-link",
+      "selector": "a[rel=\"next\"]",
+      "maxPages": 20
+    },
+    "allowEmpty": false
+  },
+  "item": {
+    "externalId": { "attribute": "data-id" },
+    "externalUrl": { "attribute": "href", "transform": "absolute_url" },
+    "fields": {
+      "product.name": {
+        "selector": ".product-item--name",
+        "type": "string",
+        "required": true
+      },
+      "product.brand": {
+        "selector": ".product-item--brand",
+        "type": "string",
+        "transform": "collapse_ws"
+      },
+      "product.imageUrl": {
+        "selector": ".product-image-img",
+        "attribute": "src",
+        "type": "url",
+        "transform": "absolute_url"
+      },
+      "product.categorySlug": { "value": "refrigeradores", "type": "slug" },
+      "offer.price": {
+        "selector": ".product-price-price",
+        "type": "money",
+        "required": true,
+        "currency": "CLP"
+      },
+      "offer.listPrice": {
+        "selector": ".product-price-old-price",
+        "type": "money",
+        "currency": "CLP"
+      },
+      "offer.currency": { "value": "CLP", "type": "string" },
+      "offer.condition": { "value": "new", "type": "string" },
+      "offer.available": {
+        "selector": ".product-item--availability",
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
+  "rules": {
+    "dedupeBy": "externalId",
+    "rejectIfMissing": ["externalUrl", "product.name", "offer.price"]
+  }
+}

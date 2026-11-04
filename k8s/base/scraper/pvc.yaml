@@ -1,0 +1,15 @@
+# SQLite + catalog. ReadWriteOnce because only one scraper pod may write the
+# database at a time (the Deployment uses strategy Recreate).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scraper-data
+  labels:
+    app.kubernetes.io/name: scraper-api
+    app.kubernetes.io/component: scraper
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

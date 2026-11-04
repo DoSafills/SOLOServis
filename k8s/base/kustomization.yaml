@@ -21,6 +21,11 @@ resources:
   - migrations/job.yaml
   - frontend/deployment.yaml
   - frontend/service.yaml
+  - scraper/pvc.yaml
+  - scraper/configmap.yaml
+  - scraper/deployment.yaml
+  - scraper/service.yaml
+  - scraper/trigger-cronjob.yaml
   - ingress.yaml
 
 configMapGenerator:
@@ -42,4 +47,6 @@ configMapGenerator:
 
 images:
   - name: soloservis/frontend
+    newTag: dev
+  - name: soloservis/scraper
     newTag: dev

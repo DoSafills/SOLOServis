@@ -365,5 +365,33 @@
       pricing-api:
         condition: service_healthy
 
+  scraper:
+    build:
+      context: ..
+      dockerfile: docker/scraper/Dockerfile
+    container_name: soloservis_scraper
+    restart: unless-stopped
+    environment:
+      SCRAPER_DATA_DIR: /data
+      SCRAPER_STORES_DIR: /app/stores
+      SCRAPER_API_PORT: "8095"
+      SCRAPER_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-solo-para-compose-local}
+      SCRAPER_RATE_LIMIT: 120/min
+      INGESTION_API_URL: http://ingestion-api:8094
+      INGESTION_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-solo-para-compose-local}
+    ports:
+      - "8095:8095"
+    volumes:
+      - scraper_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8095/health', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      ingestion-api:
+        condition: service_healthy
+
 volumes:
   postgres_data:
+  scraper_data:
