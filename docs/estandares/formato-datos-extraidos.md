@@ -2,9 +2,10 @@
 
 | Campo | Valor |
 | --- | --- |
-| Alcance | Crawler / scraper (`crawler/`) |
-| Implementación de referencia | `crawler/src/normalized.py` |
+| Alcance | Crawler v1 (`crawler/`) y scraper v2 (`scraper/`) |
+| Implementación de referencia | `crawler/src/normalized.py` (v1) y `scraper/src/scraper/models.py` (v2) |
 | Esquema legible por máquina | `crawler/schema/normalized-item.schema.json` |
+| Specs de tienda | `scraper/stores/<slug>/spec.json` |
 | Contrato de destino | Ingestion API, TAL-77 (`backend/README.md` §12.7) |
 | Versión del formato | `1.0` |
 | Estado | Normativo para todo parser nuevo o modificado |
@@ -74,7 +75,7 @@ trazabilidad; el payload se envía tal cual.
 | `schemaVersion` | string | sí | Constante `"1.0"` (§8). |
 | `entityType` | string | sí | Constante `"product"`. `"service"` se rechaza hasta que exista contrato de ingesta. |
 | `externalId` | string | no | ≤ 255. Identificador propio de la tienda, si lo publica. Se guarda en `scraped_data.external_id`. |
-| `externalUrl` | string | sí | URL `http(s)` absoluta, ≤ 2048. Es la página del producto o, si la tarjeta no la expone, la del listado (con nota en `provenance.errors`). |
+| `externalUrl` | string | sí | URL `http(s)` absoluta, ≤ 2048. Es la página del producto. El spec debe declarar un selector o una plantilla; **nunca** se usa la URL del listado como sustituto. |
 | `source` | objeto | no | §2.1. |
 | `product` | objeto | sí | §3. |
 | `offer` | objeto | sí | §4. |
@@ -421,6 +422,24 @@ dependencias nuevas: usa `urllib` en un hilo.
 La correspondencia es 1:1 con `internal/ingestion/model.go`. Si ese contrato
 cambia, este documento y `normalized.py` cambian en el mismo commit.
 
+### 9.2 Entrega desde el scraper v2
+
+`scraper/src/scraper/ingestion.py` habla el mismo contrato con `httpx` y un
+cliente asíncrono. Cambia el momento, no el body:
+
+1. El crawl termina y el catálogo por tienda ya está escrito.
+2. Solo se ingesta una ejecución `success` (un crawl parcial nunca marca
+   productos como ausentes en el servidor).
+3. `open_run` → `send_items` en lotes de `INGESTION_BATCH_SIZE` (máximo 100) →
+   `finish_run`. Un fallo de red reintenta solo 408/429/5xx.
+4. Si Ingestion falla, la ejecución local sigue siendo `success` y el motivo
+   queda en `SCRAPE_RUN.ingestion_error`; los ítems permanecen en
+   `SCRAPED_DATA` y en el catálogo para replay.
+
+La diferencia deliberada con v1 es que v2 envía al final, no por página: el
+catálogo y la base local son la fuente de verdad, y el envío es una proyección
+idempotente de esa verdad.
+
 ---
 
 ## 10. Ejemplos y pruebas
@@ -436,11 +455,20 @@ cambia, este documento y `normalized.py` cambian en el mismo commit.
 * `crawler/tests/test_crawler_ingestion.py`: flujo B de punta a punta con
   cliente falso (dedupe, filtro local, fallo al abrir/enviar, abort).
 * `crawler/schema/normalized-item.schema.json`: JSON Schema 2020-12 del sobre.
+* `scraper/tests/`: specs, extracción contra fixtures por tienda, catálogo,
+  pipeline con transporte offline y API de control.
+* `scraper/stores/<slug>/spec.json`: la configuración que reemplaza a
+  `parser_config` en v2.
 
 ```bash
 cd crawler
 ./venv/bin/python -m pytest tests/test_normalized.py -q
 ./venv/bin/python -m ruff check src tests
+
+cd ../scraper
+./venv/bin/python -m pytest -q
+./venv/bin/ruff check src tests
+./venv/bin/python -m scraper validate
 ```
 
 ---

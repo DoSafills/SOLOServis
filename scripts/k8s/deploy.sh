@@ -137,6 +137,8 @@ pg_query() {
   printf '%s\n' "$1" | k exec -i postgres-0 -c postgres -- sh -c 'psql -X -q -tA -v ON_ERROR_STOP=1 -U $POSTGRES_USER -d $POSTGRES_DB' 2>&1 | tr -d '\r'
 }
 api_health() { k exec "deployment/$1" -- wget -qO- -T 5 "http://127.0.0.1:$2/health" 2>/dev/null | grep -q '"database":"connected"'; }
+# El scraper no habla PostgreSQL: su /health solo prueba que el proceso vive.
+scraper_health() { k exec deployment/scraper-api -- python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8095/health', timeout=5).status == 200 else 1)" 2>/dev/null; }
 
 # Prueba HTTP desde tu maquina (-k: certificado de la plataforma aun no automatizado).
 probe() {
@@ -184,6 +186,7 @@ new_tag() {
 images() {
   echo "frontend|docker/frontend/Dockerfile|."
   echo "backend|docker/all-apis/Dockerfile|backend"
+  echo "scraper|docker/scraper/Dockerfile|."
 }
 image_ref() { echo "$REGISTRY/soloservis-$1:$TAG"; }
 frontend_url() { echo "$INGRESS_SCHEME://$INGRESS_HOST"; }
@@ -227,6 +230,7 @@ write_overlay() {
     echo "patches:"
     if [ -n "$STORAGE_CLASS" ]; then
       printf '%s\n' "  - target: {kind: StatefulSet, name: postgres}" "    patch: |-" "      - op: add" "        path: /spec/volumeClaimTemplates/0/spec/storageClassName" "        value: $STORAGE_CLASS"
+      printf '%s\n' "  - target: {kind: PersistentVolumeClaim, name: scraper-data}" "    patch: |-" "      - op: add" "        path: /spec/storageClassName" "        value: $STORAGE_CLASS"
     fi
     if [ -n "$INGRESS_CLASS" ]; then
       printf '%s\n' "  - target: {kind: Ingress, name: soloservis}" "    patch: |-" "      - op: add" "        path: /spec/ingressClassName" "        value: $INGRESS_CLASS"
@@ -492,6 +496,20 @@ phase6() {
       k logs "deployment/$name" --tail=20 2>&1 | show
     fi
   done
+  # El scraper no es una API de dominio: se aplica y se comprueba aparte para
+  # no contarlo como conexión a PostgreSQL ni mezclarlo con APIS.
+  step "Aplicando scraper (PVC, Deployment y CronJob de disparo)"
+  apply_selector app.kubernetes.io/component=scraper >/dev/null 2>&1 || true
+  k rollout status deployment/scraper-api --timeout=300s >/dev/null 2>&1
+  pod="$(newest_pod scraper-api)"
+  if [ -n "$pod" ] && pod_ready "$pod" && scraper_health; then
+    cp_set scraper-api "OK (Ready, :8095)"
+  else
+    cp_set scraper-api "ERROR ($(pod_state "$pod"))"
+    failed="$failed scraper-api"
+    [ -n "$pod" ] && diagnostics pod "$pod"
+    k logs deployment/scraper-api --tail=20 2>&1 | show
+  fi
   if [ -n "$failed" ]; then
     if printf '%s\n' "${CP_VALS[@]}" | grep -Eq 'ImagePull|ErrImage'; then
       stop_phase 6 "el cluster no puede descargar la imagen (registry privado: crear Secret docker-registry y usar --image-pull-secret)"

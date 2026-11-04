@@ -26,7 +26,7 @@ Las 14 APIs se agrupan en **3 pods, uno por contexto de negocio**. Los tres usan
 | `usuarios` | `usuarios` | auth, user | `/auth`, `/users` |
 | `ingestion` | `ingestion` | ingestion | `/ingestion` (solo red interna, la usa el scraper) |
 
-Además corren `frontend` (nginx con la app de Vite) y `postgres` (StatefulSet con PVC). En total: **5 pods y 6 Services**.
+Además corren `frontend` (nginx con la app de Vite), `postgres` (StatefulSet con PVC) y `scraper-api` (Deployment con PVC y API de control). En total: **6 pods, 7 Services y 1 CronJob** de disparo.
 
 ```
  navegador
@@ -35,10 +35,21 @@ Además corren `frontend` (nginx con la app de Vite) y `postgres` (StatefulSet c
  frontend (nginx) ── /auth ───────────────────────────► usuarios   (auth, user)
                   ── /products, /cart, /search, ... ──► comercial  (11 APIs)
                                                             ▲
- scraper ──(red interna + token)──► ingestion ── POST /notifications ┘
+ scraper-api (Deployment + PVC) ──► ingestion ── POST /notifications ┘
+        ▲
+        │ POST /runs (CronJob scraper-trigger, 03:00 America/Santiago)
 
  comercial, usuarios e ingestion ──► postgres (StatefulSet + PVC)
 ```
+
+**Scraper v2:** `scraper-api` no es una API pública ni habla PostgreSQL. Es un
+Deployment de 1 réplica (`strategy: Recreate`) con un PVC `scraper-data` que
+guarda `scraper.db`, el catálogo por tienda y las tareas recurrentes en
+`/data/tasks`. Expone `:8095` solo dentro del clúster (`/health`, `/ready`,
+`/stores`, `/runs`, `/tasks`). El daemon agenda sus propias tareas; el CronJob
+`scraper-trigger` no crawlea, solo llama `POST /runs` por tienda y sale, y es
+opcional una vez que cada tienda tiene tarea. El detalle del paquete está en
+[`scraper/README.md`](../scraper/README.md).
 
 **Cómo se reparten las llamadas:**
 - Una ruta que no es del dominio responde **404** en ese pod (por ejemplo, `/auth/login` en `comercial`). El nginx manda cada ruta al pod correcto.
@@ -236,10 +247,10 @@ Requests por pod en `dominios`: comercial 50m/128Mi, usuarios 25m/64Mi, ingestio
 | 0 | Inventario: herramientas, acceso al clúster, recursos actuales, cuota | solo lectura |
 | 1 | Borra el despliegue anterior. **Conserva el PVC y los Secrets** | no quedan recursos `part-of=soloservis` |
 | 2 | Elige la StorageClass (prueba que un PVC quede Bound y escribible) y genera `k8s/overlays/uct` | `kubectl kustomize` compila |
-| 3 | `docker build` y `docker push` de las 2 imágenes (frontend y backend) | cada imagen OK |
+| 3 | `docker build` y `docker push` de las 3 imágenes (frontend, backend y scraper) | cada imagen OK |
 | 4 | Crea el Secret `soloservis-internal` (token) si no existe y despliega PostgreSQL | `postgres-0` Ready |
 | 5 | Job de migraciones (`migration_order.txt`) | `schema_migrations` = archivos del manifiesto |
-| 6 | APIs: `comercial`, `usuarios` e `ingestion` (o `backend`) | cada una Ready y con `/health` → `database: connected` |
+| 6 | APIs: `comercial`, `usuarios` e `ingestion` (o `backend`), más `scraper-api` | cada API Ready y con `/health` → `database: connected`; scraper Ready y `/health` → `ok` |
 | 7 | Frontend (nginx) | Ready y `/products` responde a través de nginx |
 | 8 | Ingress | `/`, `/products`, `/categories`, `/stores`, `/services`, `/search` desde tu máquina |
 | 9 | Prueba de resiliencia: borra un pod de API y reinicia PostgreSQL | el pod se recrea, los datos persisten, las APIs reconectan |
@@ -366,6 +377,58 @@ kubectl logs deployment/comercial --tail 500 | Select-String '"level":"ERROR"'
 ```bash
 kubectl logs deployment/comercial --tail 500 | grep '"level":"ERROR"'
 ```
+
+### Scraper: disparar, mirar y detener
+
+El scraper no se publica: se llega por `port-forward` (o desde el backend).
+
+```bash
+kubectl port-forward svc/scraper-api 8095:8095
+TOKEN="$(kubectl get secret soloservis-internal -o jsonpath='{.data.INTERNAL_API_TOKEN}' | base64 -d)"
+curl -sS -X POST http://127.0.0.1:8095/runs \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"store":"ripley-cl"}'
+curl -sS http://127.0.0.1:8095/runs/1 -H "Authorization: Bearer $TOKEN"
+curl -sS -X POST http://127.0.0.1:8095/runs/1/stop -H "Authorization: Bearer $TOKEN"
+```
+
+Crear una tarea recurrente (el daemon la agenda; sobrevive al pod porque vive
+en `/data/tasks`):
+
+```bash
+curl -sS -X POST http://127.0.0.1:8095/tasks \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"store":"ripley-cl","schedule":{"kind":"interval","every":"1h"}}'
+curl -sS http://127.0.0.1:8095/tasks -H "Authorization: Bearer $TOKEN"
+```
+
+Freno de emergencia para todas las tareas y runs activos:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8095/tasks/stop -H "Authorization: Bearer $TOKEN"
+curl -sS -X POST http://127.0.0.1:8095/tasks/start -H "Authorization: Bearer $TOKEN"
+```
+
+El CronJob queda como disparo opcional. Si todas las tiendas ya tienen tarea,
+se puede quitar de `k8s/base/kustomization.yaml`; mientras conviva, un trigger
+que choque con una tarea recibe `409` y no duplica el crawl.
+
+Disparar el CronJob sin esperar la hora:
+
+```bash
+kubectl create job --from=cronjob/scraper-trigger "scraper-manual-$(date +%s)"
+kubectl logs job/scraper-trigger --tail 50   # o el nombre del Job creado
+```
+
+Ver el estado y el catálogo:
+
+```bash
+kubectl logs deployment/scraper-api --tail 100 -f
+kubectl exec deployment/scraper-api -- ls -la /data/catalog
+```
+
+Un `409` significa que esa tienda ya tiene un run `pending`/`running`; es la
+protección contra ejecuciones duplicadas, no un error del despliegue.
 
 ### Reiniciar un pod de API
 
@@ -569,6 +632,7 @@ k8s/
 │   ├── postgres/                 Secret (credenciales de desarrollo), Services, StatefulSet + PVC
 │   ├── migrations/               Job + migrate.sh (aplica migration_order.txt y registra schema_migrations)
 │   ├── frontend/                 Deployment (nginx sin root, solo lectura) + Service
+│   ├── scraper/                  Deployment + PVC + Service + ConfigMap + CronJob de disparo
 │   ├── ingress.yaml              host *.dev.censei.cl
 │   └── kustomization.yaml
 ├── components/
@@ -581,6 +645,7 @@ scripts/k8s/deploy.ps1            despliegue por fases (PowerShell 5.1+)
 scripts/k8s/deploy.sh             el mismo despliegue en bash (Linux, macOS, Git Bash)
 docker/all-apis/Dockerfile        imagen del backend (cmd/all-apis); la usan los 3 pods de API
 docker/frontend/                  build de Vite + nginx (default.conf.template, proxy.conf)
+docker/scraper/Dockerfile         imagen del scraper v2 (paquete scraper/ + specs)
 docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/compose.yml)
 ```
 
