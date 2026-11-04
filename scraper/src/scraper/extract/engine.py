@@ -10,7 +10,7 @@ reported, never guessed.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from scrapling import Selector
@@ -69,6 +69,152 @@ class ExtractionResult:
     @property
     def cards(self) -> int:
         return len(self.items) + len(self.rejected)
+
+
+@dataclass(slots=True)
+class DetailResult:
+    """Partial fields read from a product detail page.
+
+    A detail page is **not** a second source of items: it may only enrich an
+    item the listing already produced. ``values`` is empty when the page does
+    not contain the declared selectors.
+    """
+
+    external_id: str | None = None
+    values: dict[str, Any] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def empty(self) -> bool:
+        return not self.values
+
+
+_PRODUCT_ATTRS = {
+    "product.name": "name",
+    "product.sku": "sku",
+    "product.model": "model",
+    "product.brand": "brand",
+    "product.categorySlug": "category_slug",
+    "product.description": "description",
+    "product.imageUrl": "image_url",
+}
+_OFFER_ATTRS = {
+    "offer.price": "price",
+    "offer.listPrice": "list_price",
+    "offer.currency": "currency",
+    "offer.shippingCost": "shipping_cost",
+    "offer.shippingFree": "shipping_free",
+    "offer.available": "available",
+    "offer.stock": "stock",
+    "offer.condition": "condition",
+    "offer.productUrl": "product_url",
+}
+
+
+def extract_detail(
+    spec: StoreSpec,
+    html: str,
+    *,
+    page_url: str,
+) -> DetailResult:
+    """Read the fields declared under ``detail`` from one detail page."""
+    detail = spec.detail
+    if detail is None:
+        return DetailResult()
+
+    document = Selector(html)
+    root = document
+    if detail.root:
+        nodes = select(document, detail.root)
+        if not nodes:
+            return DetailResult(
+                warnings=[f"detail root {detail.root!r} matched nothing on {page_url}"]
+            )
+        root = nodes[0]
+
+    reasons: list[str] = []
+    raw: dict[str, Any] = {}
+    external_id = (
+        _read_scalar(root, detail.external_id, page_url, raw, "externalId", reasons)
+        if detail.external_id is not None
+        else None
+    )
+
+    values: dict[str, Any] = {}
+    for field_spec in detail.fields:
+        if field_spec.source.template is not None:
+            continue
+        value = _read_field(
+            root,
+            field_spec,
+            page_url,
+            raw,
+            external_id,
+            reasons,
+            reject_paths=set(),
+        )
+        if value is not None:
+            values[field_spec.path] = value
+        elif field_spec.required:
+            reasons.append(f"{field_spec.path}: required detail value not found")
+    for field_spec in detail.fields:
+        if field_spec.source.template is None:
+            continue
+        value = _read_field(
+            root,
+            field_spec,
+            page_url,
+            raw,
+            external_id,
+            reasons,
+            values,
+            reject_paths=set(),
+        )
+        if value is not None:
+            values[field_spec.path] = value
+        elif field_spec.required:
+            reasons.append(f"{field_spec.path}: required detail value not found")
+
+    return DetailResult(
+        external_id=external_id,
+        values=values,
+        warnings=[f"detail page {page_url}: {reason}" for reason in _unique(reasons)],
+    )
+
+
+def apply_detail(item: Item, values: dict[str, Any]) -> list[str]:
+    """Merge detail values onto ``item``; revert if the result is invalid.
+
+    Detail pages are more specific than listing cards, so a readable value
+    wins. A missing selector simply leaves the listing value in place. The
+    merged item is validated before it is kept.
+    """
+    if not values:
+        return []
+    old_product = replace(item.product, attributes=dict(item.product.attributes))
+    old_offer = replace(item.offer)
+    for path, value in values.items():
+        _set_path(item, path, value)
+    errors = validate_item(item)
+    if errors:
+        item.product = old_product
+        item.offer = old_offer
+        return [f"detail merge rejected: {error}" for error in errors]
+    return []
+
+
+def _set_path(item: Item, path: str, value: Any) -> None:
+    if path.startswith(ATTRIBUTE_PREFIX):
+        key = path[len(ATTRIBUTE_PREFIX) :]
+        item.product.attributes[key] = value
+        return
+    if path in _PRODUCT_ATTRS:
+        setattr(item.product, _PRODUCT_ATTRS[path], value)
+        return
+    if path in _OFFER_ATTRS:
+        setattr(item.offer, _OFFER_ATTRS[path], value)
+        return
+    raise ExtractionError(f"detail field {path!r} is not a contract path")
 
 
 def extract_page(
@@ -391,4 +537,12 @@ def _unique(values: list[str]) -> list[str]:
     return result
 
 
-__all__ = ["ExtractionResult", "RejectedItem", "extract_page", "ExtractionError"]
+__all__ = [
+    "DetailResult",
+    "ExtractionError",
+    "ExtractionResult",
+    "RejectedItem",
+    "apply_detail",
+    "extract_detail",
+    "extract_page",
+]

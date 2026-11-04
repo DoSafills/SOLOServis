@@ -151,18 +151,37 @@ def cmd_export(args: argparse.Namespace) -> int:
             if previous_run is not None
             else {}
         )
+        complete = _run_was_complete(settings, run_id)
         result = write_catalog(
             settings.catalog_dir,
             store=spec.slug,
             run_id=run_id,
             items=items,
             previous=previous,
-            complete=True,
+            complete=complete,
         )
         exported += 1
         print(f"{spec.slug}: run #{run_id} -> {result.to_dict()}")
     print(f"{exported} store(s) exported to {settings.catalog_dir}")
     return 0
+
+
+def _run_was_complete(settings: Settings, run_id: int) -> bool:
+    """Read the catalog completeness flag written by the pipeline.
+
+    A truncated crawl can be a ``success`` run. Exporting it with
+    ``complete=true`` would delete products that were simply not reached, so
+    the snapshot is the authority here.
+    """
+    path = settings.runs_dir / str(run_id) / "run.json"
+    try:
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return True
+    catalog = snapshot.get("catalog")
+    if isinstance(catalog, dict) and "complete" in catalog:
+        return bool(catalog["complete"])
+    return True
 
 
 def _resolve_spec(specs: list[StoreSpec], store: str | None, url: str | None) -> StoreSpec:

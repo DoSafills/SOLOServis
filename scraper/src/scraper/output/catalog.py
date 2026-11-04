@@ -36,6 +36,7 @@ class CatalogResult:
     updated: int = 0
     unchanged: int = 0
     removed: int = 0
+    complete: bool = True
     files: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +45,7 @@ class CatalogResult:
             "updated": self.updated,
             "unchanged": self.unchanged,
             "removed": self.removed,
+            "complete": self.complete,
             "files": len(self.files),
         }
 
@@ -109,7 +111,7 @@ def write_catalog(
         if key:
             current[key] = item
 
-    result = CatalogResult()
+    result = CatalogResult(complete=complete)
     changes: list[dict[str, Any]] = []
 
     for key, item in current.items():
@@ -140,7 +142,9 @@ def write_catalog(
             result.removed += 1
             changes.append(_change(stamp, run_id, "removed", key, filename))
 
-    _write_index(directory, store=store, run_id=run_id, stamp=stamp, items=current)
+    _write_index(
+        directory, store=store, run_id=run_id, stamp=stamp, items=current, complete=complete
+    )
     _append_changes(directory, changes)
     return result
 
@@ -152,6 +156,7 @@ def _write_index(
     run_id: int,
     stamp: str,
     items: dict[str, dict[str, Any]],
+    complete: bool = True,
 ) -> None:
     entries: dict[str, dict[str, Any]] = {}
     for key, item in sorted(items.items()):
@@ -169,6 +174,7 @@ def _write_index(
         "store": store,
         "runId": run_id,
         "generatedAt": stamp,
+        "complete": complete,
         "count": len(entries),
         "items": entries,
     }

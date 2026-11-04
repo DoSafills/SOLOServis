@@ -15,6 +15,9 @@ from typing import Any
 
 from scraper.errors import SpecError
 from scraper.models import (
+    CrawlRules,
+    DetailSpec,
+    DetectRule,
     FieldSpec,
     Listing,
     MatchRules,
@@ -23,7 +26,8 @@ from scraper.models import (
     ValueSpec,
 )
 
-SPEC_SCHEMA_VERSION = "1.0"
+SPEC_SCHEMA_VERSION = "1.1"
+SUPPORTED_SPEC_VERSIONS = frozenset({"1.0", "1.1"})
 
 FIELD_TYPES = frozenset({"string", "money", "integer", "boolean", "url", "slug"})
 MODES = frozenset({"text", "attr", "html", "list"})
@@ -67,9 +71,12 @@ OFFER_FIELDS = frozenset(
 REQUIRED_BY_CONTRACT = ("product.name", "offer.price")
 REQUIRED_PATH = "product.categorySlug"
 
-_TOP_KEYS = frozenset({"schemaVersion", "store", "match", "listing", "item", "rules"})
+_TOP_KEYS = frozenset(
+    {"schemaVersion", "store", "match", "listing", "item", "rules", "crawl", "detail"}
+)
 _STORE_KEYS = frozenset({"slug", "name", "baseUrl", "storeId"})
-_MATCH_KEYS = frozenset({"hosts", "pathPrefixes"})
+_MATCH_KEYS = frozenset({"hosts", "pathPrefixes", "detect"})
+_DETECT_KEYS = frozenset({"selector", "minMatches"})
 _LISTING_KEYS = frozenset({"url", "root", "pagination", "allowEmpty"})
 _PAGINATION_KEYS = frozenset({"mode", "selector", "template", "maxPages"})
 _ITEM_KEYS = frozenset({"externalId", "externalUrl", "fields"})
@@ -89,6 +96,21 @@ _FIELD_KEYS = frozenset(
     }
 )
 _RULES_KEYS = frozenset({"dedupeBy", "rejectIfMissing"})
+_CRAWL_KEYS = frozenset(
+    {
+        "linkSelector",
+        "linkAttribute",
+        "maxDepth",
+        "maxPages",
+        "allow",
+        "deny",
+        "sameHost",
+        "followItems",
+    }
+)
+_DETAIL_KEYS = frozenset({"root", "detect", "externalId", "fields"})
+
+MAX_CRAWL_DEPTH = 10
 
 
 def _fail(path: str, where: str, message: str) -> SpecError:
@@ -265,6 +287,125 @@ def _field_spec(path: str, where: str, raw: Any) -> FieldSpec:
     )
 
 
+def _prefix_list(path: str, where: str, value: Any) -> tuple[str, ...]:
+    """An array of path prefixes; unlike ``pathPrefixes`` it may be empty."""
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise _fail(path, where, "must be an array of strings")
+    prefixes: list[str] = []
+    for index, entry in enumerate(value):
+        text = _string(path, f"{where}[{index}]", entry)
+        assert text is not None
+        if not text.startswith("/"):
+            raise _fail(path, f"{where}[{index}]", "must start with '/'")
+        prefixes.append(text)
+    return tuple(prefixes)
+
+
+def _detect_rule(path: str, where: str, raw: Any) -> DetectRule | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        selector = _string(path, where, raw)
+        assert selector is not None
+        return DetectRule(selector=selector, min_matches=1)
+    obj = _object(path, where, raw, _DETECT_KEYS)
+    selector = _string(path, f"{where}.selector", obj.get("selector"), required=True)
+    assert selector is not None
+    min_matches = _int(
+        path, f"{where}.minMatches", obj.get("minMatches", 1), minimum=1
+    )
+    return DetectRule(selector=selector, min_matches=min_matches)
+
+
+def _crawl_rules(path: str, raw: Any) -> CrawlRules:
+    obj = _object(path, "spec.crawl", raw, _CRAWL_KEYS)
+    link_selector = _string(
+        path, "spec.crawl.linkSelector", obj.get("linkSelector"), required=False
+    )
+    link_attribute = (
+        _string(path, "spec.crawl.linkAttribute", obj.get("linkAttribute"), required=False)
+        or "href"
+    )
+    max_depth = _int(path, "spec.crawl.maxDepth", obj.get("maxDepth", 1), minimum=1)
+    if max_depth > MAX_CRAWL_DEPTH:
+        raise _fail(
+            path,
+            "spec.crawl.maxDepth",
+            f"must be <= {MAX_CRAWL_DEPTH}; deeper crawls are almost always a spec bug",
+        )
+    max_pages = _int(path, "spec.crawl.maxPages", obj.get("maxPages", 50), minimum=1)
+    allow = _prefix_list(path, "spec.crawl.allow", obj.get("allow"))
+    deny = _prefix_list(path, "spec.crawl.deny", obj.get("deny"))
+    same_host = _bool(path, "spec.crawl.sameHost", obj.get("sameHost"), default=True)
+    follow_items = _bool(
+        path, "spec.crawl.followItems", obj.get("followItems"), default=True
+    )
+    if not link_selector and not follow_items:
+        raise _fail(
+            path,
+            "spec.crawl",
+            "declare 'linkSelector', 'followItems': true, or both; the crawler never guesses links",
+        )
+    return CrawlRules(
+        link_selector=link_selector,
+        link_attribute=link_attribute,
+        max_depth=max_depth,
+        max_pages=max_pages,
+        allow=allow,
+        deny=deny,
+        same_host=same_host,
+        follow_items=follow_items,
+    )
+
+
+def _detail_spec(path: str, raw: Any) -> DetailSpec:
+    obj = _object(path, "spec.detail", raw, _DETAIL_KEYS)
+    root = _string(path, "spec.detail.root", obj.get("root"), required=False)
+    detect = _string(path, "spec.detail.detect", obj.get("detect"), required=False)
+    external_id = (
+        _value_spec(
+            path,
+            "spec.detail.externalId",
+            obj["externalId"],
+            allow_value=False,
+            allow_template=False,
+        )
+        if obj.get("externalId") is not None
+        else None
+    )
+    fields_raw = obj.get("fields")
+    if not isinstance(fields_raw, dict) or not fields_raw:
+        raise _fail(path, "spec.detail.fields", "must be a non-empty object")
+    fields: list[FieldSpec] = []
+    seen: set[str] = set()
+    for field_path, field_raw in fields_raw.items():
+        resolved = _field_path(path, f"spec.detail.fields.{field_path}", field_path)
+        if resolved in seen:
+            raise _fail(path, f"spec.detail.fields.{resolved}", "declared twice")
+        seen.add(resolved)
+        fields.append(_field_spec(path, resolved, field_raw))
+
+    # Detail templates may only use values read on the detail page itself.
+    known = {"externalId"} | {field.path for field in fields}
+    template_paths = {field.path for field in fields if field.source.template}
+    for field in fields:
+        if field.source.template:
+            _check_template(
+                path,
+                f"spec.detail.fields.{field.path}",
+                field.source.template,
+                known - template_paths - {field.path},
+            )
+    return DetailSpec(
+        root=root,
+        detect=detect,
+        external_id=external_id,
+        fields=tuple(fields),
+    )
+
+
 def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
     """Validate ``raw`` and return an immutable :class:`StoreSpec`."""
     label = str(path)
@@ -273,12 +414,29 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
     schema_version = _string(
         label, "spec.schemaVersion", top.get("schemaVersion"), required=True
     )
-    if schema_version != SPEC_SCHEMA_VERSION:
+    assert schema_version is not None
+    if schema_version not in SUPPORTED_SPEC_VERSIONS:
         raise _fail(
             label,
             "spec.schemaVersion",
-            f"unsupported version {schema_version!r}; expected {SPEC_SCHEMA_VERSION!r}",
+            f"unsupported version {schema_version!r}; "
+            f"expected one of {sorted(SUPPORTED_SPEC_VERSIONS)}",
         )
+    if schema_version == "1.0":
+        for key in ("crawl", "detail"):
+            if top.get(key) is not None:
+                raise _fail(
+                    label,
+                    f"spec.{key}",
+                    f"requires schemaVersion {SPEC_SCHEMA_VERSION!r}",
+                )
+        match_probe = top.get("match")
+        if isinstance(match_probe, dict) and match_probe.get("detect") is not None:
+            raise _fail(
+                label,
+                "spec.match.detect",
+                f"requires schemaVersion {SPEC_SCHEMA_VERSION!r}",
+            )
 
     store = _object(label, "spec.store", top.get("store"), _STORE_KEYS)
     slug = _string(label, "spec.store.slug", store.get("slug"), pattern=_SLUG_RE)
@@ -307,6 +465,7 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
                 label, f"spec.match.pathPrefixes[{index}]", "must start with '/'"
             )
         prefixes.append(text)
+    detect = _detect_rule(label, "spec.match.detect", match.get("detect"))
 
     listing_raw = _object(label, "spec.listing", top.get("listing"), _LISTING_KEYS)
     listing_url = _string(label, "spec.listing.url", listing_raw.get("url"))
@@ -461,6 +620,16 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
             missing_list.append(text)
         missing = tuple(missing_list)
 
+    crawl = _crawl_rules(label, top["crawl"]) if top.get("crawl") is not None else None
+    detail = _detail_spec(label, top["detail"]) if top.get("detail") is not None else None
+    if crawl is not None and crawl.link_selector is None and detail is None:
+        raise _fail(
+            label,
+            "spec.crawl",
+            "'followItems' only follows item URLs, so it needs a 'detail' block; "
+            "declare 'linkSelector' to discover other pages",
+        )
+
     digest = hashlib.sha256(
         json.dumps(raw, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -471,7 +640,7 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
         name=name or slug,
         base_url=base_url,
         store_id=store_id,
-        match=MatchRules(hosts=hosts, path_prefixes=tuple(prefixes)),
+        match=MatchRules(hosts=hosts, path_prefixes=tuple(prefixes), detect=detect),
         listing=Listing(
             url=listing_url,
             root=root,
@@ -488,6 +657,8 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
         fields=tuple(fields),
         dedupe_by=dedupe_by,
         reject_if_missing=missing,
+        crawl=crawl,
+        detail=detail,
         digest=digest,
         path=Path(path),
     )

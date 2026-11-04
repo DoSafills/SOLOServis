@@ -50,11 +50,25 @@ RUN_STATE_IDLE = "idle"
 
 
 @dataclass(frozen=True, slots=True)
+class DetectRule:
+    """A CSS check that proves a fetched page still belongs to the store.
+
+    It is a guard against soft-404 pages, bot walls and wrong redirects. A
+    page that does not match is rejected; it is never parsed with stale
+    selectors.
+    """
+
+    selector: str
+    min_matches: int = 1
+
+
+@dataclass(frozen=True, slots=True)
 class MatchRules:
     """Which URLs belong to a store."""
 
     hosts: tuple[str, ...]
     path_prefixes: tuple[str, ...] = ()
+    detect: DetectRule | None = None
 
     def matches(self, url: str) -> bool:
         parsed = urlparse(url)
@@ -112,6 +126,37 @@ class FieldSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class CrawlRules:
+    """Spec-declared link discovery.
+
+    The crawler never guesses links: it only follows elements matched by
+    ``link_selector`` (and, when ``follow_items`` is true, the ``externalUrl``
+    of the items the listing already produced). ``allow``/``deny`` are path
+    prefixes; ``match`` still has the final say over which URLs are owned by
+    the store.
+    """
+
+    link_selector: str | None = None
+    link_attribute: str = "href"
+    max_depth: int = 1
+    max_pages: int = 50
+    allow: tuple[str, ...] = ()
+    deny: tuple[str, ...] = ()
+    same_host: bool = True
+    follow_items: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class DetailSpec:
+    """How to enrich an item from its product detail page."""
+
+    root: str | None = None
+    detect: str | None = None
+    external_id: ValueSpec | None = None
+    fields: tuple[FieldSpec, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class StoreSpec:
     """A versioned definition of how one store is scraped."""
 
@@ -127,6 +172,8 @@ class StoreSpec:
     fields: tuple[FieldSpec, ...]
     dedupe_by: str = "externalId"
     reject_if_missing: tuple[str, ...] = ()
+    crawl: CrawlRules | None = None
+    detail: DetailSpec | None = None
     digest: str = ""
     path: Path | None = None
 
@@ -145,6 +192,8 @@ class StoreSpec:
             "storeId": self.store_id,
             "digest": self.digest,
             "path": str(self.path) if self.path else None,
+            "crawl": self.crawl is not None,
+            "detail": self.detail is not None,
         }
 
 
@@ -405,9 +454,11 @@ class RunState:
     duration_ms: int | None = None
     counters: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    task_id: str | None = None
+    trigger: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "runId": self.run_id,
             "status": self.status,
             "store": self.store,
@@ -418,6 +469,11 @@ class RunState:
             "counters": self.counters,
             "errors": self.errors,
         }
+        if self.task_id:
+            payload["taskId"] = self.task_id
+        if self.trigger:
+            payload["trigger"] = self.trigger
+        return payload
 
 
 @dataclass(slots=True)
