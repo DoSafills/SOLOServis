@@ -50,6 +50,7 @@ from scraper.models import (
 )
 from scraper.output.catalog import CatalogResult, write_catalog
 from scraper.output.raw import save_page_html, save_rejects, save_run_snapshot
+from scraper.output.sql import write_import_sql
 
 
 @dataclass(slots=True)
@@ -61,6 +62,8 @@ class PipelineResult:
     error: str | None = None
     ingestion_run_id: int | None = None
     ingestion_error: str | None = None
+    sql_file: str | None = None
+    sql_error: str | None = None
     rejects: int = 0
     warnings: list[str] = field(default_factory=list)
 
@@ -248,6 +251,23 @@ async def execute(
 
     ingestion_run_id: int | None = None
     ingestion_error: str | None = None
+    sql_file: str | None = None
+    sql_error: str | None = None
+    if items:
+        try:
+            sql_file = str(
+                await asyncio.to_thread(
+                    write_import_sql,
+                    settings.data_dir / "sql",
+                    run_id=run_id,
+                    store_slug=spec.slug,
+                    store_id=spec.store_id,
+                    items=[item.to_dict() for item in items.values()],
+                )
+            )
+        except (OSError, ValueError) as exc:
+            sql_error = str(exc)
+
     if status == RUN_STATUS_SUCCESS and ingestion is not None and items:
         ingestion_run_id, ingestion_error, sent, failed = await _ingest(
             ingestion, source, config, list(items.values())
@@ -278,6 +298,8 @@ async def execute(
         "error": error,
         "ingestionRunId": ingestion_run_id,
         "ingestionError": ingestion_error,
+        "sqlFile": sql_file,
+        "sqlError": sql_error,
     }
     await asyncio.to_thread(save_run_snapshot, settings.runs_dir / str(run_id), snapshot)
     await asyncio.to_thread(
@@ -299,6 +321,8 @@ async def execute(
         error=error,
         ingestion_run_id=ingestion_run_id,
         ingestion_error=ingestion_error,
+        sql_file=sql_file,
+        sql_error=sql_error,
         rejects=len(rejects),
         warnings=warnings,
     )
