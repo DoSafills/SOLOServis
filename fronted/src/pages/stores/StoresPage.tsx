@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Page, Product, Store, StoreDetail, StoreOffer, StoreProduct } from "../../types";
 import { getStores, getStoreById } from "../../services/api/api";
+import { formatPrice } from "../../services/utils/productUtils";
 import { Badge, Breadcrumb, Rating } from "../../components/common/ui";
-
-let offerIdCounter = 1000;
 
 interface Props {
   navigate: (page: Page) => void;
@@ -62,16 +61,6 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
           Directorio de tiendas comparadas en nuestra plataforma
         </p>
 
-        <div className="flex flex-wrap gap-2">
-          <input
-            type="search"
-            placeholder="Buscar tienda o proveedor..."
-            className="w-full sm:w-32 rounded-xl border border-slate-300/50 bg-slate-950/60 px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-prime focus:bg-slate-950/80 transition-colors"
-          />
-          <button className="rounded-xl bg-prime px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-opacity">
-            Agregar tienda
-          </button>
-        </div>
       </header>
 
       {loading ? (
@@ -148,9 +137,13 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
 
 function StoreProductCard({
   product,
+  storeId,
+  storeName,
   onAddToCart,
 }: {
   product: StoreProduct;
+  storeId: string;
+  storeName: string;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
 }) {
   const mappedProduct: Product = {
@@ -172,19 +165,31 @@ function StoreProductCard({
     tags: [],
   };
 
-  const mappedOffer: StoreOffer = {
-    offerId: offerIdCounter++,
-    storeId: "",
-    storeName: "",
-    price: product.price,
-    listPrice: product.listPrice,
-    available: product.available,
-    shipping: product.shippingCost,
-    shippingFree: product.shippingFree,
-    stock: product.stock,
-    condition: product.condition,
-    url: product.productUrl,
-  };
+  const offerId =
+    typeof product.offerId === "number" &&
+    Number.isInteger(product.offerId) &&
+    product.offerId > 0 &&
+    storeId.trim() !== "" &&
+    storeName.trim() !== ""
+      ? product.offerId
+      : null;
+
+  const mappedOffer: StoreOffer | null =
+    offerId === null || product.price === null || !Number.isFinite(product.price)
+      ? null
+      : {
+          offerId,
+          storeId,
+          storeName,
+          price: product.price,
+          listPrice: product.listPrice,
+          available: product.available,
+          shipping: product.shippingCost,
+          shippingFree: product.shippingFree,
+          stock: product.stock,
+          condition: product.condition,
+          url: product.productUrl,
+        };
 
   return (
     <div
@@ -221,14 +226,16 @@ function StoreProductCard({
 
         <div className="mt-4">
           <div className="text-xl font-bold text-prime">
-            {Number(product.price).toLocaleString("es-CL")} {product.currency}
+            {formatPrice(product.price)}
           </div>
 
-          {Number(product.listPrice) > Number(product.price) && (
-            <div className="text-xs text-muted line-through mt-1">
-              {Number(product.listPrice).toLocaleString("es-CL")} {product.currency}
-            </div>
-          )}
+          {product.price !== null &&
+            product.listPrice !== null &&
+            product.listPrice > product.price && (
+              <div className="text-xs text-muted line-through mt-1">
+                {formatPrice(product.listPrice)}
+              </div>
+            )}
         </div>
 
         <div className="mt-4 pt-4 border-t border-border space-y-2">
@@ -237,7 +244,9 @@ function StoreProductCard({
             <span className="text-muted-2 font-medium text-right">
               {product.shippingFree
                 ? "Gratis"
-                : `${Number(product.shippingCost).toLocaleString("es-CL")} ${product.currency}`}
+                : product.shippingCost === null
+                  ? "No informado"
+                  : formatPrice(product.shippingCost)}
             </span>
           </div>
 
@@ -256,11 +265,13 @@ function StoreProductCard({
 
         <button
           type="button"
-          disabled={!product.available}
-          onClick={() => onAddToCart(mappedProduct, mappedOffer)}
+          disabled={!product.available || mappedOffer === null}
+          onClick={() => {
+            if (mappedOffer !== null) onAddToCart(mappedProduct, mappedOffer);
+          }}
           className="mt-4 w-full rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none"
         >
-          Agregar al carrito
+          {mappedOffer === null ? "Oferta no disponible" : "Agregar al carrito"}
         </button>
       </div>
     </div>
@@ -447,7 +458,13 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
           {filteredProducts.map((product) => (
-            <StoreProductCard key={product.id} product={product} onAddToCart={onAddToCart} />
+            <StoreProductCard
+              key={product.id}
+              product={product}
+              storeId={store.id}
+              storeName={store.name}
+              onAddToCart={onAddToCart}
+            />
           ))}
         </div>
       )}

@@ -227,6 +227,23 @@ class TestIngestionProjection:
         assert '"schemaVersion": "1.0"' in first
         assert "SAMSUNG" in first
 
+    def test_from_replay_json_round_trips_canonical_item(self):
+        item = _item(source=SourceInfo(
+            name="Tienda", base_url="https://example.test", store_id=17))
+
+        restored = NormalizedItem.from_replay_json(item.to_json())
+
+        assert restored.to_dict() == item.to_dict()
+
+    def test_from_replay_json_requires_positive_store_id(self):
+        item = _item(source=SourceInfo(
+            name="Tienda", base_url="https://example.test", store_id=17))
+        payload = item.to_dict()
+        payload["source"]["storeId"] = 0
+
+        with pytest.raises(ValueError, match="source.storeId"):
+            NormalizedItem.from_replay_json(json.dumps(payload))
+
     def test_schema_describes_the_emitted_envelope(self):
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
         item = extract(FALABELLA_CARD)[0]
@@ -340,6 +357,16 @@ class TestValidation:
     def test_price_is_required(self):
         item = _item(offer=OfferPayload(price=""))
         assert any(e.field == "offer.price" and e.code == "required"
+                   for e in item.validate())
+
+    @pytest.mark.parametrize(
+        ("price", "code"),
+        [("0", "min"), ("0.40", "integer"), ("549990.50", "integer")],
+    )
+    def test_price_must_be_positive_integer_clp(self, price, code):
+        item = _item(offer=OfferPayload(price=price))
+
+        assert any(e.field == "offer.price" and e.code == code
                    for e in item.validate())
 
     def test_price_must_fit_numeric_12_2(self):

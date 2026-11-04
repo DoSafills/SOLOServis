@@ -27,9 +27,14 @@ export default function ProductCard({
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
   const bestOffer = getMinOffer(product);
+  const hasOfferWithoutPrice = product.offers.some(
+    (offer) => offer.price === null || !Number.isFinite(offer.price),
+  );
   const isInCart = cartProductIds.has(product.id);
   const discountPercent =
-    bestOffer?.listPrice && bestOffer.listPrice > bestOffer.price
+    bestOffer?.listPrice != null &&
+    bestOffer.price !== null &&
+    bestOffer.listPrice > bestOffer.price
       ? Math.round(((bestOffer.listPrice - bestOffer.price) / bestOffer.listPrice) * 100)
       : null;
 
@@ -151,7 +156,11 @@ export default function ProductCard({
               </span>
             </div>
           ) : (
-            <div className="text-sm font-semibold text-slate-400">No disponible</div>
+            <div className="text-sm font-semibold text-slate-400">
+              {hasOfferWithoutPrice || product.offers.length === 0
+                ? "Sin precio"
+                : "No disponible"}
+            </div>
           )}
         </div>
 

@@ -19,6 +19,8 @@ import signal
 import sys
 import threading
 import time
+from dataclasses import dataclass
+from pathlib import Path
 
 import config as cfg
 from crawler import CrawlSummary, start_run
@@ -28,8 +30,9 @@ from database import (
     get_active_jobs,
     init_db,
 )
-from ingestion import IngestionClient
+from ingestion import IngestionClient, IngestionError
 from models import RUN_STATUS_FAILED, RUN_STATUS_SUCCESS, DataSource, ScraperConfig
+from normalized import NormalizedItem
 from utils import configure_logging, get_logger
 
 _log_init = get_logger("INIT")
@@ -39,6 +42,115 @@ _log_shutdown = get_logger("SHUTDOWN")
 _log_summary = get_logger("SUMMARY")
 
 JOIN_TIMEOUT_SECONDS = 10
+
+
+@dataclass(slots=True)
+class ReplaySummary:
+    created: int = 0
+    updated: int = 0
+    failed: int = 0
+    rejected: int = 0
+    errors: int = 0
+
+
+async def replay_jsonl(
+    path: str | Path, client: IngestionClient | None = None,
+) -> ReplaySummary:
+    """Replay canonical normalized-item JSONL through Ingestion API."""
+    summary = ReplaySummary()
+    ingestion = client or IngestionClient.from_config()
+    if ingestion is None:
+        _log_init.error("replay unavailable: Ingestion API is not configured")
+        summary.errors += 1
+        return summary
+
+    grouped: dict[tuple[str, str, int], list[NormalizedItem]] = {}
+    try:
+        with Path(path).open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, 1):
+                if not line.strip():
+                    continue
+                try:
+                    item = NormalizedItem.from_replay_json(line)
+                except ValueError as exc:
+                    summary.rejected += 1
+                    _log_init.warning(
+                        "replay line %d rejected: %s", line_number, exc)
+                    continue
+
+                problems = item.validate()
+                if problems:
+                    summary.rejected += 1
+                    detail = "; ".join(
+                        f"{problem.field}: {problem.message}"
+                        for problem in problems)
+                    _log_init.warning(
+                        "replay line %d rejected: %s", line_number, detail)
+                    continue
+
+                source = item.source
+                if source is None or source.store_id is None:
+                    summary.rejected += 1
+                    _log_init.warning(
+                        "replay line %d rejected: source.storeId is required",
+                        line_number)
+                    continue
+                key = (source.name, source.base_url, source.store_id)
+                grouped.setdefault(key, []).append(item)
+    except OSError as exc:
+        _log_init.error("could not read replay file %s: %s", path, exc)
+        summary.errors += 1
+        return summary
+
+    for (source_name, base_url, store_id), items in grouped.items():
+        try:
+            run = await ingestion.open_run(source_name, base_url, store_id)
+        except IngestionError as exc:
+            summary.failed += len(items)
+            summary.errors += 1
+            _log_init.error(
+                "could not open replay run for %s: %s", source_name, exc)
+            continue
+
+        run_status = "success"
+        error_message: str | None = None
+        offset = 0
+        while offset < len(items):
+            batch = items[offset:offset + ingestion.batch_size]
+            try:
+                result = await ingestion.send_items(
+                    run.id, [item.to_ingestion() for item in batch])
+            except IngestionError as exc:
+                summary.failed += len(items) - offset
+                summary.errors += 1
+                run_status = "failed"
+                error_message = str(exc)
+                _log_init.error(
+                    "replay batch failed for run %d at item %d: %s",
+                    run.id, offset, exc)
+                break
+
+            summary.created += sum(
+                item_result.status == "created" for item_result in result.results)
+            summary.updated += sum(
+                item_result.status == "updated" for item_result in result.results)
+            summary.failed += result.failed
+            if result.failed:
+                run_status = "failed"
+            offset += len(batch)
+
+        try:
+            await ingestion.finish_run(run.id, run_status, error_message)
+        except IngestionError as exc:
+            summary.errors += 1
+            _log_init.error(
+                "could not finish replay run %d: %s", run.id, exc)
+
+    _log_summary.info(
+        "replay created=%d updated=%d failed=%d rejected=%d errors=%d",
+        summary.created, summary.updated, summary.failed,
+        summary.rejected, summary.errors)
+    return summary
 
 
 def distribute(jobs: list, n_parts: int) -> list[list]:
@@ -263,6 +375,14 @@ def _install_signal_handlers() -> None:
 def cli() -> int:
     configure_logging()
     _silence_third_party_logging()
+    if len(sys.argv) > 1 and sys.argv[1] == "replay":
+        if len(sys.argv) != 3:
+            _log_init.error("usage: python src/main.py replay <items.jsonl>")
+            return 2
+        summary = asyncio.run(replay_jsonl(sys.argv[2]))
+        return int(bool(
+            summary.failed or summary.rejected or summary.errors))
+
     _install_signal_handlers()
     _log_init.info("initializing database at %s", cfg.DB_PATH)
     init_db(cfg.DB_PATH)

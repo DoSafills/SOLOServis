@@ -73,7 +73,9 @@ const specFilterGroups = [
 const normalizeFilterValue = (value: string): string => value.trim().toLocaleLowerCase();
 
 const getProductPrice = (product: Product): number | null => {
-  const prices = product.offers.map((offer) => offer.price).filter(Number.isFinite);
+  const prices = product.offers
+    .map((offer) => offer.price)
+    .filter((price): price is number => price !== null && Number.isFinite(price));
   return prices.length ? Math.min(...prices) : null;
 };
 

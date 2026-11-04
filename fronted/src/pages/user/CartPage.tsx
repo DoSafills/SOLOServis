@@ -31,7 +31,13 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
   ).map(([id, store]) => ({
     id,
     ...store,
-    total: store.items.reduce((sum, item) => sum + item.offer.price * item.quantity, 0),
+    total: store.items.reduce<number | null>(
+      (sum, item) =>
+        sum === null || item.offer.price === null
+          ? null
+          : sum + item.offer.price * item.quantity,
+      0,
+    ),
   }));
   const serviceSummaries = Array.from(
     cart
@@ -52,9 +58,15 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
 
   const getDiscountPercent = (
     listPrice: number | null | undefined,
-    price: number,
+    price: number | null,
   ): number | null => {
-    if (listPrice === null || listPrice === undefined || listPrice <= price || listPrice <= 0) {
+    if (
+      price === null ||
+      listPrice === null ||
+      listPrice === undefined ||
+      listPrice <= price ||
+      listPrice <= 0
+    ) {
       return null;
     }
     return Math.round(((listPrice - price) / listPrice) * 100);
@@ -217,7 +229,7 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
 
             const { product, offer, quantity, cartItemId } = item;
             const price = offer.price;
-            const totalItem = price * quantity;
+            const totalItem = price === null ? null : price * quantity;
             const discountPercent = getDiscountPercent(offer.listPrice, price);
             const offerUrl = getSafeOfferUrl(offer.url);
 

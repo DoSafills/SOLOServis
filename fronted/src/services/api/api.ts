@@ -33,6 +33,7 @@ interface ApiStoreProduct {
   model: string;
   category: string;
   description: string;
+  offerId?: number | null;
   price: number | string | null;
   listPrice: number | string | null;
   currency: string;
@@ -61,6 +62,12 @@ interface ApiStoreDetail extends ApiStore {
   locations: ApiStoreLocation[];
 }
 
+interface ApiStoreOffer {
+  offerId: number;
+  productId: string;
+  productUrl: string;
+}
+
 interface ApiListEnvelope<T> {
   value: T[];
   Count: number;
@@ -81,13 +88,27 @@ async function fetchList<T>(baseUrl: string, path: string): Promise<T[]> {
   return Array.isArray(response) ? response : response.value;
 }
 
+async function fetchStoreOffers(storeId: string): Promise<ApiStoreOffer[]> {
+  const limit = 100;
+  const offers: ApiStoreOffer[] = [];
+
+  for (let offset = 0; ; offset += limit) {
+    const page = await fetchList<ApiStoreOffer>(
+      STORE_API_URL,
+      `/stores/${storeId}/offers?available=true&limit=${limit}&offset=${offset}`,
+    );
+    offers.push(...page);
+    if (page.length < limit) return offers;
+  }
+}
+
 const toStore = (store: ApiStore): Store => ({
   id: String(store.id),
   name: store.name ?? "",
   logo: store.logo ?? "",
-  rating: parseAmount(store.rating),
+  rating: parseAmount(store.rating, 0),
   reviewCount: parseAmount(store.reviewCount, 0),
-  productCount: parseAmount(store.productCount),
+  productCount: parseAmount(store.productCount, 0),
   reputation: store.reputation ?? "",
   dispatchTime: store.dispatchTime ?? "",
   conditions: store.conditions ?? "",
@@ -101,6 +122,7 @@ const toStoreProduct = (product: ApiStoreProduct): StoreProduct => ({
   model: product.model,
   category: product.category,
   description: product.description,
+  offerId: product.offerId ?? null,
   price: parseAmount(product.price),
   listPrice: parseAmount(product.listPrice),
   currency: product.currency,
@@ -190,5 +212,18 @@ export async function getStoreById(id: string): Promise<StoreDetail | null> {
     throw new Error(`Error ${response.status} al obtener la tienda`);
   }
 
-  return toStoreDetail((await response.json()) as ApiStoreDetail);
+  const detail = (await response.json()) as ApiStoreDetail;
+  const offers = await fetchStoreOffers(id);
+  const offerIdsByProductAndUrl = new Map(
+    offers.map((offer) => [JSON.stringify([offer.productId, offer.productUrl]), offer.offerId]),
+  );
+
+  return toStoreDetail({
+    ...detail,
+    products: (detail.products ?? []).map((product) => ({
+      ...product,
+      offerId:
+        offerIdsByProductAndUrl.get(JSON.stringify([product.id, product.productUrl])) ?? null,
+    })),
+  });
 }

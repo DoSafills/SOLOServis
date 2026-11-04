@@ -28,3 +28,4 @@
 021_cart_item_indexes.sql
 022_cart_item_constraints.sql
 023_fk_indexes.sql
+024_sin_clasificar_seed.sql
