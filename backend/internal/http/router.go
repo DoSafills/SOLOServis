@@ -95,7 +95,7 @@ func corsMiddleware(frontendURL string) func(http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", frontendURL)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
+						w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
 			if req.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return
@@ -114,6 +114,7 @@ func useStandardMiddleware(r chi.Router) *slog.Logger {
 	return logger
 }
 
+
 func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	handler := products.NewHandler(products.NewRepository(db), logger)
 	// Escrituras (TAL-70): solo admin o servicios internos con INTERNAL_API_TOKEN.
@@ -123,7 +124,7 @@ func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) 
 	// debe migrar a /categories (TAL-51) y luego se elimina.
 	r.Get("/product-categories", handler.ListCategories)
 	r.Get("/products", handler.List)
-	r.With(admin).Post("/products/duplicate-candidates", handler.DuplicateCandidates)
+		r.With(admin).Post("/products/duplicate-candidates", handler.DuplicateCandidates)
 	r.Get("/products/{publicID}", handler.GetByPublicID)
 	r.With(admin).Post("/products", handler.Create)
 	r.With(admin).Put("/products/{publicID}", handler.Update)

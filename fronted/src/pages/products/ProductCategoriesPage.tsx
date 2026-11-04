@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getAllProducts } from "../../Services/api/api";
-import { getCategories, type ApiProductCategory } from "../../Services/api/products";
+import { getAllProducts } from "../../services/api/api";
+import { getCategories, type ApiProductCategory } from "../../services/api/products";
 import { Breadcrumb } from "../../components/common/ui";
 import {
   getProductCategoryGroup,

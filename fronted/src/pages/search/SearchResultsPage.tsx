@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
-import { getProductById } from "../../Services/api/api";
-import { getCategories, type ApiProductCategory } from "../../Services/api/products";
-import { getDynamicCategories, type ProductCategory } from "../../Services/api/categories";
+import { getProductById } from "../../services/api/api";
+import { getCategories, type ApiProductCategory } from "../../services/api/products";
+import { getDynamicCategories, type ProductCategory } from "../../services/api/categories";
 import {
   getSearchFacetsAcrossCategories,
   getSearchFacets,
@@ -10,7 +10,7 @@ import {
   searchProducts,
   type SearchFacets,
   type SearchProductsParams,
-} from "../../Services/api/search";
+} from "../../services/api/search";
 import ProductCard from "../../components/products/ProductCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
 import { getProductCategoryGroup } from "../../constants/productCatalog";
