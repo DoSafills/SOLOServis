@@ -51,6 +51,14 @@ class RunNotFound(ScraperError):
     """The requested run id does not exist."""
 
 
+class TaskError(ScraperError):
+    """A recurring task definition is malformed or cannot be applied."""
+
+
+class TaskNotFound(ScraperError):
+    """The requested task id does not exist."""
+
+
 class StopTimeout(ScraperError):
     """A run ignored the stop request for longer than the grace period."""
 

@@ -13,10 +13,17 @@ data:
   SCRAPER_API_HOST: 0.0.0.0
   SCRAPER_API_PORT: "8095"
   SCRAPER_MAX_PAGES: "20"
+  SCRAPER_MAX_CRAWL_PAGES: "200"
   SCRAPER_RATE_LIMIT: 30/min
   SCRAPER_TIMEOUT: "20"
   SCRAPER_MAX_RETRIES: "3"
   SCRAPER_STOP_TIMEOUT: "30"
+  # Recurring tasks live as JSON files on the PVC, never in a new table.
+  SCRAPER_TASKS_DIR: /data/tasks
+  SCRAPER_MAX_PARALLEL_TASKS: "2"
+  SCRAPER_SCHEDULER_ENABLED: "true"
+  SCRAPER_SCHEDULER_TICK: "5"
+  SCRAPER_TASK_HISTORY_LIMIT: "50"
   # In the dominios topology ingestion is its own Service. The consolidado
   # component patches this to http://backend:8080.
   INGESTION_API_URL: http://ingestion:8080

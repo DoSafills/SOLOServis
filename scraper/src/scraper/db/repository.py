@@ -407,6 +407,32 @@ def save_items(db_path: str | Path, run_id: int, items: Iterable[Item]) -> int:
     return len(rows)
 
 
+def update_item(db_path: str | Path, run_id: int, item: Item) -> int:
+    """Rewrite one product row after a detail-page merge.
+
+    Items are inserted as soon as the listing produces them, so a crash keeps
+    the listing data. A detail page then enriches the row in place; the key
+    used for dedupe is the same key used here.
+    """
+    raw = item.to_json()
+    with closing(connect(db_path)) as conn, conn:
+        if item.external_url:
+            cursor = conn.execute(
+                "UPDATE SCRAPED_DATA SET raw_data = ?"
+                " WHERE scrape_run_id = ? AND entity_type = 'product' AND external_url = ?",
+                (raw, run_id, item.external_url),
+            )
+        elif item.external_id:
+            cursor = conn.execute(
+                "UPDATE SCRAPED_DATA SET raw_data = ?"
+                " WHERE scrape_run_id = ? AND entity_type = 'product' AND external_id = ?",
+                (raw, run_id, item.external_id),
+            )
+        else:
+            return 0
+        return cursor.rowcount
+
+
 def run_items(db_path: str | Path, run_id: int) -> list[dict[str, Any]]:
     with closing(connect(db_path)) as conn:
         rows = conn.execute(

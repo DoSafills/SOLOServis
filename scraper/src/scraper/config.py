@@ -53,6 +53,18 @@ def _float(env: Mapping[str, str], key: str, default: float) -> float:
         raise ConfigError(f"{key} must be a number, got {raw!r}") from exc
 
 
+def _bool(env: Mapping[str, str], key: str, default: bool) -> bool:
+    raw = env.get(key)
+    if raw is None or raw.strip() == "":
+        return default
+    text = raw.strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigError(f"{key} must be a boolean, got {raw!r}")
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Every knob the scraper reads, resolved and typed."""
@@ -63,13 +75,20 @@ class Settings:
     catalog_dir: Path
     runs_dir: Path
     rejects_dir: Path
+    tasks_dir: Path
 
     max_concurrency: int = 4
     max_pages: int = 20
+    max_crawl_pages: int = 200
     rate_limit: str = "60/min"
     timeout: float = 15.0
     max_retries: int = 3
     backoff_base: float = 1.0
+
+    max_parallel_tasks: int = 2
+    scheduler_enabled: bool = True
+    scheduler_tick: float = 5.0
+    task_history_limit: int = 50
 
     api_host: str = "0.0.0.0"
     api_port: int = 8095
@@ -97,6 +116,7 @@ class Settings:
             self.catalog_dir,
             self.runs_dir,
             self.rejects_dir,
+            self.tasks_dir,
             self.db_path.parent,
         ):
             path.mkdir(parents=True, exist_ok=True)
@@ -116,12 +136,18 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         catalog_dir=Path(source.get("SCRAPER_CATALOG_DIR", str(data_dir / "catalog"))),
         runs_dir=Path(source.get("SCRAPER_RUNS_DIR", str(data_dir / "runs"))),
         rejects_dir=Path(source.get("SCRAPER_REJECTS_DIR", str(data_dir / "rejected"))),
+        tasks_dir=Path(source.get("SCRAPER_TASKS_DIR", str(data_dir / "tasks"))),
         max_concurrency=_int(source, "SCRAPER_MAX_CONCURRENCY", 4),
         max_pages=_int(source, "SCRAPER_MAX_PAGES", 20),
+        max_crawl_pages=_int(source, "SCRAPER_MAX_CRAWL_PAGES", 200),
         rate_limit=source.get("SCRAPER_RATE_LIMIT", "60/min"),
         timeout=_float(source, "SCRAPER_TIMEOUT", 15.0),
         max_retries=_int(source, "SCRAPER_MAX_RETRIES", 3),
         backoff_base=_float(source, "SCRAPER_BACKOFF_BASE", 1.0),
+        max_parallel_tasks=_int(source, "SCRAPER_MAX_PARALLEL_TASKS", 2),
+        scheduler_enabled=_bool(source, "SCRAPER_SCHEDULER_ENABLED", True),
+        scheduler_tick=_float(source, "SCRAPER_SCHEDULER_TICK", 5.0),
+        task_history_limit=_int(source, "SCRAPER_TASK_HISTORY_LIMIT", 50),
         api_host=source.get("SCRAPER_API_HOST", "0.0.0.0"),
         api_port=_int(source, "SCRAPER_API_PORT", 8095),
         api_token=source.get("SCRAPER_API_TOKEN")
@@ -138,6 +164,14 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         raise ConfigError("SCRAPER_MAX_CONCURRENCY must be >= 1")
     if settings.max_pages < 1:
         raise ConfigError("SCRAPER_MAX_PAGES must be >= 1")
+    if settings.max_crawl_pages < 1:
+        raise ConfigError("SCRAPER_MAX_CRAWL_PAGES must be >= 1")
+    if settings.max_parallel_tasks < 1:
+        raise ConfigError("SCRAPER_MAX_PARALLEL_TASKS must be >= 1")
+    if settings.scheduler_tick < 0.1:
+        raise ConfigError("SCRAPER_SCHEDULER_TICK must be >= 0.1")
+    if settings.task_history_limit < 1:
+        raise ConfigError("SCRAPER_TASK_HISTORY_LIMIT must be >= 1")
     if not 1 <= settings.ingestion_batch_size <= 100:
         raise ConfigError("INGESTION_BATCH_SIZE must be between 1 and 100")
     return settings

@@ -26,6 +26,7 @@ from scraper.db.repository import (
     save_items,
     save_page,
     update_counters,
+    update_item,
 )
 
 __all__ = [
@@ -54,4 +55,5 @@ __all__ = [
     "save_items",
     "save_page",
     "update_counters",
+    "update_item",
 ]

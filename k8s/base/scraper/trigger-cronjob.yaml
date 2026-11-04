@@ -1,6 +1,9 @@
-# The schedule no longer crawls. It only asks the API to start one run per
-# store; the API queues them and the Deployment executes them one at a time.
+# Optional legacy fan-out. The Deployment now schedules recurring tasks itself
+# from /data/tasks. This job only asks the API to start one run per store; the
+# bounded pool executes them, and a store with an open run answers 409.
 # Idempotency-Key makes a retried job return the same run instead of a duplicate.
+# Remove this resource from k8s/base/kustomization.yaml once every store has a
+# task and you no longer want a daily safety net.
 apiVersion: batch/v1
 kind: CronJob
 metadata:

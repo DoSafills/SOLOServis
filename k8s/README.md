@@ -44,10 +44,12 @@ Además corren `frontend` (nginx con la app de Vite), `postgres` (StatefulSet co
 
 **Scraper v2:** `scraper-api` no es una API pública ni habla PostgreSQL. Es un
 Deployment de 1 réplica (`strategy: Recreate`) con un PVC `scraper-data` que
-guarda `scraper.db` y el catálogo por tienda. Expone `:8095` solo dentro del
-clúster (`/health`, `/ready`, `/stores`, `/runs`). El CronJob
-`scraper-trigger` no crawlea: llama `POST /runs` por tienda y sale. El detalle
-del paquete está en [`scraper/README.md`](../scraper/README.md).
+guarda `scraper.db`, el catálogo por tienda y las tareas recurrentes en
+`/data/tasks`. Expone `:8095` solo dentro del clúster (`/health`, `/ready`,
+`/stores`, `/runs`, `/tasks`). El daemon agenda sus propias tareas; el CronJob
+`scraper-trigger` no crawlea, solo llama `POST /runs` por tienda y sale, y es
+opcional una vez que cada tienda tiene tarea. El detalle del paquete está en
+[`scraper/README.md`](../scraper/README.md).
 
 **Cómo se reparten las llamadas:**
 - Una ruta que no es del dominio responde **404** en ese pod (por ejemplo, `/auth/login` en `comercial`). El nginx manda cada ruta al pod correcto.
@@ -385,6 +387,27 @@ curl -sS -X POST http://127.0.0.1:8095/runs \
 curl -sS http://127.0.0.1:8095/runs/1 -H "Authorization: Bearer $TOKEN"
 curl -sS -X POST http://127.0.0.1:8095/runs/1/stop -H "Authorization: Bearer $TOKEN"
 ```
+
+Crear una tarea recurrente (el daemon la agenda; sobrevive al pod porque vive
+en `/data/tasks`):
+
+```bash
+curl -sS -X POST http://127.0.0.1:8095/tasks \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"store":"ripley-cl","schedule":{"kind":"interval","every":"1h"}}'
+curl -sS http://127.0.0.1:8095/tasks -H "Authorization: Bearer $TOKEN"
+```
+
+Freno de emergencia para todas las tareas y runs activos:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8095/tasks/stop -H "Authorization: Bearer $TOKEN"
+curl -sS -X POST http://127.0.0.1:8095/tasks/start -H "Authorization: Bearer $TOKEN"
+```
+
+El CronJob queda como disparo opcional. Si todas las tiendas ya tienen tarea,
+se puede quitar de `k8s/base/kustomization.yaml`; mientras conviva, un trigger
+que choque con una tarea recibe `409` y no duplica el crawl.
 
 Disparar el CronJob sin esperar la hora:
 
