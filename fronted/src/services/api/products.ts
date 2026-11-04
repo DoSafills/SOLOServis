@@ -7,9 +7,9 @@ interface ApiImage {
   sortOrder: number;
 }
 
-interface ApiOffer {
+export interface ApiOffer {
   offerId: number;
-  storeId: string;
+  storeId: number;
   storeName: string;
   price: string;
   listPrice: string | number | null;
@@ -54,6 +54,7 @@ export interface ApiProduct {
   brand: string;
   model: string;
   categoryId: number;
+  categorySlug?: string | null;
   category: string;
   subcategory: string;
   description: string;
@@ -66,16 +67,30 @@ export interface ApiProduct {
   offerPriceHistory?: ApiPricePoint[];
 }
 
-export const parseAmount = (value: string | number | null | undefined, fallback = 0): number => {
-  const amount = Number(value ?? fallback);
+export function parseAmount(
+  value: string | number | null | undefined,
+  fallback: number,
+): number;
+export function parseAmount(
+  value: string | number | null | undefined,
+  fallback?: null,
+): number | null;
+export function parseAmount(
+  value: string | number | null | undefined,
+  fallback: number | null = null,
+): number | null {
+  if (value === null || value === undefined || (typeof value === "string" && !value.trim())) {
+    return fallback;
+  }
+  const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
-};
+}
 
 const toPricePoints = (points: ApiPricePoint[] | undefined): PricePoint[] =>
-  (points ?? []).map((point) => ({
-    date: point.date,
-    price: parseAmount(point.price),
-  }));
+  (points ?? []).flatMap((point) => {
+    const price = parseAmount(point.price);
+    return price === null ? [] : [{ date: point.date, price }];
+  });
 
 export const toProduct = (product: ApiProduct): Product => {
   const images = (product.images ?? []).map((image) => image.url).filter(Boolean);
@@ -120,6 +135,7 @@ export const toProduct = (product: ApiProduct): Product => {
     brand: product.brand,
     model: product.model,
     categoryId: product.categoryId,
+    categorySlug: product.categorySlug ?? null,
     category: product.category,
     subcategory: product.subcategory ?? "",
     image: images[0] ?? "",

@@ -37,7 +37,7 @@ export interface StoreOffer {
   offerId: number;
   storeId: string;
   storeName: string;
-  price: number;
+  price: number | null;
   listPrice?: number | null;
   available: boolean;
   shipping: number | null;
@@ -62,6 +62,7 @@ export interface Product {
   model: string;
   /** Id de la categoría del producto en el backend (la subcategoría si la tiene) */
   categoryId?: number;
+  categorySlug?: string | null;
   category: string;
   subcategory: string;
   image: string;
@@ -138,10 +139,11 @@ export interface StoreProduct {
   model: string;
   category: string;
   description: string;
-  price: number;
-  listPrice: number;
+  offerId?: number | null;
+  price: number | null;
+  listPrice: number | null;
   currency: string;
-  shippingCost: number;
+  shippingCost: number | null;
   shippingFree: boolean;
   available: boolean;
   stock: number | null;

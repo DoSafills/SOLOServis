@@ -44,7 +44,7 @@ func (r *Repository) GetOfferByID(ctx context.Context, offerID int32) (generated
 }
 
 func (r *Repository) UpsertOffer(ctx context.Context, params generated.UpsertProductOfferParams) (generated.ProductOffer, error) {
-	if err := ValidateCurrencyCode(params.Currency); err != nil {
+	if err := ValidateSupportedOfferCurrencyCode(params.Currency); err != nil {
 		return generated.ProductOffer{}, err
 	}
 	if params.ProductUrl.Valid {

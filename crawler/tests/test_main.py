@@ -13,8 +13,56 @@ from database import (
     get_run,
     init_db,
 )
-from main import distribute, run_job
+from ingestion import BatchResult, ItemResult
+from main import distribute, replay_jsonl, run_job
 from models import DataSource, ScrapeResult
+from normalized import NormalizedItem, OfferPayload, ProductPayload, SourceInfo
+
+
+class FakeReplayClient:
+    batch_size = 1
+
+    def __init__(self, statuses=("created", "updated")):
+        self.opened_runs = []
+        self.sent_batches = []
+        self.finished_runs = []
+        self.statuses = statuses
+
+    async def open_run(self, source_name, base_url, store_id):
+        run = type("Run", (), {"id": len(self.opened_runs) + 1})()
+        self.opened_runs.append((source_name, base_url, store_id, run))
+        return run
+
+    async def send_items(self, run_id, items):
+        self.sent_batches.append((run_id, items))
+        status = self.statuses[len(self.sent_batches) - 1]
+        failed = int(status == "failed")
+        return BatchResult(
+            run_id=run_id,
+            received=len(items),
+            processed=len(items) - failed,
+            failed=failed,
+            results=[
+                ItemResult(index=index, status=status)
+                for index in range(len(items))
+            ],
+        )
+
+    async def finish_run(self, run_id, status, error_message=None):
+        self.finished_runs.append((run_id, status, error_message))
+
+
+def _replay_item_json(external_id):
+    item = NormalizedItem(
+        product=ProductPayload(
+            name="Refrigerador", category_slug="refrigeradores"),
+        offer=OfferPayload(price="549990.00"),
+        external_url=f"https://example.test/{external_id}",
+        external_id=external_id,
+        source=SourceInfo(
+            name="Tienda", base_url="https://example.test", store_id=17),
+    )
+    return item.to_json()
 
 
 class TestDistribute:
@@ -33,6 +81,36 @@ class TestDistribute:
 
     def test_empty_jobs(self):
         assert distribute([], 3) == []
+
+
+class TestReplayJsonl:
+    def test_replays_valid_items_and_counts_invalid_lines(self, tmp_path):
+        path = tmp_path / "items.jsonl"
+        path.write_text(
+            _replay_item_json("one") + "\n"
+            "{\"schemaVersion\":\"unsupported\"}\n"
+            + _replay_item_json("two") + "\n",
+            encoding="utf-8",
+        )
+        client = FakeReplayClient()
+
+        summary = asyncio.run(replay_jsonl(path, client))
+
+        assert (summary.created, summary.updated, summary.failed,
+                summary.rejected, summary.errors) == (1, 1, 0, 1, 0)
+        assert len(client.opened_runs) == 1
+        assert len(client.sent_batches) == 2
+        assert client.finished_runs == [(1, "success", None)]
+
+    def test_api_item_failure_marks_run_failed(self, tmp_path):
+        path = tmp_path / "items.jsonl"
+        path.write_text(_replay_item_json("one") + "\n", encoding="utf-8")
+        client = FakeReplayClient(statuses=("failed",))
+
+        summary = asyncio.run(replay_jsonl(path, client))
+
+        assert summary.failed == 1
+        assert client.finished_runs == [(1, "failed", None)]
 
 
 class TestParseSeedUrls:

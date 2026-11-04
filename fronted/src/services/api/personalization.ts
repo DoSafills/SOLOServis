@@ -1,15 +1,17 @@
 import type { AnyCartItem, Product, Service } from "../../types";
 import { getProductById, getServiceById } from "../../services/api/api";
+import { getApiBaseUrl } from "./config";
 
-const FAVORITES_API_URL = import.meta.env.VITE_FAVORITES_API_URL ?? "http://localhost:8089";
-const CART_API_URL = import.meta.env.VITE_CART_API_URL ?? "http://localhost:8090";
-const COMPARISON_API_URL = import.meta.env.VITE_COMPARISON_API_URL ?? "http://localhost:8087";
-const AUTH_API_URL = import.meta.env.VITE_AUTH_API_URL ?? "http://localhost:8088";
-const SEARCH_API_URL = import.meta.env.VITE_SEARCH_API_URL ?? "http://localhost:8086";
+const FAVORITES_API_URL = getApiBaseUrl(import.meta.env.VITE_FAVORITES_API_URL, 8089);
+const CART_API_URL = getApiBaseUrl(import.meta.env.VITE_CART_API_URL, 8090);
+const COMPARISON_API_URL = getApiBaseUrl(import.meta.env.VITE_COMPARISON_API_URL, 8087);
+const AUTH_API_URL = getApiBaseUrl(import.meta.env.VITE_AUTH_API_URL, 8088);
+const SEARCH_API_URL = getApiBaseUrl(import.meta.env.VITE_SEARCH_API_URL, 8086);
 
 const AUTH_SESSION_KEY = "soloservice.auth-session";
 const COMPARISON_ID_KEY = "soloservice.product-comparison-id";
 const SERVICE_COMPARISON_ID_KEY = "soloservice.service-comparison-id";
+let refreshPromise: Promise<AuthSession | null> | null = null;
 
 export interface AuthUser {
   userId: number;
@@ -81,24 +83,9 @@ async function request<T>(
   });
 
   if (response.status === 401 && retryWithRefresh && baseUrl !== AUTH_API_URL && session) {
-    const refreshResponse = await fetch(`${AUTH_API_URL}/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: session.refreshToken }),
-    });
-    if (refreshResponse.ok) {
-      const tokens = (await refreshResponse.json()) as TokenResponse;
-      if (tokens.accessToken && tokens.refreshToken) {
-        storeAuthSession({
-          ...session,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          accessTokenExpiresAt: Date.now() + tokens.expiresIn * 1000,
-        });
-        return request<T>(baseUrl, path, init, false);
-      }
-    } else if (refreshResponse.status === 401) {
-      localStorage.removeItem(AUTH_SESSION_KEY);
+    const refreshedSession = await refreshAuthSession(session);
+    if (refreshedSession) {
+      return request<T>(baseUrl, path, init, false);
     }
   }
 
@@ -153,6 +140,32 @@ function getStoredAuthSession(): AuthSession | null {
 
 function storeAuthSession(session: AuthSession): void {
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+}
+
+async function refreshAuthSession(session: AuthSession): Promise<AuthSession | null> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${AUTH_API_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken: session.refreshToken }),
+      });
+      if (!response.ok) {
+        if (response.status === 401) localStorage.removeItem(AUTH_SESSION_KEY);
+        return null;
+      }
+      const tokens = (await response.json()) as TokenResponse;
+      return await createSession(tokens);
+    } catch {
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 async function createSession(tokens: TokenResponse): Promise<AuthSession> {
@@ -212,19 +225,7 @@ export async function restoreAuthSession(): Promise<AuthSession | null> {
     }
   }
 
-  try {
-    const tokens = await request<TokenResponse>(AUTH_API_URL, "/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ refreshToken: session.refreshToken }),
-    });
-    return createSession(tokens);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      localStorage.removeItem(AUTH_SESSION_KEY);
-      return null;
-    }
-    throw error;
-  }
+  return refreshAuthSession(session);
 }
 
 export async function logoutAccount(): Promise<void> {

@@ -1,20 +1,13 @@
 import type { Product } from "../../types";
 import { API_URLS, getJson } from "./config";
-import type { ApiProduct } from "./products";
+import { parseAmount } from "./products";
+import type { ApiOffer, ApiProduct } from "./products";
 
-export interface ApiProductDetail extends ApiProduct {
-  images: Array<{ url: string; altText: string }>;
-  offers: Array<{
-    storeId: number;
-    storeName: string;
-    price: string;
-    shippingCost: string;
-    shippingFree: boolean;
-    available: boolean;
-    productUrl: string;
-  }>;
+export type ApiProductDetail = Omit<ApiProduct, "images" | "offers"> & {
+  images: NonNullable<ApiProduct["images"]>;
+  offers: ApiOffer[];
   specifications: ApiProductSpecification[];
-}
+};
 
 export interface ApiProductSpecification {
   name: string;
@@ -37,7 +30,7 @@ function buildSpecs(
 }
 
 export function toProduct(product: ApiProduct | ApiProductDetail): Product {
-  const detail = "images" in product ? product : undefined;
+  const detail = "specifications" in product ? product : undefined;
   const images = detail?.images.map((image) => image.url) ?? [];
   return {
     id: product.id,
@@ -45,6 +38,7 @@ export function toProduct(product: ApiProduct | ApiProductDetail): Product {
     brand: product.brand,
     model: product.model,
     categoryId: product.categoryId,
+    categorySlug: product.categorySlug ?? null,
     category: product.category,
     subcategory: product.subcategory,
     image: images[0] ?? "",
@@ -57,10 +51,18 @@ export function toProduct(product: ApiProduct | ApiProductDetail): Product {
       detail?.offers.map((offer) => ({
         storeId: String(offer.storeId),
         storeName: offer.storeName,
-        price: Number(offer.price) || 0,
+        offerId: offer.offerId,
+        price: parseAmount(offer.price),
+        listPrice: parseAmount(offer.listPrice),
         available: offer.available,
-        shipping: offer.shippingFree ? 0 : Number(offer.shippingCost) || null,
+        shipping: offer.shippingFree ? 0 : parseAmount(offer.shippingCost),
+        shippingFree: offer.shippingFree,
+        stock: offer.stock,
+        condition: offer.condition,
         url: offer.productUrl,
+        deliveryTime: offer.deliveryTime ?? undefined,
+        warranty: offer.warranty ?? undefined,
+        lastUpdated: offer.lastUpdated ?? undefined,
       })) ?? [],
     priceHistory: [],
     offerPriceHistory: [],

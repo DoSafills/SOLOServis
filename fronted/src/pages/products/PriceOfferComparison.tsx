@@ -13,6 +13,7 @@ interface Props {
 }
 
 const getTotal = (offer: StoreOffer): number | null => {
+  if (offer.price === null || !Number.isFinite(offer.price)) return null;
   const shipping = offer.shippingFree ? 0 : offer.shipping;
   return shipping === null ? null : offer.price + shipping;
 };
@@ -120,6 +121,7 @@ function SelectedOffersTable({
             </th>
             {offers.map((offer) => {
               const discounted =
+                offer.price !== null &&
                 offer.listPrice !== null &&
                 offer.listPrice !== undefined &&
                 offer.listPrice > offer.price;
@@ -192,7 +194,11 @@ function SelectedOffersTable({
                       : "border-slate-800 bg-slate-950/65 text-slate-100"
                   }`}
                 >
-                  {total === null ? "No informado" : formatPrice(total)}
+                  {total === null
+                    ? offer.price === null
+                      ? "Sin precio"
+                      : "No informado"
+                    : formatPrice(total)}
                 </td>
               );
             })}
@@ -307,7 +313,7 @@ function SelectedOffersTable({
               >
                 <button
                   type="button"
-                  disabled={!offer.available}
+                  disabled={!offer.available || offer.price === null}
                   onClick={() => onAddToCart(product, offer)}
                   className="rounded-lg bg-gradient-to-r from-[#ff9878] to-[#fb7185] px-3 py-2 text-xs font-semibold text-white shadow-md shadow-rose-500/15 transition hover:brightness-105 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none"
                 >
@@ -494,6 +500,7 @@ export default function PriceOfferComparison({
             {lowestOffers.map((offer) => {
               const safeUrl = getSafeOfferUrl(offer.url);
               const discounted =
+                offer.price !== null &&
                 offer.listPrice !== null &&
                 offer.listPrice !== undefined &&
                 offer.listPrice > offer.price;
@@ -725,6 +732,7 @@ export default function PriceOfferComparison({
                     (lowestOffer) => lowestOffer.storeId === offer.storeId,
                   );
                   const isDiscounted =
+                    offer.price !== null &&
                     offer.listPrice !== null &&
                     offer.listPrice !== undefined &&
                     offer.listPrice > offer.price;
@@ -779,7 +787,11 @@ export default function PriceOfferComparison({
                       <td
                         className={`px-4 py-4 text-sm font-bold whitespace-nowrap ${isLowest ? "text-violet-200" : "text-white"}`}
                       >
-                        {total === null ? "No informado" : formatPrice(total)}
+                        {total === null
+                          ? offer.price === null
+                            ? "Sin precio"
+                            : "No informado"
+                          : formatPrice(total)}
                       </td>
                       <td className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap">
                         {offer.deliveryTime || "No informado"}

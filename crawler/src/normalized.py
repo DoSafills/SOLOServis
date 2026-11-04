@@ -605,6 +605,134 @@ class NormalizedItem:
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=True)
 
+    @classmethod
+    def from_replay_json(cls, raw: str) -> "NormalizedItem":
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid JSON: {exc.msg}") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("JSONL record must be an object")
+        if payload.get("schemaVersion") != SCHEMA_VERSION:
+            raise ValueError("unsupported schemaVersion")
+        if payload.get("entityType") != "product":
+            raise ValueError("entityType must be 'product'")
+
+        def object_field(value: Any, name: str) -> dict[str, Any]:
+            if not isinstance(value, dict):
+                raise ValueError(f"{name} must be an object")
+            return value
+
+        def string_field(
+            value: Any, name: str, *, optional: bool = False,
+        ) -> str | None:
+            if value is None and optional:
+                return None
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def optional_integer(value: Any, name: str) -> int | None:
+            if value is None:
+                return None
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"{name} must be an integer")
+            return value
+
+        product = object_field(payload.get("product"), "product")
+        offer = object_field(payload.get("offer"), "offer")
+        source = object_field(payload.get("source"), "source")
+        provenance = object_field(payload.get("provenance"), "provenance")
+
+        attributes = product.get("attributes", {})
+        if not isinstance(attributes, dict) or any(
+            not isinstance(key, str) for key in attributes
+        ):
+            raise ValueError("product.attributes must be an object with string keys")
+
+        references = provenance.get("references", {})
+        if not isinstance(references, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in references.items()
+        ):
+            raise ValueError("provenance.references must contain string pairs")
+        errors = provenance.get("errors", [])
+        if not isinstance(errors, list) or any(
+            not isinstance(error, str) for error in errors
+        ):
+            raise ValueError("provenance.errors must be a list of strings")
+
+        store_id = optional_integer(source.get("storeId"), "source.storeId")
+        if store_id is None or not 0 < store_id <= 2_147_483_647:
+            raise ValueError("source.storeId must be a positive 32-bit integer")
+        stock = optional_integer(offer.get("stock"), "offer.stock")
+        raw_shipping_free = offer.get("shippingFree")
+        raw_available = offer.get("available")
+        if not isinstance(raw_shipping_free, bool):
+            raise ValueError("offer.shippingFree must be a boolean")
+        if not isinstance(raw_available, bool):
+            raise ValueError("offer.available must be a boolean")
+
+        return cls(
+            product=ProductPayload(
+                name=string_field(product.get("name"), "product.name") or "",
+                sku=string_field(product.get("sku"), "product.sku", optional=True),
+                model=string_field(
+                    product.get("model"), "product.model", optional=True),
+                brand=string_field(
+                    product.get("brand"), "product.brand", optional=True),
+                category_slug=string_field(
+                    product.get("categorySlug"), "product.categorySlug",
+                    optional=True),
+                description=string_field(
+                    product.get("description"), "product.description",
+                    optional=True),
+                image_url=string_field(
+                    product.get("imageUrl"), "product.imageUrl", optional=True),
+                attributes=attributes,
+            ),
+            offer=OfferPayload(
+                price=string_field(offer.get("price"), "offer.price") or "",
+                list_price=string_field(
+                    offer.get("listPrice"), "offer.listPrice", optional=True),
+                currency=string_field(
+                    offer.get("currency"), "offer.currency") or "",
+                shipping_cost=string_field(
+                    offer.get("shippingCost"),
+                    "offer.shippingCost") or "",
+                shipping_free=raw_shipping_free,
+                available=raw_available,
+                stock=stock,
+                condition=string_field(
+                    offer.get("condition"), "offer.condition") or "",
+                product_url=string_field(
+                    offer.get("productUrl"), "offer.productUrl", optional=True),
+            ),
+            external_url=string_field(
+                payload.get("externalUrl"), "externalUrl") or "",
+            external_id=string_field(
+                payload.get("externalId"), "externalId", optional=True),
+            source=SourceInfo(
+                name=string_field(source.get("name"), "source.name") or "",
+                base_url=string_field(
+                    source.get("baseUrl"), "source.baseUrl") or "",
+                store_id=store_id,
+            ),
+            provenance=Provenance(
+                scraped_at=string_field(
+                    provenance.get("scrapedAt", ""), "provenance.scrapedAt") or "",
+                page_url=string_field(
+                    provenance.get("pageUrl"), "provenance.pageUrl",
+                    optional=True),
+                run_id=optional_integer(
+                    provenance.get("runId"), "provenance.runId"),
+                config_id=optional_integer(
+                    provenance.get("configId"), "provenance.configId"),
+                references=references,
+                errors=errors,
+            ),
+        )
+
     def validate(self) -> list[FieldError]:
         """Apply the ingestion rules locally, with the same field codes."""
         errors: list[FieldError] = []
@@ -647,6 +775,15 @@ class NormalizedItem:
 
         offer = self.offer
         _money(errors, "offer.price", offer.price, required=True)
+        if isinstance(offer.price, str) and MONEY_RE.match(offer.price):
+            price = Decimal(offer.price)
+            if price <= 0:
+                errors.append(_error(
+                    "offer.price", "min", "offer.price debe ser mayor que 0"))
+            elif price != price.to_integral_value():
+                errors.append(_error(
+                    "offer.price", "integer",
+                    "offer.price debe ser un monto entero en CLP"))
         _money(errors, "offer.listPrice", offer.list_price)
         _money(errors, "offer.shippingCost", offer.shipping_cost)
 

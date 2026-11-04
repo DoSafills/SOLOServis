@@ -81,27 +81,12 @@ func adminOnly(db *pgxpool.Pool, logger *slog.Logger) func(http.Handler) http.Ha
 func newRouter(name string, db *pgxpool.Pool, frontendURL string, registrars ...routeRegistrar) *chi.Mux {
 	r := chi.NewRouter()
 	logger := useStandardMiddleware(r)
-	r.Use(corsMiddleware(frontendURL))
+	r.Use(httpx.CORS(frontendURL))
 	r.Get("/health", HealthHandler(name, db))
 	for _, register := range registrars {
 		register(r, db, logger)
 	}
 	return r
-}
-
-func corsMiddleware(frontendURL string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", frontendURL)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			if req.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			next.ServeHTTP(w, req)
-		})
-	}
 }
 
 // useStandardMiddleware aplica el estándar TAL-78: RequestID → AccessLog → Recover.
@@ -112,7 +97,6 @@ func useStandardMiddleware(r chi.Router) *slog.Logger {
 	r.Use(httpx.RequestID, httpx.AccessLog(logger), httpx.Recover(logger))
 	return logger
 }
-
 
 func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	handler := products.NewHandler(products.NewRepository(db), logger)

@@ -72,3 +72,17 @@ func TestValidateCurrencyCode(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateSupportedOfferCurrencyCode(t *testing.T) {
+	for _, currency := range []string{"CLP", "USD", "EUR", "GBP", "CAD", "AUD", "CHF", "JPY", "CNY", "BRL", "MXN", "ARS"} {
+		if err := ValidateSupportedOfferCurrencyCode(currency); err != nil {
+			t.Errorf("ValidateSupportedOfferCurrencyCode(%q) returned an error: %v", currency, err)
+		}
+	}
+
+	for _, currency := range []string{"NZD", "usd", "US1", ""} {
+		if err := ValidateSupportedOfferCurrencyCode(currency); err == nil {
+			t.Errorf("ValidateSupportedOfferCurrencyCode(%q) returned no error", currency)
+		}
+	}
+}

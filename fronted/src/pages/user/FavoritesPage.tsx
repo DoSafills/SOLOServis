@@ -167,8 +167,10 @@ export default function FavoritesPage({
           <div className="space-y-3">
             {favProducts.map((product) => {
               const minPrice = getMinPrice(product);
-              const prevPrice = Math.round((minPrice * 1.08) / 1000) * 1000;
-              const diff = prevPrice - minPrice;
+              const prevPrice =
+                minPrice === null ? null : Math.round((minPrice * 1.08) / 1000) * 1000;
+              const diff =
+                minPrice === null || prevPrice === null ? null : prevPrice - minPrice;
 
               return (
                 <div
@@ -218,7 +220,7 @@ export default function FavoritesPage({
                       {formatPrice(minPrice)}
                     </div>
 
-                    {diff > 0 && (
+                    {diff !== null && diff > 0 && (
                       <div className="flex items-center gap-1 text-xs text-success font-semibold justify-end">
                         <svg
                           width="10"
@@ -234,7 +236,11 @@ export default function FavoritesPage({
                       </div>
                     )}
 
-                    <div className="text-xs text-muted line-through">{formatPrice(prevPrice)}</div>
+                    {prevPrice !== null && (
+                      <div className="text-xs text-muted line-through">
+                        {formatPrice(prevPrice)}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-col items-center gap-2 shrink-0">

@@ -176,8 +176,13 @@ func ValidateOfferFields(v *httpx.Validator, f OfferFields) OfferWrite {
 	if offer.Currency == "" {
 		offer.Currency = "CLP"
 	}
-	v.Check(products.ValidateCurrencyCode(offer.Currency) == nil, "currency", "format",
+	currencyFormatErr := products.ValidateCurrencyCode(offer.Currency)
+	v.Check(currencyFormatErr == nil, "currency", "format",
 		"currency debe tener exactamente tres letras mayúsculas (ISO 4217)")
+	if currencyFormatErr == nil {
+		v.Check(products.ValidateSupportedOfferCurrencyCode(offer.Currency) == nil, "currency", "one_of",
+			"currency debe tener una tasa de conversión configurada a CLP")
+	}
 
 	offer.Condition = strings.TrimSpace(f.Condition)
 	if offer.Condition == "" {

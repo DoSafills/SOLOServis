@@ -1,16 +1,20 @@
+export function getApiBaseUrl(configuredUrl: string | undefined, port: number): string {
+  return configuredUrl ?? `http://${window.location.hostname}:${port}`;
+}
+
 export const API_URLS = {
-  products:
-    import.meta.env.VITE_PRODUCTS_API_URL ??
-    import.meta.env.VITE_PRODUCT_API_URL ??
-    "http://localhost:8081",
-  stores:
-    import.meta.env.VITE_STORES_API_URL ??
-    import.meta.env.VITE_STORE_API_URL ??
-    "http://localhost:8082",
-  services:
-    import.meta.env.VITE_SERVICES_API_URL ??
-    import.meta.env.VITE_SERVICE_API_URL ??
-    "http://localhost:8083",
+  products: getApiBaseUrl(
+    import.meta.env.VITE_PRODUCTS_API_URL ?? import.meta.env.VITE_PRODUCT_API_URL,
+    8081,
+  ),
+  stores: getApiBaseUrl(
+    import.meta.env.VITE_STORES_API_URL ?? import.meta.env.VITE_STORE_API_URL,
+    8082,
+  ),
+  services: getApiBaseUrl(
+    import.meta.env.VITE_SERVICES_API_URL ?? import.meta.env.VITE_SERVICE_API_URL,
+    8083,
+  ),
 };
 
 export async function getJson<T>(url: string): Promise<T> {

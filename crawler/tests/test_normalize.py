@@ -265,6 +265,77 @@ class TestNormalization:
         assert {p["name"] for p in products} == {
             "Sharp Objects", "The Past Never Ends"}
 
+    def test_failed_product_does_not_shift_offer_parent_alignment(self, tmp_path):
+        source = str(tmp_path / "crawler.db")
+        target = str(tmp_path / "normalized.db")
+        html = """
+        <html><body>
+          <article class="pod">
+            <p class="brand">Serpentine</p>
+            <p class="category">Mystery</p>
+            <p class="price_color">&pound;11.00</p>
+          </article>
+          <article class="pod">
+            <h3 class="title"><a href="catalogue/2_2/index.html">Second</a></h3>
+            <p class="brand">Serpentine</p>
+            <p class="category">Mystery</p>
+            <p class="price_color">&pound;22.00</p>
+          </article>
+          <article class="pod">
+            <h3 class="title"><a href="catalogue/3_3/index.html">Third</a></h3>
+            <p class="brand">Serpentine</p>
+            <p class="category">Mystery</p>
+            <p class="price_color">&pound;33.00</p>
+          </article>
+        </body></html>
+        """
+        _build_crawler_db(source, html=html)
+
+        Normalizer(target).run(source)
+
+        products = {row["name"]: row["id"] for row in _rows(target, "product")}
+        offers = _rows(target, "product_offer")
+        assert len(products) == 2
+        assert {
+            offer["product_id"]: Decimal(offer["price"]) for offer in offers
+        } == {
+            products["Second"]: Decimal("22"),
+            products["Third"]: Decimal("33"),
+        }
+
+    def test_seeded_store_matches_trimmed_name(self, tmp_path):
+        source = str(tmp_path / "crawler.db")
+        target = str(tmp_path / "normalized.db")
+        Normalizer(target, rebuild=False)._create_target()
+        with sqlite3.connect(target) as conn:
+            conn.execute(
+                "INSERT INTO store (name, website_url) VALUES (?, ?)",
+                ("Books Store", "https://old-books.test/"))
+        _build_crawler_db(source, name=" Books Store ")
+
+        Normalizer(target, rebuild=False).run(source)
+
+        matching_stores = [
+            row for row in _rows(target, "store")
+            if row["name"].strip().lower() == "books store"
+        ]
+        assert len(matching_stores) == 1
+
+    def test_store_resolver_matches_trimmed_existing_name(self, tmp_path):
+        target = str(tmp_path / "normalized.db")
+        normalizer = Normalizer(target)
+        normalizer._create_target()
+        conn = sqlite3.connect(target)
+        conn.row_factory = sqlite3.Row
+        try:
+            store_id = conn.execute(
+                "INSERT INTO store (name) VALUES (?)", (" Serpentine ",)
+            ).lastrowid
+            assert normalizer._resolve(
+                conn, "store", "name", "Serpentine") == store_id
+        finally:
+            conn.close()
+
     def test_a_missing_image_is_reported_without_failing_the_run(self, tmp_path):
         source = str(tmp_path / "crawler.db")
         target = str(tmp_path / "normalized.db")
@@ -289,7 +360,7 @@ class TestNormalization:
                         (product["category_id"],))
         brand = _one(target, "SELECT * FROM brand WHERE id = ?",
                      (product["brand_id"],))
-        assert category["name"] == "Mystery"
+        assert category["name"] == "Sin clasificar"
         assert brand["name"] == "Serpentine"
 
         offer = _rows(target, "product_offer")[0]
@@ -328,17 +399,87 @@ class TestNormalization:
         assert any(provider["website_url"] == "https://books.test/catalogue/"
                    for provider in providers)
 
-    def test_money_keeps_full_precision(self, tmp_path):
+    def test_money_is_rounded_to_integer_clp(self, tmp_path):
         source = str(tmp_path / "crawler.db")
         target = str(tmp_path / "normalized.db")
         _build_crawler_db(source)
         Normalizer(target).run(source)
 
         offer = _rows(target, "product_offer")[0]
-        assert Decimal(offer["price"]) == Decimal("47.82")
+        assert Decimal(offer["price"]) == Decimal("48")
         assert Decimal(offer["list_price"]) == Decimal("51.77")
         assert offer["currency"] == "GBP"
         assert offer["available"] == 1
+
+    def test_zero_price_is_rejected(self, tmp_path):
+        source = str(tmp_path / "crawler.db")
+        target = str(tmp_path / "normalized.db")
+        _build_crawler_db(source, html=LISTING_HTML.replace("47.82", "0.40"))
+
+        result = Normalizer(target).run(source)
+
+        offers = _rows(target, "product_offer")
+        assert len(offers) == 1
+        assert any("price <= 0" in warning
+                   for warning in result.warnings)
+
+    def test_non_finite_price_is_rejected(self, tmp_path):
+        source = str(tmp_path / "crawler.db")
+        target = str(tmp_path / "normalized.db")
+        _build_crawler_db(source, html=LISTING_HTML.replace("47.82", "NaN"))
+
+        result = Normalizer(target).run(source)
+
+        assert len(_rows(target, "product_offer")) == 1
+        assert any("invalid price" in warning
+                   for warning in result.warnings)
+
+    def test_scraped_external_id_over_255_is_rejected(self, tmp_path):
+        source = str(tmp_path / "crawler.db")
+        target = str(tmp_path / "normalized.db")
+        _build_crawler_db(source)
+
+        conn = crawler_db.connect(source)
+        conn.execute(
+            "UPDATE SCRAPED_DATA SET external_id = ? WHERE id = 1",
+            ("x" * 256,))
+        conn.commit()
+        conn.close()
+
+        result = Normalizer(target).run(source)
+
+        assert not _rows(target, "scraped_data")
+        assert any("external_id exceeds 255 characters" in warning
+                   for warning in result.warnings)
+
+    def test_missing_product_and_store_names_are_warned_and_rejected(
+            self, tmp_path):
+        product_source = str(tmp_path / "product.db")
+        product_target = str(tmp_path / "product-normalized.db")
+        _build_crawler_db(
+            product_source,
+            parser_config={"entity_type": "product",
+                           "fields": {"name": ".missing"}},
+        )
+
+        product_result = Normalizer(product_target).run(product_source)
+
+        assert not _rows(product_target, "product")
+        assert any("name is missing or empty" in warning
+                   for warning in product_result.warnings)
+
+        store_source = str(tmp_path / "store.db")
+        store_target = str(tmp_path / "store-normalized.db")
+        _build_crawler_db(
+            store_source,
+            parser_config={"entity_type": "store",
+                           "fields": {"name": ".missing"}},
+        )
+
+        store_result = Normalizer(store_target).run(store_source)
+
+        assert any("name is missing or empty" in warning
+                   for warning in store_result.warnings)
 
     def test_out_of_stock_is_captured(self, tmp_path):
         source = str(tmp_path / "crawler.db")
@@ -425,17 +566,85 @@ class TestNormalization:
         assert any("no product to attach to" in w for w in result.warnings)
 
 
-class TestIdempotency:
-    def test_renormalizing_does_not_duplicate_offers(self, tmp_path):
+class TestProductCategoryMapping:
+    def test_source_category_alias_resolves_existing_category(self, tmp_path):
+        source = str(tmp_path / "crawler.db")
+        target = str(tmp_path / "normalized.db")
+        parser_config = json.loads(json.dumps(PARSER_CONFIG))
+        parser_config["category_aliases"] = {"Mystery": "Computación"}
+        parser_config["profiles"]["books"]["product_category"] = {
+            "root": "article.pod",
+            "fields": {
+                "name": {"selector": ".missing", "default": "Computación"},
+            },
+        }
+        _build_crawler_db(source, parser_config=parser_config)
+
+        Normalizer(target).run(source)
+
+        categories = _rows(target, "product_category")
+        products = _rows(target, "product")
+        assert [category["name"] for category in categories] == ["Computación"]
+        assert {product["category_id"] for product in products} == {
+            categories[0]["id"]}
+
+    def test_unmapped_source_category_uses_uncategorized_without_creating_it(
+            self, tmp_path):
         source = str(tmp_path / "crawler.db")
         target = str(tmp_path / "normalized.db")
         _build_crawler_db(source)
 
-        Normalizer(target).run(source)
+        result = Normalizer(target).run(source)
+
+        categories = _rows(target, "product_category")
+        products = _rows(target, "product")
+        assert [category["name"] for category in categories] == [
+            "Sin clasificar"]
+        assert {product["category_id"] for product in products} == {
+            categories[0]["id"]}
+        assert any("pending category review" in warning
+                   and "Mystery" in warning for warning in result.warnings)
+
+    def test_unmapped_category_reprocessing_is_idempotent(self, tmp_path):
+        source = str(tmp_path / "crawler.db")
+        target = str(tmp_path / "normalized.db")
+        _build_crawler_db(source)
+
+        Normalizer(target, rebuild=False).run(source)
+        first_counts = (
+            len(_rows(target, "product_category")),
+            len(_rows(target, "product")),
+            len(_rows(target, "product_offer")),
+        )
+        Normalizer(target, rebuild=False).run(source)
+
+        assert (
+            len(_rows(target, "product_category")),
+            len(_rows(target, "product")),
+            len(_rows(target, "product_offer")),
+        ) == first_counts
+
+
+class TestIdempotency:
+    def test_renormalizing_does_not_duplicate_offers(self, tmp_path):
+        source = str(tmp_path / "crawler.db")
+        target = str(tmp_path / "normalized.db")
+        parser_config = json.loads(json.dumps(PARSER_CONFIG))
+        parser_config["profiles"]["books"]["product"]["fields"].pop("sku", None)
+        parser_config["profiles"]["books"]["product"]["fields"]["model"] = {
+            "selector": ".missing",
+            "default": "Book",
+        }
+        _build_crawler_db(source, parser_config=parser_config)
+
+        Normalizer(target, rebuild=False).run(source)
         first = len(_rows(target, "product_offer"))
-        Normalizer(target).run(source)
+        first_products = len(_rows(target, "product"))
+        second_result = Normalizer(target, rebuild=False).run(source)
         assert len(_rows(target, "product_offer")) == first
-        assert len(_rows(target, "product")) == first
+        assert len(_rows(target, "product")) == first_products
+        assert any("reused existing product" in warning
+                   for warning in second_result.warnings)
 
     def test_renormalizing_does_not_duplicate_parties(self, tmp_path):
         source = str(tmp_path / "crawler.db")
@@ -447,16 +656,26 @@ class TestIdempotency:
         names = [store["name"] for store in _rows(target, "store")]
         assert len(names) == len(set(names))
 
-    def test_an_unchanged_price_records_no_history(self, tmp_path):
+    def test_an_unchanged_price_records_one_current_history_entry(self, tmp_path):
         source = str(tmp_path / "crawler.db")
         target = str(tmp_path / "normalized.db")
         _build_crawler_db(source)
 
-        # History can only accrue when the target is merged: a rebuilt file has
-        # no previous price to compare against.
         Normalizer(target, rebuild=False).run(source)
         Normalizer(target, rebuild=False).run(source)
-        assert _rows(target, "product_price_history") == []
+        history = _rows(target, "product_price_history")
+        sharp_offer = _one(
+            target,
+            "SELECT o.id FROM product_offer o"
+            " JOIN product p ON p.id = o.product_id"
+            " WHERE p.name = 'Sharp Objects'")
+        sharp_history = [
+            row for row in history
+            if row["product_offer_id"] == sharp_offer["id"]
+        ]
+        assert len(history) == 2
+        assert len(sharp_history) == 1
+        assert Decimal(sharp_history[0]["price"]) == Decimal("48")
 
     def test_a_changed_price_is_recorded_in_history(self, tmp_path):
         source = str(tmp_path / "crawler.db")
@@ -473,9 +692,18 @@ class TestIdempotency:
 
         Normalizer(target, rebuild=False).run(source)
         history = _rows(target, "product_price_history")
-        assert len(history) == 1
-        assert Decimal(history[0]["price"]) == Decimal("47.82")
-        assert history[0]["is_promotional"] == 1
+        sharp_offer = _one(
+            target,
+            "SELECT o.id FROM product_offer o"
+            " JOIN product p ON p.id = o.product_id"
+            " WHERE p.name = 'Sharp Objects'")
+        sharp_history = [
+            row for row in history
+            if row["product_offer_id"] == sharp_offer["id"]
+        ]
+        assert len(sharp_history) == 2
+        assert Decimal(sharp_history[-1]["price"]) == Decimal("40")
+        assert sharp_history[-1]["is_promotional"] == 1
 
     def test_a_rebuilt_target_starts_from_scratch(self, tmp_path):
         source = str(tmp_path / "crawler.db")
@@ -498,8 +726,8 @@ class TestSqlDump:
 
     def test_money_is_unquoted_so_postgres_keeps_the_exact_decimal(self, tmp_path):
         sql = self._dump(tmp_path)
-        assert "'47.82'" not in sql
-        assert ", 47.82," in sql or ", 47.82)" in sql or "47.82, " in sql
+        assert "'48'" not in sql
+        assert ", 48," in sql or ", 48)" in sql or "48, " in sql
 
     def test_booleans_become_keywords(self, tmp_path):
         sql = self._dump(tmp_path)

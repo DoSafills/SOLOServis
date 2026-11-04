@@ -399,6 +399,34 @@ func TestAddItems_ItemsInvalidosNoDetienenElLote(t *testing.T) {
 	}
 }
 
+func TestAddItems_ImageURLTooLong(t *testing.T) {
+	e := newEnv()
+	const prefix = "https://x.test/"
+	imageURL := prefix + strings.Repeat("a", MaxImageURL-len(prefix)+1)
+
+	result := batch(t, e, `{"product":{"name":"Imagen larga","categorySlug":"refrigeradores",
+		"imageUrl":"`+imageURL+`","attributes":{"capacidad_litros":200}},
+		"offer":{"price":1}}`)
+
+	if result.Results[0].Status != ItemFailed ||
+		!reflect.DeepEqual(codes(result.Results[0]), []string{"product.imageUrl/max_length"}) {
+		t.Fatalf("resultado = %+v", result.Results[0])
+	}
+	if len(e.catalog.created) != 0 || len(e.offers.written) != 0 {
+		t.Fatal("un ítem con imageUrl demasiado larga no debe crear producto ni oferta")
+	}
+}
+
+func TestAddItems_StockBeyondInt32RejectedAtDecode(t *testing.T) {
+	e := newEnv()
+	rec := e.serve(t, http.MethodPost, "/ingestion/runs/3/items",
+		`{"items":[{"product":{"name":"Stock grande"},"offer":{"price":1,"stock":2147483648}}]}`)
+	requireStatus(t, rec, http.StatusBadRequest)
+	if len(e.offers.written) != 0 {
+		t.Fatal("stock fuera de int32 no debe llegar a la oferta")
+	}
+}
+
 func TestAddItems_ErroresDeCategoriaYBaseDeDatos(t *testing.T) {
 	item := `{"product":{"sku":"N-1","name":"Nuevo","categorySlug":"refrigeradores","attributes":{"capacidad_litros":200}},"offer":{"price":1}}`
 	for _, tc := range []struct {
