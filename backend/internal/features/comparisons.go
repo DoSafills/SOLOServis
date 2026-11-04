@@ -19,7 +19,7 @@ type comparisonInput struct {
 func (h *Handler) CreateComparison(w http.ResponseWriter, r *http.Request) {
 	var input comparisonInput
 	if !decode(r, &input) || input.UserID <= 0 {
-		badRequest(w, "userId is required")
+		badRequest(w, r, "userId is required")
 		return
 	}
 	if input.Name == "" {
@@ -29,7 +29,7 @@ func (h *Handler) CreateComparison(w http.ResponseWriter, r *http.Request) {
 		input.Products = append(input.Products, input.ProductID)
 	}
 	if len(input.Products) == 0 {
-		badRequest(w, "at least one productId is required")
+		badRequest(w, r, "at least one productId is required")
 		return
 	}
 	userID, err := h.service.UserID(r.Context(), input.UserID)
@@ -57,7 +57,7 @@ func (h *Handler) CreateComparison(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if categoryID != 0 && categoryID != category {
-			badRequest(w, "all products must belong to the same category")
+			badRequest(w, r, "all products must belong to the same category")
 			return
 		}
 		categoryID = category
@@ -87,7 +87,7 @@ func (h *Handler) CreateComparison(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetComparison(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
 	if !ok {
-		badRequest(w, "invalid comparison id")
+		badRequest(w, r, "invalid comparison id")
 		return
 	}
 	result, err := h.repo.QueryJSON(r.Context(), `SELECT jsonb_build_object('id',c.id,'userId',c.user_id,'name',c.name,
@@ -136,7 +136,7 @@ func (h *Handler) UpdateComparison(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
 	var input comparisonInput
 	if !ok || !decode(r, &input) || strings.TrimSpace(input.Name) == "" {
-		badRequest(w, "valid id and name are required")
+		badRequest(w, r, "valid id and name are required")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `UPDATE product_comparison SET name=$2,updated_at=NOW() WHERE id=$1`, id, input.Name)
@@ -150,7 +150,7 @@ func (h *Handler) UpdateComparison(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteComparison(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
 	if !ok {
-		badRequest(w, "invalid comparison id")
+		badRequest(w, r, "invalid comparison id")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `DELETE FROM product_comparison WHERE id=$1`, id)
@@ -165,7 +165,7 @@ func (h *Handler) AddComparisonItem(w http.ResponseWriter, r *http.Request) {
 	comparisonID, ok := intParam(r, "id")
 	var input comparisonInput
 	if !ok || !decode(r, &input) || input.ProductID == "" {
-		badRequest(w, "valid comparison id and productId are required")
+		badRequest(w, r, "valid comparison id and productId are required")
 		return
 	}
 	productID, err := h.service.ProductID(r.Context(), input.ProductID)
@@ -186,7 +186,7 @@ func (h *Handler) AddComparisonItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if comparisonCategory != productCategory {
-		badRequest(w, "product category is incompatible with this comparison")
+		badRequest(w, r, "product category is incompatible with this comparison")
 		return
 	}
 	_, err = h.db.Exec(r.Context(), `INSERT INTO product_comparison_item (comparison_id,product_id) VALUES ($1,$2)`, comparisonID, productID)
@@ -201,7 +201,7 @@ func (h *Handler) DeleteComparisonItem(w http.ResponseWriter, r *http.Request) {
 	comparisonID, ok := intParam(r, "id")
 	productID, err := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
 	if !ok || err != nil {
-		badRequest(w, "invalid comparison or product id")
+		badRequest(w, r, "invalid comparison or product id")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `DELETE FROM product_comparison_item WHERE comparison_id=$1 AND product_id=$2`, comparisonID, productID)

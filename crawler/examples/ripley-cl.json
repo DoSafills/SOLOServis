@@ -1,0 +1,34 @@
+{
+    "entity_type": "product",
+    "root": "a.product-link",
+    "source": {
+        "name": "Ripley Chile",
+        "base_url": "https://simple.ripley.cl"
+    },
+    "product": {
+        "fields": {
+            "name": ".product-item--name"
+        },
+        "references": {
+            "brand": ".product-item--brand"
+        }
+    },
+    "offer": {
+        "fields": {
+            "price": ".product-price-price",
+            "list_price": ".product-price-old-price"
+        }
+    },
+    "images": {
+        "fields": {
+            "image_url": {
+                "selector": ".product-image-img",
+                "mode": "attr",
+                "attribute": "src"
+            }
+        }
+    },
+    "category_slug": {
+        "value": "refrigeradores"
+    }
+}

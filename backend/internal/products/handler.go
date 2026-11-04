@@ -18,12 +18,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Largos máximos de texto (columnas de product).
+// Largos máximos de texto (columnas de product). Exportados para Ingestion API.
 const (
-	maxNameLength        = 255
-	maxModelLength       = 150
-	maxSKULength         = 100
-	maxDescriptionLength = 5000
+	MaxNameLength        = 255
+	MaxModelLength       = 150
+	MaxSKULength         = 100
+	MaxDescriptionLength = 5000
 )
 
 type Handler struct {
@@ -45,6 +45,77 @@ type writeFields struct {
 	sku          string
 	description  string
 	attributes   map[string]json.RawMessage
+}
+
+type duplicateCheckRequest struct {
+	CategorySlug     string `json:"categorySlug"`
+	BrandID          *int32 `json:"brandId"`
+	SKU              string `json:"sku"`
+	Model            string `json:"model"`
+	ExcludeProductID string `json:"excludeProductId"`
+}
+
+// DuplicateCandidates devuelve coincidencias exactas por SKU o posibles
+// coincidencias por categoría, marca y modelo para revisión antes de guardar.
+func (h *Handler) DuplicateCandidates(w http.ResponseWriter, r *http.Request) {
+	var request duplicateCheckRequest
+	if err := httpx.DecodeJSON(w, r, &request, httpx.DefaultMaxBodyBytes); err != nil {
+		httpx.WriteDecodeError(w, r, err)
+		return
+	}
+
+	request.CategorySlug = strings.TrimSpace(request.CategorySlug)
+	request.SKU = strings.TrimSpace(request.SKU)
+	request.Model = strings.TrimSpace(request.Model)
+	request.ExcludeProductID = strings.TrimSpace(request.ExcludeProductID)
+	var v httpx.Validator
+	v.Required("categorySlug", request.CategorySlug)
+	v.Check(request.CategorySlug == "" || categories.ValidSlug(request.CategorySlug),
+		"categorySlug", "format", "categorySlug no tiene un formato válido")
+	v.Check(request.BrandID == nil || *request.BrandID > 0, "brandId", "min", "brandId debe ser mayor que 0")
+	v.MaxLength("sku", request.SKU, MaxSKULength)
+	v.MaxLength("model", request.Model, MaxModelLength)
+
+	var excludeID *pgtype.UUID
+	if request.ExcludeProductID != "" {
+		var id pgtype.UUID
+		if err := id.Scan(request.ExcludeProductID); err != nil {
+			v.Add("excludeProductId", "format", "excludeProductId debe ser un UUID")
+		} else {
+			excludeID = &id
+		}
+	}
+	if !v.Valid() {
+		httpx.WriteValidation(w, r, v.Errors())
+		return
+	}
+
+	category, err := h.repository.ResolveCategory(r.Context(), CategoryRef{Slug: request.CategorySlug})
+	if errors.Is(err, ErrCategoryNotFound) || (err == nil && category.ID == nil) {
+		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: "categorySlug", Code: "not_found",
+			Message: "categorySlug no existe o no está habilitada para productos"}})
+		return
+	}
+	if err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	if category.ItemType != categories.ItemTypeProduct {
+		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: "categorySlug", Code: "one_of",
+			Message: "categorySlug debe ser una categoría de productos"}})
+		return
+	}
+
+	candidates, err := h.repository.FindDuplicateCandidates(r.Context(), *category.ID, request.BrandID,
+		request.SKU, strings.ToLower(strings.Join(strings.Fields(request.Model), " ")), excludeID)
+	if err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	if candidates == nil {
+		candidates = []dto.DuplicateCandidate{}
+	}
+	writeJSON(w, http.StatusOK, candidates)
 }
 
 // Create atiende POST /products: 201 con Location y el mismo cuerpo que GET.
@@ -141,10 +212,10 @@ func (h *Handler) validateWrite(w http.ResponseWriter, r *http.Request, f *write
 
 	var v httpx.Validator
 	v.Required("name", f.name)
-	v.MaxLength("name", f.name, maxNameLength)
-	v.MaxLength("model", f.model, maxModelLength)
-	v.MaxLength("sku", f.sku, maxSKULength)
-	v.MaxLength("description", f.description, maxDescriptionLength)
+	v.MaxLength("name", f.name, MaxNameLength)
+	v.MaxLength("model", f.model, MaxModelLength)
+	v.MaxLength("sku", f.sku, MaxSKULength)
+	v.MaxLength("description", f.description, MaxDescriptionLength)
 	v.Check(f.brandID == nil || *f.brandID > 0, "brandId", "min", "brandId debe ser mayor que 0")
 	switch {
 	case f.categorySlug != "" && f.categoryID != nil:

@@ -64,7 +64,7 @@ func (h *Handler) CreateOffer(w http.ResponseWriter, r *http.Request) {
 	v.Check(request.ProductID == "" || validProductKey(request.ProductID), "productId", "format",
 		"productId debe ser un UUID o un id numérico positivo")
 	v.Check(request.StoreID > 0, "storeId", "min", "storeId debe ser mayor que 0")
-	offer := validateFields(&v, request.OfferFields)
+	offer := ValidateOfferFields(&v, request.OfferFields)
 	if !v.Valid() {
 		httpx.WriteValidation(w, r, v.Errors())
 		return
@@ -103,7 +103,7 @@ func (h *Handler) CreateOffer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if previous != nil {
-		h.notifyPriceDrop(r.Context(), saved, *previous)
+		NotifyPriceDrop(r.Context(), h.store, h.notifier, h.logger, saved, *previous)
 	}
 
 	status := http.StatusOK
@@ -127,7 +127,7 @@ func (h *Handler) UpdateOffer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var v httpx.Validator
-	offer := validateFields(&v, request.OfferFields)
+	offer := ValidateOfferFields(&v, request.OfferFields)
 	if !v.Valid() {
 		httpx.WriteValidation(w, r, v.Errors())
 		return
@@ -145,15 +145,15 @@ func (h *Handler) UpdateOffer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if previous != "" {
-		h.notifyPriceDrop(r.Context(), saved, previous)
+		NotifyPriceDrop(r.Context(), h.store, h.notifier, h.logger, saved, previous)
 	}
 	writeJSON(w, http.StatusOK, saved)
 }
 
-// validateFields aplica las reglas comunes de POST y PUT (422) y devuelve los
-// datos normalizados. Los defaults son explícitos: un campo omitido no apaga
-// la oferta ni borra su precio.
-func validateFields(v *httpx.Validator, f OfferFields) OfferWrite {
+// ValidateOfferFields aplica las reglas comunes de POST y PUT (422) y devuelve
+// los datos normalizados. Los defaults son explícitos: un campo omitido no
+// apaga la oferta ni borra su precio. También la usa Ingestion API (TAL-77).
+func ValidateOfferFields(v *httpx.Validator, f OfferFields) OfferWrite {
 	offer := OfferWrite{ShippingCost: "0", ShippingFree: f.ShippingFree, Available: true, Stock: f.Stock}
 
 	if f.Price == nil {
@@ -221,16 +221,22 @@ func (h *Handler) writeWriteError(w http.ResponseWriter, r *http.Request, err er
 	httpx.WriteInternal(w, r, h.logger, err)
 }
 
-// notifyPriceDrop avisa a los usuarios cuyo precio objetivo quedó cruzado.
-// Un fallo se registra en el log y no afecta la respuesta (como antes).
-func (h *Handler) notifyPriceDrop(ctx context.Context, offer Offer, previousPrice string) {
-	watchers, err := h.store.PriceDropWatchers(ctx, offer.ID, previousPrice, offer.Price)
+// WatcherSource entrega los usuarios a avisar ante una bajada de precio.
+type WatcherSource interface {
+	PriceDropWatchers(ctx context.Context, offerID int32, oldPrice, newPrice string) ([]Watcher, error)
+}
+
+// NotifyPriceDrop avisa a los usuarios cuyo precio objetivo quedó cruzado por
+// la bajada de previousPrice al precio actual de offer. Un fallo se registra
+// en el log y no afecta la respuesta. La usan Pricing e Ingestion (TAL-77).
+func NotifyPriceDrop(ctx context.Context, store WatcherSource, notifier Notifier, logger *slog.Logger, offer Offer, previousPrice string) {
+	watchers, err := store.PriceDropWatchers(ctx, offer.ID, previousPrice, offer.Price)
 	if err != nil {
-		h.logger.WarnContext(ctx, "price_drop_watchers_failed", slog.Int("offer_id", int(offer.ID)), slog.String("error", err.Error()))
+		logger.WarnContext(ctx, "price_drop_watchers_failed", slog.Int("offer_id", int(offer.ID)), slog.String("error", err.Error()))
 		return
 	}
 	for _, watcher := range watchers {
-		err := h.notifier.Notify(ctx, Notification{
+		err := notifier.Notify(ctx, Notification{
 			UserID:  watcher.UserID,
 			Type:    "price_drop",
 			Title:   "Bajó el precio de " + watcher.ProductName,
@@ -244,7 +250,7 @@ func (h *Handler) notifyPriceDrop(ctx context.Context, offer Offer, previousPric
 			},
 		})
 		if err != nil {
-			h.logger.WarnContext(ctx, "price_drop_notification_failed",
+			logger.WarnContext(ctx, "price_drop_notification_failed",
 				slog.Int("offer_id", int(offer.ID)), slog.Int("user_id", int(watcher.UserID)), slog.String("error", err.Error()))
 		}
 	}

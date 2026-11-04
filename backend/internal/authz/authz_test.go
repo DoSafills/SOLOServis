@@ -23,17 +23,18 @@ type fakeSessions struct {
 	err   error
 }
 
-func (f fakeSessions) RoleForAccessToken(_ context.Context, hash []byte) (string, error) {
+func (f fakeSessions) SessionForAccessToken(_ context.Context, hash []byte) (Session, error) {
 	if f.err != nil {
-		return "", f.err
+		return Session{}, f.err
 	}
 	for token, role := range f.roles {
 		h := sha256.Sum256([]byte(token))
 		if bytes.Equal(h[:], hash) {
-			return role, nil
+			// El largo del token sirve como userID determinista en los tests.
+			return Session{UserID: int32(len(token)), Role: role}, nil
 		}
 	}
-	return "", ErrNoSession
+	return Session{}, ErrNoSession
 }
 
 func serve(t *testing.T, sessions SessionStore, token, authorization string) (*httptest.ResponseRecorder, bool, string) {
@@ -113,5 +114,47 @@ func TestRequireAdmin_ErrorDeSesionesNoExponeDetalles(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "10.0.0.5") || !strings.Contains(logs, "10.0.0.5") {
 		t.Fatalf("el detalle debe ir al log y no al body: body=%s", rec.Body.String())
+	}
+}
+
+func TestRequireSession(t *testing.T) {
+	sessions := fakeSessions{roles: map[string]string{"tok-cliente": "client"}}
+	a := New(sessions, serviceToken, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+
+	var got Session
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = SessionFrom(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	for _, tc := range []struct {
+		name, authorization string
+		want                int
+	}{
+		{"sesión de cliente", "Bearer tok-cliente", http.StatusNoContent},
+		{"sin token", "", http.StatusUnauthorized},
+		{"token desconocido", "Bearer otro", http.StatusUnauthorized},
+		// El token de servicio no representa a un usuario.
+		{"token de servicio", "Bearer " + serviceToken, http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got = Session{}
+			req := httptest.NewRequest(http.MethodGet, "/comparisons/products", nil)
+			if tc.authorization != "" {
+				req.Header.Set("Authorization", tc.authorization)
+			}
+			rec := httptest.NewRecorder()
+			httpx.RequestID(a.RequireSession(next)).ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, quiero %d", rec.Code, tc.want)
+			}
+			if tc.want == http.StatusNoContent && (got.UserID != int32(len("tok-cliente")) || got.Role != "client") {
+				t.Fatalf("sesión en el contexto = %+v", got)
+			}
+		})
+	}
+
+	if _, ok := SessionFrom(context.Background()); ok {
+		t.Fatal("sin RequireSession no hay sesión en el contexto")
 	}
 }

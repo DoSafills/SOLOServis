@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
-import {
-  getProductById,
-  getProductReviews,
-  type ApiProductReview,
-} from "../../services/api/products";
+import { getProductById, getProductReviews } from "../../Services/api/products";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 import PriceOfferComparison from "./PriceOfferComparison";
+import {
+  getProductCategoryGroup,
+  getProductSubtype,
+  getProductSubtypeSearchQuery,
+} from "../../constants/productCatalog";
 
 interface Props {
   productId: string;
@@ -92,29 +93,56 @@ export default function ProductDetailPage({
   cartProductIds,
   onAddToCart,
 }: Props) {
-  const [product, setProduct] = useState<Product | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [productState, setProductState] = useState<{
+    requestKey: string;
+    value: Product | null;
+  } | null>(null);
+  const [loadedRequestKey, setLoadedRequestKey] = useState("");
   const [selectedImage, setSelectedImage] = useState(0);
-  const [reviews, setReviews] = useState<ApiProductReview[]>([]);
+  const [reviewState, setReviewState] = useState<{
+    requestKey: string;
+    items: ApiProductReview[];
+  } | null>(null);
+  const [productError, setProductError] = useState<{
+    requestKey: string;
+    message: string;
+  } | null>(null);
+  const [reviewsError, setReviewsError] = useState<{
+    requestKey: string;
+    message: string;
+  } | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const requestKey = `${productId}:${loadAttempt}`;
+  const loading = loadedRequestKey !== requestKey;
+  const product = productState?.requestKey === requestKey ? productState.value : null;
+  const reviews = reviewState?.requestKey === requestKey ? reviewState.items : [];
+  const currentProductError = productError?.requestKey === requestKey ? productError.message : null;
+  const currentReviewsError = reviewsError?.requestKey === requestKey ? reviewsError.message : null;
+  const reviewsLoading = reviewState?.requestKey !== requestKey && currentReviewsError === null;
 
   useEffect(() => {
     let cancelled = false;
+    const currentRequestKey = `${productId}:${loadAttempt}`;
 
     getProductById(productId)
       .then((result) => {
         if (!cancelled) {
           setSelectedImage(0);
-          setProduct(result);
+          setProductState({ requestKey: currentRequestKey, value: result });
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!cancelled) {
-          setProduct(null);
+          setProductState({ requestKey: currentRequestKey, value: null });
+          setProductError({
+            requestKey: currentRequestKey,
+            message: error instanceof Error ? error.message : "Product API no disponible.",
+          });
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setLoading(false);
+          setLoadedRequestKey(currentRequestKey);
         }
       });
 
@@ -122,15 +150,23 @@ export default function ProductDetailPage({
     getProductReviews(productId)
       .then((result) => {
         if (!cancelled) {
-          setReviews(result);
+          setReviewState({ requestKey: currentRequestKey, items: result });
         }
       })
-      .catch(console.error);
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setReviewsError({
+            requestKey: currentRequestKey,
+            message:
+              error instanceof Error ? error.message : "Product API no disponible para reseñas.",
+          });
+        }
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [productId]);
+  }, [productId, loadAttempt]);
 
   if (loading)
     return (
@@ -142,12 +178,32 @@ export default function ProductDetailPage({
   if (!product)
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Producto no encontrado.</p>
+        {currentProductError ? (
+          <>
+            <p role="alert" className="text-warn">
+              {currentProductError}
+            </p>
+            <button
+              type="button"
+              onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+              className="mt-4 rounded-xl border border-prime px-4 py-2 text-sm font-semibold text-prime"
+            >
+              Reintentar Product API
+            </button>
+          </>
+        ) : (
+          <p className="text-muted">Product API no encontró este producto.</p>
+        )}
       </div>
     );
 
   const primarySpecifications = getPrimarySpecifications(product.specs);
   const specificationGroups = groupProductSpecifications(product.specs);
+  const productImages = [...new Set([product.image, ...product.images].filter(Boolean))];
+  const isHomeProduct = getProductCategoryGroup(product.category) === "home";
+  const productSubcategory = product.subcategory.trim() || getProductSubtype(product);
+  const hasDistinctSubcategory =
+    productSubcategory.toLocaleLowerCase("es") !== product.category.toLocaleLowerCase("es");
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -159,17 +215,25 @@ export default function ProductDetailPage({
             onClick: () => navigate({ id: "search-products", query: "" }),
           },
           {
-            label: product.category,
-            onClick: () => navigate({ id: "search-products", query: product.category }),
+            label: isHomeProduct ? "Hogar" : product.category,
+            onClick: () =>
+              isHomeProduct
+                ? navigate({ id: "search-products", query: "", productGroup: "home" })
+                : navigate({
+                    id: "search-products",
+                    query: "",
+                    category: product.category,
+                  }),
           },
-          ...(product.subcategory
+          ...(hasDistinctSubcategory
             ? [
                 {
-                  label: product.subcategory,
+                  label: productSubcategory,
                   onClick: () =>
                     navigate({
                       id: "search-products",
-                      query: "",
+                      query: getProductSubtypeSearchQuery(productSubcategory),
+                      categoryContext: productSubcategory,
                       categoryId: product.categoryId,
                     }),
                 },
@@ -190,7 +254,7 @@ export default function ProductDetailPage({
             className="rounded-2xl overflow-hidden h-[420px] md:h-[520px] mb-3"
           >
             <img
-              src={product.images[selectedImage] ?? product.image}
+              src={productImages[selectedImage] ?? product.image}
               alt={product.name}
               className="w-full h-full object-contain p-4 transition-all duration-200"
               style={{
@@ -201,10 +265,13 @@ export default function ProductDetailPage({
           </div>
 
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {product.images.map((img, i) => (
+            {productImages.map((img, i) => (
               <button
                 key={i}
                 onClick={() => setSelectedImage(i)}
+                type="button"
+                aria-label={`Ver imagen ${i + 1} de ${product.name}`}
+                aria-pressed={i === selectedImage}
                 style={{
                   border: `2px solid ${i === selectedImage ? "#8b5cf6" : "rgba(148,163,184,0.25)"}`,
                   boxShadow: i === selectedImage ? "0 0 0 2px rgba(139,92,246,0.12)" : "none",
@@ -234,8 +301,6 @@ export default function ProductDetailPage({
               <Rating value={product.rating} count={product.reviewCount} />
             </div>
           </div>
-
-          <p className="text-sm text-slate-600 leading-relaxed">{product.description}</p>
 
           <div
             style={{
@@ -268,48 +333,18 @@ export default function ProductDetailPage({
             )}
           </div>
 
-          <div className="flex gap-3">
-            <button
-              onClick={() => onToggleCompare(product.id, product.category)}
-              style={
-                isComparing
-                  ? {
-                      background: "linear-gradient(135deg, #ff7a59 0%, #ff5f7b 32%, #8b5cf6 100%)",
-                      color: "#fff",
-                    }
-                  : {
-                      background: "rgba(15, 23, 42, 0.8)",
-                      border: "1px solid rgba(148, 163, 184, 0.25)",
-                      color: "#e2e8f0",
-                    }
-              }
-              className="flex-1 py-3 rounded-2xl text-sm font-semibold transition-all hover:opacity-95"
-            >
-              {isComparing ? "✓ Agregado al comparador" : "Agregar al comparador"}
-            </button>
-          </div>
+          <p className="text-sm leading-relaxed text-slate-300">
+            {product.description || "Este producto aún no tiene una descripción disponible."}
+          </p>
         </div>
       </div>
-
-      <PriceOfferComparison
-        product={product}
-        cartProductIds={cartProductIds}
-        onAddToCart={onAddToCart}
-        navigate={navigate}
-      />
-
-      <PriceHistory
-        history={product.priceHistory}
-        offerHistory={product.offerPriceHistory}
-        currentOfferPrice={product.offerPrice}
-      />
 
       <section
         style={{
           background: "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.88))",
           border: "1px solid rgba(148, 163, 184, 0.24)",
         }}
-        className="rounded-xl p-5 sm:p-6 mt-6"
+        className="rounded-xl p-5 sm:p-6 mb-6"
       >
         <h2 className="text-lg font-semibold text-white">Especificaciones técnicas</h2>
 
@@ -320,14 +355,14 @@ export default function ProductDetailPage({
                 <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-200">
                   {group.title}
                 </h3>
-                <dl className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-8">
+                <dl className="mt-2 grid grid-cols-1 gap-x-8 md:grid-cols-2">
                   {group.items.map(([name, value]) => (
                     <div
                       key={name}
                       className="flex items-start justify-between gap-4 border-b border-slate-700/80 py-3"
                     >
                       <dt className="min-w-0 text-sm text-slate-300">{name}</dt>
-                      <dd className="max-w-[60%] text-right text-sm font-semibold text-white break-words">
+                      <dd className="max-w-[60%] break-words text-right text-sm font-semibold text-white">
                         {value}
                       </dd>
                     </div>
@@ -343,6 +378,21 @@ export default function ProductDetailPage({
         )}
       </section>
 
+      <PriceOfferComparison
+        product={product}
+        cartProductIds={cartProductIds}
+        onAddToCart={onAddToCart}
+        navigate={navigate}
+        isComparing={isComparing}
+        onToggleCompare={onToggleCompare}
+      />
+
+      <PriceHistory
+        history={product.priceHistory}
+        offerHistory={product.offerPriceHistory}
+        currentOfferPrice={product.offerPrice}
+      />
+
       {/* Reviews */}
       <section
         style={{ background: "#111111", border: "1px solid #2A2A2A" }}
@@ -352,7 +402,25 @@ export default function ProductDetailPage({
           <h2 className="text-lg font-bold text-text">Reseñas y calificaciones</h2>
           <Rating value={product.rating} count={product.reviewCount} />
         </div>
-        {reviews.length === 0 ? (
+        {reviewsLoading ? (
+          <p role="status" className="text-sm text-muted">
+            Cargando reseñas desde Product API...
+          </p>
+        ) : currentReviewsError ? (
+          <div
+            className="mb-4 rounded-xl border border-rose-300/20 bg-rose-950/30 p-3 text-sm text-rose-200"
+            role="alert"
+          >
+            {currentReviewsError}
+            <button
+              type="button"
+              onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+              className="ml-3 font-semibold underline"
+            >
+              Reintentar
+            </button>
+          </div>
+        ) : reviews.length === 0 ? (
           <p className="text-sm text-muted">Este producto aún no tiene reseñas.</p>
         ) : (
           <div className="flex flex-col gap-3">

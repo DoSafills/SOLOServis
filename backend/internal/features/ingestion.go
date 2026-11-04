@@ -3,10 +3,12 @@ package features
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 )
 
 type ingestionProductInput struct {
@@ -23,7 +25,7 @@ type ingestionProductInput struct {
 func (h *Handler) IngestProduct(w http.ResponseWriter, r *http.Request) {
 	var input ingestionProductInput
 	if !decode(r, &input) || input.CategoryID <= 0 || strings.TrimSpace(input.Name) == "" {
-		badRequest(w, "categoryId and name are required")
+		badRequest(w, r, "categoryId and name are required")
 		return
 	}
 	if input.ImageURL != "" {
@@ -55,10 +57,52 @@ func (h *Handler) IngestProduct(w http.ResponseWriter, r *http.Request) {
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{"productId": publicID, "name": input.Name, "source": defaultSource(input.Source)})
 }
 
+type offerInput struct {
+	ProductID    string       `json:"productId"`
+	StoreID      int32        `json:"storeId"`
+	Price        *json.Number `json:"price"`
+	ListPrice    *json.Number `json:"listPrice"`
+	Currency     string       `json:"currency"`
+	ShippingCost *json.Number `json:"shippingCost"`
+	ShippingFree bool         `json:"shippingFree"`
+	Available    *bool        `json:"available"`
+	Stock        *int32       `json:"stock"`
+	Condition    string       `json:"condition"`
+	ProductURL   string       `json:"productUrl"`
+}
+
+var ingestionMoneyPattern = regexp.MustCompile(`^\d{1,10}(\.\d{1,2})?$`)
+
 func (h *Handler) IngestOffer(w http.ResponseWriter, r *http.Request) {
 	var input offerInput
-	if !decode(r, &input) || input.ProductID == "" || input.StoreID <= 0 || input.Price < 0 {
-		badRequest(w, "productId, storeId and non-negative price are required")
+	if !decode(r, &input) {
+		badRequest(w, r, "productId, storeId and non-negative price are required")
+		return
+	}
+	input.ProductID = strings.TrimSpace(input.ProductID)
+	var validation httpx.Validator
+	validation.Required("productId", input.ProductID)
+	validation.Check(input.StoreID > 0, "storeId", "min", "storeId debe ser mayor que 0")
+	if input.Price == nil {
+		validation.Required("price", "")
+	} else {
+		validation.Check(ingestionMoneyPattern.MatchString(input.Price.String()),
+			"price", "format", "price debe ser un monto no negativo con hasta dos decimales")
+	}
+	for _, field := range []struct {
+		name   string
+		amount *json.Number
+	}{
+		{name: "listPrice", amount: input.ListPrice},
+		{name: "shippingCost", amount: input.ShippingCost},
+	} {
+		validation.Check(field.amount == nil || ingestionMoneyPattern.MatchString(field.amount.String()),
+			field.name, "format", field.name+" debe ser un monto no negativo con hasta dos decimales")
+	}
+	validation.Check(input.Stock == nil || *input.Stock >= 0,
+		"stock", "min", "stock debe ser mayor o igual a 0")
+	if !validation.Valid() {
+		httpx.WriteValidation(w, r, validation.Errors())
 		return
 	}
 	var store json.RawMessage
@@ -83,7 +127,7 @@ type syncInput struct {
 func (h *Handler) SyncIngestion(w http.ResponseWriter, r *http.Request) {
 	var input syncInput
 	if !decode(r, &input) {
-		badRequest(w, "invalid sync payload")
+		badRequest(w, r, "invalid sync payload")
 		return
 	}
 	input.Source = defaultSource(input.Source)

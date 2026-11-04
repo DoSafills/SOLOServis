@@ -14,6 +14,18 @@ import (
 
 type RouterFactory func(*pgxpool.Pool) *chi.Mux
 
+func NewHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      35 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+}
+
 func Run(serviceName string, defaultPort string, factory RouterFactory) {
 	cfg := appconfig.LoadForPort(defaultPort)
 
@@ -31,7 +43,7 @@ func Run(serviceName string, defaultPort string, factory RouterFactory) {
 	}
 
 	router := factory(db)
-	server := &http.Server{Addr: ":" + cfg.Port, Handler: router}
+	server := NewHTTPServer(":"+cfg.Port, router)
 	log.Printf("%s API running on http://localhost:%s", serviceName, cfg.Port)
 
 	if err := server.ListenAndServe(); err != nil {

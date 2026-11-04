@@ -2,27 +2,33 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/DoSafills/SOLOServis/backend/internal/services/dto"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Handler struct {
 	repository *Repository
+	logger     *slog.Logger
 }
 
-func NewHandler(repository *Repository) *Handler {
+func NewHandler(repository *Repository, logger *slog.Logger) *Handler {
 	return &Handler{
 		repository: repository,
+		logger:     logger,
 	}
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.repository.List(r.Context())
 	if err != nil {
-		http.Error(w, "failed to list services", http.StatusInternalServerError)
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 
@@ -31,19 +37,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		offers, err := h.repository.ListOffers(r.Context(), row.ID)
 		if err != nil {
-			http.Error(w, "failed to load service offers", http.StatusInternalServerError)
+			httpx.WriteInternal(w, r, h.logger, err)
 			return
 		}
 
 		specifications, err := h.repository.ListSpecifications(r.Context(), row.ID)
 		if err != nil {
-			http.Error(w, "failed to load service specifications", http.StatusInternalServerError)
+			httpx.WriteInternal(w, r, h.logger, err)
 			return
 		}
 
 		history, err := h.repository.ListPriceHistory(r.Context(), row.ID)
 		if err != nil {
-			http.Error(w, "failed to load service price history", http.StatusInternalServerError)
+			httpx.WriteInternal(w, r, h.logger, err)
 			return
 		}
 
@@ -68,26 +74,30 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	service, err := h.repository.GetByPublicID(r.Context(), uuid)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		http.Error(w, "service not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 
 	offers, err := h.repository.ListOffers(r.Context(), service.ID)
 	if err != nil {
-		http.Error(w, "failed to load service offers", http.StatusInternalServerError)
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 
 	specifications, err := h.repository.ListSpecifications(r.Context(), service.ID)
 	if err != nil {
-		http.Error(w, "failed to load service specifications", http.StatusInternalServerError)
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 
 	history, err := h.repository.ListPriceHistory(r.Context(), service.ID)
 	if err != nil {
-		http.Error(w, "failed to load service price history", http.StatusInternalServerError)
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 

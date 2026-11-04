@@ -1,0 +1,21 @@
+# Pod de test del despliegue. Se aplica aparte de la app (no está en base):
+#   kubectl apply -k k8s/tests
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: soloservis
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - job.yaml
+
+configMapGenerator:
+  - name: soloservis-smoke-test-script
+    files:
+      - smoke-test.sh
+    options:
+      labels:
+        app.kubernetes.io/component: test

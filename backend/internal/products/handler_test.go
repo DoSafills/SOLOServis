@@ -40,18 +40,24 @@ var refrigeradores = WriteCategory{
 }
 
 type fakeStore struct {
-	items    []dto.ProductListItem
-	total    int64
-	detail   dto.ProductDetail
-	category WriteCategory
+	items        []dto.ProductListItem
+	total        int64
+	detail       dto.ProductDetail
+	category     WriteCategory
+	duplicates   []dto.DuplicateCandidate
+	duplicateErr error
 
 	listErr, detailErr, resolveErr, writeErr error
 
-	gotList     *ListParams
-	gotRef      *CategoryRef
-	gotWrite    *ProductWrite
-	gotPublicID pgtype.UUID
-	writes      int
+	gotList                            *ListParams
+	gotDuplicateCategoryID             int32
+	gotDuplicateBrandID                *int32
+	gotDuplicateSKU, gotDuplicateModel string
+	gotDuplicateExcludeID              *pgtype.UUID
+	gotRef                             *CategoryRef
+	gotWrite                           *ProductWrite
+	gotPublicID                        pgtype.UUID
+	writes                             int
 }
 
 func (f *fakeStore) List(_ context.Context, p ListParams) ([]dto.ProductListItem, int64, error) {
@@ -62,6 +68,21 @@ func (f *fakeStore) List(_ context.Context, p ListParams) ([]dto.ProductListItem
 func (f *fakeStore) GetDetail(_ context.Context, id pgtype.UUID) (dto.ProductDetail, error) {
 	f.gotPublicID = id
 	return f.detail, f.detailErr
+}
+
+func (f *fakeStore) FindDuplicateCandidates(
+	_ context.Context,
+	categoryID int32,
+	brandID *int32,
+	sku, model string,
+	excludeID *pgtype.UUID,
+) ([]dto.DuplicateCandidate, error) {
+	f.gotDuplicateCategoryID = categoryID
+	f.gotDuplicateBrandID = brandID
+	f.gotDuplicateSKU = sku
+	f.gotDuplicateModel = model
+	f.gotDuplicateExcludeID = excludeID
+	return f.duplicates, f.duplicateErr
 }
 
 func (f *fakeStore) ResolveCategory(_ context.Context, ref CategoryRef) (WriteCategory, error) {
@@ -108,6 +129,7 @@ func serve(t *testing.T, store Store, method, target, body string) (*httptest.Re
 	r.Use(httpx.RequestID)
 	r.Get("/product-categories", h.ListCategories)
 	r.Get("/products", h.List)
+	r.Post("/products/duplicate-candidates", h.DuplicateCandidates)
 	r.Get("/products/{publicID}", h.GetByPublicID)
 	r.Post("/products", h.Create)
 	r.Put("/products/{publicID}", h.Update)
@@ -230,6 +252,52 @@ func TestList_ParametrosInvalidos(t *testing.T) {
 				t.Fatal("no debe consultar el repositorio con parámetros inválidos")
 			}
 		})
+	}
+}
+
+func TestDuplicateCandidates_NormalizaCamposYDevuelveOfertas(t *testing.T) {
+	store := &fakeStore{
+		category: refrigeradores,
+		duplicates: []dto.DuplicateCandidate{{
+			ID: testProductID, Name: "Frío", Brand: "ACME", Model: "X 100",
+			Category: "Refrigeradores", OfferCount: 3, MatchType: "category_brand_model",
+		}},
+	}
+	rec, _ := serve(t, store, http.MethodPost, "/products/duplicate-candidates",
+		`{"categorySlug":"refrigeradores","brandId":7,"model":"  X   100  "}`)
+	requireStatus(t, rec, http.StatusOK)
+	if store.gotDuplicateCategoryID != 1 || store.gotDuplicateBrandID == nil ||
+		*store.gotDuplicateBrandID != 7 || store.gotDuplicateModel != "x 100" {
+		t.Fatalf("parámetros de duplicados = %+v", store)
+	}
+	var candidates []dto.DuplicateCandidate
+	if err := json.Unmarshal(rec.Body.Bytes(), &candidates); err != nil ||
+		len(candidates) != 1 || candidates[0].OfferCount != 3 {
+		t.Fatalf("candidatos = %s (%v)", rec.Body.String(), err)
+	}
+}
+
+func TestDuplicateCandidates_ValidaYTrataErrores(t *testing.T) {
+	for _, test := range []struct {
+		body, field string
+	}{
+		{`{}`, "categorySlug/required"},
+		{`{"categorySlug":"bad_slug"}`, "categorySlug/format"},
+		{`{"categorySlug":"refrigeradores","excludeProductId":"bad"}`, "excludeProductId/format"},
+	} {
+		rec, _ := serve(t, &fakeStore{}, http.MethodPost, "/products/duplicate-candidates", test.body)
+		requireStatus(t, rec, http.StatusUnprocessableEntity)
+		if !reflect.DeepEqual(fieldCodes(decodeProblem(t, rec)), []string{test.field}) {
+			t.Fatalf("body = %s", rec.Body.String())
+		}
+	}
+
+	rec, logs := serve(t, &fakeStore{category: refrigeradores, duplicateErr: errBoom},
+		http.MethodPost, "/products/duplicate-candidates",
+		`{"categorySlug":"refrigeradores","sku":"SKU-1"}`)
+	requireStatus(t, rec, http.StatusInternalServerError)
+	if strings.Contains(rec.Body.String(), "relation") || !strings.Contains(logs, "relation") {
+		t.Fatalf("error interno = %s logs=%s", rec.Body.String(), logs)
 	}
 }
 

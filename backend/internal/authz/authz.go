@@ -1,6 +1,7 @@
-// Package authz protege los endpoints de escritura (TAL-70): solo pasan
-// usuarios con rol admin (token de sesión de Auth API) o servicios internos
-// que presenten INTERNAL_API_TOKEN (p. ej. Ingestion API).
+// Package authz autentica y autoriza con los tokens de sesión de Auth API:
+// RequireAdmin protege las escrituras del catálogo (TAL-70; también acepta el
+// INTERNAL_API_TOKEN de servicios internos) y RequireSession identifica al
+// usuario dueño de un recurso (TAL-76).
 package authz
 
 import (
@@ -23,9 +24,15 @@ const MinServiceTokenLength = 32
 // ErrNoSession indica que el token no corresponde a una sesión vigente.
 var ErrNoSession = errors.New("no active session")
 
-// SessionStore resuelve el rol del usuario dueño de un access token.
+// Session es el usuario dueño de un access token vigente.
+type Session struct {
+	UserID int32
+	Role   string
+}
+
+// SessionStore resuelve la sesión de un access token (ya hasheado con SHA-256).
 type SessionStore interface {
-	RoleForAccessToken(ctx context.Context, tokenHash []byte) (string, error)
+	SessionForAccessToken(ctx context.Context, tokenHash []byte) (Session, error)
 }
 
 // PostgresSessions lee las sesiones que emite Auth API (tabla user_session).
@@ -37,19 +44,19 @@ func NewPostgresSessions(db *pgxpool.Pool) PostgresSessions {
 	return PostgresSessions{db: db}
 }
 
-func (s PostgresSessions) RoleForAccessToken(ctx context.Context, tokenHash []byte) (string, error) {
-	var role string
+func (s PostgresSessions) SessionForAccessToken(ctx context.Context, tokenHash []byte) (Session, error) {
+	var session Session
 	err := s.db.QueryRow(ctx, `
-		SELECT u.role::text
+		SELECT u.id, u.role::text
 		FROM user_session s
 		JOIN user_account u ON u.id = s.user_id
 		WHERE s.access_token_hash = $1
 		  AND s.access_expires_at > NOW()
-		  AND u.active`, tokenHash).Scan(&role)
+		  AND u.active`, tokenHash).Scan(&session.UserID, &session.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrNoSession
+		return Session{}, ErrNoSession
 	}
-	return role, err
+	return session, err
 }
 
 type Authorizer struct {
@@ -85,19 +92,50 @@ func (a *Authorizer) RequireAdmin(next http.Handler) http.Handler {
 		}
 
 		hash := sha256.Sum256([]byte(token))
-		role, err := a.sessions.RoleForAccessToken(r.Context(), hash[:])
+		session, err := a.sessions.SessionForAccessToken(r.Context(), hash[:])
 		switch {
 		case errors.Is(err, ErrNoSession):
 			unauthorized(w, r)
 		case err != nil:
 			httpx.WriteInternal(w, r, a.logger, err)
-		case role != "admin":
+		case session.Role != "admin":
 			httpx.WriteProblem(w, r, http.StatusForbidden, httpx.CodeForbidden,
 				"Se requiere rol de administrador para esta operación.")
 		default:
 			next.ServeHTTP(w, r)
 		}
 	})
+}
+
+type sessionKey struct{}
+
+// RequireSession exige un token de sesión vigente (401 si no) y deja la
+// sesión en el contexto (SessionFrom). El token de servicio no aplica: estas
+// rutas actúan en nombre de un usuario.
+func (a *Authorizer) RequireSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := bearerToken(r)
+		if token == "" {
+			unauthorized(w, r)
+			return
+		}
+		hash := sha256.Sum256([]byte(token))
+		session, err := a.sessions.SessionForAccessToken(r.Context(), hash[:])
+		switch {
+		case errors.Is(err, ErrNoSession):
+			unauthorized(w, r)
+		case err != nil:
+			httpx.WriteInternal(w, r, a.logger, err)
+		default:
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionKey{}, session)))
+		}
+	})
+}
+
+// SessionFrom devuelve la sesión que dejó RequireSession.
+func SessionFrom(ctx context.Context) (Session, bool) {
+	session, ok := ctx.Value(sessionKey{}).(Session)
+	return session, ok
 }
 
 func unauthorized(w http.ResponseWriter, r *http.Request) {

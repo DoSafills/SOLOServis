@@ -1,7 +1,8 @@
 # Contexto = raíz del repo; solo se necesitan fronted/ y docker/frontend/.
 **
 !fronted/**
-!docker/frontend/nginx.conf
+!docker/frontend/default.conf.template
+!docker/frontend/proxy.conf
 fronted/node_modules
 fronted/dist
 fronted/.vite

@@ -4,17 +4,17 @@ import Header from "./components/common/Header";
 import Footer from "./components/common/Footer";
 import HomePage from "./pages/home/HomePage";
 import ProductCategoriesPage from "./pages/products/ProductCategoriesPage";
-import ServiceCategoriesPage from "./pages/services/ServiceCategoriesPage";
+import ServiceCategoriesPage from "./pages/Services/ServiceCategoriesPage";
 import SearchResultsPage from "./pages/search/SearchResultsPage";
 import ProductDetailPage from "./pages/products/ProductDetailPage";
 import ProductComparisonPage from "./pages/products/ProductComparisonPage";
 import PriceOfferComparison from "./pages/products/PriceOfferComparison";
-import ServicesPage from "./pages/services/ServicesPage";
-import ServiceDetailPage from "./pages/services/ServiceDetailPage";
-import ServiceComparisonPage from "./pages/services/ServiceComparisonPage";
+import ServicesPage from "./pages/Services/ServicesPage";
+import ServiceDetailPage from "./pages/Services/ServiceDetailPage";
+import ServiceComparisonPage from "./pages/Services/ServiceComparisonPage";
 import StoresPage from "./pages/stores/StoresPage";
-import FavoritesPage from "./pages/user/FavoritesPage";
-import UserPage from "./pages/user/UserPage";
+import FavoritesPage from "./pages/User/FavoritesPage";
+import UserPage from "./pages/User/UserPage";
 import CartPage from "./pages/user/CartPage";
 import { areProductCategoriesCompatible } from "./pages/products/productComparisonUtils";
 import { areServiceCategoriesCompatible } from "./pages/Services/ServiceComparisonUtils";
@@ -169,6 +169,7 @@ function makeServiceCartItem(
 
 export default function App() {
   const [page, setPage] = useState<Page>({ id: "home" });
+  const [productsPerPage, setProductsPerPage] = useState(10);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>([]);
@@ -774,17 +775,21 @@ export default function App() {
       case "search-products":
         return (
           <SearchResultsPage
-            key={`${page.categoryId ?? ""}:${page.category ?? ""}:${page.productGroup ?? ""}:${page.query}`}
+            key={`${page.categoryId ?? ""}:${page.category ?? ""}:${page.categoryContext ?? ""}:${page.productGroup ?? ""}:${page.query}`}
             {...sharedProps}
             query={page.query}
             category={page.category}
+            categoryContext={page.categoryContext}
             productGroup={page.productGroup}
             categoryId={page.categoryId}
+            pageSize={productsPerPage}
+            onPageSizeChange={setProductsPerPage}
           />
         );
       case "product-detail":
         return (
           <ProductDetailPage
+            key={page.productId}
             productId={page.productId}
             navigate={navigate}
             isFavorite={favorites.has(page.productId)}
@@ -809,6 +814,7 @@ export default function App() {
         return (
           <PriceOfferComparison
             product={page.product}
+            cartProductIds={cartProductIds}
             onAddToCart={addToCart}
             navigate={navigate}
             comparisonOnly
@@ -821,7 +827,8 @@ export default function App() {
             {...sharedProps}
             query={page.query}
             category={page.category}
-            key={`${page.category ?? ""}:${page.query}`}
+            group={page.group}
+            key={`${page.category ?? ""}:${page.group ?? ""}:${page.query}`}
           />
         );
       case "service-detail":

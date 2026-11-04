@@ -32,6 +32,7 @@ export interface ProductCategoryDetail extends Omit<ProductCategory, "attributeC
 export async function getDynamicCategories(): Promise<ProductCategory[]> {
   const response = await getJson<{ items: ProductCategory[] }>(
     `${API_URLS.products}/categories?itemType=product&limit=100`,
+    "Product API",
   );
   return response.items;
 }
@@ -39,5 +40,6 @@ export async function getDynamicCategories(): Promise<ProductCategory[]> {
 export function getCategoryBySlug(slug: string): Promise<ProductCategoryDetail> {
   return getJson<ProductCategoryDetail>(
     `${API_URLS.products}/categories/${encodeURIComponent(slug)}`,
+    "Product API",
   );
 }

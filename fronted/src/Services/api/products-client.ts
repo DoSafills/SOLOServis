@@ -45,7 +45,6 @@ export function toProduct(product: ApiProduct | ApiProductDetail): Product {
     brand: product.brand,
     model: product.model,
     categoryId: product.categoryId,
-    categorySlug: "categorySlug" in product ? product.categorySlug : null,
     category: product.category,
     subcategory: product.subcategory,
     image: images[0] ?? "",
@@ -54,7 +53,6 @@ export function toProduct(product: ApiProduct | ApiProductDetail): Product {
     rating: product.rating,
     reviewCount: product.reviewCount,
     specs: buildSpecs(product.model, detail?.specifications ?? []),
-    attributes: {},
     offers:
       detail?.offers.map((offer) => ({
         storeId: String(offer.storeId),

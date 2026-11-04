@@ -12,8 +12,8 @@ type Config struct {
 	FrontendURL string
 }
 
-// Load es para el servidor combinado (cmd/server): respeta PORT del .env,
-// con 8080 como default si no está seteada.
+// Load lee PORT (8080 si no está), DATABASE_URL y FRONTEND_URL del entorno o
+// del .env.
 func Load() Config {
 	_ = godotenv.Load(".env")
 
@@ -29,18 +29,12 @@ func Load() Config {
 	}
 }
 
-// LoadForPort es para los binarios de microservicio (products-api, stores-api,
-// services-api): cada uno usa siempre su propio puerto por defecto, sin que
-// la variable PORT compartida del .env se lo pise — si no, los tres terminan
-// compitiendo por el mismo puerto.
 func LoadForPort(defaultPort string) Config {
-	_ = godotenv.Load(".env")
-
-	return Config{
-		Port:        defaultPort,
-		DatabaseURL: resolveDatabaseURL(),
-		FrontendURL: resolveFrontendURL(),
+	cfg := Load()
+	if os.Getenv("PORT") == "" && defaultPort != "" {
+		cfg.Port = defaultPort
 	}
+	return cfg
 }
 
 func resolveDatabaseURL() string {

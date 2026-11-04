@@ -5,14 +5,17 @@ export type DynamicFormValues = Record<string, DynamicFieldValue>;
 export type DynamicFieldErrors = Record<string, string>;
 
 function validateAttribute(attribute: CategoryAttribute, value: DynamicFieldValue): string | null {
-  if (value === undefined || value === "")
+  if (value === undefined || value === "" || (typeof value === "string" && value.trim() === ""))
     return attribute.required ? "Este campo es obligatorio." : null;
   if (attribute.dataType === "boolean" && typeof value !== "boolean") return "Selecciona Sí o No.";
   if (attribute.dataType === "string" && typeof value !== "string")
     return "Ingresa un texto válido.";
   if (attribute.dataType === "enum" && !attribute.allowedValues.includes(String(value)))
     return `Selecciona una opción válida: ${attribute.allowedValues.join(", ")}.`;
-  if (attribute.dataType === "integer" && (!Number.isInteger(value) || typeof value !== "number"))
+  if (
+    attribute.dataType === "integer" &&
+    (typeof value !== "number" || !Number.isSafeInteger(value))
+  )
     return "Ingresa un número entero.";
   if (attribute.dataType === "decimal" && (typeof value !== "number" || !Number.isFinite(value)))
     return "Ingresa un número válido.";
@@ -28,7 +31,7 @@ function validateAttribute(attribute: CategoryAttribute, value: DynamicFieldValu
   if (
     attribute.maxLength !== null &&
     typeof value === "string" &&
-    value.length > attribute.maxLength
+    [...value].length > attribute.maxLength
   )
     return `Máximo ${attribute.maxLength} caracteres.`;
   return null;

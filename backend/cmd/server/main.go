@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/allapis"
 	"github.com/DoSafills/SOLOServis/backend/internal/config"
 	"github.com/DoSafills/SOLOServis/backend/internal/database"
-	apphttp "github.com/DoSafills/SOLOServis/backend/internal/http"
+	"github.com/DoSafills/SOLOServis/backend/internal/server"
 )
 
 func main() {
@@ -29,16 +30,13 @@ func main() {
 
 	log.Println("PostgreSQL connection established")
 
-	router := apphttp.NewRouter(db, cfg.FrontendURL)
+	router := allapis.NewRouter(db, cfg.FrontendURL)
 
-	server := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: router,
-	}
+	httpServer := server.NewHTTPServer(":"+cfg.Port, router)
 
 	log.Printf("SoloServis API running on http://localhost:%s", cfg.Port)
 
-	if err := server.ListenAndServe(); err != nil {
+	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

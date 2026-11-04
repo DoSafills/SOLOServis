@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Page, Product, Store, StoreDetail, StoreOffer, StoreProduct } from "../../types";
 import { getStores, getStoreById } from "../../services/api/api";
-import { Badge, Breadcrumb, Rating } from "../../components/common/ui";
-
-let offerIdCounter = 1000;
+import { Badge, Breadcrumb, EmptyState, Rating } from "../../components/common/ui";
 
 interface Props {
   navigate: (page: Page) => void;
@@ -11,7 +9,7 @@ interface Props {
   compareList: Set<string>;
   onToggleFavorite: (id: string) => void;
   onToggleCompare: (id: string) => void;
-  onAddToCart: (product: Product, offer: StoreOffer) => void;
+  onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
   storeId?: string;
 }
 
@@ -19,6 +17,8 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,7 +47,11 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reload]);
+
+  const filteredStores = stores.filter((store) =>
+    store.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -63,14 +67,18 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
         </p>
 
         <div className="flex flex-wrap gap-2">
+          <label className="sr-only" htmlFor="store-search">
+            Buscar tienda o proveedor
+          </label>
           <input
+            id="store-search"
             type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar tienda o proveedor..."
-            className="w-full sm:w-32 rounded-xl border border-slate-300/50 bg-slate-950/60 px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-prime focus:bg-slate-950/80 transition-colors"
+            maxLength={100}
+            className="w-full sm:max-w-sm rounded-xl border border-slate-300/50 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-prime focus:bg-slate-950/80 transition-colors"
           />
-          <button className="rounded-xl bg-prime px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-opacity">
-            Agregar tienda
-          </button>
         </div>
       </header>
 
@@ -79,12 +87,29 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
           <p className="text-muted">Cargando tiendas...</p>
         </div>
       ) : error ? (
-        <div className="text-center py-20">
+        <div className="py-20 text-center" role="alert">
           <p className="text-warn">{error}</p>
+          <button
+            type="button"
+            onClick={() => setReload((attempt) => attempt + 1)}
+            className="mt-4 rounded-xl border border-prime px-4 py-2 text-sm font-semibold text-prime"
+          >
+            Reintentar carga de Store API
+          </button>
         </div>
+      ) : filteredStores.length === 0 ? (
+        <EmptyState
+          title={stores.length === 0 ? "No hay tiendas disponibles" : "No encontramos tiendas"}
+          description={
+            stores.length === 0
+              ? "La Store API no devolvió tiendas para mostrar."
+              : `No hay tiendas que coincidan con "${query}".`
+          }
+          action={query ? { label: "Limpiar búsqueda", onClick: () => setQuery("") } : undefined}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {stores.map((store) => (
+          {filteredStores.map((store) => (
             <button
               key={store.id}
               onClick={() => navigate({ id: "store-detail", storeId: store.id })}
@@ -148,11 +173,17 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
 
 function StoreProductCard({
   product,
+  storeId,
+  storeName,
   onAddToCart,
 }: {
   product: StoreProduct;
-  onAddToCart: (product: Product, offer: StoreOffer) => void;
+  storeId: string;
+  storeName: string;
+  onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
 }) {
+  const [adding, setAdding] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const mappedProduct: Product = {
     id: product.id,
     name: product.name,
@@ -166,7 +197,6 @@ function StoreProductCard({
     rating: 0,
     reviewCount: 0,
     specs: {},
-    attributes: {},
     offers: [],
     priceHistory: [],
     offerPriceHistory: [],
@@ -174,9 +204,9 @@ function StoreProductCard({
   };
 
   const mappedOffer: StoreOffer = {
-    offerId: offerIdCounter++,
-    storeId: "",
-    storeName: "",
+    offerId: product.offerId,
+    storeId,
+    storeName,
     price: product.price,
     listPrice: product.listPrice,
     available: product.available,
@@ -185,6 +215,7 @@ function StoreProductCard({
     stock: product.stock,
     condition: product.condition,
     url: product.productUrl,
+    lastUpdated: product.lastUpdated,
   };
 
   return (
@@ -253,16 +284,38 @@ function StoreProductCard({
             <span className="text-muted">Modelo</span>
             <span className="text-muted-2 font-medium text-right">{product.model || "—"}</span>
           </div>
+          <div className="flex justify-between text-xs gap-4">
+            <span className="text-muted">Actualización</span>
+            <span className="text-muted-2 font-medium text-right">
+              {product.lastUpdated
+                ? new Date(product.lastUpdated).toLocaleString("es-CL")
+                : "No informada"}
+            </span>
+          </div>
         </div>
 
         <button
           type="button"
-          disabled={!product.available}
-          onClick={() => onAddToCart(mappedProduct, mappedOffer)}
+          disabled={!product.available || product.offerId <= 0 || adding}
+          onClick={() => {
+            setAdding(true);
+            setMessage(null);
+            void onAddToCart(mappedProduct, mappedOffer)
+              .then((added) =>
+                setMessage(added ? "Oferta agregada a la cesta." : "No se pudo agregar la oferta."),
+              )
+              .catch(() => setMessage("No se pudo conectar para agregar la oferta."))
+              .finally(() => setAdding(false));
+          }}
           className="mt-4 w-full rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none"
         >
-          Agregar al carrito
+          {adding ? "Agregando..." : "Agregar al carrito"}
         </button>
+        {message && (
+          <p role="status" className="mt-2 text-xs text-slate-200">
+            {message}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -273,6 +326,7 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -301,7 +355,7 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
     return () => {
       cancelled = true;
     };
-  }, [storeId]);
+  }, [storeId, reload]);
 
   const filteredProducts = useMemo(() => {
     if (!store) return [];
@@ -326,7 +380,16 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
   if (error) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-warn">{error}</p>
+        <p role="alert" className="text-warn">
+          {error}
+        </p>
+        <button
+          type="button"
+          onClick={() => setReload((attempt) => attempt + 1)}
+          className="mt-4 rounded-xl border border-prime px-4 py-2 text-sm font-semibold text-prime"
+        >
+          Reintentar carga de Store API
+        </button>
       </div>
     );
   }
@@ -448,7 +511,13 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
           {filteredProducts.map((product) => (
-            <StoreProductCard key={product.id} product={product} onAddToCart={onAddToCart} />
+            <StoreProductCard
+              key={product.offerId}
+              product={product}
+              storeId={store.id}
+              storeName={store.name}
+              onAddToCart={onAddToCart}
+            />
           ))}
         </div>
       )}

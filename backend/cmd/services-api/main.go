@@ -2,9 +2,9 @@ package main
 
 import (
 	apphttp "github.com/DoSafills/SOLOServis/backend/internal/http"
-	"github.com/DoSafills/SOLOServis/backend/internal/server"
+	"github.com/DoSafills/SOLOServis/backend/internal/runner"
 )
 
 func main() {
-	server.Run("Services", "8083", apphttp.NewServicesRouter)
+	runner.Run("Services", apphttp.NewServiceRouter)
 }

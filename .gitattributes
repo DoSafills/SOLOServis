@@ -1,1 +1,6 @@
 /k8s/base/migrations/migrate.sh text eol=lf
+# Scripts de shell: siempre LF (bash falla con CRLF, también dentro de contenedores).
+*.sh text eol=lf
+# Plantillas que se copian a imágenes Linux.
+docker/frontend/*.template text eol=lf
+docker/frontend/proxy.conf text eol=lf

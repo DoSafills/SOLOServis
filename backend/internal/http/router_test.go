@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/auth"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/go-chi/chi/v5"
 )
@@ -40,6 +41,8 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 		{"store escritura no existe", NewStoreRouter(nil, frontendURL), http.MethodPost, "/stores", `{}`, "application/json", 405, "", ""},
 		{"search parámetro inválido", NewSearchRouter(nil, frontendURL), http.MethodGet, "/search/products?limit=0", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"pricing id inválido", NewPricingRouter(nil, frontendURL), http.MethodGet, "/offers/abc", "", "", 400, "", httpx.CodeInvalidParameter},
+		{"ingestion sin token", NewIngestionRouter(nil, frontendURL), http.MethodPost, "/ingestion/runs", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
+		{"ingestion lectura sin token", NewIngestionRouter(nil, frontendURL), http.MethodGet, "/ingestion/runs", "", "", 401, "", httpx.CodeUnauthorized},
 		{"pricing POST sin token", NewPricingRouter(nil, frontendURL), http.MethodPost, "/offers", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
 		{"pricing PUT sin token", NewPricingRouter(nil, frontendURL), http.MethodPut, "/offers/1", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
 	}
@@ -71,6 +74,34 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 			}
 			if !httpx.ValidRequestID(rec.Header().Get(httpx.RequestIDHeader)) {
 				t.Fatalf("falta X-Request-ID válido: %q", rec.Header().Get(httpx.RequestIDHeader))
+			}
+		})
+	}
+}
+
+func TestRouters_MetodosNoRegistradosResponden405(t *testing.T) {
+	tests := []struct {
+		name   string
+		router http.Handler
+		method string
+		path   string
+	}{
+		{"PATCH products", NewProductRouter(nil, "http://localhost:5173"), http.MethodPatch, "/products/00000000-0000-0000-0000-000000000001"},
+		{"POST stores", NewStoreRouter(nil, "http://localhost:5173"), http.MethodPost, "/stores"},
+		{"PATCH stores", NewStoreRouter(nil, "http://localhost:5173"), http.MethodPatch, "/stores/1"},
+		{"POST services", NewServiceRouter(nil, "http://localhost:5173"), http.MethodPost, "/services"},
+		{"POST search", NewSearchRouter(nil, "http://localhost:5173"), http.MethodPost, "/search/products"},
+		{"PATCH comparisons", NewComparisonRouter(nil, "http://localhost:5173"), http.MethodPatch, "/comparisons/products/1"},
+		{"GET auth login", auth.NewRouter(nil, "http://localhost:5173"), http.MethodGet, "/auth/login"},
+		{"DELETE ingestion run", NewIngestionRouter(nil, "http://localhost:5173"), http.MethodDelete, "/ingestion/runs/1"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			tc.router.ServeHTTP(recorder, httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`)))
+			if recorder.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s %s = %d, want 405", tc.method, tc.path, recorder.Code)
 			}
 		})
 	}
@@ -135,6 +166,7 @@ func TestProductRouter_RutasRegistradas(t *testing.T) {
 		"GET /products",
 		"GET /products/{publicID}",
 		"GET /products/{publicID}/reviews",
+		"POST /products/duplicate-candidates",
 		"POST /products",
 		"PUT /products/{publicID}",
 		"DELETE /products/{publicID}",
@@ -242,6 +274,76 @@ func TestSearchRouter_RutasRegistradas(t *testing.T) {
 		return nil
 	}
 	if err := chi.Walk(NewSearchRouter(nil, "http://localhost:5173"), walk); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range want {
+		if !got[route] {
+			t.Errorf("falta la ruta %s", route)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
+	}
+}
+
+// Comparison API (TAL-76): comparación pública, guardadas con sesión y las de
+// servicios que siguen en features.
+func TestComparisonRouter_RutasRegistradas(t *testing.T) {
+	want := []string{
+		"GET /health",
+		"GET /comparisons/products/compare",
+		"GET /comparisons/compatible/{productId}",
+		"POST /comparisons/products",
+		"GET /comparisons/products",
+		"GET /comparisons/products/{id}",
+		"PUT /comparisons/products/{id}",
+		"DELETE /comparisons/products/{id}",
+		"POST /comparisons/products/{id}/items",
+		"DELETE /comparisons/products/{id}/items/{productId}",
+		"POST /comparisons/services",
+		"GET /comparisons/services/{id}",
+		"DELETE /comparisons/services/{id}",
+		"POST /comparisons/services/{id}/items",
+		"DELETE /comparisons/services/{id}/items/{serviceId}",
+	}
+
+	got := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		got[method+" "+route] = true
+		return nil
+	}
+	if err := chi.Walk(NewComparisonRouter(nil, "http://localhost:5173"), walk); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range want {
+		if !got[route] {
+			t.Errorf("falta la ruta %s", route)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
+	}
+}
+
+// Ingestion API (TAL-77): todas las rutas exigen admin o INTERNAL_API_TOKEN.
+func TestIngestionRouter_RutasRegistradas(t *testing.T) {
+	want := []string{
+		"GET /health",
+		"POST /ingestion/runs",
+		"GET /ingestion/runs",
+		"GET /ingestion/runs/{id}",
+		"POST /ingestion/runs/{id}/items",
+		"POST /ingestion/runs/{id}/finish",
+	}
+
+	got := map[string]bool{}
+	walk := func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		got[method+" "+route] = true
+		return nil
+	}
+	if err := chi.Walk(NewIngestionRouter(nil, "http://localhost:5173"), walk); err != nil {
 		t.Fatal(err)
 	}
 
