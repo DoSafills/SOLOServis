@@ -1,0 +1,448 @@
+-- name: GetProductByID :one
+SELECT
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at
+FROM product
+WHERE id = $1;
+
+
+-- name: GetStore :one
+SELECT
+        s.id,
+        s.name,
+        s.website_url,
+        s.logo_url,
+        s.rating,
+        s.reputation,
+        s.shipping_information,
+        s.general_conditions,
+        COUNT(po.id)::BIGINT AS product_count
+FROM store s
+LEFT JOIN product_offer po ON po.store_id = s.id
+WHERE s.id = $1
+    AND s.active = TRUE
+GROUP BY s.id;
+
+
+-- name: GetServiceDetail :one
+SELECT
+        s.id,
+        s.public_id,
+        s.name,
+        s.description,
+        s.image_url,
+        sc.name AS category_name,
+        COALESCE(srs.derived_average_rating, 0) AS rating,
+        COALESCE(srs.derived_review_count, 0) AS review_count
+FROM service s
+JOIN service_category sc ON sc.id = s.category_id
+LEFT JOIN service_rating_summary srs ON srs.service_id = s.id
+WHERE s.public_id = $1
+    AND s.active = TRUE;
+
+
+-- name: GetProductByPublicID :one
+SELECT
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at
+FROM product
+WHERE public_id = $1;
+
+
+
+-- name: GetProductDetailByPublicID :one
+SELECT
+    p.id,
+    p.public_id,
+    p.category_id,
+    p.brand_id,
+    p.name,
+    p.model,
+    p.sku,
+    p.description,
+    p.active,
+    p.created_at,
+    p.updated_at,
+    b.name AS brand_name,
+    pc.name AS category_name,
+    parent.name AS parent_category_name,
+    COALESCE(prs.derived_average_rating, 0) AS rating,
+    COALESCE(prs.derived_review_count, 0) AS review_count
+FROM product p
+LEFT JOIN brand b ON b.id = p.brand_id
+JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
+LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
+WHERE p.public_id = $1;
+
+
+-- name: ListProducts :many
+SELECT
+    p.id,
+    p.public_id,
+    p.category_id,
+    p.brand_id,
+    p.name,
+    p.model,
+    p.sku,
+    p.description,
+    p.active,
+    p.created_at,
+    p.updated_at,
+    b.name AS brand_name,
+    pc.name AS category_name,
+    parent.name AS parent_category_name,
+    COALESCE(prs.derived_average_rating, 0) AS rating,
+    COALESCE(prs.derived_review_count, 0) AS review_count
+FROM product p
+LEFT JOIN brand b ON b.id = p.brand_id
+JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
+LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
+WHERE p.active = true
+ORDER BY p.id;
+
+
+-- name: ListProductOffers :many
+SELECT
+    po.id,
+    po.product_id,
+    po.store_id,
+    s.name AS store_name,
+    po.price,
+    po.list_price,
+    po.currency,
+    po.shipping_cost,
+    po.shipping_free,
+    po.available,
+    po.stock,
+    po.condition,
+    po.product_url,
+    po.last_updated
+FROM product_offer po
+JOIN store s ON s.id = po.store_id
+WHERE po.product_id = $1
+ORDER BY po.price ASC;
+
+-- name: GetOfferByID :one
+SELECT
+    id,
+    product_id,
+    store_id,
+    price,
+    list_price,
+    currency,
+    shipping_cost,
+    shipping_free,
+    available,
+    stock,
+    condition,
+    product_url,
+    last_updated
+FROM product_offer
+WHERE id = $1;
+
+-- name: UpsertProductOffer :one
+INSERT INTO product_offer (
+    product_id,
+    store_id,
+    price,
+    currency,
+    product_url,
+    available
+)
+VALUES (
+    sqlc.arg(product_id),
+    sqlc.arg(store_id),
+    sqlc.arg(price),
+    sqlc.arg(currency),
+    normalize_product_offer_url(sqlc.narg(product_url)::text),
+    sqlc.arg(available)
+)
+ON CONFLICT (
+    product_id,
+    store_id,
+    (COALESCE(normalize_product_offer_url(product_url), ''))
+)
+DO UPDATE SET
+    price = EXCLUDED.price,
+    currency = EXCLUDED.currency,
+    product_url = EXCLUDED.product_url,
+    available = EXCLUDED.available,
+    last_updated = NOW()
+RETURNING
+    id,
+    product_id,
+    store_id,
+    price,
+    list_price,
+    currency,
+    shipping_cost,
+    shipping_free,
+    available,
+    stock,
+    condition,
+    product_url,
+    last_updated;
+
+-- name: UpdateProductOfferPriceAvailability :one
+UPDATE product_offer
+SET
+    price = sqlc.arg(price),
+    available = sqlc.arg(available),
+    last_updated = NOW()
+WHERE id = sqlc.arg(id)
+RETURNING
+    id,
+    product_id,
+    store_id,
+    price,
+    list_price,
+    currency,
+    shipping_cost,
+    shipping_free,
+    available,
+    stock,
+    condition,
+    product_url,
+    last_updated;
+
+
+-- name: ListProductImages :many
+SELECT
+    id,
+    product_id,
+    image_url,
+    alt_text,
+    sort_order,
+    active
+FROM product_image
+WHERE product_id = $1
+  AND active = true
+ORDER BY sort_order ASC, id ASC;
+
+
+-- name: ListProductCategories :many
+SELECT
+    c.id,
+    c.parent_category_id,
+    c.name,
+    c.description
+FROM product_category c
+WHERE c.active = true
+ORDER BY c.parent_category_id NULLS FIRST, c.name;
+
+
+-- name: ListProductsByCategory :many
+WITH RECURSIVE subtree AS (
+    SELECT c.id
+    FROM product_category c
+    WHERE c.id = sqlc.arg(category_id)::int
+      AND c.active = true
+    UNION ALL
+    SELECT child.id
+    FROM product_category child
+    JOIN subtree s ON child.parent_category_id = s.id
+    WHERE child.active = true
+)
+SELECT
+    p.id,
+    p.public_id,
+    p.category_id,
+    p.brand_id,
+    p.name,
+    p.model,
+    p.sku,
+    p.description,
+    p.active,
+    p.created_at,
+    p.updated_at,
+    b.name AS brand_name,
+    pc.name AS category_name,
+    parent.name AS parent_category_name,
+    COALESCE(prs.derived_average_rating, 0) AS rating,
+    COALESCE(prs.derived_review_count, 0) AS review_count
+FROM product p
+LEFT JOIN brand b ON b.id = p.brand_id
+JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
+LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
+WHERE p.active = true
+  AND p.category_id IN (SELECT id FROM subtree)
+ORDER BY p.id;
+
+
+-- name: ListProductReviews :many
+SELECT
+    r.id,
+    r.rating,
+    r.title,
+    r.content,
+    r.created_at,
+    u.name AS author_name,
+    u.email_verified AS author_verified
+FROM product_review r
+JOIN user_account u ON u.id = r.user_id
+WHERE r.product_id = $1
+ORDER BY r.created_at DESC, r.id DESC;
+
+
+-- name: CreateProduct :one
+INSERT INTO product (
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6
+)
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at;
+
+
+-- name: UpdateProduct :one
+UPDATE product
+SET
+    category_id = $2,
+    brand_id = $3,
+    name = $4,
+    model = $5,
+    sku = $6,
+    description = $7,
+    updated_at = now()
+WHERE id = $1
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at;
+
+
+-- name: DeactivateProduct :one
+UPDATE product
+SET
+    active = false,
+    updated_at = now()
+WHERE id = $1
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at;
+-- name: UpdateProductByPublicID :one
+UPDATE product
+SET
+    category_id = $2,
+    brand_id = $3,
+    name = $4,
+    model = $5,
+    sku = $6,
+    description = $7,
+    updated_at = now()
+WHERE public_id = $1
+  AND active = true
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at;
+
+
+-- name: DeactivateProductByPublicID :one
+UPDATE product
+SET
+    active = false,
+    updated_at = now()
+WHERE public_id = $1
+  AND active = true
+RETURNING
+    id,
+    public_id,
+    category_id,
+    brand_id,
+    name,
+    model,
+    sku,
+    description,
+    active,
+    created_at,
+    updated_at;
+
+-- name: ListProductSpecifications :many
+SELECT
+    pcs.name,
+    psv.value
+FROM product_specification_value psv
+JOIN product_category_specification pcs
+    ON pcs.id = psv.specification_id
+WHERE psv.product_id = $1
+ORDER BY pcs.display_order ASC, pcs.id ASC;
+
+
+-- name: ListProductPriceHistory :many
+SELECT
+    pph.recorded_at,
+    pph.price,
+    pph.is_promotional
+FROM product_price_history pph
+JOIN product_offer po
+    ON po.id = pph.product_offer_id
+WHERE po.product_id = $1
+ORDER BY pph.recorded_at ASC, pph.id ASC;

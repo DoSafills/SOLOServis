@@ -1,0 +1,45 @@
+# SOLOServis en Kubernetes: piezas comunes a las dos topologías (PostgreSQL,
+# migraciones, frontend, configuración e Ingress). Las APIs las agrega un
+# componente: components/dominios (por defecto) o components/consolidado (respaldo).
+# No aplicar directo: scripts/k8s/deploy.ps1 / deploy.sh generan
+# k8s/overlays/uct con namespace, imágenes, StorageClass, host y los .sql.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: soloservis
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: soloservis
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - postgres/secret.yaml
+  - postgres/service.yaml
+  - postgres/statefulset.yaml
+  - migrations/job.yaml
+  - frontend/deployment.yaml
+  - frontend/service.yaml
+  - ingress.yaml
+
+configMapGenerator:
+  # Config compartida por las APIs. FRONTEND_URL = origen público (CORS).
+  - name: soloservis-config
+    literals:
+      - FRONTEND_URL=http://soloservis.local
+    options:
+      labels:
+        app.kubernetes.io/component: config
+  # Script del Job de migraciones. Los .sql los agrega el overlay generado
+  # (kustomize no puede leer archivos fuera de su directorio raíz).
+  - name: soloservis-migrate-script
+    files:
+      - migrations/migrate.sh
+    options:
+      labels:
+        app.kubernetes.io/component: migrations
+
+images:
+  - name: soloservis/frontend
+    newTag: dev

@@ -1,0 +1,37 @@
+{
+    "entity_type": "product",
+    "root": "[data-pod=\"catalyst-pod\"]",
+    "source": {
+        "name": "Falabella Chile",
+        "base_url": "https://www.falabella.com/falabella-cl"
+    },
+    "product": {
+        "fields": {
+            "name": ".pod-details .copy2.primary"
+        },
+        "references": {
+            "brand": ".pod-details .title1"
+        }
+    },
+    "offer": {
+        "fields": {
+            "price": ".pod-summary .prices li.prices-0 span",
+            "list_price": ".pod-summary .prices li.prices-1 span"
+        }
+    },
+    "images": {
+        "fields": {
+            "image_url": {
+                "selector": ".pod-head img",
+                "mode": "attr",
+                "attribute": "src"
+            }
+        }
+    },
+    "external_id": {
+        "attribute": "id"
+    },
+    "category_slug": {
+        "value": "refrigeradores"
+    }
+}

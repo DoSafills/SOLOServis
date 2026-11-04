@@ -45,3 +45,8 @@ tmp/
 temp/
 *.tmp
 
+# Kubernetes: overlays generados por scripts/k8s/deploy.ps1 / deploy.sh y credenciales
+k8s/overlays/
+*.kubeconfig
+kubeconfig*
+.neon

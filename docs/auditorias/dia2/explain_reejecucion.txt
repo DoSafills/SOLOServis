@@ -1,0 +1,305 @@
+﻿products.ListProducts
+QUERY PLAN
+Sort  (cost=65.86..65.94 rows=35 width=1805) (actual time=0.167..0.169 rows=3 loops=1)
+  Sort Key: p.id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=6
+  ->  Hash Left Join  (cost=51.77..64.96 rows=35 width=1805) (actual time=0.137..0.140 rows=3 loops=1)
+        Hash Cond: (p.id = prs.product_id)
+        Buffers: shared hit=3
+        ->  Hash Join  (cost=24.54..37.64 rows=35 width=1765) (actual time=0.088..0.090 rows=3 loops=1)
+              Hash Cond: (pc.id = p.category_id)
+              Buffers: shared hit=2
+              ->  Seq Scan on product_category pc  (cost=0.00..12.00 rows=200 width=322) (actual time=0.006..0.006 rows=4 loops=1)
+                    Buffers: shared hit=1
+              ->  Hash  (cost=24.10..24.10 rows=35 width=1447) (actual time=0.069..0.069 rows=3 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                    Buffers: shared hit=1
+                    ->  Hash Right Join  (cost=11.14..24.10 rows=35 width=1447) (actual time=0.056..0.060 rows=3 loops=1)
+                          Hash Cond: (b.id = p.brand_id)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on brand b  (cost=0.00..11.90 rows=190 width=322) (actual time=0.001..0.001 rows=0 loops=1)
+                          ->  Hash  (cost=10.70..10.70 rows=35 width=1129) (actual time=0.018..0.018 rows=3 loops=1)
+                                Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                Buffers: shared hit=1
+                                ->  Seq Scan on product p  (cost=0.00..10.70 rows=35 width=1129) (actual time=0.011..0.011 rows=3 loops=1)
+                                      Filter: active
+                                      Buffers: shared hit=1
+        ->  Hash  (cost=26.35..26.35 rows=70 width=24) (actual time=0.032..0.033 rows=3 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 9kB
+              Buffers: shared hit=1
+              ->  Subquery Scan on prs  (cost=24.60..26.35 rows=70 width=24) (actual time=0.028..0.030 rows=3 loops=1)
+                    Buffers: shared hit=1
+                    ->  HashAggregate  (cost=24.60..25.65 rows=70 width=24) (actual time=0.028..0.029 rows=3 loops=1)
+                          Group Key: p_1.id
+                          Batches: 1  Memory Usage: 24kB
+                          Buffers: shared hit=1
+                          ->  Hash Right Join  (cost=11.57..23.48 rows=150 width=12) (actual time=0.021..0.023 rows=3 loops=1)
+                                Hash Cond: (r.product_id = p_1.id)
+                                Buffers: shared hit=1
+                                ->  Seq Scan on product_review r  (cost=0.00..11.50 rows=150 width=12) (actual time=0.001..0.001 rows=0 loops=1)
+                                ->  Hash  (cost=10.70..10.70 rows=70 width=4) (actual time=0.004..0.004 rows=3 loops=1)
+                                      Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                      Buffers: shared hit=1
+                                      ->  Seq Scan on product p_1  (cost=0.00..10.70 rows=70 width=4) (actual time=0.001..0.001 rows=3 loops=1)
+                                            Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=351
+Planning Time: 1.967 ms
+Execution Time: 0.344 ms
+(47 rows)
+products.ListProductOffers
+QUERY PLAN
+Sort  (cost=21.06..21.07 rows=2 width=498) (actual time=0.047..0.049 rows=2 loops=1)
+  Sort Key: po.price
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=6
+  ->  Hash Join  (cost=9.53..21.05 rows=2 width=498) (actual time=0.026..0.028 rows=2 loops=1)
+        Hash Cond: (s.id = po.store_id)
+        Buffers: shared hit=3
+        ->  Seq Scan on store s  (cost=0.00..11.10 rows=110 width=322) (actual time=0.004..0.004 rows=2 loops=1)
+              Buffers: shared hit=1
+        ->  Hash  (cost=9.50..9.50 rows=2 width=180) (actual time=0.013..0.013 rows=2 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 9kB
+              Buffers: shared hit=2
+              ->  Bitmap Heap Scan on product_offer po  (cost=4.16..9.50 rows=2 width=180) (actual time=0.006..0.006 rows=2 loops=1)
+                    Recheck Cond: (product_id = 1)
+                    Heap Blocks: exact=1
+                    Buffers: shared hit=2
+                    ->  Bitmap Index Scan on uq_product_offer_product_store_url  (cost=0.00..4.16 rows=2 width=0) (actual time=0.003..0.003 rows=2 loops=1)
+                          Index Cond: (product_id = 1)
+                          Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=178
+Planning Time: 0.486 ms
+Execution Time: 0.078 ms
+(23 rows)
+products.ListProductImages
+QUERY PLAN
+Sort  (cost=11.63..11.64 rows=1 width=561) (actual time=0.011..0.011 rows=0 loops=1)
+  Sort Key: sort_order, id
+  Sort Method: quicksort  Memory: 25kB
+  ->  Seq Scan on product_image  (cost=0.00..11.62 rows=1 width=561) (actual time=0.005..0.006 rows=0 loops=1)
+        Filter: (active AND (product_id = 1))
+Planning:
+  Buffers: shared hit=28
+Planning Time: 0.223 ms
+Execution Time: 0.025 ms
+(9 rows)
+products.ListProductSpecifications
+QUERY PLAN
+Sort  (cost=16.46..16.46 rows=1 width=842) (actual time=0.028..0.029 rows=2 loops=1)
+  Sort Key: pcs.display_order, pcs.id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=6
+  ->  Nested Loop  (cost=0.29..16.45 rows=1 width=842) (actual time=0.019..0.021 rows=2 loops=1)
+        Buffers: shared hit=6
+        ->  Index Scan using product_specification_value_product_id_specification_id_key on product_specification_value psv  (cost=0.14..8.16 rows=1 width=520) (actual time=0.006..0.007 rows=2 loops=1)
+              Index Cond: (product_id = 1)
+              Buffers: shared hit=2
+        ->  Index Scan using product_category_specification_pkey on product_category_specification pcs  (cost=0.14..8.16 rows=1 width=326) (actual time=0.005..0.005 rows=1 loops=2)
+              Index Cond: (id = psv.specification_id)
+              Buffers: shared hit=4
+Planning:
+  Buffers: shared hit=77
+Planning Time: 0.680 ms
+Execution Time: 0.049 ms
+(16 rows)
+products.ListProductPriceHistory
+QUERY PLAN
+Sort  (cost=36.45..36.47 rows=7 width=29) (actual time=0.045..0.046 rows=2 loops=1)
+  Sort Key: pph.recorded_at, pph.id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=6
+  ->  Hash Join  (cost=9.53..36.35 rows=7 width=29) (actual time=0.021..0.022 rows=2 loops=1)
+        Hash Cond: (pph.product_offer_id = po.id)
+        Buffers: shared hit=3
+        ->  Seq Scan on product_price_history pph  (cost=0.00..23.30 rows=1330 width=33) (actual time=0.004..0.005 rows=3 loops=1)
+              Buffers: shared hit=1
+        ->  Hash  (cost=9.50..9.50 rows=2 width=4) (actual time=0.009..0.010 rows=2 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 9kB
+              Buffers: shared hit=2
+              ->  Bitmap Heap Scan on product_offer po  (cost=4.16..9.50 rows=2 width=4) (actual time=0.007..0.007 rows=2 loops=1)
+                    Recheck Cond: (product_id = 1)
+                    Heap Blocks: exact=1
+                    Buffers: shared hit=2
+                    ->  Bitmap Index Scan on uq_product_offer_product_store_url  (cost=0.00..4.16 rows=2 width=0) (actual time=0.002..0.003 rows=2 loops=1)
+                          Index Cond: (product_id = 1)
+                          Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=53
+Planning Time: 0.346 ms
+Execution Time: 0.080 ms
+(23 rows)
+stores.ListStores
+QUERY PLAN
+GroupAggregate  (cost=29.45..30.74 rows=55 width=705) (actual time=0.045..0.048 rows=2 loops=1)
+  Group Key: s.id
+  Buffers: shared hit=2
+  ->  Sort  (cost=29.45..29.70 rows=98 width=701) (actual time=0.039..0.041 rows=3 loops=1)
+        Sort Key: s.id, po.product_id
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=2
+        ->  Hash Right Join  (cost=11.79..26.21 rows=98 width=701) (actual time=0.026..0.031 rows=3 loops=1)
+              Hash Cond: (po.store_id = s.id)
+              Buffers: shared hit=2
+              ->  Seq Scan on product_offer po  (cost=0.00..13.90 rows=195 width=8) (actual time=0.003..0.004 rows=3 loops=1)
+                    Filter: available
+                    Rows Removed by Filter: 1
+                    Buffers: shared hit=1
+              ->  Hash  (cost=11.10..11.10 rows=55 width=697) (actual time=0.014..0.014 rows=2 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                    Buffers: shared hit=1
+                    ->  Seq Scan on store s  (cost=0.00..11.10 rows=55 width=697) (actual time=0.010..0.011 rows=2 loops=1)
+                          Filter: active
+                          Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=3
+Planning Time: 0.184 ms
+Execution Time: 0.105 ms
+(24 rows)
+stores.ListStoreProducts
+QUERY PLAN
+Sort  (cost=32.74..32.75 rows=1 width=1969) (actual time=0.076..0.078 rows=1 loops=1)
+  Sort Key: p.id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=6
+  ->  Nested Loop  (cost=4.60..32.73 rows=1 width=1969) (actual time=0.062..0.064 rows=1 loops=1)
+        Buffers: shared hit=6
+        ->  Nested Loop Left Join  (cost=4.45..19.54 rows=1 width=1619) (actual time=0.037..0.038 rows=1 loops=1)
+              Buffers: shared hit=4
+              ->  Nested Loop  (cost=4.31..18.11 rows=1 width=1301) (actual time=0.035..0.036 rows=1 loops=1)
+                    Buffers: shared hit=4
+                    ->  Bitmap Heap Scan on product_offer po  (cost=4.16..9.50 rows=1 width=176) (actual time=0.024..0.025 rows=1 loops=1)
+                          Recheck Cond: (store_id = 1)
+                          Filter: available
+                          Rows Removed by Filter: 1
+                          Heap Blocks: exact=1
+                          Buffers: shared hit=2
+                          ->  Bitmap Index Scan on idx_product_offer_store  (cost=0.00..4.16 rows=2 width=0) (actual time=0.015..0.015 rows=2 loops=1)
+                                Index Cond: (store_id = 1)
+                                Buffers: shared hit=1
+                    ->  Index Scan using product_pkey on product p  (cost=0.14..8.16 rows=1 width=1129) (actual time=0.008..0.008 rows=1 loops=1)
+                          Index Cond: (id = po.product_id)
+                          Filter: active
+                          Buffers: shared hit=2
+              ->  Index Scan using brand_pkey on brand b  (cost=0.14..1.42 rows=1 width=322) (actual time=0.001..0.001 rows=0 loops=1)
+                    Index Cond: (id = p.brand_id)
+        ->  Index Scan using product_category_pkey on product_category pc  (cost=0.14..1.53 rows=1 width=322) (actual time=0.005..0.005 rows=1 loops=1)
+              Index Cond: (id = p.category_id)
+              Buffers: shared hit=2
+        SubPlan 1
+          ->  Limit  (cost=11.63..11.64 rows=1 width=40) (actual time=0.015..0.016 rows=0 loops=1)
+                ->  Sort  (cost=11.63..11.64 rows=1 width=40) (actual time=0.015..0.015 rows=0 loops=1)
+                      Sort Key: pi.sort_order, pi.id
+                      Sort Method: quicksort  Memory: 25kB
+                      ->  Seq Scan on product_image pi  (cost=0.00..11.62 rows=1 width=40) (actual time=0.005..0.005 rows=0 loops=1)
+                            Filter: (active AND (product_id = p.id))
+Planning:
+  Buffers: shared hit=3
+Planning Time: 0.796 ms
+Execution Time: 0.242 ms
+(39 rows)
+stores.ListStoreLocations
+QUERY PLAN
+Sort  (cost=19.99..20.00 rows=1 width=1459) (actual time=0.015..0.015 rows=0 loops=1)
+  Sort Key: sl.id
+  Sort Method: quicksort  Memory: 25kB
+  ->  Nested Loop  (cost=0.14..19.98 rows=1 width=1459) (actual time=0.009..0.009 rows=0 loops=1)
+        ->  Seq Scan on store_location sl  (cost=0.00..11.62 rows=1 width=587) (actual time=0.008..0.008 rows=0 loops=1)
+              Filter: (active AND (store_id = 1))
+        ->  Index Scan using location_pkey on location l  (cost=0.14..8.16 rows=1 width=876) (never executed)
+              Index Cond: (id = sl.location_id)
+Planning:
+  Buffers: shared hit=64
+Planning Time: 0.620 ms
+Execution Time: 0.047 ms
+(12 rows)
+services.ListServices
+QUERY PLAN
+Sort  (cost=71.54..71.69 rows=60 width=1297) (actual time=0.012..0.013 rows=0 loops=1)
+  Sort Key: s.id
+  Sort Method: quicksort  Memory: 25kB
+  ->  Hash Left Join  (cost=56.26..69.76 rows=60 width=1297) (actual time=0.008..0.009 rows=0 loops=1)
+        Hash Cond: (sc.parent_category_id = parent_sc.id)
+        ->  Hash Join  (cost=41.76..55.11 rows=60 width=963) (actual time=0.008..0.009 rows=0 loops=1)
+              Hash Cond: (sc.id = s.category_id)
+              ->  Seq Scan on service_category sc  (cost=0.00..12.00 rows=200 width=326) (actual time=0.008..0.008 rows=0 loops=1)
+              ->  Hash  (cost=41.01..41.01 rows=60 width=641) (never executed)
+                    ->  Hash Right Join  (cost=37.68..41.01 rows=60 width=641) (never executed)
+                          Hash Cond: (s_1.id = s.id)
+                          ->  HashAggregate  (cost=25.73..27.53 rows=120 width=24) (never executed)
+                                Group Key: s_1.id
+                                ->  Hash Right Join  (cost=12.70..24.60 rows=150 width=12) (never executed)
+                                      Hash Cond: (r.service_id = s_1.id)
+                                      ->  Seq Scan on service_review r  (cost=0.00..11.50 rows=150 width=12) (never executed)
+                                      ->  Hash  (cost=11.20..11.20 rows=120 width=4) (never executed)
+                                            ->  Seq Scan on service s_1  (cost=0.00..11.20 rows=120 width=4) (never executed)
+                          ->  Hash  (cost=11.20..11.20 rows=60 width=621) (never executed)
+                                ->  Seq Scan on service s  (cost=0.00..11.20 rows=60 width=621) (never executed)
+                                      Filter: active
+        ->  Hash  (cost=12.00..12.00 rows=200 width=322) (never executed)
+              ->  Seq Scan on service_category parent_sc  (cost=0.00..12.00 rows=200 width=322) (never executed)
+Planning:
+  Buffers: shared hit=173
+Planning Time: 1.294 ms
+Execution Time: 0.129 ms
+(27 rows)
+services.ListServiceSpecifications
+QUERY PLAN
+Sort  (cost=16.46..16.46 rows=1 width=842) (actual time=0.009..0.010 rows=0 loops=1)
+  Sort Key: scs.display_order, scs.id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=2
+  ->  Nested Loop  (cost=0.29..16.45 rows=1 width=842) (actual time=0.004..0.005 rows=0 loops=1)
+        Buffers: shared hit=2
+        ->  Index Scan using service_specification_value_service_id_specification_id_key on service_specification_value ssv  (cost=0.14..8.16 rows=1 width=520) (actual time=0.004..0.004 rows=0 loops=1)
+              Index Cond: (service_id = 1)
+              Buffers: shared hit=2
+        ->  Index Scan using service_category_specification_pkey on service_category_specification scs  (cost=0.14..8.16 rows=1 width=326) (never executed)
+              Index Cond: (id = ssv.specification_id)
+Planning:
+  Buffers: shared hit=77
+Planning Time: 0.379 ms
+Execution Time: 0.032 ms
+(15 rows)
+services.ListServiceOffers
+QUERY PLAN
+Sort  (cost=16.62..16.62 rows=1 width=679) (actual time=0.010..0.011 rows=0 loops=1)
+  Sort Key: so.price, so.id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=2
+  ->  Nested Loop  (cost=0.29..16.61 rows=1 width=679) (actual time=0.004..0.004 rows=0 loops=1)
+        Buffers: shared hit=2
+        ->  Index Scan using service_offer_service_id_provider_id_key on service_offer so  (cost=0.14..8.16 rows=1 width=361) (actual time=0.004..0.004 rows=0 loops=1)
+              Index Cond: (service_id = 1)
+              Filter: available
+              Buffers: shared hit=2
+        ->  Index Scan using provider_pkey on provider p  (cost=0.14..8.16 rows=1 width=322) (never executed)
+              Index Cond: (id = so.provider_id)
+              Filter: active
+Planning:
+  Buffers: shared hit=126
+Planning Time: 0.535 ms
+Execution Time: 0.034 ms
+(17 rows)
+services.ListServicePriceHistory
+QUERY PLAN
+Sort  (cost=22.68..22.70 rows=7 width=33) (actual time=0.010..0.011 rows=0 loops=1)
+  Sort Key: sph.recorded_at, sph.id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=2
+  ->  Nested Loop  (cost=4.35..22.58 rows=7 width=33) (actual time=0.004..0.004 rows=0 loops=1)
+        Buffers: shared hit=2
+        ->  Index Scan using idx_service_offer_service on service_offer so  (cost=0.14..8.16 rows=1 width=4) (actual time=0.004..0.004 rows=0 loops=1)
+              Index Cond: (service_id = 1)
+              Buffers: shared hit=2
+        ->  Bitmap Heap Scan on service_price_history sph  (cost=4.21..14.35 rows=7 width=33) (never executed)
+              Recheck Cond: (service_offer_id = so.id)
+              ->  Bitmap Index Scan on idx_service_price_history_offer  (cost=0.00..4.21 rows=7 width=0) (never executed)
+                    Index Cond: (service_offer_id = so.id)
+Planning:
+  Buffers: shared hit=46
+Planning Time: 0.531 ms
+Execution Time: 0.038 ms
+(17 rows)
