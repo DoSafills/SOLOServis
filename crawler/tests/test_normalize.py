@@ -328,17 +328,29 @@ class TestNormalization:
         assert any(provider["website_url"] == "https://books.test/catalogue/"
                    for provider in providers)
 
-    def test_money_keeps_full_precision(self, tmp_path):
+    def test_money_is_rounded_to_integer_clp(self, tmp_path):
         source = str(tmp_path / "crawler.db")
         target = str(tmp_path / "normalized.db")
         _build_crawler_db(source)
         Normalizer(target).run(source)
 
         offer = _rows(target, "product_offer")[0]
-        assert Decimal(offer["price"]) == Decimal("47.82")
+        assert Decimal(offer["price"]) == Decimal("48")
         assert Decimal(offer["list_price"]) == Decimal("51.77")
         assert offer["currency"] == "GBP"
         assert offer["available"] == 1
+
+    def test_zero_price_is_rejected(self, tmp_path):
+        source = str(tmp_path / "crawler.db")
+        target = str(tmp_path / "normalized.db")
+        _build_crawler_db(source, html=LISTING_HTML.replace("47.82", "0.40"))
+
+        result = Normalizer(target).run(source)
+
+        offers = _rows(target, "product_offer")
+        assert len(offers) == 1
+        assert any("price <= 0" in warning
+                   for warning in result.warnings)
 
     def test_out_of_stock_is_captured(self, tmp_path):
         source = str(tmp_path / "crawler.db")
@@ -474,7 +486,7 @@ class TestIdempotency:
         Normalizer(target, rebuild=False).run(source)
         history = _rows(target, "product_price_history")
         assert len(history) == 1
-        assert Decimal(history[0]["price"]) == Decimal("47.82")
+        assert Decimal(history[0]["price"]) == Decimal("48")
         assert history[0]["is_promotional"] == 1
 
     def test_a_rebuilt_target_starts_from_scratch(self, tmp_path):
@@ -498,8 +510,8 @@ class TestSqlDump:
 
     def test_money_is_unquoted_so_postgres_keeps_the_exact_decimal(self, tmp_path):
         sql = self._dump(tmp_path)
-        assert "'47.82'" not in sql
-        assert ", 47.82," in sql or ", 47.82)" in sql or "47.82, " in sql
+        assert "'48'" not in sql
+        assert ", 48," in sql or ", 48)" in sql or "48, " in sql
 
     def test_booleans_become_keywords(self, tmp_path):
         sql = self._dump(tmp_path)

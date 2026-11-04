@@ -37,7 +37,7 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -976,6 +976,22 @@ class Normalizer:
             return None
 
         values = extraction.values
+        raw_price = values.get("price")
+        try:
+            price = Decimal(str(raw_price))
+        except (InvalidOperation, ValueError):
+            self.result.warnings.append(
+                f"product_offer @ {context.get('external_url')}: invalid price "
+                f"{raw_price!r}; row rejected")
+            return None
+        price = price.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        if price <= 0:
+            self.result.warnings.append(
+                f"product_offer @ {context.get('external_url')}: price <= 0 "
+                f"({price}); row rejected")
+            return None
+        values["price"] = price
+
         offer_id, previous = self._upsert_offer(
             target, "product_offer", "product_id", product_id, {
                 "store_id": store_id,
