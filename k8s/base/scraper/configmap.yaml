@@ -1,0 +1,25 @@
+# Non-secret runtime configuration. The token comes from the
+# soloservis-internal Secret, never from here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scraper-config
+  labels:
+    app.kubernetes.io/name: scraper-api
+    app.kubernetes.io/component: config
+data:
+  SCRAPER_DATA_DIR: /data
+  SCRAPER_STORES_DIR: /app/stores
+  SCRAPER_API_HOST: 0.0.0.0
+  SCRAPER_API_PORT: "8095"
+  SCRAPER_MAX_PAGES: "20"
+  SCRAPER_RATE_LIMIT: 30/min
+  SCRAPER_TIMEOUT: "20"
+  SCRAPER_MAX_RETRIES: "3"
+  SCRAPER_STOP_TIMEOUT: "30"
+  # In the dominios topology ingestion is its own Service. The consolidado
+  # component patches this to http://backend:8080.
+  INGESTION_API_URL: http://ingestion:8080
+  INGESTION_BATCH_SIZE: "100"
+  INGESTION_TIMEOUT: "15"
+  INGESTION_MAX_RETRIES: "3"
