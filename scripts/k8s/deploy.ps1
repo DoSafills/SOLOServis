@@ -622,6 +622,29 @@ function Phase3 {
 
 # ---------------------------------------------------------------- FASE 4
 
+# Reutiliza postgres-secret si existe (la contrasena vive tambien dentro del
+# volumen, asi que no se cambia sola). Si no existe, lo crea con una contrasena
+# aleatoria, salvo que el PVC ya tenga datos: no coincidiria con la guardada.
+# Sin la etiqueta part-of, igual que soloservis-internal.
+function Ensure-PostgresSecret {
+  $null = K get secret postgres-secret -o name
+  if ($script:KExit -eq 0) { return 'OK (Secret postgres-secret existente)' }
+
+  $pvc = KJson get pvc postgres-data-postgres-0
+  if ($pvc -and $pvc.status.phase -eq 'Bound') {
+    return 'ERROR (falta postgres-secret y el PVC postgres-data-postgres-0 tiene datos)'
+  }
+
+  # 48 caracteres hex: seguros dentro de DATABASE_URL sin escapar.
+  $bytes = New-Object byte[] 24
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+  $pw = ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLower()
+  $null = K create secret generic postgres-secret '--from-literal=POSTGRES_USER=postgres' '--from-literal=POSTGRES_DB=soloservis' "--from-literal=POSTGRES_PASSWORD=$pw"
+  if ($script:KExit -ne 0) { return 'ERROR (no se pudo crear postgres-secret)' }
+  $null = K label secret postgres-secret app.kubernetes.io/name=postgres app.kubernetes.io/component=database
+  return 'OK (Secret postgres-secret creado con contrasena aleatoria)'
+}
+
 function Phase4 {
   $cp = [ordered]@{}
   $err = Build-Rendered
@@ -640,7 +663,15 @@ function Phase4 {
     $cp['Token interno'] = 'OK (Secret soloservis-internal existente)'
   }
 
-  Step 'Aplicando Secret, Services y StatefulSet de PostgreSQL'
+  # Credenciales de PostgreSQL, fuera de git (TAL-98). Va antes del StatefulSet,
+  # que las lee. La contrasena nunca se imprime.
+  $cp['Credenciales BD'] = Ensure-PostgresSecret
+  if ($cp['Credenciales BD'] -like 'ERROR (falta*') {
+    Stop-Phase 4 $cp 'el PVC de PostgreSQL ya tiene datos y falta postgres-secret: recrealo con la contrasena anterior (k8s/README.md) o borra el PVC si no necesitas los datos'
+  }
+  if ($cp['Credenciales BD'] -like 'ERROR*') { Stop-Phase 4 $cp 'kubectl create secret postgres-secret fallo' }
+
+  Step 'Aplicando Services y StatefulSet de PostgreSQL'
   $ok = Apply-Component 'app.kubernetes.io/component=database'
   if (-not $ok) { Stop-Phase 4 $cp 'kubectl apply fallo' }
 
