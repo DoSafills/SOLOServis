@@ -1,17 +1,17 @@
->> # Usa el host DIRECTO de Neon, sin "-pooler".                                                       
->> $env:PGHOST = "ep-silent-bonus-b5l2dcfy.c-7.us-east-2.aws.neon.tech"                                
->> $env:PGPORT = "5432"                                   
->> $env:PGUSER = "neondb_owner"
->> $env:PGDATABASE = "neondb"  
+>> # Usa el host DIRECTO de Neon, sin "-pooler".
+>> $env:PGHOST = "<NEON_HOST>"
+>> $env:PGPORT = "5432"
+>> $env:PGUSER = "<DATABASE_OWNER>"
+>> $env:PGDATABASE = "neondb"
 >> $env:PGSSLMODE = "require"
->>                           
+>>
 >> # Ingresa la contraseña sin mostrarla en pantalla.
 >> $secure = Read-Host "Contraseña de Neon" -AsSecureString
 >> $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 >> $env:PGPASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
->> 
+>>
 >> $repo = (Get-Location).Path
->> 
+>>
 >> try {
 >>     docker run --rm `
 >>       --env PGHOST --env PGPORT --env PGUSER --env PGDATABASE --env PGSSLMODE --env PGPASSWORD `
@@ -21,7 +21,7 @@
 >>       --volume "$repo\backend\database\migration_order.txt:/migration_order.txt:ro" `
 >>       --volume "$repo\k8s\base\migrations\migrate.sh:/migrate.sh:ro" `
 >>       postgres:18 bash /migrate.sh
->> 
+>>
 >>     if ($LASTEXITCODE -ne 0) {
 >>         throw "El runner de migraciones terminó con error."
 >>     }
@@ -31,8 +31,8 @@
 >>     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
 >> }
 Contraseña de Neon: ****************
-Esperando PostgreSQL en ep-silent-bonus-b5l2dcfy.c-7.us-east-2.aws.neon.tech:5432...
-ep-silent-bonus-b5l2dcfy.c-7.us-east-2.aws.neon.tech:5432 - accepting connections
+Esperando PostgreSQL en <NEON_HOST>:5432...
+<NEON_HOST>:5432 - accepting connections
 APPLY 001_schema.sql
 APPLY 002_views.sql
 APPLY 003_seed.sql

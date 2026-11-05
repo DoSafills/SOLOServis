@@ -19,6 +19,7 @@ const (
 	MaxWords       = 5
 	MaxQueryLength = 200
 	MaxBrands      = 20
+	MaxStores      = 20
 )
 
 // Operadores de los filtros por atributo (ver attributeFilterSQL).
@@ -43,11 +44,13 @@ type Query struct {
 	LegacyCategoryID *int32
 	CategorySlug     *string
 	BrandIDs         []int32
+	StoreIDs         []int32
 	MinPrice         *string
 	MaxPrice         *string
 	Available        bool
 	Attributes       []AttributeFilter
 	Sort             string
+	SortAttributeKey string
 	Limit            int
 	Offset           int
 }
@@ -72,6 +75,7 @@ type Facets struct {
 	Total      int64            `json:"total"`
 	Price      PriceRange       `json:"price"`
 	Brands     []BrandFacet     `json:"brands"`
+	Stores     []StoreFacet     `json:"stores"`
 	Attributes []AttributeFacet `json:"attributes"`
 }
 
@@ -81,6 +85,12 @@ type PriceRange struct {
 }
 
 type BrandFacet struct {
+	ID    int32  `json:"id"`
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+type StoreFacet struct {
 	ID    int32  `json:"id"`
 	Name  string `json:"name"`
 	Count int64  `json:"count"`

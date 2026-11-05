@@ -8,6 +8,7 @@ import (
 
 	"github.com/DoSafills/SOLOServis/backend/internal/config"
 	"github.com/DoSafills/SOLOServis/backend/internal/database"
+	"github.com/DoSafills/SOLOServis/backend/internal/server"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -26,9 +27,9 @@ func Run(name string, factory RouterFactory) {
 	if err := database.Ping(ctx, db); err != nil {
 		log.Fatal(err)
 	}
-	server := &http.Server{Addr: ":" + cfg.Port, Handler: factory(db, cfg.FrontendURL)}
+	httpServer := server.NewHTTPServer(":"+cfg.Port, factory(db, cfg.FrontendURL))
 	log.Printf("%s escuchando en :%s", name, cfg.Port)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

@@ -172,6 +172,10 @@ func hash(token string) []byte {
 // Dominio usuarios: cuentas y sesiones en user_account y user_session.
 func TestIntegracion_Usuarios(t *testing.T) {
 	e := newEnv(t)
+	e.expect(http.StatusBadRequest, "usuarios", "POST", "/auth/register", "",
+		map[string]any{"name": "Inválida", "email": "no-es-email", "password": "Clave12345!"})
+	e.expect(http.StatusUnsupportedMediaType, "usuarios", "POST", "/auth/register", "", nil)
+	e.expect(http.StatusMethodNotAllowed, "usuarios", "GET", "/auth/login", "", nil)
 	s, email := e.register("ana")
 
 	// La contraseña se guarda con PBKDF2 y la sesión solo como hash SHA-256.
@@ -187,7 +191,18 @@ func TestIntegracion_Usuarios(t *testing.T) {
 		t.Errorf("sesiones con el hash de los tokens = %d, quiero 1", n)
 	}
 
-	e.expect(http.StatusOK, "usuarios", "POST", "/auth/login", "", map[string]any{"email": email, "password": "Clave12345!"})
+	loginData := e.expect(http.StatusOK, "usuarios", "POST", "/auth/login", "",
+		map[string]any{"email": email, "password": "Clave12345!"})
+	var loggedIn session
+	if err := json.Unmarshal(loginData, &loggedIn); err != nil || loggedIn.UserID != s.UserID ||
+		loggedIn.AccessToken == "" || loggedIn.RefreshToken == "" || loggedIn.AccessToken == s.AccessToken {
+		t.Fatalf("login did not return a new session for the persisted account: %s (%v)", loginData, err)
+	}
+	e.expect(http.StatusOK, "usuarios", "GET", "/auth/validate", loggedIn.AccessToken, nil)
+	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1 AND access_token_hash = $2`,
+		s.UserID, hash(loggedIn.AccessToken)); n != 1 {
+		t.Errorf("login session persisted = %d, want 1", n)
+	}
 	e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/login", "", map[string]any{"email": email, "password": "otra"})
 	e.expect(http.StatusConflict, "usuarios", "POST", "/auth/register", "", map[string]any{"name": "Otra", "email": email, "password": "Clave12345!"})
 	e.expect(http.StatusOK, "usuarios", "GET", "/auth/validate", s.AccessToken, nil)
@@ -304,7 +319,9 @@ func TestIntegracion_Comercial(t *testing.T) {
 	})
 
 	t.Run("search guarda el historial con la sesión", func(t *testing.T) {
-		t.Cleanup(func() { _, _ = e.pool.Exec(context.Background(), `DELETE FROM search_query WHERE raw_query = $1`, e.tag) })
+		t.Cleanup(func() {
+			_, _ = e.pool.Exec(context.Background(), `DELETE FROM search_query WHERE raw_query = $1`, e.tag)
+		})
 		e.expect(http.StatusCreated, "comercial", "POST", "/search/history", s.AccessToken, map[string]any{"query": e.tag})
 		if n := e.count(`SELECT count(*) FROM search_query WHERE user_id = $1 AND raw_query = $2`, user, e.tag); n != 1 {
 			t.Errorf("search_query en la base = %d", n)

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: store-api
+  labels:
+    app.kubernetes.io/name: store-api
+    app.kubernetes.io/component: store-api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: store-api
+  ports:
+    - name: http
+      port: 8082
+      targetPort: http
+      protocol: TCP

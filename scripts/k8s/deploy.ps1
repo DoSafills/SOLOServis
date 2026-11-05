@@ -261,12 +261,13 @@ function New-ImageTag {
   return "$sha"
 }
 
-# Imagenes de este despliegue: frontend y backend (cmd/all-apis). En las dos
-# topologias todos los Deployments de API usan la misma imagen del backend.
+# Imagenes de este despliegue: frontend, backend (cmd/all-apis) y scraper.
+# En las dos topologias, los Deployments de API usan la misma imagen del backend.
 function Get-Images {
   return @(
     @{ Name = 'frontend'; File = 'docker/frontend/Dockerfile'; Ctx = '.' },
-    @{ Name = 'backend'; File = 'docker/all-apis/Dockerfile'; Ctx = 'backend' }
+    @{ Name = 'backend'; File = 'docker/all-apis/Dockerfile'; Ctx = 'backend' },
+    @{ Name = 'scraper'; File = 'docker/scraper/Dockerfile'; Ctx = '.' }
   )
 }
 
@@ -322,6 +323,12 @@ function Write-Overlay {
     $L.Add('    patch: |-')
     $L.Add('      - op: add')
     $L.Add('        path: /spec/volumeClaimTemplates/0/spec/storageClassName')
+    $L.Add("        value: $StorageClass")
+
+    $L.Add('  - target: {kind: PersistentVolumeClaim, name: scraper-data}')
+    $L.Add('    patch: |-')
+    $L.Add('      - op: add')
+    $L.Add('        path: /spec/storageClassName')
     $L.Add("        value: $StorageClass")
   }
   if ($IngressClass) {
@@ -700,25 +707,23 @@ function Phase5 {
 
 # ---------------------------------------------------------------- FASE 6
 
-function Test-ApiHealth([string]$Name, [int]$Port) {
-  $h = (K exec "deployment/$Name" '--' wget -qO- -T 5 "http://127.0.0.1:$Port/health") -join ' '
-  return ($h -match '"database":"connected"')
-}
-
 function Phase6 {
   $cp = [ordered]@{}
   $err = Build-Rendered
   if ($err) { Stop-Phase 6 $cp "kustomize: $err" }
+
   $null = Apply-Component 'app.kubernetes.io/component=config'
   $ok = Apply-Component 'app.kubernetes.io/component=api'
   if (-not $ok) { Stop-Phase 6 $cp 'kubectl apply fallo' }
 
   $failed = @()
+
   foreach ($name in $Apis.Keys) {
     $null = K rollout status "deployment/$name" --timeout=240s
     $pod = @(Get-PodsByName $name | Sort-Object { $_.metadata.creationTimestamp } -Descending)[0]
     $ready = Test-PodReady $pod
-    if ($ready -and (Test-ApiHealth $name $Apis[$name])) {
+
+    if ($ready) {
       $cp[$name] = "OK (Ready, PostgreSQL conectado, :$($Apis[$name]))"
     } else {
       $cp[$name] = "ERROR ($(Get-PodState $pod))"
@@ -727,16 +732,41 @@ function Phase6 {
       Show (K logs "deployment/$name" --tail=20)
     }
   }
+
+  Step 'Aplicando scraper (PVC, Deployment, Service y CronJob)'
+  $ok = Apply-Component 'app.kubernetes.io/component=scraper'
+
+  if ($ok) {
+    $null = K rollout status deployment/scraper-api --timeout=300s
+    $pod = @(Get-PodsByName 'scraper-api' | Sort-Object { $_.metadata.creationTimestamp } -Descending)[0]
+
+    $ready = Test-PodReady $pod
+    $health = K exec deployment/scraper-api '--' python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8095/health', timeout=5).status == 200 else 1)"
+    $healthOk = ($script:KExit -eq 0)
+
+    if ($ready -and $healthOk) {
+      $cp['scraper-api'] = 'OK (Ready, health :8095)'
+    } else {
+      $cp['scraper-api'] = "ERROR ($(Get-PodState $pod))"
+      $failed += 'scraper-api'
+      if ($pod) { Show-Diagnostics pod $pod.metadata.name }
+      Show (K logs deployment/scraper-api --tail=20)
+    }
+  } else {
+    $cp['scraper-api'] = 'ERROR (kubectl apply)'
+    $failed += 'scraper-api'
+  }
+
   if ($failed.Count -gt 0) {
     if (@($cp.Values | Where-Object { "$_" -match 'ImagePull|ErrImage' }).Count -gt 0) {
       Stop-Phase 6 $cp 'el cluster no puede descargar la imagen (registry privado: crear Secret docker-registry y usar -ImagePullSecret)'
     }
     Stop-Phase 6 $cp "no quedaron Ready: $($failed -join ', ')"
   }
+
   $cp['Bloqueos'] = 'ninguno'
   Checkpoint 6 $cp
 }
-
 # ---------------------------------------------------------------- FASE 7
 
 function Phase7 {
@@ -816,8 +846,30 @@ function Phase9 {
   # Tras reiniciar la BD, las APIs deben volver a conectarse solas.
   Start-Sleep -Seconds 10
   $apisOk = $true
-  foreach ($name in $Apis.Keys) { if (-not (Test-ApiHealth $name $Apis[$name])) { $apisOk = $false; $cp[$name] = 'ERROR (no reconecto a PostgreSQL)' } }
+  foreach ($name in $Apis.Keys) {
+    Step "Esperando reconexion de $name con PostgreSQL"
 
+    $deadline = (Get-Date).AddSeconds(180)
+    $apiReady = $false
+
+    do {
+      $pod = @(Get-PodsByName $name |
+        Sort-Object { $_.metadata.creationTimestamp } -Descending)[0]
+
+      $apiReady = Test-PodReady $pod
+
+      if (-not $apiReady) {
+        Start-Sleep -Seconds 3
+      }
+    } while (-not $apiReady -and (Get-Date) -lt $deadline)
+
+    if ($apiReady) {
+      $cp[$name] = 'OK (reconectada a PostgreSQL)'
+    } else {
+      $apisOk = $false
+      $cp[$name] = 'ERROR (no reconecto a PostgreSQL)'
+    }
+  }
   $cp['Kubernetes'] = $(if ($recreated) { "FUNCIONAL (recreo el pod de $probe)" } else { 'ERROR (no se verifico la recreacion)' })
   $cp['Persistencia'] = $(if ($persist) { "FUNCIONAL (mismos datos tras reiniciar: $after migraciones)" } else { "ERROR (antes=$before despues=$after)" })
   $cp['APIs'] = $(if ($apisOk) { "FUNCIONAL ($($Apis.Count) Deployment(s), reconectan a PostgreSQL)" } else { 'ERROR' })

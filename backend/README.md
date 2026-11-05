@@ -225,6 +225,10 @@ internal/config/config.go
 
 Se utilizan variables de entorno.
 
+Las llamadas HTTP entre APIs usan un cliente común. Cada `*_API_URL` específica
+tiene prioridad; si no está definida, se usa `GATEWAY_URL` y, finalmente, el
+default local del servicio.
+
 ## `.env`
 
 El archivo `.env` es local y **no debe subirse al repositorio** si contiene credenciales reales.

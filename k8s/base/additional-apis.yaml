@@ -1,0 +1,448 @@
+# APIs adicionales al MVP inicial. Product y Store se mantienen en sus manifiestos.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-api
+  labels: {app.kubernetes.io/name: service-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: service-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: service-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: service-api
+          image: soloservis/service-api
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8083}]
+          env:
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+            - {name: PORT, value: "8083"}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-api
+  labels: {app.kubernetes.io/name: user-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: user-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: user-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: user-api
+          image: soloservis/user-api
+          ports: [{name: http, containerPort: 8084}]
+          env:
+            - {name: PORT, value: "8084"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pricing-api
+  labels: {app.kubernetes.io/name: pricing-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: pricing-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: pricing-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: pricing-api
+          image: soloservis/pricing-api
+          ports: [{name: http, containerPort: 8085}]
+          env:
+            - {name: PORT, value: "8085"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+            - {name: NOTIFICATION_API_URL, value: http://notification-api:8093}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-api
+  labels: {app.kubernetes.io/name: search-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: search-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: search-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: search-api
+          image: soloservis/search-api
+          ports: [{name: http, containerPort: 8086}]
+          env:
+            - {name: PORT, value: "8086"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+            - {name: PRODUCT_API_URL, value: http://product-api:8081}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: comparison-api
+  labels: {app.kubernetes.io/name: comparison-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: comparison-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: comparison-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: comparison-api
+          image: soloservis/comparison-api
+          ports: [{name: http, containerPort: 8087}]
+          env:
+            - {name: PORT, value: "8087"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+            - {name: PRODUCT_API_URL, value: http://product-api:8081}
+            - {name: PRICING_API_URL, value: http://pricing-api:8085}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-api
+  labels: {app.kubernetes.io/name: auth-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: auth-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: auth-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: auth-api
+          image: soloservis/auth-api
+          ports: [{name: http, containerPort: 8088}]
+          env:
+            - {name: PORT, value: "8088"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: favorites-api
+  labels: {app.kubernetes.io/name: favorites-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: favorites-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: favorites-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: favorites-api
+          image: soloservis/favorites-api
+          ports: [{name: http, containerPort: 8089}]
+          env:
+            - {name: PORT, value: "8089"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+            - {name: PRODUCT_API_URL, value: http://product-api:8081}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cart-api
+  labels: {app.kubernetes.io/name: cart-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: cart-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: cart-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: cart-api
+          image: soloservis/cart-api
+          ports: [{name: http, containerPort: 8090}]
+          env:
+            - {name: PORT, value: "8090"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+            - {name: PRODUCT_API_URL, value: http://product-api:8081}
+            - {name: PRICING_API_URL, value: http://pricing-api:8085}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-api
+  labels: {app.kubernetes.io/name: review-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: review-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: review-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: review-api
+          image: soloservis/review-api
+          ports: [{name: http, containerPort: 8091}]
+          env:
+            - {name: PORT, value: "8091"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+            - {name: PRODUCT_API_URL, value: http://product-api:8081}
+            - {name: STORE_API_URL, value: http://store-api:8082}
+            - {name: SERVICE_API_URL, value: http://service-api:8083}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: watchlist-api
+  labels: {app.kubernetes.io/name: watchlist-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: watchlist-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: watchlist-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: watchlist-api
+          image: soloservis/watchlist-api
+          ports: [{name: http, containerPort: 8092}]
+          env:
+            - {name: PORT, value: "8092"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+            - {name: PRICING_API_URL, value: http://pricing-api:8085}
+            - {name: NOTIFICATION_API_URL, value: http://notification-api:8093}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-api
+  labels: {app.kubernetes.io/name: notification-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: notification-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: notification-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: notification-api
+          image: soloservis/notification-api
+          ports: [{name: http, containerPort: 8093}]
+          env:
+            - {name: PORT, value: "8093"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion-api
+  labels: {app.kubernetes.io/name: ingestion-api, app.kubernetes.io/component: additional-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: ingestion-api}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: ingestion-api, app.kubernetes.io/component: additional-api}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: ingestion-api
+          image: soloservis/ingestion-api
+          ports: [{name: http, containerPort: 8094}]
+          env:
+            - {name: PORT, value: "8094"}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}}}
+            - {name: DATABASE_URL, value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"}
+            - {name: FRONTEND_URL, valueFrom: {configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}}}
+            - {name: PRODUCT_API_URL, value: http://product-api:8081}
+            - {name: STORE_API_URL, value: http://store-api:8082}
+            - {name: PRICING_API_URL, value: http://pricing-api:8085}
+          readinessProbe: {httpGet: {path: /health, port: http}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 3}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-api
+  labels: {app.kubernetes.io/name: service-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: service-api}, ports: [{name: http, port: 8083, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-api
+  labels: {app.kubernetes.io/name: user-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: user-api}, ports: [{name: http, port: 8084, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pricing-api
+  labels: {app.kubernetes.io/name: pricing-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: pricing-api}, ports: [{name: http, port: 8085, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: search-api
+  labels: {app.kubernetes.io/name: search-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: search-api}, ports: [{name: http, port: 8086, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: comparison-api
+  labels: {app.kubernetes.io/name: comparison-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: comparison-api}, ports: [{name: http, port: 8087, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-api
+  labels: {app.kubernetes.io/name: auth-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: auth-api}, ports: [{name: http, port: 8088, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: favorites-api
+  labels: {app.kubernetes.io/name: favorites-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: favorites-api}, ports: [{name: http, port: 8089, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cart-api
+  labels: {app.kubernetes.io/name: cart-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: cart-api}, ports: [{name: http, port: 8090, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-api
+  labels: {app.kubernetes.io/name: review-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: review-api}, ports: [{name: http, port: 8091, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: watchlist-api
+  labels: {app.kubernetes.io/name: watchlist-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: watchlist-api}, ports: [{name: http, port: 8092, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-api
+  labels: {app.kubernetes.io/name: notification-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: notification-api}, ports: [{name: http, port: 8093, targetPort: http}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestion-api
+  labels: {app.kubernetes.io/name: ingestion-api, app.kubernetes.io/component: additional-api}
+spec: {type: ClusterIP, selector: {app.kubernetes.io/name: ingestion-api}, ports: [{name: http, port: 8094, targetPort: http}]}

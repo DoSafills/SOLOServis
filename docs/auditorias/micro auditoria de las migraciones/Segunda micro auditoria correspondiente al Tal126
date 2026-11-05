@@ -146,9 +146,9 @@ WHERE conrelid = 'cart_item'::regclass AND contype = 'c';
 '@ | Set-Content -Path "$PWD\auditoria_126.sql" -Encoding utf8
 
 # --- 2. Variables de conexión ---
-$env:PGHOST = "ep-silent-bonus-b5l2dcfy.c-7.us-east-2.aws.neon.tech"
+$env:PGHOST = "<NEON_HOST>"
 $env:PGPORT = "5432"
-$env:PGUSER = "neondb_owner"
+$env:PGUSER = "<DATABASE_OWNER>"
 $env:PGDATABASE = "neondb"
 $env:PGSSLMODE = "require"
 
@@ -178,9 +178,9 @@ Write-Host "`nListo. Resultado guardado en: $PWD\auditoria_126_resultado.txt"
  # ============================================================
 >> # TAL-126: Auditoría de relaciones en Neon (solo lectura) - CORREGIDO
 >> # ============================================================
->> 
+>>
 >> Set-Location "C:\Users\cc077\Documents\GitHub\SOLOServis"
->> 
+>>
 >> # --- 1. Crear auditoria_126.sql ---
 >> @'
 >> \echo '=== 1. TODAS LAS FOREIGN KEYS (con ON DELETE / ON UPDATE) ==='
@@ -199,7 +199,7 @@ Write-Host "`nListo. Resultado guardado en: $PWD\auditoria_126_resultado.txt"
 >> JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
 >> WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
 >> ORDER BY 1, 2;
->> 
+>>
 >> \echo '=== 2. RESUMEN DE ON DELETE ==='
 >> SELECT
 >>   CASE confdeltype WHEN 'a' THEN 'NO ACTION' WHEN 'r' THEN 'RESTRICT'
@@ -209,7 +209,7 @@ Write-Host "`nListo. Resultado guardado en: $PWD\auditoria_126_resultado.txt"
 >> FROM pg_constraint
 >> WHERE contype = 'f' AND connamespace = 'public'::regnamespace
 >> GROUP BY 1 ORDER BY 2 DESC;
->> 
+>>
 >> \echo '=== 3. COLUMNAS *_id SIN FOREIGN KEY ==='
 >> SELECT c.table_name, c.column_name, c.data_type
 >> FROM information_schema.columns c
@@ -226,7 +226,7 @@ Write-Host "`nListo. Resultado guardado en: $PWD\auditoria_126_resultado.txt"
 >>       AND a.attname = c.column_name
 >>   )
 >> ORDER BY c.table_name, c.column_name;
->> 
+>>
 >> \echo '=== 4. TABLAS INTERMEDIAS N:M ==='
 >> SELECT c.conrelid::regclass::text AS tabla,
 >>        count(*) AS num_fks,
@@ -238,7 +238,7 @@ Write-Host "`nListo. Resultado guardado en: $PWD\auditoria_126_resultado.txt"
 >> GROUP BY c.conrelid
 >> HAVING count(*) >= 2
 >> ORDER BY 3, 1;
->> 
+>>
 >> \echo '=== 5. N:M SIN UNIQUE/PK COMPUESTA ==='
 >> SELECT DISTINCT c.conrelid::regclass::text AS tabla
 >> FROM pg_constraint c
@@ -254,31 +254,31 @@ Write-Host "`nListo. Resultado guardado en: $PWD\auditoria_126_resultado.txt"
 >>     WHERE u.conrelid = c.conrelid AND u.contype IN ('u','p')
 >>       AND array_length(u.conkey,1) >= 2
 >>   );
->> 
+>>
 >> \echo '=== 6. CART_ITEM ==='
 >> SELECT
 >>   count(*) AS total,
 >>   count(*) FILTER (WHERE offer_id IS NOT NULL AND service_offer_id IS NOT NULL) AS con_ambos,
 >>   count(*) FILTER (WHERE offer_id IS NULL AND service_offer_id IS NULL) AS con_ninguno
 >> FROM cart_item;
->> 
+>>
 >> SELECT conname, pg_get_constraintdef(oid) AS definicion
 >> FROM pg_constraint
 >> WHERE conrelid = 'cart_item'::regclass AND contype = 'c';
 >> '@ | Set-Content -Path "$PWD\auditoria_126.sql" -Encoding utf8
->> 
+>>
 >> # --- 2. Variables de conexión ---
->> $env:PGHOST = "ep-silent-bonus-b5l2dcfy.c-7.us-east-2.aws.neon.tech"
+>> $env:PGHOST = "<NEON_HOST>"
 >> $env:PGPORT = "5432"
->> $env:PGUSER = "neondb_owner"
+>> $env:PGUSER = "<DATABASE_OWNER>"
 >> $env:PGDATABASE = "neondb"
 >> $env:PGSSLMODE = "require"
->> 
+>>
 >> # --- 3. Contraseña (no se muestra) ---
 >> $secure = Read-Host "Contraseña de Neon" -AsSecureString
 >> $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 >> $env:PGPASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
->> 
+>>
 >> # --- 4. Ejecutar y guardar resultado ---
 >> try {
 >>     docker run --rm `
@@ -291,11 +291,11 @@ Write-Host "`nListo. Resultado guardado en: $PWD\auditoria_126_resultado.txt"
 >>     $env:PGPASSWORD = $null
 >>     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
 >> }
->> 
+>>
 >> Write-Host "`nListo. Resultado guardado en: $PWD\auditoria_126_resultado.txt"
 Contraseña de Neon: ****************
 === 1. TODAS LAS FOREIGN KEYS (con ON DELETE / ON UPDATE) ===
-           tabla_hija           |          columna           |          tabla_padre           |                fk                         | on_delete | on_update 
+           tabla_hija           |          columna           |          tabla_padre           |                fk                         | on_delete | on_update
 --------------------------------+----------------------------+--------------------------------+---------------------------------------------------+-----------+-----------
  ai_query_process               | search_query_id            | search_query                   | ai_query_process_search_query_id_fkey             | CASCADE   | NO ACTION
  cart_item                      | offer_id                   | product_offer                  | cart_item_offer_id_fkey                           | CASCADE   | NO ACTION
@@ -361,7 +361,7 @@ Contraseña de Neon: ****************
 (61 rows)
 
 === 2. RESUMEN DE ON DELETE ===
- on_delete | cantidad 
+ on_delete | cantidad
 -----------+----------
  CASCADE   |       47
  SET NULL  |        7
@@ -369,7 +369,7 @@ Contraseña de Neon: ****************
 (3 rows)
 
 === 3. COLUMNAS *_id SIN FOREIGN KEY ===
-  table_name  | column_name |     data_type     
+  table_name  | column_name |     data_type
 --------------+-------------+-------------------
  product      | public_id   | uuid
  scraped_data | external_id | character varying
@@ -378,7 +378,7 @@ Contraseña de Neon: ****************
 (4 rows)
 
 === 4. TABLAS INTERMEDIAS N:M ===
-            tabla            | num_fks | num_columnas 
+            tabla            | num_fks | num_columnas
 -----------------------------+---------+--------------
  product_specification_value |       2 |            4
  service_specification_value |       2 |            4
@@ -403,7 +403,7 @@ Contraseña de Neon: ****************
 (20 rows)
 
 === 5. N:M SIN UNIQUE/PK COMPUESTA ===
-             tabla              
+             tabla
 --------------------------------
  product_category_specification
  provider_location
@@ -412,18 +412,15 @@ Contraseña de Neon: ****************
 (4 rows)
 
 === 6. CART_ITEM ===
- total | con_ambos | con_ninguno 
+ total | con_ambos | con_ninguno
 -------+-----------+-------------
      0 |         0 |           0
 (1 row)
 
-               conname               |                    definicion            
+               conname               |                    definicion
 -------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  cart_item_quantity_check            | CHECK ((quantity > 0))
  cart_item_saved_price_check         | CHECK ((saved_price >= (0)::numeric))
  cart_item_saved_shipping_cost_check | CHECK ((saved_shipping_cost >= (0)::numeric))
  cart_item_product_or_service        | CHECK ((((product_id IS NOT NULL) AND (offer_id IS NOT NULL) AND (service_offer_id IS NULL)) OR ((product_id IS NULL) AND (offer_id IS NULL) AND (service_offer_id IS NOT NULL))))
 (4 rows)
-
-
-

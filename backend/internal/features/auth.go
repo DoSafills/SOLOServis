@@ -7,13 +7,21 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 )
 
-const passwordIterations = 120000
+const (
+	passwordIterations = 120000
+	maxAuthBodyBytes   = 16 << 10
+	maxPasswordBytes   = 1024
+	maxNameLength      = 150
+	maxEmailLength     = 254
+)
 
 type authInput struct {
 	Name         string `json:"name"`
@@ -24,8 +32,14 @@ type authInput struct {
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var input authInput
-	if !decode(r, &input) || strings.TrimSpace(input.Name) == "" || !strings.Contains(input.Email, "@") || len(input.Password) < 10 {
-		badRequest(w, r, "name, valid email and password of at least 10 characters are required")
+	if !decodeAuth(w, r, &input) {
+		return
+	}
+	input.Name = strings.TrimSpace(input.Name)
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	if input.Name == "" || len(input.Name) > maxNameLength || !validEmail(input.Email) ||
+		len(input.Password) < 10 || len(input.Password) > maxPasswordBytes {
+		badRequest(w, r, "name (1-150 characters), valid email and password (10-1024 bytes) are required")
 		return
 	}
 	hash, err := passwordHash(input.Password)
@@ -35,7 +49,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	var userID int32
 	err = h.db.QueryRow(r.Context(), `INSERT INTO user_account(name,email,password_hash) VALUES ($1,$2,$3) RETURNING id`,
-		strings.TrimSpace(input.Name), strings.ToLower(strings.TrimSpace(input.Email)), hash).Scan(&userID)
+		input.Name, input.Email, hash).Scan(&userID)
 	if err != nil {
 		h.dbError(w, r, err, http.StatusConflict, "email is already registered")
 		return
@@ -45,14 +59,18 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var input authInput
-	if !decode(r, &input) || input.Email == "" || input.Password == "" {
-		badRequest(w, r, "email and password are required")
+	if !decodeAuth(w, r, &input) {
+		return
+	}
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	if !validEmail(input.Email) || input.Password == "" || len(input.Password) > maxPasswordBytes {
+		badRequest(w, r, "valid email and password (1-1024 bytes) are required")
 		return
 	}
 	var userID int32
 	var hash string
 	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE email=$1 AND active`,
-		strings.ToLower(strings.TrimSpace(input.Email))).Scan(&userID, &hash)
+		input.Email).Scan(&userID, &hash)
 	if err != nil || !checkPassword(hash, input.Password) {
 		h.dbError(w, r, err, http.StatusUnauthorized, "invalid credentials")
 		return
@@ -95,7 +113,10 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var input authInput
-	if !decode(r, &input) || input.RefreshToken == "" {
+	if !decodeAuth(w, r, &input) {
+		return
+	}
+	if strings.TrimSpace(input.RefreshToken) == "" {
 		badRequest(w, r, "refreshToken is required")
 		return
 	}
@@ -111,15 +132,36 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	token := bearerToken(r)
-	if token == "" {
+	if token == "" && r.Body != nil && r.ContentLength != 0 {
 		var input authInput
-		_ = decode(r, &input)
-		token = input.RefreshToken
+		if !decodeAuth(w, r, &input) {
+			return
+		}
+		token = strings.TrimSpace(input.RefreshToken)
 	}
 	if token != "" {
-		_, _ = h.db.Exec(r.Context(), `DELETE FROM user_session WHERE access_token_hash=$1 OR refresh_token_hash=$1`, tokenHash(token))
+		if _, err := h.db.Exec(r.Context(), `DELETE FROM user_session WHERE access_token_hash=$1 OR refresh_token_hash=$1`, tokenHash(token)); err != nil {
+			h.dbError(w, r, err, http.StatusInternalServerError, "could not close session")
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func decodeAuth(w http.ResponseWriter, r *http.Request, input *authInput) bool {
+	if err := httpx.DecodeJSON(w, r, input, maxAuthBodyBytes); err != nil {
+		httpx.WriteDecodeError(w, r, err)
+		return false
+	}
+	return true
+}
+
+func validEmail(value string) bool {
+	if len(value) == 0 || len(value) > maxEmailLength {
+		return false
+	}
+	address, err := mail.ParseAddress(value)
+	return err == nil && address.Address == value && !strings.ContainsAny(value, " \t\r\n")
 }
 
 func (h *Handler) ValidateToken(w http.ResponseWriter, r *http.Request) {
