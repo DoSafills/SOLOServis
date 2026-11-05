@@ -324,6 +324,12 @@ function Write-Overlay {
     $L.Add('      - op: add')
     $L.Add('        path: /spec/volumeClaimTemplates/0/spec/storageClassName')
     $L.Add("        value: $StorageClass")
+
+    $L.Add('  - target: {kind: PersistentVolumeClaim, name: scraper-data}')
+    $L.Add('    patch: |-')
+    $L.Add('      - op: add')
+    $L.Add('        path: /spec/storageClassName')
+    $L.Add("        value: $StorageClass")
   }
   if ($IngressClass) {
     $L.Add('  - target: {kind: Ingress, name: soloservis}')
