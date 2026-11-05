@@ -2,13 +2,17 @@ package features
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/go-chi/chi/v5"
 )
+
+// maxComparedServices es el máximo de servicios en una comparación.
+const maxComparedServices = 3
 
 func (h *Handler) ListServiceFavorites(w http.ResponseWriter, r *http.Request) {
 	userID := sessionUserID(r)
@@ -19,22 +23,24 @@ func (h *Handler) ListServiceFavorites(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) AddServiceFavorite(w http.ResponseWriter, r *http.Request) {
 	var input favoriteInput
-	if !decode(r, &input) {
-		badRequest(w, r, "invalid request body")
+	if !decode(w, r, &input) {
 		return
 	}
-	input.UserID = sessionUserID(r)
-	userID, err := h.service.UserID(r.Context(), input.UserID)
-	serviceID, serviceErr := h.service.ServiceID(r.Context(), chi.URLParam(r, "serviceId"))
-	if err != nil || serviceErr != nil {
-		h.dbError(w, r, errors.Join(err, serviceErr), http.StatusNotFound, "user or service not found")
+	userID, err := h.service.UserID(r.Context(), sessionUserID(r))
+	if err != nil {
+		h.dbError(w, r, err, http.StatusNotFound, "Usuario no encontrado.")
+		return
+	}
+	serviceID, err := h.service.ServiceID(r.Context(), chi.URLParam(r, "serviceId"))
+	if err != nil {
+		h.dbError(w, r, err, http.StatusNotFound, "Servicio no encontrado.")
 		return
 	}
 	_, err = h.db.Exec(r.Context(), `INSERT INTO service_user_interest (user_id,service_id,is_favorite)
 		VALUES ($1,$2,TRUE) ON CONFLICT (user_id,service_id)
 		DO UPDATE SET is_favorite=TRUE,updated_at=NOW()`, userID, serviceID)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not save service favorite")
+		h.dbError(w, r, err, http.StatusInternalServerError, "No se pudo guardar el servicio favorito.")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{
@@ -47,14 +53,14 @@ func (h *Handler) DeleteServiceFavorite(w http.ResponseWriter, r *http.Request) 
 	userID := sessionUserID(r)
 	serviceID, err := h.service.ServiceID(r.Context(), chi.URLParam(r, "serviceId"))
 	if err != nil {
-		badRequest(w, r, "valid userId and serviceId are required")
+		h.dbError(w, r, err, http.StatusNotFound, "Servicio no encontrado.")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `UPDATE service_user_interest
 		SET is_favorite=FALSE,updated_at=NOW()
 		WHERE user_id=$1 AND service_id=$2 AND is_favorite`, userID, serviceID)
 	if err != nil || result.RowsAffected() == 0 {
-		h.dbError(w, r, err, http.StatusNotFound, "service favorite not found")
+		h.dbError(w, r, err, http.StatusNotFound, "Servicio favorito no encontrado.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -69,31 +75,32 @@ type serviceComparisonInput struct {
 
 func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request) {
 	var input serviceComparisonInput
-	if !decode(r, &input) {
-		badRequest(w, r, "invalid request body")
+	if !decode(w, r, &input) {
 		return
 	}
-	if strings.TrimSpace(input.Name) == "" {
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
 		input.Name = "Comparación de servicios"
 	}
 	if input.ServiceID != "" {
 		input.Services = append(input.Services, input.ServiceID)
 	}
-	if len(input.Services) == 0 {
-		badRequest(w, r, "at least one serviceId is required")
+	var v httpx.Validator
+	v.Check(len(input.Services) > 0, "serviceIds", "required", "serviceIds debe tener al menos un servicio")
+	if !valid(w, r, &v) {
 		return
 	}
 	userID, err := h.service.UserID(r.Context(), sessionUserID(r))
 	if err != nil {
-		h.dbError(w, r, err, http.StatusNotFound, "user not found")
+		h.dbError(w, r, err, http.StatusNotFound, "Usuario no encontrado.")
 		return
 	}
 
 	serviceIDs := make([]int32, 0, len(input.Services))
-	for _, publicID := range input.Services {
+	for i, publicID := range input.Services {
 		serviceID, err := h.service.ServiceID(r.Context(), publicID)
 		if err != nil {
-			h.dbError(w, r, err, http.StatusNotFound, "service not found")
+			h.referenceError(w, r, err, fmt.Sprintf("serviceIds.%d", i))
 			return
 		}
 		serviceIDs = append(serviceIDs, serviceID)
@@ -101,13 +108,13 @@ func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request
 
 	var categoryID int32
 	if err := h.db.QueryRow(r.Context(), `SELECT category_id FROM service WHERE id=$1`, serviceIDs[0]).Scan(&categoryID); err != nil {
-		h.dbError(w, r, err, http.StatusNotFound, "service not found")
+		h.referenceError(w, r, err, "serviceIds.0")
 		return
 	}
 
 	tx, err := h.db.Begin(r.Context())
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not start service comparison")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -115,18 +122,18 @@ func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request
 	var comparisonID int32
 	if err := tx.QueryRow(r.Context(), `INSERT INTO service_comparison (user_id,category_id,name)
 		VALUES ($1,$2,$3) RETURNING id`, userID, categoryID, input.Name).Scan(&comparisonID); err != nil {
-		writeError(w, r, http.StatusInternalServerError, "could not create service comparison")
+		h.dbError(w, r, err, http.StatusInternalServerError, "No se pudo crear la comparación de servicios.")
 		return
 	}
 	for position, serviceID := range serviceIDs {
 		if _, err := tx.Exec(r.Context(), `INSERT INTO service_comparison_item
 			(comparison_id,service_id,position) VALUES ($1,$2,$3)`, comparisonID, serviceID, position); err != nil {
-			writeError(w, r, http.StatusConflict, "service is already compared or cannot be added")
+			h.dbError(w, r, err, http.StatusConflict, "Un servicio está repetido en la comparación.")
 			return
 		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not save service comparison")
+		h.dbError(w, r, err, http.StatusInternalServerError, "No se pudo guardar la comparación de servicios.")
 		return
 	}
 
@@ -141,7 +148,7 @@ func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request
 func (h *Handler) GetServiceComparison(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
 	if !ok {
-		badRequest(w, r, "invalid service comparison id")
+		badRequest(w, r, "El id de la comparación no es válido.")
 		return
 	}
 	result, err := h.repo.QueryJSON(r.Context(), `SELECT jsonb_build_object(
@@ -153,16 +160,16 @@ func (h *Handler) GetServiceComparison(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN service s ON s.id=ci.service_id
 		WHERE c.id=$1 AND c.user_id=$2 GROUP BY c.id`, id, sessionUserID(r))
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not load service comparison")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	if len(result) == 0 {
-		writeError(w, r, http.StatusNotFound, "service comparison not found")
+		writeError(w, r, http.StatusNotFound, "Comparación de servicios no encontrada.")
 		return
 	}
 	var comparison map[string]any
 	if err := json.Unmarshal(result[0], &comparison); err != nil {
-		writeError(w, r, http.StatusInternalServerError, "invalid service comparison data")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, comparison)
@@ -171,12 +178,12 @@ func (h *Handler) GetServiceComparison(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteServiceComparison(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
 	if !ok {
-		badRequest(w, r, "invalid service comparison id")
+		badRequest(w, r, "El id de la comparación no es válido.")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `DELETE FROM service_comparison WHERE id=$1 AND user_id=$2`, id, sessionUserID(r))
 	if err != nil || result.RowsAffected() == 0 {
-		h.dbError(w, r, err, http.StatusNotFound, "service comparison not found")
+		h.dbError(w, r, err, http.StatusNotFound, "Comparación de servicios no encontrada.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -184,20 +191,28 @@ func (h *Handler) DeleteServiceComparison(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) AddServiceComparisonItem(w http.ResponseWriter, r *http.Request) {
 	comparisonID, ok := intParam(r, "id")
+	if !ok {
+		badRequest(w, r, "El id de la comparación no es válido.")
+		return
+	}
 	var input serviceComparisonInput
-	if !ok || !decode(r, &input) || input.ServiceID == "" {
-		badRequest(w, r, "valid comparison id and serviceId are required")
+	if !decode(w, r, &input) {
+		return
+	}
+	var v httpx.Validator
+	v.Required("serviceId", input.ServiceID)
+	if !valid(w, r, &v) {
 		return
 	}
 	serviceID, err := h.service.ServiceID(r.Context(), input.ServiceID)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusNotFound, "service not found")
+		h.referenceError(w, r, err, "serviceId")
 		return
 	}
 
 	tx, err := h.db.Begin(r.Context())
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not start service comparison update")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -207,22 +222,23 @@ func (h *Handler) AddServiceComparisonItem(w http.ResponseWriter, r *http.Reques
 		FROM service_comparison c
 		LEFT JOIN service_comparison_item ci ON ci.comparison_id=c.id
 		WHERE c.id=$1 AND c.user_id=$2 GROUP BY c.id`, comparisonID, sessionUserID(r)).Scan(&itemCount); err != nil {
-		writeError(w, r, http.StatusNotFound, "service comparison not found")
+		h.dbError(w, r, err, http.StatusNotFound, "Comparación de servicios no encontrada.")
 		return
 	}
-	if itemCount >= 3 {
-		badRequest(w, r, "a service comparison cannot contain more than 3 services")
+	if itemCount >= maxComparedServices {
+		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: "serviceId", Code: "max",
+			Message: fmt.Sprintf("Una comparación no puede tener más de %d servicios", maxComparedServices)}})
 		return
 	}
 	if _, err := tx.Exec(r.Context(), `INSERT INTO service_comparison_item
 		(comparison_id,service_id,position)
 		VALUES ($1,$2,COALESCE((SELECT MAX(position)+1 FROM service_comparison_item
 			WHERE comparison_id=$1),0))`, comparisonID, serviceID); err != nil {
-		writeError(w, r, http.StatusConflict, "service is already compared or cannot be added")
+		h.dbError(w, r, err, http.StatusConflict, "El servicio ya está en la comparación.")
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not save service comparison item")
+		h.dbError(w, r, err, http.StatusInternalServerError, "No se pudo guardar el servicio en la comparación.")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{
@@ -233,9 +249,13 @@ func (h *Handler) AddServiceComparisonItem(w http.ResponseWriter, r *http.Reques
 
 func (h *Handler) DeleteServiceComparisonItem(w http.ResponseWriter, r *http.Request) {
 	comparisonID, ok := intParam(r, "id")
+	if !ok {
+		badRequest(w, r, "El id de la comparación no es válido.")
+		return
+	}
 	serviceID, err := h.service.ServiceID(r.Context(), chi.URLParam(r, "serviceId"))
-	if !ok || err != nil {
-		badRequest(w, r, "invalid comparison or service id")
+	if err != nil {
+		h.dbError(w, r, err, http.StatusNotFound, "Servicio no encontrado.")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `DELETE FROM service_comparison_item ci
@@ -243,7 +263,7 @@ func (h *Handler) DeleteServiceComparisonItem(w http.ResponseWriter, r *http.Req
 		WHERE ci.comparison_id=c.id AND c.id=$1 AND c.user_id=$3 AND ci.service_id=$2`,
 		comparisonID, serviceID, sessionUserID(r))
 	if err != nil || result.RowsAffected() == 0 {
-		h.dbError(w, r, err, http.StatusNotFound, "service comparison item not found")
+		h.dbError(w, r, err, http.StatusNotFound, "El servicio no está en la comparación.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
