@@ -181,6 +181,49 @@ func (r *Repository) List(ctx context.Context, params ListParams) ([]dto.Product
 	return items, total, nil
 }
 
+func (r *Repository) FindDuplicateCandidates(
+	ctx context.Context,
+	categoryID int32,
+	brandID *int32,
+	sku, model string,
+	excludeID *pgtype.UUID,
+) ([]dto.DuplicateCandidate, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT p.public_id::text, p.name, COALESCE(b.name, ''), COALESCE(p.model, ''),
+		       COALESCE(c.name, pc.name),
+		       (SELECT count(*) FROM product_offer o WHERE o.product_id = p.id),
+		       CASE WHEN $1::text <> '' THEN 'sku' ELSE 'category_brand_model' END
+		FROM product p
+		JOIN product_category pc ON pc.id = p.category_id
+		LEFT JOIN categories c ON c.id = p.category_ref
+		LEFT JOIN brand b ON b.id = p.brand_id
+		WHERE p.active
+		  AND (
+		    ($1::text <> '' AND p.sku = $1::text)
+		    OR ($1::text = '' AND $2::int IS NOT NULL AND $3::text <> ''
+		        AND p.category_ref = $4::int AND p.brand_id = $2::int
+		        AND regexp_replace(lower(btrim(COALESCE(p.model, ''))), '\s+', ' ', 'g') = $3::text)
+		  )
+		  AND ($5::uuid IS NULL OR p.public_id <> $5::uuid)
+		ORDER BY p.id
+		LIMIT 10`, sku, brandID, model, categoryID, excludeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	candidates := make([]dto.DuplicateCandidate, 0)
+	for rows.Next() {
+		var candidate dto.DuplicateCandidate
+		if err := rows.Scan(&candidate.ID, &candidate.Name, &candidate.Brand, &candidate.Model,
+			&candidate.Category, &candidate.OfferCount, &candidate.MatchType); err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates, rows.Err()
+}
+
 // eachRow ejecuta una consulta por lote de productos y aplica fn a cada fila.
 func (r *Repository) eachRow(ctx context.Context, sql string, ids []int32, fn func(pgx.Rows) error) error {
 	rows, err := r.db.Query(ctx, sql, ids)

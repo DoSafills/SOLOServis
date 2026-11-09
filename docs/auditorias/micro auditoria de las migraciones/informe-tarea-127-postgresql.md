@@ -1,6 +1,6 @@
 # Auditoría TAL-127 — consultas y transacciones de PostgreSQL
 
-**Fecha:** 2026-10-30  
+**Fecha:** 2026-10-30
 **Alcance:** análisis estático de backend Go/pgx, SQL de sqlc y migraciones PostgreSQL. No se conectó a Neon ni a otra base de datos; no se modificó ningún archivo del repositorio.
 
 ## Resumen

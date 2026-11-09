@@ -50,3 +50,4 @@ k8s/overlays/
 *.kubeconfig
 kubeconfig*
 .neon
+.claude

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import { getProductById } from "../../services/api/api";
+import { compareProducts, type ApiProductAttributeRow } from "../../services/api/personalization";
 import { formatPrice, getMinOffer } from "../../services/utils/productUtils";
 import { Breadcrumb } from "../../components/common/ui";
 import { areProductCategoriesCompatible } from "./productComparisonUtils";
@@ -213,6 +214,8 @@ export default function ProductComparisonPage({
   const [comparisonCategory, setComparisonCategory] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attributeRows, setAttributeRows] = useState<ApiProductAttributeRow[]>([]);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [addingProductIds, setAddingProductIds] = useState<Set<string>>(() => new Set());
   const addingProductIdsRef = useRef(new Set<string>());
 
@@ -238,6 +241,7 @@ export default function ProductComparisonPage({
     async function loadProducts() {
       if (productIds.length === 0) {
         setSelected([]);
+        setAttributeRows([]);
         setLoading(false);
         return;
       }
@@ -245,10 +249,14 @@ export default function ProductComparisonPage({
       setLoading(true);
       setError(null);
       try {
-        const results = await Promise.all(productIds.map((id) => getProductById(id)));
+        const [results, matrix] = await Promise.all([
+          Promise.all(productIds.map((id) => getProductById(id))),
+          compareProducts(productIds),
+        ]);
         if (cancelled) return;
         const valid = results.filter((p: Product | null): p is Product => p !== null);
         setSelected(valid);
+        setAttributeRows(matrix.attributes ?? []);
         setComparisonCategory(valid[0]?.category);
       } catch (err) {
         if (cancelled) return;
@@ -263,7 +271,7 @@ export default function ProductComparisonPage({
     return () => {
       cancelled = true;
     };
-  }, [productIds]);
+  }, [productIds, loadAttempt]);
 
   if (loading) {
     return (
@@ -278,11 +286,11 @@ export default function ProductComparisonPage({
       <div className="mx-auto max-w-7xl px-4 py-20 text-center">
         <p className="mb-4 text-rose-300">{error}</p>
         <button
-          onClick={() => navigate({ id: "search-products", query: "" })}
+          onClick={() => setLoadAttempt((attempt) => attempt + 1)}
           style={{ background: "linear-gradient(135deg, #ff9878 0%, #fb7185 100%)", color: "#fff" }}
           className="rounded-xl px-5 py-2 text-sm font-semibold shadow-md shadow-rose-500/15 transition hover:brightness-105"
         >
-          Buscar productos
+          Reintentar
         </button>
       </div>
     );
@@ -573,6 +581,49 @@ export default function ProductComparisonPage({
                   })}
                 </Fragment>
               ))}
+
+              {attributeRows.length > 0 && (
+                <>
+                  <tr>
+                    <th
+                      colSpan={selected.length + 1}
+                      className="rounded-xl border border-cyan-400/30 bg-gradient-to-r from-cyan-500/20 via-slate-900 to-indigo-500/15 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-cyan-200"
+                    >
+                      Atributos comparables de {selected[0].category}
+                    </th>
+                  </tr>
+                  {attributeRows.map((attribute) => (
+                    <tr key={attribute.key}>
+                      <th
+                        scope="row"
+                        className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                      >
+                        {attribute.label}
+                        {attribute.unit ? ` (${attribute.unit})` : ""}
+                      </th>
+                      {selected.map((product, index) => {
+                        const value = attribute.values[index];
+                        const displayValue =
+                          value === null || value === undefined
+                            ? "No informado"
+                            : typeof value === "boolean"
+                              ? value
+                                ? "Sí"
+                                : "No"
+                              : String(value);
+                        return (
+                          <td
+                            key={`${product.id}-${attribute.key}`}
+                            className={`rounded-xl border p-3 text-center ${getCellTone(attribute.differs ? "default" : "equal")}`}
+                          >
+                            {displayValue}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </>
+              )}
             </tbody>
           </table>
         </div>

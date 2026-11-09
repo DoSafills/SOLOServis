@@ -29,6 +29,14 @@ func Load() Config {
 	}
 }
 
+func LoadForPort(defaultPort string) Config {
+	cfg := Load()
+	if os.Getenv("PORT") == "" && defaultPort != "" {
+		cfg.Port = defaultPort
+	}
+	return cfg
+}
+
 func resolveDatabaseURL() string {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

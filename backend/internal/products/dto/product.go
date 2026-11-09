@@ -11,6 +11,7 @@ type ProductListItem struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Brand       string            `json:"brand"`
+	BrandID     *int32            `json:"brandId,omitempty"`
 	Model       string            `json:"model"`
 	CategoryID  int32             `json:"categoryId"`
 	Category    string            `json:"category"`
@@ -48,8 +49,12 @@ func FromListProduct(row generated.ListProductsRow) ProductListItem {
 	}
 
 	var brand string
+	var brandID *int32
 	if row.BrandName.Valid {
 		brand = row.BrandName.String
+	}
+	if row.BrandID.Valid {
+		brandID = &row.BrandID.Int32
 	}
 
 	var rating float64
@@ -66,6 +71,7 @@ func FromListProduct(row generated.ListProductsRow) ProductListItem {
 		ID:          row.PublicID.String(),
 		Name:        row.Name,
 		Brand:       brand,
+		BrandID:     brandID,
 		Model:       model,
 		CategoryID:  row.CategoryID,
 		Category:    category,

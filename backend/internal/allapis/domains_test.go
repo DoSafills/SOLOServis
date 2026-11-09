@@ -272,6 +272,17 @@ func TestInternalURLs_IngestionNecesitaNotification(t *testing.T) {
 	}
 }
 
+func TestInternalURLs_UsaGatewayCuandoFaltaURLDeServicio(t *testing.T) {
+	urls, err := InternalURLs(Domains["ingestion"], "http://127.0.0.1:8080",
+		env(map[string]string{"GATEWAY_URL": "https://gateway.example.test/"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := urls["NOTIFICATION_API_URL"]; got != "https://gateway.example.test" {
+		t.Fatalf("NOTIFICATION_API_URL = %q; se esperaba la URL normalizada del gateway", got)
+	}
+}
+
 func TestCalls_APIsConocidas(t *testing.T) {
 	for caller, callees := range Calls {
 		if _, ok := factories[caller]; !ok {

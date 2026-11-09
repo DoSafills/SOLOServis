@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/auth"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/go-chi/chi/v5"
 )
@@ -78,6 +79,34 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 	}
 }
 
+func TestRouters_MetodosNoRegistradosResponden405(t *testing.T) {
+	tests := []struct {
+		name   string
+		router http.Handler
+		method string
+		path   string
+	}{
+		{"PATCH products", NewProductRouter(nil, "http://localhost:5173"), http.MethodPatch, "/products/00000000-0000-0000-0000-000000000001"},
+		{"POST stores", NewStoreRouter(nil, "http://localhost:5173"), http.MethodPost, "/stores"},
+		{"PATCH stores", NewStoreRouter(nil, "http://localhost:5173"), http.MethodPatch, "/stores/1"},
+		{"POST services", NewServiceRouter(nil, "http://localhost:5173"), http.MethodPost, "/services"},
+		{"POST search", NewSearchRouter(nil, "http://localhost:5173"), http.MethodPost, "/search/products"},
+		{"PATCH comparisons", NewComparisonRouter(nil, "http://localhost:5173"), http.MethodPatch, "/comparisons/products/1"},
+		{"GET auth login", auth.NewRouter(nil, "http://localhost:5173"), http.MethodGet, "/auth/login"},
+		{"DELETE ingestion run", NewIngestionRouter(nil, "http://localhost:5173"), http.MethodDelete, "/ingestion/runs/1"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			tc.router.ServeHTTP(recorder, httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`)))
+			if recorder.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s %s = %d, want 405", tc.method, tc.path, recorder.Code)
+			}
+		})
+	}
+}
+
 func TestRouters_PropaganRequestIDValido(t *testing.T) {
 	for name, router := range map[string]http.Handler{
 		"product": NewProductRouter(nil, "http://localhost:5173"),
@@ -137,6 +166,7 @@ func TestProductRouter_RutasRegistradas(t *testing.T) {
 		"GET /products",
 		"GET /products/{publicID}",
 		"GET /products/{publicID}/reviews",
+		"POST /products/duplicate-candidates",
 		"POST /products",
 		"PUT /products/{publicID}",
 		"DELETE /products/{publicID}",

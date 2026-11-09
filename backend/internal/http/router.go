@@ -107,6 +107,7 @@ func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) 
 	// debe migrar a /categories (TAL-51) y luego se elimina.
 	r.Get("/product-categories", handler.ListCategories)
 	r.Get("/products", handler.List)
+		r.With(admin).Post("/products/duplicate-candidates", handler.DuplicateCandidates)
 	r.Get("/products/{publicID}", handler.GetByPublicID)
 	r.With(admin).Post("/products", handler.Create)
 	r.With(admin).Put("/products/{publicID}", handler.Update)

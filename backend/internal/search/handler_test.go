@@ -129,7 +129,7 @@ func TestProducts_CasoFelizYDefaults(t *testing.T) {
 func TestProducts_TodosLosFiltros(t *testing.T) {
 	s := &fakeSearcher{defs: refrigeradores}
 
-	rec, _ := serve(t, s, "/search/products?q=+lg++no%20frost+&category=refrigeradores&brand=1,%202"+
+	rec, _ := serve(t, s, "/search/products?q=+lg++no%20frost+&category=refrigeradores&brand=1,%202&store=3,%204"+
 		"&minPrice=100000&maxPrice=500000.50&available=true&sort=price_asc&limit=50&offset=10"+
 		"&attr.capacidad_litros.min=300&attr.capacidad_litros.max=600&attr.eficiencia_energetica=A%2B"+
 		"&attr.no_frost=true&attr.color=Gris")
@@ -137,7 +137,8 @@ func TestProducts_TodosLosFiltros(t *testing.T) {
 	requireStatus(t, rec, http.StatusOK)
 	q := *s.gotQuery
 	if !reflect.DeepEqual(q.Words, []string{"lg", "no", "frost"}) || *q.CategorySlug != "refrigeradores" ||
-		!reflect.DeepEqual(q.BrandIDs, []int32{1, 2}) || *q.MinPrice != "100000" || *q.MaxPrice != "500000.50" ||
+		!reflect.DeepEqual(q.BrandIDs, []int32{1, 2}) || !reflect.DeepEqual(q.StoreIDs, []int32{3, 4}) ||
+		*q.MinPrice != "100000" || *q.MaxPrice != "500000.50" ||
 		!q.Available || q.Sort != "price_asc" || q.Limit != 50 || q.Offset != 10 {
 		t.Fatalf("query = %+v", q)
 	}
@@ -161,12 +162,40 @@ func TestProducts_IgualdadNumericaYCategoriaAntigua(t *testing.T) {
 	if !reflect.DeepEqual(s.gotQuery.Attributes, []AttributeFilter{{AttributeID: 10, Op: OpEqualNumeric, Value: "350"}}) {
 		t.Fatalf("filtros = %+v", s.gotQuery.Attributes)
 	}
-
 	s = &fakeSearcher{}
 	rec, _ = serve(t, s, "/search/products?category=5")
 	requireStatus(t, rec, http.StatusOK)
 	if *s.gotQuery.LegacyCategoryID != 5 || s.dbTouched != 1 {
 		t.Fatalf("una categoría antigua no carga definiciones: %+v (%d)", *s.gotQuery, s.dbTouched)
+	}
+}
+
+func TestProducts_OrdenPorMarcaYAtributosFiltrables(t *testing.T) {
+	tests := []struct {
+		query, sort, sortKey string
+	}{
+		{"sort=brand_asc", "brand_asc", ""},
+		{"sort=brand_desc", "brand_desc", ""},
+		{"category=refrigeradores&sort=attribute_asc:capacidad_litros", "attribute_asc:capacidad_litros", "capacidad_litros"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.sort, func(t *testing.T) {
+			searcher := &fakeSearcher{defs: refrigeradores}
+			rec, _ := serve(t, searcher, "/search/products?"+tc.query)
+			requireStatus(t, rec, http.StatusOK)
+			if searcher.gotQuery.Sort != tc.sort || searcher.gotQuery.SortAttributeKey != tc.sortKey {
+				t.Fatalf("sort = %q, key = %q", searcher.gotQuery.Sort, searcher.gotQuery.SortAttributeKey)
+			}
+		})
+	}
+
+	for _, query := range []string{
+		"category=refrigeradores&sort=attribute_desc:peso_kg",
+		"category=refrigeradores&sort=attribute_asc:no_existe",
+		"sort=attribute_asc:capacidad_litros",
+	} {
+		rec, _ := serve(t, &fakeSearcher{defs: refrigeradores}, "/search/products?"+query)
+		requireStatus(t, rec, http.StatusBadRequest)
 	}
 }
 
@@ -179,6 +208,9 @@ func TestProducts_ParametrosInvalidos(t *testing.T) {
 		{"brand=1,x", "brand/format"},
 		{"brand=0", "brand/format"},
 		{"brand=" + strings.Repeat("1,", 20) + "1", "brand/max"},
+		{"store=1,x", "store/format"},
+		{"store=0", "store/format"},
+		{"store=" + strings.Repeat("1,", 20) + "1", "store/max"},
 		{"minPrice=-1", "minPrice/format"},
 		{"maxPrice=1.999", "maxPrice/format"},
 		{"minPrice=10&maxPrice=5", "maxPrice/min"},

@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-api
+  labels:
+    app.kubernetes.io/name: product-api
+    app.kubernetes.io/component: product-api
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # Sin pod extra durante el rollout: la cuota compartida casi no tiene margen.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: product-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: product-api
+        app.kubernetes.io/component: product-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: product-api
+          image: soloservis/product-api
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8081"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: postgres-secret, key: POSTGRES_PASSWORD}
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}
+            # DNS interno del Service "postgres" (mismo namespace). Nunca localhost.
+            - name: DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable
+            - name: FRONTEND_URL
+              valueFrom:
+                configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Limites bajos: la plataforma tiene una cuota COMPARTIDA entre todos
+          # los estudiantes (students-host-envelope, 20 CPU de limits en total).
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          # /health hace ping a PostgreSQL: listo solo si hay base de datos.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Liveness solo por TCP: una caída de la BD no debe reiniciar la API.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3

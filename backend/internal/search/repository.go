@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/DoSafills/SOLOServis/backend/internal/products/dto"
@@ -30,6 +32,7 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 //	$4 ids de marca (int[], vacío = todas)
 //	$5 / $6 precio total mínimo / máximo               $7 solo con ofertas disponibles
 //	$8 / $9 / $10 filtros por atributo: ids, operadores y valores
+//	$11 ids de tiendas (int[], vacío = todas)
 //
 // strpos (no ILIKE) evita que '%' o '_' del usuario actúen como comodines, y
 // translate (nativo, sin la extensión unaccent) ignora tildes y mayúsculas.
@@ -51,6 +54,7 @@ matched AS (
         FROM product_offer o
         JOIN store s ON s.id = o.store_id AND s.active
         WHERE o.product_id = p.id AND o.available
+          AND (cardinality($11::int[]) = 0 OR o.store_id = ANY($11::int[]))
     ) best ON TRUE
     WHERE p.active
       AND NOT EXISTS (
@@ -65,6 +69,7 @@ matched AS (
       AND ($5::numeric IS NULL OR best.price >= $5::numeric)
       AND ($6::numeric IS NULL OR best.price <= $6::numeric)
       AND (NOT $7::bool OR best.offers > 0)
+      AND (cardinality($11::int[]) = 0 OR best.offers > 0)
       AND NOT EXISTS (
           SELECT 1 FROM unnest($8::int[], $9::text[], $10::text[]) AS f(attribute_id, op, val)
           WHERE NOT EXISTS (
@@ -86,6 +91,8 @@ var orderBySQL = map[string]string{
 	"name":       "p.name ASC, p.id ASC",
 	"price_asc":  "m.best_price ASC NULLS LAST, p.id ASC",
 	"price_desc": "m.best_price DESC NULLS LAST, p.id ASC",
+	"brand_asc":  "b.name ASC NULLS LAST, p.id ASC",
+	"brand_desc": "b.name DESC NULLS LAST, p.id ASC",
 	"newest":     "p.created_at DESC, p.id DESC",
 }
 
@@ -106,8 +113,12 @@ func queryArgs(q Query) []any {
 		ops = append(ops, f.Op)
 		values = append(values, f.Value)
 	}
+	stores := q.StoreIDs
+	if stores == nil {
+		stores = []int32{}
+	}
 	return []any{words, q.LegacyCategoryID, q.CategorySlug, brands, q.MinPrice, q.MaxPrice,
-		q.Available, ids, ops, values}
+		q.Available, ids, ops, values, stores}
 }
 
 // CategoryDefinitions devuelve las definiciones de atributos de una categoría
@@ -134,10 +145,14 @@ func (r *Repository) SearchProducts(ctx context.Context, q Query) ([]ProductResu
 		return nil, 0, err
 	}
 
-	order, ok := orderBySQL[q.Sort]
-	if !ok {
-		order = orderBySQL["name"]
+	order, attributeSort := searchOrder(q)
+	pageArgs := append([]any(nil), args...)
+	limitPosition := 12
+	if attributeSort {
+		pageArgs = append(pageArgs, q.SortAttributeKey)
+		limitPosition++
 	}
+	pageArgs = append(pageArgs, q.Limit, q.Offset)
 	rows, err := r.db.Query(ctx, matchedSQL+`
 		SELECT p.id, p.public_id::text, p.name, COALESCE(b.name, ''), COALESCE(p.model, ''), pc.name,
 		       cat.slug,
@@ -150,7 +165,7 @@ func (r *Repository) SearchProducts(ctx context.Context, q Query) ([]ProductResu
 		JOIN product_category pc ON pc.id = p.category_id
 		LEFT JOIN categories cat ON cat.id = p.category_ref
 		ORDER BY `+order+`
-		LIMIT $11 OFFSET $12`, append(args, q.Limit, q.Offset)...)
+		LIMIT $`+strconv.Itoa(limitPosition)+` OFFSET $`+strconv.Itoa(limitPosition+1), pageArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -198,11 +213,36 @@ func (r *Repository) SearchProducts(ctx context.Context, q Query) ([]ProductResu
 	return results, total, attrRows.Err()
 }
 
+func searchOrder(q Query) (string, bool) {
+	if q.SortAttributeKey == "" {
+		order, ok := orderBySQL[q.Sort]
+		if !ok {
+			return orderBySQL["name"], false
+		}
+		return order, false
+	}
+
+	direction := "ASC"
+	if strings.HasPrefix(q.Sort, "attribute_desc:") {
+		direction = "DESC"
+	}
+	return `(SELECT v.value_numeric
+		FROM product_attribute_value v
+		JOIN category_attributes a ON a.id = v.attribute_id
+		WHERE v.product_id = p.id AND a.filterable AND a.key = $12::text
+		LIMIT 1) ` + direction + ` NULLS LAST,
+		(SELECT v.value
+		FROM product_attribute_value v
+		JOIN category_attributes a ON a.id = v.attribute_id
+		WHERE v.product_id = p.id AND a.filterable AND a.key = $12::text
+		LIMIT 1) ` + direction + ` NULLS LAST, p.id ASC`, true
+}
+
 // SearchFacets resume los productos que cumplen q: total, rango de precios,
 // marcas y, si hay definiciones, los atributos filtrables (4 consultas fijas).
 func (r *Repository) SearchFacets(ctx context.Context, q Query, defs []categories.Attribute) (Facets, error) {
 	args := queryArgs(q)
-	facets := Facets{Brands: []BrandFacet{}, Attributes: []AttributeFacet{}}
+	facets := Facets{Brands: []BrandFacet{}, Stores: []StoreFacet{}, Attributes: []AttributeFacet{}}
 
 	if err := r.db.QueryRow(ctx, matchedSQL+`
 		SELECT count(*), min(best_price)::text, max(best_price)::text FROM matched`, args...).
@@ -231,6 +271,29 @@ func (r *Repository) SearchFacets(ctx context.Context, q Query, defs []categorie
 		return Facets{}, err
 	}
 
+	rows, err = r.db.Query(ctx, matchedSQL+`
+		SELECT s.id, s.name, count(DISTINCT m.id)
+		FROM matched m
+		JOIN product_offer o ON o.product_id = m.id AND o.available
+		JOIN store s ON s.id = o.store_id AND s.active
+		GROUP BY s.id, s.name
+		ORDER BY count(DISTINCT m.id) DESC, s.name ASC`, args...)
+	if err != nil {
+		return Facets{}, err
+	}
+	for rows.Next() {
+		var store StoreFacet
+		if err := rows.Scan(&store.ID, &store.Name, &store.Count); err != nil {
+			rows.Close()
+			return Facets{}, err
+		}
+		facets.Stores = append(facets.Stores, store)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return Facets{}, err
+	}
+
 	filterable := make([]int32, 0, len(defs))
 	byID := map[int32]int{}
 	for _, def := range defs {
@@ -252,7 +315,7 @@ func (r *Repository) SearchFacets(ctx context.Context, q Query, defs []categorie
 		FROM matched m
 		JOIN product_attribute_value v ON v.product_id = m.id
 		JOIN category_attributes ca ON ca.id = v.attribute_id
-		WHERE v.attribute_id = ANY($11::int[])
+		WHERE v.attribute_id = ANY($12::int[])
 		GROUP BY v.attribute_id, ca.data_type, v.value
 		ORDER BY v.attribute_id, count(*) DESC, v.value`, append(args, filterable)...)
 	if err != nil {
