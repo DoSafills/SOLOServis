@@ -4,7 +4,7 @@
     "slug": "mercadolibre-cl",
     "name": "Mercado Libre Chile",
     "baseUrl": "https://www.mercadolibre.cl",
-    "storeId": 3
+    "storeId": 6
   },
   "match": {
     "hosts": ["listado.mercadolibre.cl", "www.mercadolibre.cl"],
