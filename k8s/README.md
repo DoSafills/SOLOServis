@@ -248,7 +248,7 @@ Requests por pod en `dominios`: comercial 50m/128Mi, usuarios 25m/64Mi, ingestio
 | 1 | Borra el despliegue anterior. **Conserva el PVC y los Secrets** | no quedan recursos `part-of=soloservis` |
 | 2 | Elige la StorageClass (prueba que un PVC quede Bound y escribible) y genera `k8s/overlays/uct` | `kubectl kustomize` compila |
 | 3 | `docker build` y `docker push` de las 3 imágenes (frontend, backend y scraper) | cada imagen OK |
-| 4 | Crea los Secrets `postgres-secret` (contraseña aleatoria) y `soloservis-internal` (token) si no existen y despliega PostgreSQL | `postgres-0` Ready |
+| 4 | Crea el Secret `soloservis-internal` (token) si no existe y despliega PostgreSQL | `postgres-0` Ready |
 | 5 | Job de migraciones (`migration_order.txt`) | `schema_migrations` = archivos del manifiesto |
 | 6 | APIs: `comercial`, `usuarios` e `ingestion` (o `backend`), más `scraper-api` | cada API Ready y con `/health` → `database: connected`; scraper Ready y `/health` → `ok` |
 | 7 | Frontend (nginx) | Ready y `/products` responde a través de nginx |
@@ -458,35 +458,11 @@ kubectl exec -it postgres-0 -- psql -U postgres -d soloservis
 
 Dentro de `psql`: `\dt` lista las tablas, `SELECT version FROM schema_migrations;` muestra las migraciones aplicadas y `\q` sale.
 
-Para conectarte desde DBeaver, pgAdmin u otro cliente: abre un port-forward y conéctate a `localhost:15432` (usuario `postgres`, base `soloservis`). La contraseña está en el Secret `postgres-secret` (ver [Contraseña de PostgreSQL](#contraseña-de-postgresql)).
+Para conectarte desde DBeaver, pgAdmin u otro cliente: abre un port-forward y conéctate a `localhost:15432` (usuario `postgres`, contraseña `postgres`, base `soloservis`).
 
 ```bash
 kubectl port-forward svc/postgres 15432:5432
 ```
-
-### Contraseña de PostgreSQL
-
-No está en git: la Fase 4 crea `postgres-secret` con una contraseña aleatoria la primera vez y después lo reutiliza. PostgreSQL guarda la contraseña dentro del volumen al crear la base, así que **cambiar solo el Secret no basta**.
-
-Leerla sin mostrarla en pantalla (la copia al portapapeles):
-
-```powershell
-[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((kubectl get secret postgres-secret -o jsonpath='{.data.POSTGRES_PASSWORD}'))) | Set-Clipboard
-```
-
-Cambiarla (la base, el Secret y las APIs, en ese orden y seguido):
-
-```powershell
-$b = New-Object byte[] 24
-[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
-$pw = ([BitConverter]::ToString($b) -replace '-', '').ToLower()
-"ALTER USER postgres WITH PASSWORD '$pw';" | kubectl exec -i postgres-0 -c postgres -- sh -c 'psql -X -q -v ON_ERROR_STOP=1 -U $POSTGRES_USER -d $POSTGRES_DB'
-kubectl create secret generic postgres-secret --from-literal=POSTGRES_USER=postgres --from-literal=POSTGRES_DB=soloservis "--from-literal=POSTGRES_PASSWORD=$pw" --dry-run=client -o yaml | kubectl apply -f -
-kubectl rollout restart deployment/comercial deployment/usuarios deployment/ingestion
-Remove-Variable pw, b
-```
-
-Si borras `postgres-secret` pero conservas el PVC, la Fase 4 se detiene: una contraseña nueva no coincidiría con la del volumen. Recréalo con la contraseña anterior, o borra también el PVC si no necesitas los datos.
 
 ### Borrar todo
 
@@ -653,7 +629,7 @@ kubectl get events --sort-by=.lastTimestamp
 ```
 k8s/
 ├── base/                         común a las dos topologías
-│   ├── postgres/                 Services y StatefulSet + PVC (el Secret lo crea el script)
+│   ├── postgres/                 Secret (credenciales de desarrollo), Services, StatefulSet + PVC
 │   ├── migrations/               Job + migrate.sh (aplica migration_order.txt y registra schema_migrations)
 │   ├── frontend/                 Deployment (nginx sin root, solo lectura) + Service
 │   ├── scraper/                  Deployment + PVC + Service + ConfigMap + CronJob de disparo
@@ -674,6 +650,6 @@ docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/c
 ```
 
 **Seguridad:**
-- **Postgres:** la contraseña de `postgres-secret` la genera el script al azar en cada namespace y no está en git. Solo es accesible dentro del clúster (Service `ClusterIP`, el Ingress publica solo el frontend). `docker/compose.yml` sigue con credenciales de desarrollo, solo para uso local.
+- **Postgres:** `base/postgres/secret.yaml` tiene credenciales **de desarrollo** (las mismas de `docker/compose.yml`). Para un entorno real se reemplazan por un Secret creado fuera de git.
 - **Token interno:** el token de `soloservis-internal` lo genera el script al azar en cada namespace y no está en git. El pod de test lo usa sin imprimirlo.
 - **Pods:** todos corren sin root, con `readOnlyRootFilesystem` y sin capabilities. Cumplen Pod Security `restricted`.

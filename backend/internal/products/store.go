@@ -65,7 +65,6 @@ type ProductWrite struct {
 type Store interface {
 	List(ctx context.Context, params ListParams) ([]dto.ProductListItem, int64, error)
 	GetDetail(ctx context.Context, publicID pgtype.UUID) (dto.ProductDetail, error)
-	FindDuplicateCandidates(ctx context.Context, categoryID int32, brandID *int32, sku, model string, excludeID *pgtype.UUID) ([]dto.DuplicateCandidate, error)
 	ResolveCategory(ctx context.Context, ref CategoryRef) (WriteCategory, error)
 	Create(ctx context.Context, product ProductWrite) (pgtype.UUID, error)
 	Update(ctx context.Context, publicID pgtype.UUID, product ProductWrite) error

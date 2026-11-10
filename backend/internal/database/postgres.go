@@ -14,7 +14,10 @@ func NewPostgresPool(databaseURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("invalid database configuration: %w", err)
 	}
 
-	configurePool(config)
+	config.MaxConns = 10
+	config.MinConns = 2
+	config.MaxConnLifetime = time.Hour
+	config.MaxConnIdleTime = 30 * time.Minute
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
@@ -22,15 +25,6 @@ func NewPostgresPool(databaseURL string) (*pgxpool.Pool, error) {
 	}
 
 	return pool, nil
-}
-
-func configurePool(config *pgxpool.Config) {
-	config.MaxConns = 10
-	config.MinConns = 2
-	config.MaxConnLifetime = time.Hour
-	config.MaxConnIdleTime = 30 * time.Minute
-	config.ConnConfig.ConnectTimeout = 5 * time.Second
-	config.ConnConfig.RuntimeParams["statement_timeout"] = "30s"
 }
 
 func Ping(ctx context.Context, pool *pgxpool.Pool) error {

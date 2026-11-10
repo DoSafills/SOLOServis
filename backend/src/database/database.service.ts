@@ -13,10 +13,6 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       user: this.configService.get<string>('DB_USER'),
       password: this.configService.get<string>('DB_PASSWORD'),
       database: this.configService.get<string>('DB_NAME'),
-      connectionTimeoutMillis: 5_000,
-      idleTimeoutMillis: 30_000,
-      statement_timeout: 30_000,
-      query_timeout: 35_000,
     });
   }
 
@@ -34,9 +30,6 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getProducts(limit = 5) {
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-      throw new RangeError('Product limit must be an integer between 1 and 100');
-    }
     return this.query('SELECT * FROM product LIMIT $1', [limit]);
   }
 

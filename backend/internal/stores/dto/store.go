@@ -1,8 +1,6 @@
 package dto
 
 import (
-	"time"
-
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -33,7 +31,6 @@ type StoreProduct struct {
 	Model        string `json:"model"`
 	Category     string `json:"category"`
 	Description  string `json:"description"`
-	OfferID      int32  `json:"offerId"`
 	Price        string `json:"price"`
 	ListPrice    string `json:"listPrice"`
 	Currency     string `json:"currency"`
@@ -44,7 +41,6 @@ type StoreProduct struct {
 	Condition    string `json:"condition"`
 	ProductURL   string `json:"productUrl"`
 	Image        string `json:"image"`
-	LastUpdated  string `json:"lastUpdated,omitempty"`
 }
 
 type StoreLocation struct {
@@ -97,7 +93,6 @@ func FromStoreProduct(row generated.ListStoreProductsRow) StoreProduct {
 		Model:        TextValue(row.Model),
 		Category:     row.CategoryName,
 		Description:  TextValue(row.Description),
-		OfferID:      row.OfferID,
 		Price:        NumericString(row.Price),
 		ListPrice:    NumericString(row.ListPrice),
 		Currency:     row.Currency,
@@ -108,15 +103,7 @@ func FromStoreProduct(row generated.ListStoreProductsRow) StoreProduct {
 		Condition:    row.Condition,
 		ProductURL:   TextValue(row.ProductUrl),
 		Image:        row.ImageUrl,
-		LastUpdated:  formatTimestamp(row.LastUpdated),
 	}
-}
-
-func formatTimestamp(value pgtype.Timestamptz) string {
-	if !value.Valid {
-		return ""
-	}
-	return value.Time.UTC().Format(time.RFC3339)
 }
 
 func FromStoreLocation(row generated.ListStoreLocationsRow) StoreLocation {

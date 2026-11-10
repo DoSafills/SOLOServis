@@ -158,19 +158,6 @@ func (h *Handler) parseQuery(w http.ResponseWriter, r *http.Request, paginated b
 		}
 	}
 
-	if query.Has("store") {
-		parts := strings.Split(query.Get("store"), ",")
-		v.Check(len(parts) <= MaxStores, "store", "max", fmt.Sprintf("store admite hasta %d tiendas", MaxStores))
-		for _, part := range parts {
-			id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 32)
-			if err != nil || id <= 0 {
-				v.Add("store", "format", "store debe ser una lista de ids positivos separados por coma")
-				break
-			}
-			q.StoreIDs = append(q.StoreIDs, int32(id))
-		}
-	}
-
 	q.MinPrice = parseMoney(&v, query, "minPrice")
 	q.MaxPrice = parseMoney(&v, query, "maxPrice")
 	if q.MinPrice != nil && q.MaxPrice != nil {
@@ -192,18 +179,15 @@ func (h *Handler) parseQuery(w http.ResponseWriter, r *http.Request, paginated b
 		if query.Has("sort") {
 			q.Sort = query.Get("sort")
 			if _, ok := orderBySQL[q.Sort]; !ok {
-				q.SortAttributeKey = attributeSortKey(q.Sort)
-				if q.SortAttributeKey == "" {
-					v.Add("sort", "one_of", "sort debe ser name, brand_asc, brand_desc, price_asc, price_desc, newest o un atributo filtrable")
-				}
+				v.Add("sort", "one_of", "sort debe ser name, price_asc, price_desc o newest")
 			}
 		}
 		parsePage(&v, query, &q)
 	}
 
 	attrKeys := attributeParams(query)
-	if (len(attrKeys) > 0 || q.SortAttributeKey != "") && q.CategorySlug == nil {
-		v.Add("category", "required", "los filtros y orden por atributo requieren category con el slug de la categoría")
+	if len(attrKeys) > 0 && q.CategorySlug == nil {
+		v.Add("category", "required", "los filtros attr.* requieren category con el slug de la categoría")
 	}
 
 	// Las definiciones solo se cargan con los demás parámetros válidos.
@@ -218,18 +202,6 @@ func (h *Handler) parseQuery(w http.ResponseWriter, r *http.Request, paginated b
 			return Query{}, nil, false
 		} else {
 			q.Attributes = parseAttributeFilters(&v, query, attrKeys, defs)
-			if q.SortAttributeKey != "" {
-				sortable := false
-				for _, def := range defs {
-					if def.Key == q.SortAttributeKey && def.Filterable {
-						sortable = true
-						break
-					}
-				}
-				if !sortable {
-					v.Add("sort", "not_filterable", "sort debe indicar un atributo filtrable de la categoría")
-				}
-			}
 		}
 	}
 
@@ -238,29 +210,6 @@ func (h *Handler) parseQuery(w http.ResponseWriter, r *http.Request, paginated b
 		return Query{}, nil, false
 	}
 	return q, defs, true
-}
-
-func attributeSortKey(sort string) string {
-	key, ok := strings.CutPrefix(sort, "attribute_asc:")
-	if !ok {
-		key, ok = strings.CutPrefix(sort, "attribute_desc:")
-	}
-	if !ok || !validAttributeSortKey(key) {
-		return ""
-	}
-	return key
-}
-
-func validAttributeSortKey(key string) bool {
-	if len(key) == 0 || len(key) > 64 || key[0] < 'a' || key[0] > 'z' {
-		return false
-	}
-	for _, char := range key[1:] {
-		if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '_' {
-			return false
-		}
-	}
-	return true
 }
 
 // attributeParams devuelve, ordenados, los parámetros attr.<key>[.min|.max].

@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import type { Page, Product, Service } from "../../types";
 import { getProducts, getServices } from "../../services/api/api";
-import { formatPrice, getBillingPeriodText, getMinOffer } from "../../services/utils/productUtils";
-import { Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
+import { formatPrice, getBillingPeriodText, getMinPrice } from "../../services/utils/productUtils";
+import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 
 interface Props {
   navigate: (page: Page) => void;
@@ -50,323 +50,299 @@ export default function FavoritesPage({
     };
   }, [authenticated]);
 
-  const breadcrumb = (
-    <Breadcrumb
-      items={[{ label: "Inicio", onClick: () => navigate({ id: "home" }) }, { label: "Favoritos" }]}
-    />
-  );
-
   if (!authenticated) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8">
-        {breadcrumb}
-        <section className="mx-auto flex max-w-lg flex-col items-center rounded-2xl border border-slate-700/80 bg-slate-900/60 px-6 py-16 text-center">
-          <span className="mb-5 flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-950/60 text-slate-400">
-            <HeartIcon />
-          </span>
-          <h1 className="text-xl font-semibold text-white">Inicia sesión para ver tus favoritos</h1>
-          <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-400">
-            Guarda productos y servicios para tenerlos a mano y seguir sus precios.
+        <Breadcrumb
+          items={[
+            { label: "Inicio", onClick: () => navigate({ id: "home" }) },
+            { label: "Favoritos" },
+          ]}
+        />
+        <div className="mx-auto flex max-w-lg flex-col items-center gap-4 py-24 text-center">
+          <h1 className="text-2xl font-black text-text">Inicia sesión para ver tus favoritos</h1>
+          <p className="max-w-sm text-sm text-muted">
+            La navegación y comparación son libres. Guarda y consulta tus productos favoritos al
+            iniciar sesión o crear una cuenta.
           </p>
           <button
-            type="button"
             onClick={() => navigate({ id: "user" })}
-            className="mt-6 rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+            className="rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-5 py-3 text-sm font-bold text-white"
           >
             Ir a Mi cuenta
           </button>
-        </section>
+        </div>
       </div>
     );
   }
 
   const favProducts = products.filter((product) => favorites.has(product.id));
   const favServices = services.filter((service) => favorites.has(service.id));
-  const visibleCount = favProducts.length + favServices.length;
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8">
-        {breadcrumb}
-        <div className="mb-6">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300/80">
-            Tu colección
+      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
+        <p className="text-muted">Cargando favoritos...</p>
+      </div>
+    );
+  }
+
+  if (favorites.size === 0) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <Breadcrumb
+          items={[
+            { label: "Inicio", onClick: () => navigate({ id: "home" }) },
+            { label: "Favoritos" },
+          ]}
+        />
+
+        {loadError && (
+          <p
+            role="alert"
+            className="mb-4 rounded-xl border border-rose-300/30 bg-rose-950/40 p-3 text-sm text-rose-200"
+          >
+            {loadError}
           </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white">Favoritos</h1>
+        )}
+
+        <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center mb-2">
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#64748B"
+              strokeWidth="1.5"
+            >
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+            </svg>
+          </div>
+
+          <h3 className="text-lg font-semibold text-text">No tienes favoritos aún</h3>
+
+          <p className="text-sm text-muted max-w-xs">
+            Guarda productos y servicios para seguir sus precios y recibir alertas de bajadas.
+          </p>
+
+          <button
+            onClick={() => navigate({ id: "home" })}
+            style={{ background: "#E8001B", color: "#0A0A0A" }}
+            className="mt-2 px-5 py-2 rounded-xl text-sm font-semibold"
+          >
+            Explorar productos
+          </button>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
-          {[0, 1, 2].map((item) => (
-            <div
-              key={item}
-              className="h-36 animate-pulse rounded-xl border border-slate-800 bg-slate-900/50"
-            />
-          ))}
-        </div>
-        <p role="status" className="mt-4 text-center text-sm text-slate-400">
-          Cargando favoritos...
-        </p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
-      {breadcrumb}
+    <div className="max-w-7xl mx-auto px-4 py-8">
+      <Breadcrumb
+        items={[
+          { label: "Inicio", onClick: () => navigate({ id: "home" }) },
+          { label: "Favoritos" },
+        ]}
+      />
 
-      <header className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-slate-800 pb-5">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300/80">
-            Tu colección
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white">Favoritos</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            {visibleCount} {visibleCount === 1 ? "elemento guardado" : "elementos guardados"}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => navigate({ id: "home" })}
-          className="rounded-lg border border-slate-700 px-3.5 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-white"
-        >
-          Explorar catálogo
-        </button>
-      </header>
-
+      <h1 className="text-2xl font-bold text-text mb-1">Mis favoritos</h1>
+      <p className="text-sm text-muted mb-8">{favorites.size} items guardados</p>
       {loadError && (
         <p
           role="alert"
-          className="mb-6 rounded-xl border border-rose-300/20 bg-rose-950/30 px-4 py-3 text-sm text-rose-200"
+          className="mb-6 rounded-xl border border-rose-300/30 bg-rose-950/40 p-3 text-sm text-rose-200"
         >
           {loadError}
         </p>
       )}
 
-      {favorites.size === 0 ? (
-        <section className="flex flex-col items-center rounded-2xl border border-slate-700/80 bg-slate-900/40 px-6 py-16 text-center">
-          <span className="mb-5 flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-950/60 text-slate-400">
-            <HeartIcon />
-          </span>
-          <h2 className="text-lg font-semibold text-white">Aún no tienes favoritos</h2>
-          <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-400">
-            Guarda productos o servicios que quieras revisar más tarde.
-          </p>
-          <button
-            type="button"
-            onClick={() => navigate({ id: "home" })}
-            className="mt-6 rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
-          >
-            Explorar productos
-          </button>
-        </section>
-      ) : visibleCount === 0 ? (
-        <section className="rounded-xl border border-slate-700/80 bg-slate-900/40 px-5 py-8 text-center">
-          <h2 className="text-base font-semibold text-white">
-            No se pudieron encontrar los elementos guardados
+      {favProducts.length > 0 && (
+        <section className="mb-10">
+          <h2 className="text-base font-semibold text-muted-2 uppercase tracking-widest text-xs mb-4">
+            Productos
           </h2>
-          <p className="mt-2 text-sm text-slate-400">
-            {loadError
-              ? "Revisa la conexión con las APIs e inténtalo nuevamente."
-              : "Es posible que ya no estén disponibles en el catálogo."}
-          </p>
-        </section>
-      ) : (
-        <div className="space-y-10">
-          {favProducts.length > 0 && (
-            <section>
-              <SectionHeading title="Productos" count={favProducts.length} />
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {favProducts.map((product) => {
-                  const minOffer = getMinOffer(product);
-                  const available = product.offers.some((offer) => offer.available);
 
-                  return (
-                    <article
-                      key={product.id}
-                      className="group flex min-w-0 gap-4 overflow-hidden rounded-2xl border border-slate-700/75 bg-gradient-to-br from-slate-900/95 via-slate-900/75 to-indigo-950/30 p-4 shadow-lg shadow-slate-950/15 transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/30 hover:shadow-xl hover:shadow-cyan-950/10"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => navigate({ id: "product-detail", productId: product.id })}
-                        aria-label={`Ver ${product.name}`}
-                        className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/[0.06] bg-slate-950/65 p-2.5 shadow-inner focus-visible:outline-2 focus-visible:outline-cyan-300"
-                      >
-                        {product.image ? (
-                          <img
-                            src={product.image}
-                            alt=""
-                            loading="lazy"
-                            className="h-full w-full object-contain transition-transform group-hover:scale-105"
-                          />
-                        ) : (
-                          <span className="text-[10px] text-slate-500">Sin imagen</span>
-                        )}
-                      </button>
+          <div className="space-y-3">
+            {favProducts.map((product) => {
+              const minPrice = getMinPrice(product);
+              const prevPrice =
+                minPrice === null ? null : Math.round((minPrice * 1.08) / 1000) * 1000;
+              const diff =
+                minPrice === null || prevPrice === null ? null : prevPrice - minPrice;
 
-                      <div className="flex min-h-24 min-w-0 flex-1 flex-col">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                              {product.brand}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                navigate({ id: "product-detail", productId: product.id })
-                              }
-                              className="mt-1 line-clamp-2 text-left text-sm font-semibold leading-snug text-slate-100 transition-colors hover:text-cyan-200"
-                            >
-                              {product.name}
-                            </button>
-                          </div>
-                          <FavoriteButton
-                            active
-                            onClick={() => onToggleFavorite(product.id, "product")}
-                          />
-                        </div>
-
-                        <div className="mt-2">
-                          <Rating value={product.rating} count={product.reviewCount} />
-                        </div>
-
-                        <div className="mt-auto flex flex-wrap items-end justify-between gap-2 border-t border-slate-700/70 pt-3">
-                          <div className="min-w-0">
-                            {minOffer ? (
-                              <>
-                                <span className="block text-[10px] font-medium text-slate-500">
-                                  Mejor precio
-                                </span>
-                                <span className="price text-lg font-semibold leading-tight text-white">
-                                  {formatPrice(minOffer.price)}
-                                </span>
-                                <span className="mt-0.5 block max-w-36 truncate text-[10px] text-slate-400">
-                                  {minOffer.storeName}
-                                </span>
-                              </>
-                            ) : (
-                              <span className="text-xs text-slate-500">Sin oferta disponible</span>
-                            )}
-                          </div>
-                          <span
-                            className={`mb-0.5 rounded-full border px-2.5 py-1 text-[10px] font-medium ${
-                              available
-                                ? "border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-300"
-                                : "border-slate-700 bg-slate-950/40 text-slate-400"
-                            }`}
-                          >
-                            {available ? "Disponible" : "Agotado"}
-                          </span>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {favServices.length > 0 && (
-            <section>
-              <SectionHeading title="Servicios" count={favServices.length} />
-              <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
-                {favServices.map((service) => (
-                  <article
-                    key={service.id}
-                    className="group flex min-w-0 gap-4 overflow-hidden rounded-2xl border border-slate-700/75 bg-gradient-to-br from-slate-900/95 via-slate-900/75 to-violet-950/25 p-4 shadow-lg shadow-slate-950/15 transition duration-200 hover:-translate-y-0.5 hover:border-violet-300/30 hover:shadow-xl hover:shadow-violet-950/10"
+              return (
+                <div
+                  key={product.id}
+                  style={{
+                    background: "#111111",
+                    border: "1px solid #2A2A2A",
+                  }}
+                  className="rounded-2xl p-3 flex items-center gap-3 hover:border-prime transition-all group"
+                >
+                  <div
+                    className="w-16 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer bg-white"
+                    onClick={() =>
+                      navigate({
+                        id: "product-detail",
+                        productId: product.id,
+                      })
+                    }
                   >
-                    <button
-                      type="button"
-                      onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
-                      aria-label={`Ver ${service.name}`}
-                      className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/[0.06] bg-slate-950/65 p-2.5 shadow-inner focus-visible:outline-2 focus-visible:outline-cyan-300"
+                    <img
+                      src={product.image}
+                      alt={product.name}
+                      className="w-full h-full object-contain p-1"
+                    />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-prime font-semibold">{product.brand}</div>
+
+                    <div
+                      className="text-sm font-semibold text-text truncate cursor-pointer hover:text-prime transition-colors"
+                      onClick={() =>
+                        navigate({
+                          id: "product-detail",
+                          productId: product.id,
+                        })
+                      }
                     >
-                      {service.image ? (
-                        <img
-                          src={service.image}
-                          alt=""
-                          loading="lazy"
-                          className="h-full w-full object-contain transition-transform group-hover:scale-105"
-                        />
-                      ) : (
-                        <span className="text-[10px] text-slate-500">Sin imagen</span>
-                      )}
-                    </button>
-
-                    <div className="flex min-h-24 min-w-0 flex-1 flex-col">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                            {service.provider}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              navigate({ id: "service-detail", serviceId: service.id })
-                            }
-                            className="mt-1 line-clamp-2 text-left text-sm font-semibold leading-snug text-slate-100 transition-colors hover:text-cyan-200"
-                          >
-                            {service.name}
-                          </button>
-                        </div>
-                        <FavoriteButton
-                          active
-                          onClick={() => onToggleFavorite(service.id, "service")}
-                        />
-                      </div>
-
-                      <div className="mt-auto flex flex-wrap items-end justify-between gap-2 border-t border-slate-700/70 pt-3">
-                        <div>
-                          <span className="block text-[10px] font-medium text-slate-500">
-                            {service.category}
-                          </span>
-                          <span className="price text-lg font-semibold leading-tight text-white">
-                            {formatPrice(service.monthlyPrice)}
-                          </span>
-                          <span className="ml-1 text-[10px] text-slate-400">
-                            {getBillingPeriodText(service.billingPeriod)}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
-                          className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-cyan-300/80 transition-colors hover:text-cyan-200"
-                        >
-                          Ver servicio
-                          <span aria-hidden="true">→</span>
-                        </button>
-                      </div>
+                      {product.name}
                     </div>
-                  </article>
-                ))}
+
+                    <Rating value={product.rating} />
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div className="price text-lg font-bold text-prime">
+                      {formatPrice(minPrice)}
+                    </div>
+
+                    {diff !== null && diff > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-success font-semibold justify-end">
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                        >
+                          <path d="m18 15-6-6-6 6" />
+                        </svg>
+                        Bajó {formatPrice(diff)}
+                      </div>
+                    )}
+
+                    {prevPrice !== null && (
+                      <div className="text-xs text-muted line-through">
+                        {formatPrice(prevPrice)}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col items-center gap-2 shrink-0">
+                    <FavoriteButton active={true} onClick={() => onToggleFavorite(product.id)} />
+
+                    <Badge
+                      variant={
+                        product.offers.some((offer) => offer.available)
+                          ? "available"
+                          : "unavailable"
+                      }
+                    >
+                      {product.offers.some((offer) => offer.available) ? "Disponible" : "Agotado"}
+                    </Badge>
+                  </div>
                 </div>
-              </section>
-            )}
-        </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {favServices.length > 0 && (
+        <section>
+          <h2 className="text-base font-semibold text-muted-2 uppercase tracking-widest text-xs mb-4">
+            Servicios
+          </h2>
+
+          <div className="space-y-3">
+            {favServices.map((service) => {
+              const prevPrice = Math.round((service.monthlyPrice * 1.06) / 100) * 100;
+              const diff = prevPrice - service.monthlyPrice;
+
+              return (
+                <div
+                  key={service.id}
+                  style={{
+                    background: "#111111",
+                    border: "1px solid #2A2A2A",
+                  }}
+                  className="rounded-2xl p-4 flex items-center gap-4 hover:border-prime transition-all group"
+                >
+                  <div
+                    className="w-20 h-16 rounded-xl overflow-hidden shrink-0 cursor-pointer"
+                    onClick={() =>
+                      navigate({
+                        id: "service-detail",
+                        serviceId: service.id,
+                      })
+                    }
+                  >
+                    <img
+                      src={service.image}
+                      alt={service.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-prime font-semibold">{service.provider}</div>
+
+                    <div
+                      className="text-sm font-semibold text-text truncate cursor-pointer hover:text-prime transition-colors"
+                      onClick={() =>
+                        navigate({
+                          id: "service-detail",
+                          serviceId: service.id,
+                        })
+                      }
+                    >
+                      {service.name}
+                    </div>
+
+                    <Badge variant="available">{service.category}</Badge>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div className="price text-lg font-bold text-prime">
+                      {formatPrice(service.monthlyPrice)}
+                      <span className="text-xs text-muted font-normal">
+                        {" "}
+                        {getBillingPeriodText(service.billingPeriod)}
+                      </span>
+                    </div>
+
+                    {diff > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-success font-semibold justify-end">
+                        ↑ Bajó {formatPrice(diff)}
+                      </div>
+                    )}
+                  </div>
+
+                  <FavoriteButton
+                    active={true}
+                    onClick={() => onToggleFavorite(service.id, "service")}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
     </div>
-  );
-}
-
-function SectionHeading({ title, count }: { title: string; count: number }) {
-  return (
-    <div className="mb-3 flex items-center justify-between border-b border-slate-800 pb-2">
-      <h2 className="text-sm font-semibold text-slate-100">{title}</h2>
-      <span className="text-xs text-slate-500">{count}</span>
-    </div>
-  );
-}
-
-function HeartIcon() {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      aria-hidden="true"
-    >
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
   );
 }

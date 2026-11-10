@@ -225,10 +225,6 @@ internal/config/config.go
 
 Se utilizan variables de entorno.
 
-Las llamadas HTTP entre APIs usan un cliente común. Cada `*_API_URL` específica
-tiene prioridad; si no está definida, se usa `GATEWAY_URL` y, finalmente, el
-default local del servicio.
-
 ## `.env`
 
 El archivo `.env` es local y **no debe subirse al repositorio** si contiene credenciales reales.
@@ -1326,7 +1322,7 @@ Los nombres de los campos se mantienen. Cart lee `productId` de `GET /offers/{id
 
 # 12.5. Search API: texto, categoría y atributos filtrables (TAL-75)
 
-Search API (`cmd/search-api`, puerto 8086) tiene ahora la búsqueda pública en su propio paquete, `internal/search`, con el estándar TAL-78 (`apphttp.NewSearchRouter`). El historial y las búsquedas guardadas (`/search/history`, `/search/saved`, requieren sesión) siguen en `internal/features` y se montan en el mismo router: es lo único que usa hoy el frontend. También cumplen el estándar TAL-78 (ver §12.8).
+Search API (`cmd/search-api`, puerto 8086) tiene ahora la búsqueda pública en su propio paquete, `internal/search`, con el estándar TAL-78 (`apphttp.NewSearchRouter`). El historial y las búsquedas guardadas (`/search/history`, `/search/saved`, requieren sesión) siguen en `internal/features` y se montan en el mismo router sin cambios: es lo único que usa hoy el frontend.
 
 Ya no descarga `GET /products` de Product API: consulta la base directamente.
 
@@ -1468,7 +1464,7 @@ No se agregó un índice trigram: con el catálogo actual (38 productos) Postgre
 
 # 12.6. Comparison API: alternativas de una misma categoría (TAL-76)
 
-Comparison API (`cmd/comparison-api`, puerto 8087) tiene la comparación de **productos** en su propio paquete, `internal/comparison`, con el estándar TAL-78 (`apphttp.NewComparisonRouter`). Las comparaciones de **servicios** (`/comparisons/services`) siguen en `internal/features` y se montan en el mismo router; también cumplen el estándar TAL-78 (ver §12.8).
+Comparison API (`cmd/comparison-api`, puerto 8087) tiene la comparación de **productos** en su propio paquete, `internal/comparison`, con el estándar TAL-78 (`apphttp.NewComparisonRouter`). Las comparaciones de **servicios** (`/comparisons/services`) siguen en `internal/features` sin cambios y se montan en el mismo router.
 
 Ya no llama a Product API ni a Pricing API: el mejor precio se calcula en SQL con el mismo criterio que Pricing y Search (precio + envío, ofertas disponibles en tiendas activas).
 
@@ -1758,51 +1754,6 @@ POST /ingestion/runs/7/finish
 ## Pendiente
 
 - Adaptar el scraper (PR #25) a este contrato: hoy guarda en SQLite local; corresponde a TAL-86/88.
-
----
-
-# 12.8. Service API y APIs de `internal/features` (estándar TAL-78)
-
-Service API (`internal/services`, puerto 8083) y las APIs que siguen en `internal/features` cumplen el estándar de `docs/estandares/TAL-78-estandar-api.md`: Auth (8088), Favorites (8089), Cart (8090), Review, Watchlist, Notification, el historial y las búsquedas guardadas de Search (`/search/history`, `/search/saved`) y las comparaciones de servicios de Comparison (`/comparisons/services`).
-
-- **Body:** `httpx.DecodeJSON` (máximo 1 MB, `Content-Type: application/json`, campos desconocidos rechazados). `userId` se sigue aceptando en los bodies porque el frontend lo envía, pero se ignora: manda la sesión.
-- **Validación:** `httpx.Validator` en el borde del handler; 422 con `errors[]` por campo.
-- **Errores de BD:** `pgx.ErrNoRows` → 404 (401 en auth), `23505` → 409, `23503`/`23514` → 422 con el campo (sale del detalle de PostgreSQL, en camelCase), resto → 500 con el detalle solo en el log. Ya no se usa 400 ni 404 como comodín.
-- **Otras APIs caídas** (Product, Pricing, Store y Service API, que features consulta por HTTP): 503 `service_unavailable`, con el motivo en el log (`remote_service_unavailable`).
-- **Mensajes** (`detail`) en español; el frontend los muestra tal cual.
-- **Tests:** los handlers dependen de la interfaz `features.DB` (`*pgxpool.Pool` la implementa) y Service API de `services.Store`; los tests usan bases falsas, sin PostgreSQL.
-
-## Errores
-
-| Caso | Status | `code` / `errors[]` |
-| --- | --- | --- |
-| Sin token / token sin rol admin (`POST /notifications`) | 401 / 403 | `unauthorized` / `forbidden` |
-| Credenciales o refresh token inválidos | 401 | `unauthorized` |
-| JSON malformado, campo desconocido, tipo incorrecto | 400 | `malformed_json`, `unknown_field`, `invalid_type` |
-| Body > 1 MB / `Content-Type` distinto de JSON | 413 / 415 | `body_too_large` / `unsupported_media_type` |
-| Id de ruta inválido (no numérico ni UUID, o `product:N` mal formado en reseñas) | 400 | `invalid_parameter` |
-| Registro: `name`, `email`, `password` (≥ 10) | 422 | `required`, `format`, `min` |
-| Login: `email`, `password` vacíos; refresh sin `refreshToken` | 422 | `required` |
-| Carrito: `quantity` ≤ 0; ni producto+oferta ni servicio+oferta | 422 | `quantity` `min`; `productId` `one_of` |
-| Carrito: oferta o producto/servicio del body inexistente | 422 | `offerId`/`productId`/`serviceId`/`serviceOfferId` `not_found` |
-| Carrito: la oferta no es del producto o servicio indicado | 422 | `offerId`/`serviceOfferId` `mismatch` |
-| Carrito: oferta no disponible; Pricing API devuelve otro producto | 409 | `conflict` |
-| Reseña: `rating` fuera de 1–5 | 422 | `rating` `min` / `max` |
-| Watchlist: `productId` vacío o mal formado, `targetPrice` < 0 | 422 | `required`, `format`, `min` |
-| Notificación: `userId`, `type`, `title`, `message` | 422 | `min`, `required` |
-| Búsqueda: `query` (historial) o `name` (guardada) vacíos | 422 | `required` |
-| Comparación de servicios: sin `serviceIds`, servicio inexistente, más de 3 | 422 | `serviceIds` `required`; `serviceIds.N`/`serviceId` `not_found`; `serviceId` `max` |
-| Servicio repetido en la comparación; email ya registrado | 409 | `conflict` |
-| Recurso del path inexistente o de otro usuario | 404 | `not_found` |
-| `userId` inexistente al insertar (FK) | 422 | `userId` `not_found` |
-| Product/Pricing/Store/Service API sin respuesta | 503 | `service_unavailable` |
-| Error de base de datos | 500 (503 si la base no responde) | `internal_error` / `service_unavailable` |
-
-## Tests
-
-- `internal/features/*_test.go`: una tabla por API con los casos mínimos de TAL-78 §5 por endpoint (feliz, entrada inválida 400/422, inexistente y error interno que no expone el detalle y queda en el log con su `request_id`), sobre una base falsa (`fakeDB`), sesiones falsas y un servidor `httptest` en lugar de las otras APIs. `TestDBError_MapeaSegunTAL78` cubre el mapeo de errores de BD.
-- `internal/services/handler_test.go`: listado y detalle (feliz, UUID inválido, inexistente, error interno en cada consulta).
-- Integración con `TEST_DATABASE_URL`: `internal/integration/postgres_test.go` recorre estas APIs con PostgreSQL real.
 
 ---
 

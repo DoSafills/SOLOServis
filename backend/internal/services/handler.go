@@ -1,13 +1,11 @@
 package services
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 
-	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/DoSafills/SOLOServis/backend/internal/services/dto"
 	"github.com/go-chi/chi/v5"
@@ -15,22 +13,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Store es lo que el handler necesita de la base. *Repository lo implementa;
-// los tests usan un fake en memoria (estándar TAL-78 §5).
-type Store interface {
-	List(ctx context.Context) ([]generated.ListServicesRow, error)
-	GetByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.GetServiceByPublicIDRow, error)
-	ListOffers(ctx context.Context, serviceID int32) ([]generated.ListServiceOffersRow, error)
-	ListSpecifications(ctx context.Context, serviceID int32) ([]generated.ListServiceSpecificationsRow, error)
-	ListPriceHistory(ctx context.Context, serviceID int32) ([]generated.ListServicePriceHistoryRow, error)
-}
-
 type Handler struct {
-	repository Store
+	repository *Repository
 	logger     *slog.Logger
 }
 
-func NewHandler(repository Store, logger *slog.Logger) *Handler {
+func NewHandler(repository *Repository, logger *slog.Logger) *Handler {
 	return &Handler{
 		repository: repository,
 		logger:     logger,
@@ -47,7 +35,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	result := make([]dto.ServiceDetail, 0, len(rows))
 
 	for _, row := range rows {
-		offers, specifications, history, err := h.related(r.Context(), row.ID)
+		offers, err := h.repository.ListOffers(r.Context(), row.ID)
+		if err != nil {
+			httpx.WriteInternal(w, r, h.logger, err)
+			return
+		}
+
+		specifications, err := h.repository.ListSpecifications(r.Context(), row.ID)
+		if err != nil {
+			httpx.WriteInternal(w, r, h.logger, err)
+			return
+		}
+
+		history, err := h.repository.ListPriceHistory(r.Context(), row.ID)
 		if err != nil {
 			httpx.WriteInternal(w, r, h.logger, err)
 			return
@@ -59,20 +59,23 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	writeJSON(w, result)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
+	publicID := chi.URLParam(r, "publicID")
+
 	var uuid pgtype.UUID
-	if err := uuid.Scan(chi.URLParam(r, "publicID")); err != nil {
-		httpx.WriteProblem(w, r, http.StatusBadRequest, httpx.CodeInvalidParameter,
-			"El id del servicio debe ser un UUID válido.")
+
+	if err := uuid.Scan(publicID); err != nil {
+		http.Error(w, "invalid service id", http.StatusBadRequest)
 		return
 	}
 
 	service, err := h.repository.GetByPublicID(r.Context(), uuid)
 	if errors.Is(err, pgx.ErrNoRows) {
-		httpx.WriteProblem(w, r, http.StatusNotFound, httpx.CodeNotFound, "Servicio no encontrado.")
+		http.Error(w, "service not found", http.StatusNotFound)
 		return
 	}
 	if err != nil {
@@ -80,38 +83,31 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	offers, specifications, history, err := h.related(r.Context(), service.ID)
+	offers, err := h.repository.ListOffers(r.Context(), service.ID)
 	if err != nil {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 
-	writeJSON(w, dto.FromService(service, offers, specifications, history))
-}
+	specifications, err := h.repository.ListSpecifications(r.Context(), service.ID)
+	if err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
 
-// related carga las ofertas, especificaciones e historial de un servicio.
-func (h *Handler) related(ctx context.Context, serviceID int32) (
-	[]generated.ListServiceOffersRow,
-	[]generated.ListServiceSpecificationsRow,
-	[]generated.ListServicePriceHistoryRow,
-	error,
-) {
-	offers, err := h.repository.ListOffers(ctx, serviceID)
+	history, err := h.repository.ListPriceHistory(r.Context(), service.ID)
 	if err != nil {
-		return nil, nil, nil, err
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
 	}
-	specifications, err := h.repository.ListSpecifications(ctx, serviceID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	history, err := h.repository.ListPriceHistory(ctx, serviceID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return offers, specifications, history, nil
-}
 
-func writeJSON(w http.ResponseWriter, value any) {
+	result := h.repository.ToDetail(
+		service,
+		offers,
+		specifications,
+		history,
+	)
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(value)
+	_ = json.NewEncoder(w).Encode(result)
 }

@@ -2,7 +2,6 @@ package features
 
 import (
 	"log/slog"
-	"net/http"
 	"os"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/authz"
@@ -16,19 +15,11 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	// (internal/http.useStandardMiddleware): RequestID → AccessLog → Recover.
 	logger := httpx.NewLogger(os.Stdout, httpx.ParseLevel(os.Getenv("LOG_LEVEL")))
 	h := NewHandler(name, db, logger)
-	// Crear notificaciones es interno: lo llaman pricing e ingestion con INTERNAL_API_TOKEN.
-	admin := authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID, httpx.AccessLog(logger), httpx.Recover(logger))
 	r.Use(httpx.CORS(frontendURL))
 	r.Get("/health", h.Health)
-	registerRoutes(r, name, h, admin)
-	return r
-}
 
-// registerRoutes monta las rutas de la API name. Los tests la usan con un
-// handler sobre una base falsa.
-func registerRoutes(r chi.Router, name string, h *Handler, admin func(http.Handler) http.Handler) {
 	switch name {
 	// pricing-api se movió a internal/pricing (TAL-74).
 	case "search-api":
@@ -86,6 +77,8 @@ func registerRoutes(r chi.Router, name string, h *Handler, admin func(http.Handl
 			r.Delete("/watchlist/{productId}", h.DeleteWatchlist)
 		})
 	case "notification-api":
+		// Crear es interno: lo llaman pricing e ingestion con INTERNAL_API_TOKEN.
+		admin := authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
 		r.With(admin).Post("/notifications", h.CreateNotification)
 		r.Group(func(r chi.Router) {
 			r.Use(h.requireSession)
@@ -96,6 +89,7 @@ func registerRoutes(r chi.Router, name string, h *Handler, admin func(http.Handl
 		})
 		// ingestion-api se movió a internal/ingestion (TAL-77).
 	}
+	return r
 }
 
 // RegisterSearchSessionRoutes monta el historial y las búsquedas guardadas

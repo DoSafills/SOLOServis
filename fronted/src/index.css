@@ -91,48 +91,6 @@ html {
   box-shadow: 0 12px 28px rgba(139, 92, 246, 0.35);
 }
 
-.category-outline::before {
-  content: "";
-  display: none;
-  position: absolute;
-  inset: 0;
-  padding: 1px;
-  border-radius: inherit;
-  pointer-events: none;
-  background: conic-gradient(
-    from 0deg,
-    #22d3ee,
-    #38bdf8 20%,
-    #6366f1 42%,
-    #8b5cf6 62%,
-    #a78bfa 82%,
-    #22d3ee
-  );
-  background-size: 200% 200%;
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: category-border-colors 8s ease-in-out infinite alternate;
-}
-
-.category-outline-active::before {
-  display: block;
-}
-
-@keyframes category-border-colors {
-  to {
-    background-position: 100% 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .category-outline::before {
-    animation: none;
-  }
-}
-
 /* Line clamp */
 .line-clamp-2 {
   display: -webkit-box;

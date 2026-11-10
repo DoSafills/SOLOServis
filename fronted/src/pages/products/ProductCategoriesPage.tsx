@@ -1,13 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Page, Product } from "../../types";
-import { getAllProducts } from "../../services/api/api";
-import { getCategories, type ApiProductCategory } from "../../services/api/products";
+import { getProducts } from "../../services/api/api";
 import { Breadcrumb } from "../../components/common/ui";
-import {
-  getProductCategoryGroup,
-  getProductSubtype,
-  getProductSubtypeSearchQuery,
-} from "../../constants/productCatalog";
 
 interface Props {
   navigate: (page: Page) => void;
@@ -24,32 +18,103 @@ const fallbackCategoryImages = [
   "https://images.unsplash.com/photo-1583394838336-acd977736f90?auto=format&fit=crop&w=320&q=80",
 ];
 
+const categoryColorStyles = [
+  {
+    card: "from-blue-950 via-slate-900 to-cyan-950 border-cyan-300/25 hover:border-cyan-200/70",
+    accent: "from-cyan-300 to-blue-400",
+    image: "from-cyan-400/30 to-blue-500/25 border-cyan-100/25",
+    glow: "bg-cyan-400/15 group-hover:bg-cyan-300/25",
+    title: "text-white",
+    count: "border-cyan-200/20 bg-cyan-300/10 text-cyan-100",
+    action: "border-cyan-100/20 bg-cyan-300/10 text-cyan-100 group-hover:bg-cyan-300/20",
+  },
+  {
+    card: "from-fuchsia-950 via-slate-900 to-purple-950 border-fuchsia-300/25 hover:border-fuchsia-200/70",
+    accent: "from-fuchsia-300 to-violet-400",
+    image: "from-fuchsia-400/30 to-purple-500/25 border-fuchsia-100/25",
+    glow: "bg-fuchsia-400/15 group-hover:bg-fuchsia-300/25",
+    title: "text-white",
+    count: "border-fuchsia-200/20 bg-fuchsia-300/10 text-fuchsia-100",
+    action:
+      "border-fuchsia-100/20 bg-fuchsia-300/10 text-fuchsia-100 group-hover:bg-fuchsia-300/20",
+  },
+  {
+    card: "from-emerald-950 via-slate-900 to-teal-950 border-emerald-300/25 hover:border-emerald-200/70",
+    accent: "from-emerald-300 to-teal-400",
+    image: "from-emerald-400/30 to-teal-500/25 border-emerald-100/25",
+    glow: "bg-emerald-400/15 group-hover:bg-emerald-300/25",
+    title: "text-white",
+    count: "border-emerald-200/20 bg-emerald-300/10 text-emerald-100",
+    action:
+      "border-emerald-100/20 bg-emerald-300/10 text-emerald-100 group-hover:bg-emerald-300/20",
+  },
+  {
+    card: "from-amber-950 via-slate-900 to-rose-950 border-amber-300/25 hover:border-amber-200/70",
+    accent: "from-amber-300 to-rose-400",
+    image: "from-amber-400/30 to-rose-500/25 border-amber-100/25",
+    glow: "bg-amber-400/15 group-hover:bg-amber-300/25",
+    title: "text-white",
+    count: "border-amber-200/20 bg-amber-300/10 text-amber-100",
+    action: "border-amber-100/20 bg-amber-300/10 text-amber-100 group-hover:bg-amber-300/20",
+  },
+];
+
 const categorySections = [
   {
     id: "home",
     title: "Hogar",
     description: "Electrodomésticos, muebles y productos para tu casa",
     icon: "🏠",
+    card: "border-amber-200/20 bg-gradient-to-r from-amber-950/55 via-slate-950/70 to-rose-950/35",
+    accent: "text-amber-200",
   },
   {
     id: "technology",
     title: "Tecnología",
     description: "TV, videojuegos, audio, computación y telefonía",
     icon: "⚡",
+    card: "border-cyan-200/20 bg-gradient-to-r from-cyan-950/55 via-slate-950/70 to-violet-950/35",
+    accent: "text-cyan-200",
   },
   {
     id: "other",
     title: "Otras categorías",
     description: "Deportes, fitness y nuevos tipos de productos",
     icon: "✨",
+    card: "border-fuchsia-200/20 bg-gradient-to-r from-fuchsia-950/45 via-slate-950/70 to-indigo-950/35",
+    accent: "text-fuchsia-200",
   },
 ] as const;
 
 type CategorySectionId = (typeof categorySections)[number]["id"];
 
+const normalizeCategoryName = (value: string): string =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase();
+
+const getCategorySection = (name: string): CategorySectionId => {
+  const normalized = normalizeCategoryName(name);
+  if (
+    /hogar|mueble|mesa|silla|sofa|cama|electrodom|refriger|lavado|lavadora|secadora|cocina|microonda|horno|aspirador/.test(
+      normalized,
+    )
+  ) {
+    return "home";
+  }
+  if (
+    /tecnolog|electron|televisor|television|\btv\b|videojuego|computacion|computador|notebook|telefon|audio|gaming|consola|celular|smartphone/.test(
+      normalized,
+    )
+  ) {
+    return "technology";
+  }
+  return "other";
+};
+
 export default function ProductCategoriesPage({ navigate }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<ApiProductCategory[]>([]);
   const [expandedSections, setExpandedSections] = useState<Set<CategorySectionId>>(
     () => new Set(["home"]),
   );
@@ -59,12 +124,9 @@ export default function ProductCategoriesPage({ navigate }: Props) {
   useEffect(() => {
     let cancelled = false;
 
-    Promise.all([getAllProducts(), getCategories()])
-      .then(([result, categoryList]) => {
-        if (!cancelled) {
-          setProducts(result);
-          setCategories(categoryList);
-        }
+    getProducts()
+      .then((result) => {
+        if (!cancelled) setProducts(result);
       })
       .catch((err: unknown) => {
         if (!cancelled) {
@@ -80,134 +142,33 @@ export default function ProductCategoriesPage({ navigate }: Props) {
     };
   }, []);
 
-  const { categoriesBySection, rootProductCounts } = useMemo(() => {
-    const categoriesById = new Map(categories.map((category) => [category.id, category]));
-    const childrenByParent = new Map<number, ApiProductCategory[]>();
-    for (const category of categories) {
-      if (category.parentId === null) continue;
-      const children = childrenByParent.get(category.parentId) ?? [];
-      children.push(category);
-      childrenByParent.set(category.parentId, children);
-    }
-
-    const getDescendantIds = (categoryId: number) => {
-      const descendants = new Set([categoryId]);
-      const pending = [categoryId];
-      while (pending.length) {
-        const parentId = pending.pop();
-        if (parentId === undefined) continue;
-        for (const child of childrenByParent.get(parentId) ?? []) {
-          if (!descendants.has(child.id)) {
-            descendants.add(child.id);
-            pending.push(child.id);
-          }
-        }
-      }
-      return descendants;
-    };
-
-    const rootCategoryFor = (category: ApiProductCategory) => {
-      let current = category;
-      while (current.parentId !== null) {
-        const parent = categoriesById.get(current.parentId);
-        if (!parent) break;
-        current = parent;
-      }
-      return current;
-    };
-
-    const productsByCategory = new Map(
-      categories.map((category) => {
-        const descendants = getDescendantIds(category.id);
-        return [
-          category.id,
-          products.filter(
-            (product) => product.categoryId !== undefined && descendants.has(product.categoryId),
-          ),
-        ] as const;
-      }),
-    );
-    const rootCounts = new Map(
-      categories
-        .filter((category) => category.parentId === null)
-        .map(
-          (category) => [category.id, productsByCategory.get(category.id)?.length ?? 0] as const,
-        ),
-    );
-
+  const categoriesBySection = useMemo(() => {
+    const groupedProducts = products.reduce((grouped, product) => {
+      const name = product.category.trim();
+      if (!name) return grouped;
+      const items = grouped.get(name) ?? [];
+      items.push(product);
+      grouped.set(name, items);
+      return grouped;
+    }, new Map<string, Product[]>());
     const usedImages = new Set<string>();
-    const makeCard = (
-      name: string,
-      items: Product[],
-      root: ApiProductCategory,
-      categoryId: number,
-      query = "",
-    ) => {
-      const productImages = items.flatMap((product) => [product.image, ...product.images]);
-      const image = productImages.find((url) => url && !usedImages.has(url));
-      const fallbackImage = fallbackCategoryImages.find((url) => !usedImages.has(url));
-      const uniqueImage = image ?? fallbackImage ?? fallbackCategoryImages[0];
-      usedImages.add(uniqueImage);
-      return {
-        name,
-        rootName: root.name,
-        count: items.length,
-        image: uniqueImage,
-        categoryId,
-        query,
-        sectionId: getProductCategoryGroup(root.name),
-      };
-    };
+    const categories = [...groupedProducts]
+      .sort(([first], [second]) => first.localeCompare(second, "es"))
+      .map(([name, items]) => {
+        const productImages = items.flatMap((product) => [product.image, ...product.images]);
+        const image = productImages.find((url) => url && !usedImages.has(url));
+        const fallbackImage = fallbackCategoryImages.find((url) => !usedImages.has(url));
+        const uniqueImage = image ?? fallbackImage ?? fallbackCategoryImages[0];
+        usedImages.add(uniqueImage);
 
-    const categoryCards = categories
-      .filter((category) => category.parentId !== null)
-      .flatMap((category) => {
-        const matchingProducts = productsByCategory.get(category.id) ?? [];
-        const childHasProducts = (childrenByParent.get(category.id) ?? []).some(
-          (child) => (productsByCategory.get(child.id)?.length ?? 0) > 0,
-        );
-        if (matchingProducts.length === 0 || childHasProducts) return [];
-        return [makeCard(category.name, matchingProducts, rootCategoryFor(category), category.id)];
+        return { name, count: items.length, image: uniqueImage };
       });
 
-    const directProductsBySubtype = new Map<string, Product[]>();
-    for (const product of products) {
-      const category = product.categoryId ? categoriesById.get(product.categoryId) : undefined;
-      if (!category) continue;
-      const hasProductChild = (childrenByParent.get(category.id) ?? []).some(
-        (child) => (productsByCategory.get(child.id)?.length ?? 0) > 0,
-      );
-      if (category.parentId !== null && !hasProductChild) continue;
-      const subtype = getProductSubtype(product);
-      const key = `${category.id}:${subtype}`;
-      const items = directProductsBySubtype.get(key) ?? [];
-      items.push(product);
-      directProductsBySubtype.set(key, items);
-    }
-
-    const inferredCards = [...directProductsBySubtype.entries()].flatMap(([key, items]) => {
-      const [rootId, ...subtypeParts] = key.split(":");
-      const root = categoriesById.get(Number(rootId));
-      if (!root) return [];
-      const subtype = subtypeParts.join(":");
-      return [makeCard(subtype, items, root, root.id, getProductSubtypeSearchQuery(subtype))];
-    });
-    const displayCards = [...categoryCards, ...inferredCards].sort((first, second) =>
-      first.name.localeCompare(second.name, "es"),
-    );
-
-    return {
-      categoriesBySection: categorySections.map((section) => ({
-        ...section,
-        categories: displayCards.filter((category) => category.sectionId === section.id),
-        rootCategories: categories.filter(
-          (category) =>
-            category.parentId === null && getProductCategoryGroup(category.name) === section.id,
-        ),
-      })),
-      rootProductCounts: rootCounts,
-    };
-  }, [categories, products]);
+    return categorySections.map((section) => ({
+      ...section,
+      categories: categories.filter((category) => getCategorySection(category.name) === section.id),
+    }));
+  }, [products]);
 
   const totalProducts = products.length;
 
@@ -231,35 +192,31 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         ]}
       />
 
-      <section className="mt-6 mb-7 flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300/80">
+      <section className="mt-6 mb-7 flex flex-col gap-4 border-b border-white/10 pb-7 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-prime">
             Catálogo
           </p>
-          <h1 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
-            Explora por categoría
-          </h1>
-          <p className="mt-1.5 text-sm text-slate-400">
+          <h1 className="text-2xl font-bold text-white sm:text-3xl">Explora por categoría</h1>
+          <p className="mt-2 text-sm text-slate-300">
             Compara precios y encuentra tu próxima oferta.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
-          <button
-            onClick={showAllProducts}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-3.5 py-2 text-xs font-semibold text-slate-950 transition hover:bg-slate-200"
-          >
-            Ver ofertas
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M5 12h14m-6-6 6 6-6 6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-        </div>
+        <button
+          onClick={showAllProducts}
+          className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-white/25 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:border-white hover:bg-white/10 sm:self-auto"
+        >
+          Ver todas las ofertas
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M5 12h14m-6-6 6 6-6 6"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
       </section>
 
       {loading ? (
@@ -282,145 +239,139 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         <div className="space-y-4">
           {categoriesBySection.map((section) => {
             const isExpanded = expandedSections.has(section.id);
-            const panelId = `category-section-${section.id}`;
-            const sectionRoots = section.rootCategories.filter(
-              (category) => (rootProductCounts.get(category.id) ?? 0) > 0,
-            );
-            const productCount = sectionRoots.reduce(
-              (total, category) => total + (rootProductCounts.get(category.id) ?? 0),
+            const productCount = section.categories.reduce(
+              (total, category) => total + category.count,
               0,
             );
+            const panelId = `category-section-${section.id}`;
 
             return (
               <section
                 key={section.id}
-                className={`category-outline relative isolate overflow-hidden rounded-xl bg-slate-700/70 p-px ${
-                  isExpanded ? "category-outline-active" : ""
-                }`}
+                className={`overflow-hidden rounded-2xl border ${section.card}`}
               >
-                <div className="relative z-10 overflow-hidden rounded-[11px] bg-slate-900/45">
-                  <div className="flex items-center">
-                    <button
-                      type="button"
-                      onClick={() => toggleSection(section.id)}
-                      aria-expanded={isExpanded}
-                      aria-controls={panelId}
-                      aria-label={`${isExpanded ? "Ocultar" : "Ver"} subcategorías de ${section.title}`}
-                      className="flex min-w-0 flex-1 items-center gap-3 p-4 text-left sm:gap-4 sm:p-5"
-                    >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-800/80 text-xl">
-                        {section.icon}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-base font-semibold text-slate-100 sm:text-lg">
-                          {section.title}
-                        </span>
-                        <span className="mt-1 block text-xs text-slate-400 sm:text-sm">
-                          {section.description}
-                        </span>
-                      </span>
-                      <span className="hidden shrink-0 text-xs text-slate-400 sm:block">
-                        {section.categories.length}{" "}
-                        {section.categories.length === 1 ? "categoría" : "categorías"} ·{" "}
-                        {productCount} {productCount === 1 ? "producto" : "productos"}
-                      </span>
-                      <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        aria-hidden="true"
-                        className={`shrink-0 text-slate-300 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                      >
-                        <path
-                          d="m6 9 6 6 6-6"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate({
-                          id: "search-products",
-                          query: "",
-                          productGroup: section.id,
-                        })
-                      }
-                      className="mr-3 inline-flex shrink-0 items-center gap-1 rounded-lg border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300/60 hover:bg-cyan-300/10 sm:mr-4 sm:px-3.5"
-                      aria-label={`Ver todo ${section.title}`}
-                    >
-                      Todo {section.title}
-                      <span aria-hidden="true">→</span>
-                    </button>
-                  </div>
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  aria-controls={panelId}
+                  onClick={() => toggleSection(section.id)}
+                  className="flex w-full items-center gap-4 p-4 text-left transition hover:bg-white/[0.035] sm:p-5"
+                >
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-slate-950/45 text-2xl shadow-inner">
+                    {section.icon}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className={`block text-lg font-extrabold sm:text-xl ${section.accent}`}>
+                      {section.title}
+                    </span>
+                    <span className="mt-1 block text-xs text-slate-300 sm:text-sm">
+                      {section.description}
+                    </span>
+                  </span>
+                  <span className="hidden shrink-0 rounded-full border border-white/10 bg-slate-950/45 px-3 py-1 text-xs font-bold text-slate-200 sm:block">
+                    {section.categories.length}{" "}
+                    {section.categories.length === 1 ? "categoría" : "categorías"} · {productCount}{" "}
+                    {productCount === 1 ? "producto" : "productos"}
+                  </span>
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                    className={`shrink-0 text-slate-300 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                  >
+                    <path
+                      d="m6 9 6 6 6-6"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
 
-                  {isExpanded && (
-                    <div id={panelId} className="border-t border-slate-800 p-3 sm:p-4">
-                      {section.categories.length === 0 ? (
-                        <p className="px-2 py-3 text-sm text-slate-300">
-                          Todavía no hay productos disponibles en esta sección.
-                        </p>
-                      ) : (
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                          {section.categories.map((category) => (
+                {isExpanded && (
+                  <div id={panelId} className="border-t border-white/10 p-3 sm:p-5">
+                    {section.categories.length === 0 ? (
+                      <p className="px-2 py-3 text-sm text-slate-300">
+                        Todavía no hay productos disponibles en esta sección.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {section.categories.map((category, index) => {
+                          const colors = categoryColorStyles[index % categoryColorStyles.length];
+
+                          return (
                             <button
-                              key={`${category.categoryId ?? category.query}:${category.name}`}
+                              key={category.name}
                               onClick={() =>
                                 navigate({
                                   id: "search-products",
-                                  query: category.query,
-                                  categoryContext: category.name,
-                                  categoryId: category.categoryId,
+                                  query: "",
+                                  category: category.name,
                                 })
                               }
-                              aria-label={`Ver ${category.count} ${category.count === 1 ? "producto" : "productos"} de ${category.name}`}
-                              className="group relative flex min-h-28 min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-700/70 bg-gradient-to-br from-slate-900/90 to-slate-950/70 p-3.5 text-left transition-colors duration-200 hover:border-cyan-300/70 focus-visible:border-cyan-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+                              className={`group relative flex min-h-32 min-w-0 items-center gap-3 overflow-hidden rounded-2xl border bg-gradient-to-br ${colors.card} p-3.5 text-left shadow-lg shadow-slate-950/25 transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-violet-950/35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 sm:gap-4 sm:p-4`}
                             >
-                              <span className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-white/[0.06] bg-slate-950/70 p-2 shadow-inner sm:h-[4.5rem] sm:w-[4.5rem]">
+                              <span
+                                aria-hidden="true"
+                                className={`pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full blur-2xl transition ${colors.glow}`}
+                              />
+                              <span
+                                aria-hidden="true"
+                                className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${colors.accent} opacity-80`}
+                              />
+                              <span
+                                className={`relative flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-2xl border bg-gradient-to-br ${colors.image} p-1.5 shadow-lg shadow-black/20 sm:h-20 sm:w-20`}
+                              >
                                 <img
                                   src={category.image}
                                   alt=""
                                   loading="lazy"
-                                  className="h-full w-full object-contain"
+                                  className="h-full w-full rounded-xl object-contain drop-shadow-lg transition-transform duration-300 group-hover:scale-110"
                                 />
                               </span>
-                              <span className="flex min-w-0 flex-1 flex-col justify-center py-1">
-                                <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-100">
+                              <span className="relative flex min-w-0 flex-1 flex-col justify-center">
+                                <span
+                                  className={`line-clamp-2 text-base font-extrabold leading-snug sm:text-lg ${colors.title}`}
+                                >
                                   {category.name}
                                 </span>
-                                <span className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-full border border-slate-700/80 bg-slate-950/50 px-2 py-1 text-[10px] font-medium text-slate-400">
-                                  <span className="h-1 w-1 rounded-full bg-cyan-300/80" />
+                                <span
+                                  className={`mt-2 inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-xs font-bold ${colors.count}`}
+                                >
                                   {category.count} {category.count === 1 ? "producto" : "productos"}
                                 </span>
-                              </span>
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-700/80 bg-slate-950/50 text-slate-500">
-                                <svg
-                                  width="15"
-                                  height="15"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  aria-hidden="true"
+                                <span
+                                  className={`mt-2.5 inline-flex w-fit items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-extrabold transition-colors ${colors.action}`}
                                 >
-                                  <path
-                                    d="M5 12h14m-6-6 6 6-6 6"
-                                    stroke="currentColor"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-                                </svg>
+                                  Explorar
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    aria-hidden="true"
+                                    className="transition-transform group-hover:translate-x-1"
+                                  >
+                                    <path
+                                      d="M5 12h14m-6-6 6 6-6 6"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                </span>
                               </span>
                             </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </section>
             );
           })}

@@ -32,34 +32,14 @@ export default function UserPage({
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
-  const [loggingOut, setLoggingOut] = useState(false);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
-    const trimmedName = name.trim();
-    const trimmedEmail = email.trim();
-    if (mode === "register" && (trimmedName.length < 2 || trimmedName.length > 150)) {
-      setFormError("El nombre debe tener entre 2 y 150 caracteres.");
-      return;
-    }
-    if (trimmedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      setFormError("Ingresa un correo electrónico válido (máximo 254 caracteres).");
-      return;
-    }
-    if (!password || (mode === "register" && password.length < 10)) {
-      setFormError(
-        mode === "register"
-          ? "La contraseña debe tener al menos 10 caracteres."
-          : "Ingresa tu contraseña.",
-      );
-      return;
-    }
     setSubmitting(true);
     try {
-      if (mode === "register") await onRegister(trimmedName, trimmedEmail, password);
-      else await onLogin(trimmedEmail, password);
+      if (mode === "register") await onRegister(name.trim(), email.trim(), password);
+      else await onLogin(email.trim(), password);
       setPassword("");
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "No se pudo iniciar la sesión.");
@@ -125,7 +105,7 @@ export default function UserPage({
             </button>
           </div>
 
-          <form onSubmit={submit} noValidate className="space-y-4">
+          <form onSubmit={submit} className="space-y-4">
             {mode === "register" && (
               <label className="block text-sm font-semibold text-slate-200">
                 Nombre
@@ -149,7 +129,6 @@ export default function UserPage({
                 autoComplete="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                maxLength={254}
                 className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60"
                 placeholder="tu@correo.com"
               />
@@ -163,7 +142,6 @@ export default function UserPage({
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 minLength={mode === "register" ? 10 : undefined}
-                maxLength={1024}
                 className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60"
                 placeholder={mode === "register" ? "Al menos 10 caracteres" : "Tu contraseña"}
               />
@@ -217,28 +195,12 @@ export default function UserPage({
                 </button>
               ))}
               <button
-                disabled={loggingOut}
-                onClick={() => {
-                  setLogoutError(null);
-                  setLoggingOut(true);
-                  void onLogout()
-                    .catch((error: unknown) =>
-                      setLogoutError(
-                        error instanceof Error ? error.message : "No se pudo cerrar la sesión.",
-                      ),
-                    )
-                    .finally(() => setLoggingOut(false));
-                }}
+                onClick={() => void onLogout()}
                 className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-300 transition hover:bg-rose-400/10"
               >
-                {loggingOut ? "Cerrando sesión..." : "Cerrar sesión"}
+                Cerrar sesión
               </button>
             </nav>
-            {logoutError && (
-              <p role="alert" className="mt-3 text-sm text-rose-300">
-                {logoutError}
-              </p>
-            )}
           </aside>
 
           <section className="min-h-64 flex-1 rounded-2xl border border-violet-200/15 bg-slate-950/75 p-6">

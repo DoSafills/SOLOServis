@@ -7,7 +7,6 @@ import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
 interface Props {
   query: string;
   category?: string;
-  group?: string;
   navigate: (page: Page) => void;
   favorites: Set<string>;
   compareList: Set<string>;
@@ -55,7 +54,6 @@ const getServiceSpecFilters = (services: Service[]) =>
 export default function ServicesPage({
   query,
   category,
-  group,
   navigate,
   favorites,
   compareList,
@@ -66,7 +64,7 @@ export default function ServicesPage({
 }: Props) {
   const [services, setServices] = useState<Service[]>([]);
   const [sort, setSort] = useState<SortOption>("relevance");
-  const [activeGroup, setActiveGroup] = useState(group ?? "all");
+  const [activeGroup, setActiveGroup] = useState("all");
   const [activeMicrocategory, setActiveMicrocategory] = useState("all");
   const [microcategoriesByGroup, setMicrocategoriesByGroup] = useState<Record<string, string>>({
     all: "all",
@@ -140,14 +138,14 @@ export default function ServicesPage({
 
   const groups = useMemo(
     () =>
-      [
-        ...new Set(departmentServices.map((service) => service.subcategory.trim() || "Servicios")),
-      ].sort((a, b) => a.localeCompare(b, "es")),
+      [...new Set(departmentServices.map((service) => service.subcategory || "Servicios"))].sort(
+        (a, b) => a.localeCompare(b, "es"),
+      ),
     [departmentServices],
   );
   const selectedGroup = activeGroup === "all" ? groups : [activeGroup];
   const matchingGroupServices = departmentServices.filter((service) =>
-    selectedGroup.includes(service.subcategory.trim() || "Servicios"),
+    selectedGroup.includes(service.subcategory || "Servicios"),
   );
   const microcategories = [
     ...new Set(matchingGroupServices.map((service) => service.category)),

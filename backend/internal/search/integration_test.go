@@ -21,7 +21,6 @@ type searchFixture struct {
 	repo           *Repository
 	tag            string
 	brandA, brandB int32
-	storeA, storeB int32
 	refrigeradores string
 }
 
@@ -59,9 +58,10 @@ func newSearchFixture(t *testing.T) searchFixture {
 	brandIDs = []int32{f.brandA}
 	must(pool.QueryRow(ctx, `INSERT INTO brand (name) VALUES ($1) RETURNING id`, "Polaris "+f.tag).Scan(&f.brandB), "marca B")
 	brandIDs = []int32{f.brandA, f.brandB}
-	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL75 A "+f.tag).Scan(&f.storeA), "tienda A")
-	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL75 B "+f.tag).Scan(&f.storeB), "tienda B")
-	storeIDs = []int32{f.storeA, f.storeB}
+	var storeA, storeB int32
+	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL75 A "+f.tag).Scan(&storeA), "tienda A")
+	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL75 B "+f.tag).Scan(&storeB), "tienda B")
+	storeIDs = []int32{storeA, storeB}
 
 	product := func(name string, brand int32, active bool, attrs map[string]string) int32 {
 		var id int32
@@ -99,11 +99,11 @@ func newSearchFixture(t *testing.T) searchFixture {
 		map[string]string{"capacidad_litros": "200", "eficiencia_energetica": "A+", "no_frost": "true"})
 	inactive := product("Refrigerador Inactivo", f.brandA, false, map[string]string{"capacidad_litros": "400"})
 
-	offer(artico, f.storeA, 300000, 10000, false, true) // total 310000
-	offer(artico, f.storeB, 320000, 5000, true, true)   // total 320000 (envío gratis)
-	offer(polar, f.storeA, 500000, 0, false, true)
-	offer(polar, f.storeB, 100, 0, false, false) // no disponible: no cuenta
-	offer(inactive, f.storeA, 1, 0, false, true)
+	offer(artico, storeA, 300000, 10000, false, true) // total 310000
+	offer(artico, storeB, 320000, 5000, true, true)   // total 320000 (envío gratis)
+	offer(polar, storeA, 500000, 0, false, true)
+	offer(polar, storeB, 100, 0, false, false) // no disponible: no cuenta
+	offer(inactive, storeA, 1, 0, false, true)
 
 	return f
 }
@@ -246,11 +246,6 @@ func TestSearchIntegration_Facetas(t *testing.T) {
 		fmt.Sprintf("%d:2 %d:1", f.brandA, f.brandB) {
 		t.Fatalf("marcas = %+v", facets.Brands)
 	}
-	if len(facets.Stores) != 2 || facets.Stores[0].ID != f.storeA ||
-		facets.Stores[0].Count != 2 || facets.Stores[1].ID != f.storeB ||
-		facets.Stores[1].Count != 1 {
-		t.Fatalf("tiendas = %+v", facets.Stores)
-	}
 
 	byKey := map[string]AttributeFacet{}
 	for _, a := range facets.Attributes {
@@ -281,30 +276,6 @@ func TestSearchIntegration_Facetas(t *testing.T) {
 		Available: true}, defs)
 	if err != nil || filtered.Total != 2 {
 		t.Fatalf("facetas con available = %+v (%v)", filtered, err)
-	}
-}
-
-func TestSearchIntegration_FiltroTiendaYPrecioDeOferta(t *testing.T) {
-	f := newSearchFixture(t)
-	results, total := f.search(t, Query{StoreIDs: []int32{f.storeA}, Sort: "price_asc"})
-	if total != 2 || len(results) != 2 {
-		t.Fatalf("resultados para tienda A = %d, total %d", len(results), total)
-	}
-	for _, result := range results {
-		if result.Name == "Refrigerador Ártico "+f.tag && *result.BestPrice != "310000.00" {
-			t.Fatalf("precio de Ártico para tienda A = %s", *result.BestPrice)
-		}
-	}
-
-	facets, err := f.repo.SearchFacets(context.Background(),
-		Query{Words: []string{f.tag}, StoreIDs: []int32{f.storeA}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if facets.Total != 2 || len(facets.Stores) != 2 ||
-		facets.Stores[0].ID != f.storeA || facets.Stores[0].Count != 2 ||
-		facets.Stores[1].ID != f.storeB || facets.Stores[1].Count != 1 {
-		t.Fatalf("facetas filtradas por tienda = %+v", facets)
 	}
 }
 

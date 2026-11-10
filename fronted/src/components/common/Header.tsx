@@ -11,22 +11,11 @@ interface Props {
 export default function Header({ navigate, currentPage, favCount, cartCount }: Props) {
   const [query, setQuery] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    const normalized = query.trim();
-    const wordCount = normalized.split(/\s+/).filter(Boolean).length;
-    if (!normalized) {
-      setSearchError("Escribe un término para buscar productos.");
-      return;
-    }
-    if ([...normalized].length > 200 || wordCount > 5) {
-      setSearchError("La búsqueda admite hasta 200 caracteres y 5 palabras.");
-      return;
-    }
-    setSearchError(null);
-    navigate({ id: "search-products", query: normalized });
+    if (!query.trim()) return;
+    navigate({ id: "search-products", query: query.trim() });
     setQuery("");
     setMobileOpen(false);
   };
@@ -101,22 +90,11 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
             <div className="group/search relative flex-1">
               <input
                 value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setSearchError(null);
-                }}
-                placeholder="Buscar productos..."
-                aria-label="Buscar productos"
-                maxLength={200}
-                aria-invalid={Boolean(searchError)}
-                aria-describedby={searchError ? "header-search-error" : undefined}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar producto o servicio..."
+                aria-label="Buscar producto o servicio"
                 className="w-full rounded-2xl border border-indigo-200/15 bg-slate-950/65 py-2.5 pl-4 pr-12 text-sm text-white shadow-inner shadow-black/15 outline-none transition placeholder:text-slate-400 focus:border-cyan-300/60 focus:bg-slate-950/90 focus:ring-4 focus:ring-cyan-400/10"
               />
-              {searchError && (
-                <span id="header-search-error" role="alert" className="sr-only">
-                  {searchError}
-                </span>
-              )}
               <button
                 type="submit"
                 aria-label="Buscar"
@@ -279,25 +257,14 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
         {/* Mobile menu */}
         {mobileOpen && (
           <div className="mt-3 space-y-3 rounded-2xl border border-indigo-200/15 bg-slate-950/80 p-3 shadow-xl shadow-black/30 lg:hidden">
-            <form onSubmit={handleSearch} className="flex flex-col gap-2">
+            <form onSubmit={handleSearch} className="flex gap-2">
               <input
                 value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setSearchError(null);
-                }}
-                placeholder="Buscar productos..."
-                aria-label="Buscar productos"
-                maxLength={200}
-                aria-invalid={Boolean(searchError)}
-                aria-describedby={searchError ? "mobile-search-error" : undefined}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar producto o servicio..."
+                aria-label="Buscar producto o servicio"
                 className="min-w-0 flex-1 rounded-xl border border-indigo-200/15 bg-slate-900 px-4 py-2.5 text-sm text-white outline-none placeholder:text-slate-400 focus:border-cyan-300/60 focus:ring-4 focus:ring-cyan-400/10"
               />
-              {searchError && (
-                <span id="mobile-search-error" role="alert" className="text-xs text-rose-300">
-                  {searchError}
-                </span>
-              )}
               <button
                 type="submit"
                 className="rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-violet-950/40 transition hover:brightness-110"

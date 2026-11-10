@@ -8,9 +8,6 @@ interface Props {
   cartProductIds: ReadonlySet<string>;
   onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
   navigate: (page: Page) => void;
-  isComparing?: boolean;
-  onToggleCompare?: (id: string, category: string) => void;
-  readOnly?: boolean;
   comparisonOnly?: boolean;
   initialSelectedStoreIds?: string[];
 }
@@ -358,9 +355,6 @@ export default function PriceOfferComparison({
   cartProductIds,
   onAddToCart,
   navigate,
-  isComparing,
-  onToggleCompare,
-  readOnly = false,
   comparisonOnly = false,
   initialSelectedStoreIds = [],
 }: Props) {
@@ -369,8 +363,7 @@ export default function PriceOfferComparison({
   const addingProductIdsRef = useRef(new Set<string>());
 
   const addOfferToCart = async (offer: StoreOffer) => {
-    if (readOnly || cartProductIds.has(product.id) || addingProductIdsRef.current.has(product.id))
-      return;
+    if (cartProductIds.has(product.id) || addingProductIdsRef.current.has(product.id)) return;
     addingProductIdsRef.current.add(product.id);
     setAddingProductIds((previous) => new Set(previous).add(product.id));
     try {
@@ -504,7 +497,7 @@ export default function PriceOfferComparison({
 
         {lowestOffers.length > 0 && lowestTotal !== null ? (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {lowestOffers.map((offer, index) => {
+            {lowestOffers.map((offer) => {
               const safeUrl = getSafeOfferUrl(offer.url);
               const discounted =
                 offer.price !== null &&
@@ -523,8 +516,8 @@ export default function PriceOfferComparison({
                       <h3 className="text-base font-semibold text-white">{offer.storeName}</h3>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-slate-400">Total con envío</p>
-                      <p className="price text-xl font-bold text-cyan-200">
+                      <p className="text-xs text-slate-400">Precio total</p>
+                      <p className="price text-xl font-bold text-violet-200">
                         {formatPrice(getTotal(offer)!)}
                       </p>
                     </div>
@@ -532,16 +525,13 @@ export default function PriceOfferComparison({
 
                   <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
                     <div>
-                      <dt className="text-xs text-slate-400">
-                        {discounted ? "Precio actual" : "Precio del producto"}
-                      </dt>
-                      <dd className="text-sm font-semibold text-slate-100">
+                      <dt className="text-xs text-slate-400">Precio del producto</dt>
+                      <dd className="text-sm font-medium text-slate-100">
                         {formatPrice(offer.price)}
                       </dd>
                       {discounted && (
-                        <dd className="text-xs text-slate-400">
-                          Normal{" "}
-                          <span className="line-through">{formatPrice(offer.listPrice!)}</span>
+                        <dd className="text-xs text-slate-400 line-through">
+                          Normal {formatPrice(offer.listPrice!)}
                         </dd>
                       )}
                     </div>
@@ -602,12 +592,12 @@ export default function PriceOfferComparison({
                   </dl>
 
                   <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-700/80 pt-4">
-                    {safeUrl && !readOnly ? (
+                    {safeUrl ? (
                       <a
                         href={safeUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center rounded-lg bg-gradient-to-r from-[#ff7a59] to-[#8b5cf6] px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                        className="inline-flex items-center justify-center rounded-md bg-gradient-to-r from-[#ff7a59] to-[#8b5cf6] px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
                       >
                         Comprar ahora
                       </a>
@@ -615,25 +605,21 @@ export default function PriceOfferComparison({
                       <button
                         type="button"
                         disabled
-                        className="rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold text-slate-400"
-                        title={
-                          readOnly
-                            ? "Las compras están deshabilitadas en la vista de ejemplo"
-                            : "La tienda no proporcionó una URL de compra"
-                        }
+                        className="rounded-md bg-slate-700 px-3 py-2 text-sm font-semibold text-slate-400"
+                        title="La tienda no proporcionó una URL de compra"
                       >
-                        {readOnly ? "Enlace de ejemplo" : "Comprar ahora"}
+                        Comprar ahora
                       </button>
                     )}
                     <button
                       type="button"
-                      disabled={readOnly || (!offer.available && !cartProductIds.has(product.id))}
+                      disabled={!offer.available && !cartProductIds.has(product.id)}
                       onClick={() => void addOfferToCart(offer)}
                       aria-live="polite"
                       aria-disabled={
                         cartProductIds.has(product.id) || addingProductIds.has(product.id)
                       }
-                      className={`rounded-lg px-3 py-2 text-sm font-semibold shadow-md transition ${
+                      className={`rounded-md px-3 py-2 text-sm font-semibold shadow-md transition ${
                         cartProductIds.has(product.id)
                           ? "bg-emerald-700 text-emerald-100 shadow-emerald-950/30"
                           : addingProductIds.has(product.id)
@@ -647,49 +633,17 @@ export default function PriceOfferComparison({
                           ? "Agregando a la cesta..."
                           : "Agregar al carrito"}
                     </button>
-                    {index === 0 && onToggleCompare && (
-                      <button
-                        type="button"
-                        disabled={readOnly}
-                        onClick={() => onToggleCompare(product.id, product.category)}
-                        aria-pressed={isComparing}
-                        className={`rounded-lg px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                          isComparing
-                            ? "border border-violet-300/50 bg-violet-400/15 text-violet-100"
-                            : "border border-slate-600 bg-slate-800 text-slate-100 hover:border-violet-400 hover:text-violet-200"
-                        }`}
-                      >
-                        {isComparing ? "✓ En el comparador" : "Agregar al comparador"}
-                      </button>
-                    )}
                   </div>
                 </article>
               );
             })}
           </div>
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted">
-              {offers.some((offer) => offer.available)
-                ? "No determinable: falta el costo de envío de una oferta disponible."
-                : "No hay ofertas disponibles."}
-            </p>
-            {onToggleCompare && (
-              <button
-                type="button"
-                disabled={readOnly}
-                onClick={() => onToggleCompare(product.id, product.category)}
-                aria-pressed={isComparing}
-                className={`rounded-lg px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                  isComparing
-                    ? "border border-violet-300/50 bg-violet-400/15 text-violet-100"
-                    : "border border-slate-600 bg-slate-800 text-slate-100 hover:border-violet-400 hover:text-violet-200"
-                }`}
-              >
-                {isComparing ? "✓ En el comparador" : "Agregar al comparador"}
-              </button>
-            )}
-          </div>
+          <p className="text-sm text-muted">
+            {offers.some((offer) => offer.available)
+              ? "No determinable: falta el costo de envío de una oferta disponible."
+              : "No hay ofertas disponibles."}
+          </p>
         )}
       </section>
 
@@ -719,7 +673,7 @@ export default function PriceOfferComparison({
             </span>
             <button
               type="button"
-              disabled={readOnly || selectedOffers.length < 2}
+              disabled={selectedOffers.length < 2}
               onClick={() =>
                 navigate({
                   id: "offer-comparison",
@@ -854,7 +808,7 @@ export default function PriceOfferComparison({
                         {relativeUpdate(offer.lastUpdated)}
                       </td>
                       <td className="py-4 pl-3">
-                        {safeUrl && !readOnly ? (
+                        {safeUrl ? (
                           <a
                             href={safeUrl}
                             target="_blank"
@@ -866,7 +820,7 @@ export default function PriceOfferComparison({
                           </a>
                         ) : (
                           <span className="text-xs text-slate-400 whitespace-nowrap">
-                            {readOnly ? "Vista de ejemplo" : "Enlace no disponible"}
+                            Enlace no disponible
                           </span>
                         )}
                       </td>

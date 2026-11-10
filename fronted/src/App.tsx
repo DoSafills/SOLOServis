@@ -169,7 +169,6 @@ function makeServiceCartItem(
 
 export default function App() {
   const [page, setPage] = useState<Page>({ id: "home" });
-  const [productsPerPage, setProductsPerPage] = useState(10);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>([]);
@@ -775,21 +774,17 @@ export default function App() {
       case "search-products":
         return (
           <SearchResultsPage
-            key={`${page.categoryId ?? ""}:${page.category ?? ""}:${page.categoryContext ?? ""}:${page.productGroup ?? ""}:${page.query}`}
+            key={`${page.categoryId ?? ""}:${page.category ?? ""}:${page.productGroup ?? ""}:${page.query}`}
             {...sharedProps}
             query={page.query}
             category={page.category}
-            categoryContext={page.categoryContext}
             productGroup={page.productGroup}
             categoryId={page.categoryId}
-            pageSize={productsPerPage}
-            onPageSizeChange={setProductsPerPage}
           />
         );
       case "product-detail":
         return (
           <ProductDetailPage
-            key={page.productId}
             productId={page.productId}
             navigate={navigate}
             isFavorite={favorites.has(page.productId)}
@@ -814,7 +809,6 @@ export default function App() {
         return (
           <PriceOfferComparison
             product={page.product}
-            cartProductIds={cartProductIds}
             onAddToCart={addToCart}
             navigate={navigate}
             comparisonOnly
@@ -827,8 +821,7 @@ export default function App() {
             {...sharedProps}
             query={page.query}
             category={page.category}
-            group={page.group}
-            key={`${page.category ?? ""}:${page.group ?? ""}:${page.query}`}
+            key={`${page.category ?? ""}:${page.query}`}
           />
         );
       case "service-detail":

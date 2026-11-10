@@ -3,20 +3,18 @@ package features
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// errInvalidID indica un id que no es numérico ni UUID: el handler responde
-// 400 (parámetro de ruta) o 422 (campo del body), nunca 404.
-var errInvalidID = errors.New("invalid id")
-
 type Repository struct {
-	db DB
+	db *pgxpool.Pool
 }
 
-func NewRepository(db DB) *Repository {
+func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
 }
 
@@ -49,8 +47,8 @@ func (r *Repository) ResolveProductID(ctx context.Context, value string) (int32,
 		err = r.db.QueryRow(ctx, `SELECT id FROM product WHERE id = $1 AND active = TRUE`, number).Scan(&id)
 		return id, err
 	}
-	if !looksLikeUUID(value) {
-		return 0, errInvalidID
+	if len(value) != 36 || strings.Count(value, "-") != 4 {
+		return 0, pgx.ErrNoRows
 	}
 	err := r.db.QueryRow(ctx, `SELECT id FROM product WHERE public_id = $1::uuid AND active = TRUE`, value).Scan(&id)
 	return id, err
@@ -62,8 +60,8 @@ func (r *Repository) ResolveServiceID(ctx context.Context, value string) (int32,
 		err = r.db.QueryRow(ctx, `SELECT id FROM service WHERE id=$1 AND active=TRUE`, number).Scan(&id)
 		return id, err
 	}
-	if !looksLikeUUID(value) {
-		return 0, errInvalidID
+	if len(value) != 36 || strings.Count(value, "-") != 4 {
+		return 0, pgx.ErrNoRows
 	}
 	err := r.db.QueryRow(ctx, `SELECT id FROM service WHERE public_id=$1::uuid AND active=TRUE`, value).Scan(&id)
 	return id, err
@@ -73,8 +71,4 @@ func (r *Repository) ResolveUserID(ctx context.Context, value int32) (int32, err
 	var id int32
 	err := r.db.QueryRow(ctx, `SELECT id FROM user_account WHERE id = $1 AND active = TRUE`, value).Scan(&id)
 	return id, err
-}
-
-func looksLikeUUID(value string) bool {
-	return len(value) == 36 && strings.Count(value, "-") == 4
 }

@@ -6,12 +6,12 @@ import type {
   StoreLocation,
   StoreProduct,
 } from "../../types";
-import { API_URLS, fetchServiceResponse, getServiceJson, getServiceResponse } from "./config";
 import { parseAmount, toProduct, type ApiProduct } from "./products";
+import { getApiBaseUrl } from "./config";
 
-const PRODUCT_API_URL = API_URLS.products;
-const SERVICE_API_URL = API_URLS.services;
-const STORE_API_URL = API_URLS.stores;
+const PRODUCT_API_URL = getApiBaseUrl(import.meta.env.VITE_PRODUCT_API_URL, 8081);
+const SERVICE_API_URL = getApiBaseUrl(import.meta.env.VITE_SERVICE_API_URL, 8083);
+const STORE_API_URL = getApiBaseUrl(import.meta.env.VITE_STORE_API_URL, 8082);
 
 interface ApiStore {
   id: string;
@@ -28,7 +28,6 @@ interface ApiStore {
 
 interface ApiStoreProduct {
   id: string;
-  offerId: number;
   name: string;
   brand: string;
   model: string;
@@ -45,7 +44,6 @@ interface ApiStoreProduct {
   condition: string;
   productUrl: string;
   image: string;
-  lastUpdated?: string;
 }
 
 interface ApiStoreLocation {
@@ -75,12 +73,18 @@ interface ApiListEnvelope<T> {
   Count: number;
 }
 
-async function fetchJson<T>(baseUrl: string, path: string, apiName: string): Promise<T> {
-  return getServiceJson<T>(`${baseUrl}${path}`, apiName);
+async function fetchJson<T>(baseUrl: string, path: string): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`);
+
+  if (!response.ok) {
+    throw new Error(`Error ${response.status} al consultar ${path}`);
+  }
+
+  return response.json() as Promise<T>;
 }
 
-async function fetchList<T>(baseUrl: string, path: string, apiName: string): Promise<T[]> {
-  const response = await fetchJson<T[] | ApiListEnvelope<T>>(baseUrl, path, apiName);
+async function fetchList<T>(baseUrl: string, path: string): Promise<T[]> {
+  const response = await fetchJson<T[] | ApiListEnvelope<T>>(baseUrl, path);
   return Array.isArray(response) ? response : response.value;
 }
 
@@ -113,7 +117,6 @@ const toStore = (store: ApiStore): Store => ({
 
 const toStoreProduct = (product: ApiStoreProduct): StoreProduct => ({
   id: product.id,
-  offerId: product.offerId,
   name: product.name,
   brand: product.brand,
   model: product.model,
@@ -130,7 +133,6 @@ const toStoreProduct = (product: ApiStoreProduct): StoreProduct => ({
   condition: product.condition,
   productUrl: product.productUrl ?? "",
   image: product.image ?? "",
-  lastUpdated: product.lastUpdated,
 });
 
 const toStoreLocation = (location: ApiStoreLocation): StoreLocation => ({
@@ -154,71 +156,19 @@ export { toProduct, type ApiProduct } from "./products";
 
 export async function getProducts(categoryId?: number): Promise<Product[]> {
   const query = categoryId === undefined ? "" : `?category=${categoryId}`;
-  const products = await fetchList<ApiProduct>(
-    API_URLS.products,
-    `/products${query}`,
-    "Product API",
-  );
+  const products = await fetchList<ApiProduct>(PRODUCT_API_URL, `/products${query}`);
   return products.map(toProduct);
 }
 
-export async function getAllProducts(): Promise<Product[]> {
-  const limit = 100;
-  const firstQuery = new URLSearchParams({ limit: String(limit), offset: "0" });
-  const firstResponse = await getServiceResponse(
-    `${API_URLS.products}/products?${firstQuery}`,
-    "Product API",
-  );
-  const totalHeader = firstResponse.headers.get("X-Total-Count");
-  const total = Number(totalHeader);
-  if (totalHeader === null || !Number.isSafeInteger(total) || total < 0) {
-    throw new Error("Product API: el total de productos devuelto no es válido.");
-  }
-
-  const firstPage: unknown = await firstResponse.json();
-  if (!Array.isArray(firstPage)) {
-    throw new Error("Product API: la respuesta de productos no tiene un formato válido.");
-  }
-  const pages = [firstPage as ApiProduct[]];
-  const offsets = Array.from(
-    { length: Math.ceil(Math.max(0, total - limit) / limit) },
-    (_, index) => (index + 1) * limit,
-  );
-  const remainingPages = await Promise.all(
-    offsets.map(async (offset) => {
-      const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-      const response = await getServiceResponse(
-        `${API_URLS.products}/products?${query}`,
-        "Product API",
-      );
-      const items: unknown = await response.json();
-      if (!Array.isArray(items)) {
-        throw new Error("Product API: la respuesta de productos no tiene un formato válido.");
-      }
-      return items as ApiProduct[];
-    }),
-  );
-  pages.push(...remainingPages);
-
-  const allProducts = pages.flat();
-  if (allProducts.length !== total) {
-    throw new Error("Product API: no se pudieron cargar todos los productos del catálogo.");
-  }
-  return allProducts.map(toProduct);
-}
-
 export async function getProductById(id: string): Promise<Product | null> {
-  const response = await fetchServiceResponse(
-    `${API_URLS.products}/products/${encodeURIComponent(id)}`,
-    "Product API",
-  );
+  const response = await fetch(`${PRODUCT_API_URL}/products/${id}`);
 
   if (response.status === 404) {
     return null;
   }
 
   if (!response.ok) {
-    throw new Error(`Product API: error HTTP ${response.status} al obtener el producto.`);
+    throw new Error(`Error ${response.status} al obtener el producto`);
   }
 
   return toProduct((await response.json()) as ApiProduct);
@@ -229,47 +179,37 @@ export async function getServices(params?: { category?: string }): Promise<Servi
     Object.entries(params ?? {}).filter(([, value]) => Boolean(value)) as [string, string][],
   ).toString();
 
-  return fetchList<Service>(
-    API_URLS.services,
-    `/services${query ? `?${query}` : ""}`,
-    "Service API",
-  );
+  return fetchList<Service>(SERVICE_API_URL, `/services${query ? `?${query}` : ""}`);
 }
 
 export async function getServiceById(id: string): Promise<Service | null> {
-  const response = await fetchServiceResponse(
-    `${API_URLS.services}/services/${encodeURIComponent(id)}`,
-    "Service API",
-  );
+  const response = await fetch(`${SERVICE_API_URL}/services/${id}`);
 
   if (response.status === 404) {
     return null;
   }
 
   if (!response.ok) {
-    throw new Error(`Service API: error HTTP ${response.status} al obtener el servicio.`);
+    throw new Error(`Error ${response.status} al obtener el servicio`);
   }
 
   return response.json() as Promise<Service>;
 }
 
 export async function getStores(): Promise<Store[]> {
-  const stores = await fetchList<ApiStore>(API_URLS.stores, "/stores", "Store API");
+  const stores = await fetchList<ApiStore>(STORE_API_URL, "/stores");
   return stores.map(toStore);
 }
 
 export async function getStoreById(id: string): Promise<StoreDetail | null> {
-  const response = await fetchServiceResponse(
-    `${API_URLS.stores}/stores/${encodeURIComponent(id)}`,
-    "Store API",
-  );
+  const response = await fetch(`${STORE_API_URL}/stores/${id}`);
 
   if (response.status === 404) {
     return null;
   }
 
   if (!response.ok) {
-    throw new Error(`Store API: error HTTP ${response.status} al obtener la tienda.`);
+    throw new Error(`Error ${response.status} al obtener la tienda`);
   }
 
   const detail = (await response.json()) as ApiStoreDetail;

@@ -261,13 +261,12 @@ function New-ImageTag {
   return "$sha"
 }
 
-# Imagenes de este despliegue: frontend, backend (cmd/all-apis) y scraper.
-# En las dos topologias, los Deployments de API usan la misma imagen del backend.
+# Imagenes de este despliegue: frontend y backend (cmd/all-apis). En las dos
+# topologias todos los Deployments de API usan la misma imagen del backend.
 function Get-Images {
   return @(
     @{ Name = 'frontend'; File = 'docker/frontend/Dockerfile'; Ctx = '.' },
-    @{ Name = 'backend'; File = 'docker/all-apis/Dockerfile'; Ctx = 'backend' },
-    @{ Name = 'scraper'; File = 'docker/scraper/Dockerfile'; Ctx = '.' }
+    @{ Name = 'backend'; File = 'docker/all-apis/Dockerfile'; Ctx = 'backend' }
   )
 }
 
@@ -323,12 +322,6 @@ function Write-Overlay {
     $L.Add('    patch: |-')
     $L.Add('      - op: add')
     $L.Add('        path: /spec/volumeClaimTemplates/0/spec/storageClassName')
-    $L.Add("        value: $StorageClass")
-
-    $L.Add('  - target: {kind: PersistentVolumeClaim, name: scraper-data}')
-    $L.Add('    patch: |-')
-    $L.Add('      - op: add')
-    $L.Add('        path: /spec/storageClassName')
     $L.Add("        value: $StorageClass")
   }
   if ($IngressClass) {
@@ -622,29 +615,6 @@ function Phase3 {
 
 # ---------------------------------------------------------------- FASE 4
 
-# Reutiliza postgres-secret si existe (la contrasena vive tambien dentro del
-# volumen, asi que no se cambia sola). Si no existe, lo crea con una contrasena
-# aleatoria, salvo que el PVC ya tenga datos: no coincidiria con la guardada.
-# Sin la etiqueta part-of, igual que soloservis-internal.
-function Ensure-PostgresSecret {
-  $null = K get secret postgres-secret -o name
-  if ($script:KExit -eq 0) { return 'OK (Secret postgres-secret existente)' }
-
-  $pvc = KJson get pvc postgres-data-postgres-0
-  if ($pvc -and $pvc.status.phase -eq 'Bound') {
-    return 'ERROR (falta postgres-secret y el PVC postgres-data-postgres-0 tiene datos)'
-  }
-
-  # 48 caracteres hex: seguros dentro de DATABASE_URL sin escapar.
-  $bytes = New-Object byte[] 24
-  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-  $pw = ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLower()
-  $null = K create secret generic postgres-secret '--from-literal=POSTGRES_USER=postgres' '--from-literal=POSTGRES_DB=soloservis' "--from-literal=POSTGRES_PASSWORD=$pw"
-  if ($script:KExit -ne 0) { return 'ERROR (no se pudo crear postgres-secret)' }
-  $null = K label secret postgres-secret app.kubernetes.io/name=postgres app.kubernetes.io/component=database
-  return 'OK (Secret postgres-secret creado con contrasena aleatoria)'
-}
-
 function Phase4 {
   $cp = [ordered]@{}
   $err = Build-Rendered
@@ -663,15 +633,7 @@ function Phase4 {
     $cp['Token interno'] = 'OK (Secret soloservis-internal existente)'
   }
 
-  # Credenciales de PostgreSQL, fuera de git (TAL-98). Va antes del StatefulSet,
-  # que las lee. La contrasena nunca se imprime.
-  $cp['Credenciales BD'] = Ensure-PostgresSecret
-  if ($cp['Credenciales BD'] -like 'ERROR (falta*') {
-    Stop-Phase 4 $cp 'el PVC de PostgreSQL ya tiene datos y falta postgres-secret: recrealo con la contrasena anterior (k8s/README.md) o borra el PVC si no necesitas los datos'
-  }
-  if ($cp['Credenciales BD'] -like 'ERROR*') { Stop-Phase 4 $cp 'kubectl create secret postgres-secret fallo' }
-
-  Step 'Aplicando Services y StatefulSet de PostgreSQL'
+  Step 'Aplicando Secret, Services y StatefulSet de PostgreSQL'
   $ok = Apply-Component 'app.kubernetes.io/component=database'
   if (-not $ok) { Stop-Phase 4 $cp 'kubectl apply fallo' }
 
@@ -738,23 +700,25 @@ function Phase5 {
 
 # ---------------------------------------------------------------- FASE 6
 
+function Test-ApiHealth([string]$Name, [int]$Port) {
+  $h = (K exec "deployment/$Name" '--' wget -qO- -T 5 "http://127.0.0.1:$Port/health") -join ' '
+  return ($h -match '"database":"connected"')
+}
+
 function Phase6 {
   $cp = [ordered]@{}
   $err = Build-Rendered
   if ($err) { Stop-Phase 6 $cp "kustomize: $err" }
-
   $null = Apply-Component 'app.kubernetes.io/component=config'
   $ok = Apply-Component 'app.kubernetes.io/component=api'
   if (-not $ok) { Stop-Phase 6 $cp 'kubectl apply fallo' }
 
   $failed = @()
-
   foreach ($name in $Apis.Keys) {
     $null = K rollout status "deployment/$name" --timeout=240s
     $pod = @(Get-PodsByName $name | Sort-Object { $_.metadata.creationTimestamp } -Descending)[0]
     $ready = Test-PodReady $pod
-
-    if ($ready) {
+    if ($ready -and (Test-ApiHealth $name $Apis[$name])) {
       $cp[$name] = "OK (Ready, PostgreSQL conectado, :$($Apis[$name]))"
     } else {
       $cp[$name] = "ERROR ($(Get-PodState $pod))"
@@ -763,41 +727,16 @@ function Phase6 {
       Show (K logs "deployment/$name" --tail=20)
     }
   }
-
-  Step 'Aplicando scraper (PVC, Deployment, Service y CronJob)'
-  $ok = Apply-Component 'app.kubernetes.io/component=scraper'
-
-  if ($ok) {
-    $null = K rollout status deployment/scraper-api --timeout=300s
-    $pod = @(Get-PodsByName 'scraper-api' | Sort-Object { $_.metadata.creationTimestamp } -Descending)[0]
-
-    $ready = Test-PodReady $pod
-    $health = K exec deployment/scraper-api '--' python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8095/health', timeout=5).status == 200 else 1)"
-    $healthOk = ($script:KExit -eq 0)
-
-    if ($ready -and $healthOk) {
-      $cp['scraper-api'] = 'OK (Ready, health :8095)'
-    } else {
-      $cp['scraper-api'] = "ERROR ($(Get-PodState $pod))"
-      $failed += 'scraper-api'
-      if ($pod) { Show-Diagnostics pod $pod.metadata.name }
-      Show (K logs deployment/scraper-api --tail=20)
-    }
-  } else {
-    $cp['scraper-api'] = 'ERROR (kubectl apply)'
-    $failed += 'scraper-api'
-  }
-
   if ($failed.Count -gt 0) {
     if (@($cp.Values | Where-Object { "$_" -match 'ImagePull|ErrImage' }).Count -gt 0) {
       Stop-Phase 6 $cp 'el cluster no puede descargar la imagen (registry privado: crear Secret docker-registry y usar -ImagePullSecret)'
     }
     Stop-Phase 6 $cp "no quedaron Ready: $($failed -join ', ')"
   }
-
   $cp['Bloqueos'] = 'ninguno'
   Checkpoint 6 $cp
 }
+
 # ---------------------------------------------------------------- FASE 7
 
 function Phase7 {
@@ -877,30 +816,8 @@ function Phase9 {
   # Tras reiniciar la BD, las APIs deben volver a conectarse solas.
   Start-Sleep -Seconds 10
   $apisOk = $true
-  foreach ($name in $Apis.Keys) {
-    Step "Esperando reconexion de $name con PostgreSQL"
+  foreach ($name in $Apis.Keys) { if (-not (Test-ApiHealth $name $Apis[$name])) { $apisOk = $false; $cp[$name] = 'ERROR (no reconecto a PostgreSQL)' } }
 
-    $deadline = (Get-Date).AddSeconds(180)
-    $apiReady = $false
-
-    do {
-      $pod = @(Get-PodsByName $name |
-        Sort-Object { $_.metadata.creationTimestamp } -Descending)[0]
-
-      $apiReady = Test-PodReady $pod
-
-      if (-not $apiReady) {
-        Start-Sleep -Seconds 3
-      }
-    } while (-not $apiReady -and (Get-Date) -lt $deadline)
-
-    if ($apiReady) {
-      $cp[$name] = 'OK (reconectada a PostgreSQL)'
-    } else {
-      $apisOk = $false
-      $cp[$name] = 'ERROR (no reconecto a PostgreSQL)'
-    }
-  }
   $cp['Kubernetes'] = $(if ($recreated) { "FUNCIONAL (recreo el pod de $probe)" } else { 'ERROR (no se verifico la recreacion)' })
   $cp['Persistencia'] = $(if ($persist) { "FUNCIONAL (mismos datos tras reiniciar: $after migraciones)" } else { "ERROR (antes=$before despues=$after)" })
   $cp['APIs'] = $(if ($apisOk) { "FUNCIONAL ($($Apis.Count) Deployment(s), reconectan a PostgreSQL)" } else { 'ERROR' })

@@ -61,9 +61,9 @@ func APIs(domain string) ([]string, error) {
 
 // InternalURLs resuelve las URLs de las llamadas que hacen las APIs del
 // proceso. Si la API llamada está en el mismo proceso, su URL es self (salvo
-// que ya esté definida). Si está en otro proceso, requiere su URL específica
-// o GATEWAY_URL: el default localhost de cada cliente apunta al propio
-// contenedor y la llamada fallaría.
+// que ya esté definida). Si está en otro proceso, la variable es obligatoria:
+// el default localhost de cada cliente apunta al propio contenedor y la
+// llamada fallaría.
 func InternalURLs(apis []string, self string, getenv func(string) string) (map[string]string, error) {
 	inside := make(map[string]bool, len(apis))
 	for _, api := range apis {
@@ -78,8 +78,6 @@ func InternalURLs(apis []string, self string, getenv func(string) string) (map[s
 			case getenv(name) != "":
 			case inside[callee]:
 				urls[name] = self
-			case strings.TrimSpace(getenv("GATEWAY_URL")) != "":
-				urls[name] = strings.TrimRight(strings.TrimSpace(getenv("GATEWAY_URL")), "/")
 			default:
 				missing = append(missing, fmt.Sprintf("%s (%s llama a %s)", name, api, callee))
 			}

@@ -1,5 +1,4 @@
 ﻿import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
 import { UI_TEXT } from "../../constants/uiText";
 import type { Page, Product, Service, StoreOffer } from "../../types";
 import { PRODUCT_TYPES } from "../../constants/productCatalog";
@@ -55,73 +54,17 @@ export default function HomePage({
   const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [categories, setCategories] = useState<ApiProductCategory[]>([]);
-  const [productsLoadedAttempt, setProductsLoadedAttempt] = useState<number | null>(null);
-  const [servicesLoadedAttempt, setServicesLoadedAttempt] = useState<number | null>(null);
-  const [categoriesLoadedAttempt, setCategoriesLoadedAttempt] = useState<number | null>(null);
-  const [productsError, setProductsError] = useState<string | null>(null);
-  const [servicesError, setServicesError] = useState<string | null>(null);
-  const [categoriesError, setCategoriesError] = useState<string | null>(null);
-  const [productsAttempt, setProductsAttempt] = useState(0);
-  const [servicesAttempt, setServicesAttempt] = useState(0);
-  const [categoriesAttempt, setCategoriesAttempt] = useState(0);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const productsLoading = productsLoadedAttempt !== productsAttempt;
-  const servicesLoading = servicesLoadedAttempt !== servicesAttempt;
-  const categoriesLoading = categoriesLoadedAttempt !== categoriesAttempt;
 
   useEffect(() => {
-    let active = true;
-    getProducts()
-      .then((result) => {
-        if (active) setProducts(result);
+    Promise.all([getProducts(), getServices()])
+      .then(([products, services]) => {
+        setProducts(products);
+        setServices(services);
       })
-      .catch((error: unknown) => {
-        if (active)
-          setProductsError(error instanceof Error ? error.message : "Product API no disponible.");
-      })
-      .finally(() => {
-        if (active) setProductsLoadedAttempt(productsAttempt);
-      });
-    return () => {
-      active = false;
-    };
-  }, [productsAttempt]);
+      .catch(console.error);
 
-  useEffect(() => {
-    let active = true;
-    getServices()
-      .then((result) => {
-        if (active) setServices(result);
-      })
-      .catch((error: unknown) => {
-        if (active)
-          setServicesError(error instanceof Error ? error.message : "Services API no disponible.");
-      })
-      .finally(() => {
-        if (active) setServicesLoadedAttempt(servicesAttempt);
-      });
-    return () => {
-      active = false;
-    };
-  }, [servicesAttempt]);
-
-  useEffect(() => {
-    let active = true;
-    getCategories()
-      .then((result) => {
-        if (active) setCategories(result);
-      })
-      .catch((error: unknown) => {
-        if (active)
-          setCategoriesError(error instanceof Error ? error.message : "Product API no disponible.");
-      })
-      .finally(() => {
-        if (active) setCategoriesLoadedAttempt(categoriesAttempt);
-      });
-    return () => {
-      active = false;
-    };
-  }, [categoriesAttempt]);
+    getCategories().then(setCategories).catch(console.error);
+  }, []);
 
   // Las categorías raíz (sin padre) son las que se muestran en la portada;
   // debajo de cada una se listan sus subcategorías.
@@ -131,23 +74,10 @@ export default function HomePage({
 
   const featuredProducts = products.slice(0, 4);
 
-  const handleSearch = (e: FormEvent) => {
+  const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmedQuery = query.trim();
-    if (!trimmedQuery) {
-      setSearchError("Escribe un producto para iniciar la búsqueda.");
-      return;
-    }
-    if (trimmedQuery.length > 200) {
-      setSearchError("La búsqueda no puede superar los 200 caracteres.");
-      return;
-    }
-    if (trimmedQuery.split(/\s+/).length > 5) {
-      setSearchError("La búsqueda admite un máximo de 5 palabras.");
-      return;
-    }
-    setSearchError(null);
-    navigate({ id: "search-products", query: trimmedQuery });
+    if (!query.trim()) return;
+    navigate({ id: "search-products", query: query.trim() });
   };
 
   const featuredServices = services.slice(0, 4);
@@ -243,14 +173,8 @@ export default function HomePage({
               </svg>
               <input
                 value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setSearchError(null);
-                }}
-                placeholder="¿Qué producto estás buscando?"
-                maxLength={200}
-                aria-invalid={Boolean(searchError)}
-                aria-describedby={searchError ? "home-search-error" : undefined}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="¿Qué producto o servicio estás buscando?"
                 style={{
                   background: "rgba(15, 23, 42, 0.8)",
                   border: "1px solid rgba(148, 163, 184, 0.25)",
@@ -270,11 +194,6 @@ export default function HomePage({
               Buscar
             </button>
           </form>
-          {searchError && (
-            <p id="home-search-error" role="alert" className="mt-2 text-sm text-rose-300">
-              {searchError}
-            </p>
-          )}
 
           {/* Quick links */}
           <div className="flex flex-wrap justify-center gap-2 mt-5">
@@ -306,27 +225,10 @@ export default function HomePage({
       >
         <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
           {[
-            {
-              value: productsLoading ? "..." : products.length.toLocaleString("es-CL"),
-              label: "Productos cargados desde Product API",
-            },
-            {
-              value: servicesLoading ? "..." : services.length.toLocaleString("es-CL"),
-              label: "Servicios cargados desde Services API",
-            },
-            {
-              value: categoriesLoading ? "..." : categories.length.toLocaleString("es-CL"),
-              label: "Categorías cargadas desde Product API",
-            },
-            {
-              value:
-                productsError || servicesError
-                  ? "Degradada"
-                  : productsLoading || servicesLoading
-                    ? "Revisando"
-                    : "Conectadas",
-              label: "Conexión de las APIs principales",
-            },
+            { value: "2.400+", label: "Tiendas y proveedores" },
+            { value: "850K+", label: "Productos indexados" },
+            { value: "$12.500", label: "Ahorro promedio/compra" },
+            { value: "24/7", label: "Actualización de precios" },
           ].map((stat, index) => (
             <div
               key={stat.label}
@@ -357,35 +259,6 @@ export default function HomePage({
             </div>
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-            {categoriesError && (
-              <div
-                className="col-span-full rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200"
-                role="alert"
-              >
-                Product API: {categoriesError}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCategories([]);
-                    setCategoriesError(null);
-                    setCategoriesAttempt((attempt) => attempt + 1);
-                  }}
-                  className="ml-3 font-semibold underline"
-                >
-                  Reintentar
-                </button>
-              </div>
-            )}
-            {categoriesLoading && (
-              <p className="col-span-full py-4 text-sm text-muted" role="status">
-                Cargando categorías...
-              </p>
-            )}
-            {!categoriesLoading && !categoriesError && rootCategories.length === 0 && (
-              <p className="col-span-full py-4 text-sm text-muted">
-                Product API no devolvió categorías.
-              </p>
-            )}
             {rootCategories.map((cat) => (
               <button
                 key={cat.id}
@@ -421,35 +294,6 @@ export default function HomePage({
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {productsError && (
-              <div
-                className="col-span-full rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200"
-                role="alert"
-              >
-                Product API: {productsError}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProducts([]);
-                    setProductsError(null);
-                    setProductsAttempt((attempt) => attempt + 1);
-                  }}
-                  className="ml-3 font-semibold underline"
-                >
-                  Reintentar
-                </button>
-              </div>
-            )}
-            {productsLoading && (
-              <p className="col-span-full py-4 text-sm text-muted" role="status">
-                Cargando productos...
-              </p>
-            )}
-            {!productsLoading && !productsError && featuredProducts.length === 0 && (
-              <p className="col-span-full py-4 text-sm text-muted">
-                Product API no devolvió productos destacados.
-              </p>
-            )}
             {featuredProducts.map((p) => (
               <ProductCard
                 key={p.id}
@@ -481,35 +325,6 @@ export default function HomePage({
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {servicesError && (
-              <div
-                className="col-span-full rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200"
-                role="alert"
-              >
-                Services API: {servicesError}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setServices([]);
-                    setServicesError(null);
-                    setServicesAttempt((attempt) => attempt + 1);
-                  }}
-                  className="ml-3 font-semibold underline"
-                >
-                  Reintentar
-                </button>
-              </div>
-            )}
-            {servicesLoading && (
-              <p className="col-span-full py-4 text-sm text-muted" role="status">
-                Cargando servicios...
-              </p>
-            )}
-            {!servicesLoading && !servicesError && featuredServices.length === 0 && (
-              <p className="col-span-full py-4 text-sm text-muted">
-                Services API no devolvió servicios populares.
-              </p>
-            )}
             {featuredServices.map((s) => (
               <ServiceCard
                 key={s.id}

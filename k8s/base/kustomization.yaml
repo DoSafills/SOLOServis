@@ -14,8 +14,8 @@ labels:
     includeSelectors: false
     includeTemplates: true
 
-# El Secret postgres-secret no está en git: lo crea la Fase 4 del script.
 resources:
+  - postgres/secret.yaml
   - postgres/service.yaml
   - postgres/statefulset.yaml
   - migrations/job.yaml
