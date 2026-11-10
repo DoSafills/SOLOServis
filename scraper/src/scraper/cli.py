@@ -19,6 +19,7 @@ from pathlib import Path
 from scraper.config import Settings, load_settings
 from scraper.db import repository as repo
 from scraper.errors import ScraperError, SpecError
+from scraper.ingestion import IngestionClient
 from scraper.models import (
     RUN_STATUS_SUCCESS,
     DataSource,
@@ -89,7 +90,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     source, config = _ensure_pair(settings, spec)
     run_id = repo.create_run(settings.db_path, config.id)
     result = asyncio.run(
-        execute(settings, spec=spec, source=source, config=config, run_id=run_id)
+        execute(
+            settings,
+            spec=spec,
+            source=source,
+            config=config,
+            run_id=run_id,
+            ingestion=IngestionClient.from_settings(settings),
+        )
     )
     print(
         json.dumps(
