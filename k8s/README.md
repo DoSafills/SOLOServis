@@ -666,7 +666,7 @@ scripts/k8s/deploy.sh             el mismo despliegue en bash (Linux, macOS, Git
 docker/all-apis/Dockerfile        imagen del backend (cmd/all-apis); la usan los 3 pods de API
 docker/frontend/                  build de Vite + nginx (default.conf.template, proxy.conf)
 docker/scraper/Dockerfile         imagen del scraper v2 (paquete scraper/ + specs)
-docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/compose.yml)
+docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/compose.microservicios.yml)
 ```
 
 **Seguridad:**
