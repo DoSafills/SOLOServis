@@ -4,7 +4,7 @@
     "slug": "ripley-cl",
     "name": "Ripley Chile",
     "baseUrl": "https://simple.ripley.cl",
-    "storeId": 2
+    "storeId": 4
   },
   "match": {
     "hosts": ["simple.ripley.cl"],

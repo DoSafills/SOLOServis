@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 
 import httpx
+import pytest
 
 from scraper.api import manager as manager_module
 from scraper.api.app import create_app
 from scraper.api.manager import RunManager
 from scraper.db import repository as repo
+from scraper.ingestion import IngestionClient
 from scraper.models import RUN_STATUS_FAILED, Counters
 from scraper.pipeline import PipelineResult
 
@@ -94,3 +97,52 @@ def test_control_api_end_to_end(settings, monkeypatch):
         await manager.shutdown()
 
     asyncio.run(scenario())
+
+
+def _capturing_execute(seen: list):
+    async def fake(settings, *, run_id, **kwargs):
+        seen.append(kwargs.get("ingestion"))
+        await asyncio.to_thread(
+            repo.finish_run, settings.db_path, run_id, RUN_STATUS_FAILED, error_message="test"
+        )
+        return PipelineResult(
+            run_id=run_id, status=RUN_STATUS_FAILED, counters=Counters(), error="test"
+        )
+
+    return fake
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_runs_receive_the_ingestion_client(settings, monkeypatch, enabled):
+    """Sin esto las corridas exitosas nunca llegaban a la Ingestion API."""
+    if enabled:
+        settings = dataclasses.replace(
+            settings, ingestion_url="http://ingestion:8080", ingestion_token="t" * 32
+        )
+    seen: list = []
+
+    async def scenario() -> None:
+        manager = RunManager(settings)
+        await manager.start()
+        monkeypatch.setattr(manager_module, "execute", _capturing_execute(seen))
+        app = create_app(settings, manager)
+        headers = {"Authorization": f"Bearer {settings.api_token}"}
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post("/runs", json={"store": "falabella-cl"}, headers=headers)
+            assert response.status_code == 202
+            for _ in range(200):
+                if seen:
+                    break
+                await asyncio.sleep(0.01)
+        await manager.shutdown()
+
+    asyncio.run(scenario())
+
+    assert len(seen) == 1
+    if enabled:
+        assert isinstance(seen[0], IngestionClient)
+        assert seen[0].base_url == "http://ingestion:8080"
+    else:
+        assert seen[0] is None
