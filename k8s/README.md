@@ -657,7 +657,8 @@ k8s/
 │   └── kustomization.yaml
 ├── components/
 │   ├── dominios/                 comercial, usuarios e ingestion (Deployment + Service) + destinos del nginx
-│   └── consolidado/              Deployment "backend" con las 14 APIs + destino del nginx (respaldo)
+│   ├── consolidado/              Deployment "backend" con las 14 APIs + destino del nginx (respaldo)
+│   └── espera-postgres/          initContainer que espera a PostgreSQL; lo incluyen las dos topologías
 ├── tests/                        pod de test: Job + smoke-test.sh (solo lecturas)
 └── overlays/uct/                 GENERADO por el script (ignorado por git): namespace, imágenes,
                                   StorageClass, host y los .sql de backend/database/migrations
@@ -672,4 +673,5 @@ docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/c
 **Seguridad:**
 - **Postgres:** la contraseña de `postgres-secret` la genera el script al azar en cada namespace y no está en git. Solo es accesible dentro del clúster (Service `ClusterIP`, el Ingress publica solo el frontend). `docker/compose.yml` sigue con credenciales de desarrollo, solo para uso local.
 - **Token interno:** el token de `soloservis-internal` lo genera el script al azar en cada namespace y no está en git. El pod de test lo usa sin imprimirlo.
+- **Orden de arranque:** cada pod de API tiene un initContainer (`espera-postgres`, con `pg_isready`) y queda en `Init` hasta que PostgreSQL acepta conexiones. Además, la API hace ping a la base al iniciar y su readiness (`/health`) exige la conexión. No suma a la cuota: corre antes que el contenedor principal y pide menos que él.
 - **Pods:** todos corren sin root, con `readOnlyRootFilesystem` y sin capabilities. Cumplen Pod Security `restricted`.
