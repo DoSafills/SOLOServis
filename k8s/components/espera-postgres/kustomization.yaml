@@ -1,0 +1,54 @@
+# Espera a PostgreSQL (TAL-98): agrega un initContainer a cada Deployment de
+# API (etiqueta component=api). El pod queda en Init hasta que la base acepta
+# conexiones, en vez de arrancar, fallar el ping y reiniciarse en bucle.
+# Lo incluyen components/dominios y components/consolidado.
+#
+# No suma a la cuota: un initContainer corre antes que el contenedor principal,
+# no al mismo tiempo, y pide menos que él. 25m/64Mi es el mínimo del LimitRange.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: Deployment
+      labelSelector: app.kubernetes.io/component=api
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: cualquiera
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: espera-postgres
+                # La misma imagen del StatefulSet: solo se usa pg_isready.
+                image: postgres:18
+                imagePullPolicy: IfNotPresent
+                command:
+                  - sh
+                  - -c
+                  - |
+                    until pg_isready -h postgres -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t 3; do
+                      echo "esperando a postgres:5432"
+                      sleep 2
+                    done
+                env:
+                  - name: POSTGRES_USER
+                    valueFrom:
+                      secretKeyRef: {name: postgres-secret, key: POSTGRES_USER}
+                  - name: POSTGRES_DB
+                    valueFrom:
+                      secretKeyRef: {name: postgres-secret, key: POSTGRES_DB}
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: true
+                  capabilities:
+                    drop: ["ALL"]
+                resources:
+                  requests:
+                    cpu: 25m
+                    memory: 64Mi
+                  limits:
+                    cpu: 100m
+                    memory: 64Mi
