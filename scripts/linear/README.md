@@ -56,6 +56,12 @@ $L mine --state Todo
 $L person Ricardo                  # issues de una persona (nombre o email)
 $L person "CÁCERES" --state "In Review"
 
+# orden: por defecto lo más reciente primero (por última actualización)
+$L mine --oldest                   # mis issues más antiguas primero (por creación)
+$L issues --oldest --limit 50      # las más antiguas del equipo
+$L mine --sort created             # las creadas más recientemente primero
+$L mine --oldest --sort updated    # las que llevan más tiempo sin tocarse
+
 $L show TAL-233                    # detalle + comentarios
 $L show 233                        # el prefijo del equipo es opcional
 $L open TAL-233                    # abre en el navegador

@@ -42,6 +42,8 @@ API_URL = os.environ.get("LINEAR_API_URL", "https://api.linear.app/graphql")
 USER_AGENT = "soloservis-linear-cli/1.0"
 TIMEOUT = 60
 MAX_RETRIES = 3
+# Tope de issues que se recorren al pedir el orden ascendente (--oldest).
+SCAN_LIMIT = 1000
 
 PRIORITY_LABELS = {0: "—", 1: "urgent", 2: "high", 3: "medium", 4: "low"}
 
@@ -355,6 +357,8 @@ class Client:
         project: str | None = None,
         text: str | None = None,
         limit: int = 25,
+        order: str = "updated",
+        oldest: bool = False,
     ) -> list[dict[str, Any]]:
         filters: dict[str, Any] = {}
         if team:
@@ -371,18 +375,24 @@ class Client:
                 {"description": {"containsIgnoreCase": text}},
             ]
 
+        order_field = "createdAt" if order == "created" else "updatedAt"
+
+        # Linear siempre devuelve descendente (más nuevo primero). Para ver lo
+        # más antiguo hay que traer la lista completa y ordenarla en memoria.
+        scan_limit = limit if not oldest else max(limit, SCAN_LIMIT)
+
         query = (
             "query($first: Int!, $after: String, $filter: IssueFilter) { "
-            "issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) { "
+            f"issues(first: $first, after: $after, filter: $filter, orderBy: {order_field}) {{ "
             "pageInfo { hasNextPage endCursor } "
-            "nodes { identifier title priority updatedAt url state { name } "
+            "nodes { identifier title priority createdAt updatedAt url state { name } "
             "assignee { name } project { name } } } }"
         )
 
         collected: list[dict[str, Any]] = []
         cursor: str | None = None
-        while len(collected) < limit:
-            page_size = min(limit - len(collected), 50)
+        while len(collected) < scan_limit:
+            page_size = min(scan_limit - len(collected), 50)
             data = self.gql(
                 query,
                 {"first": page_size, "after": cursor, "filter": filters or None},
@@ -392,6 +402,9 @@ class Client:
             if not page["pageInfo"]["hasNextPage"]:
                 break
             cursor = page["pageInfo"]["endCursor"]
+
+        if oldest:
+            collected.sort(key=lambda item: item.get(order_field) or "")
         return collected[:limit]
 
     def project_id(self, name: str) -> str:
@@ -477,7 +490,8 @@ def render_table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join(line.rstrip() for line in out)
 
 
-def issue_rows(issues: Iterable[dict[str, Any]]) -> list[list[str]]:
+def issue_rows(issues: Iterable[dict[str, Any]], order: str = "updated") -> list[list[str]]:
+    field = "createdAt" if order == "created" else "updatedAt"
     rows: list[list[str]] = []
     for issue in issues:
         assignee = (issue.get("assignee") or {}).get("name") or "—"
@@ -488,6 +502,7 @@ def issue_rows(issues: Iterable[dict[str, Any]]) -> list[list[str]]:
                 state,
                 short(assignee, 18),
                 PRIORITY_LABELS.get(issue.get("priority", 0), "—"),
+                iso_day(issue.get(field)),
                 short(issue.get("title", ""), 58),
             ]
         )
@@ -621,11 +636,24 @@ def cmd_stats(client: Client, args: argparse.Namespace) -> None:
     print(render_table(["ASIGNADO A", "ISSUES"], [[name, str(count)] for name, count in people]))
 
 
-def _print_issues(issues: list[dict[str, Any]], as_json: bool) -> None:
+def _resolve_order(args: argparse.Namespace) -> str:
+    """Con --oldest, el campo natural es la fecha de creación."""
+    return args.sort or ("created" if args.oldest else "updated")
+
+
+def _print_issues(
+    issues: list[dict[str, Any]], as_json: bool, order: str = "updated"
+) -> None:
     if as_json:
         emit(issues, True)
         return
-    print(render_table(["ID", "ESTADO", "ASIGNADO", "PRIO", "TÍTULO"], issue_rows(issues)))
+    date_header = "CREADA" if order == "created" else "ACTUALIZADA"
+    print(
+        render_table(
+            ["ID", "ESTADO", "ASIGNADO", "PRIO", date_header, "TÍTULO"],
+            issue_rows(issues, order),
+        )
+    )
     print(STYLE.dim(f"\n{len(issues)} issue(s)"))
 
 
@@ -643,6 +671,7 @@ def cmd_issues(client: Client, args: argparse.Namespace) -> None:
         if args.state
         else None
     )
+    order = _resolve_order(args)
     issues = client.issues(
         team=team_key,
         state_id=state_id,
@@ -650,8 +679,10 @@ def cmd_issues(client: Client, args: argparse.Namespace) -> None:
         project=args.project,
         text=args.search,
         limit=args.limit,
+        order=order,
+        oldest=args.oldest,
     )
-    _print_issues(issues, args.json)
+    _print_issues(issues, args.json, order)
 
 
 def cmd_mine(client: Client, args: argparse.Namespace) -> None:
@@ -660,13 +691,16 @@ def cmd_mine(client: Client, args: argparse.Namespace) -> None:
     state_id = (
         client.resolve_state(team_key, args.state)["id"] if args.state else None
     )
+    order = _resolve_order(args)
     issues = client.issues(
         team=team_key,
         state_id=state_id,
         assignee_id=viewer["id"],
         limit=args.limit,
+        order=order,
+        oldest=args.oldest,
     )
-    _print_issues(issues, args.json)
+    _print_issues(issues, args.json, order)
 
 
 def cmd_person(client: Client, args: argparse.Namespace) -> None:
@@ -675,17 +709,20 @@ def cmd_person(client: Client, args: argparse.Namespace) -> None:
     state_id = (
         client.resolve_state(team_key, args.state)["id"] if args.state else None
     )
+    order = _resolve_order(args)
     issues = client.issues(
         team=team_key,
         state_id=state_id,
         assignee_id=user["id"],
         limit=args.limit,
+        order=order,
+        oldest=args.oldest,
     )
     if args.json:
         emit({"user": user, "issues": issues}, True)
         return
     print(f"{STYLE.bold(user['name'])} <{user['email']}>\n")
-    _print_issues(issues, False)
+    _print_issues(issues, False, order)
 
 
 def cmd_show(client: Client, args: argparse.Namespace) -> None:
@@ -702,6 +739,7 @@ def cmd_show(client: Client, args: argparse.Namespace) -> None:
     labels = [label["name"] for label in issue["labels"]["nodes"]]
     if labels:
         print(f"  etiquetas   {', '.join(labels)}")
+    print(f"  creada      {issue.get('createdAt', '')[:19].replace('T', ' ')}")
     print(f"  actualizado {issue.get('updatedAt', '')[:19].replace('T', ' ')}")
     print(f"  url         {STYLE.cyan(issue.get('url', ''))}")
 
@@ -722,10 +760,16 @@ def cmd_show(client: Client, args: argparse.Namespace) -> None:
 
 
 def cmd_search(client: Client, args: argparse.Namespace) -> None:
-    issues = client.issues(text=args.text, limit=args.limit)
+    order = _resolve_order(args)
+    issues = client.issues(
+        text=args.text,
+        limit=args.limit,
+        order=order,
+        oldest=args.oldest,
+    )
     if not issues:
         warn(f"nada coincide con {args.text!r} en títulos ni descripciones")
-    _print_issues(issues, args.json)
+    _print_issues(issues, args.json, order)
 
 
 def _current_issue(client: Client, identifier: str) -> dict[str, Any]:
@@ -927,17 +971,44 @@ def build_parser() -> argparse.ArgumentParser:
     issues.add_argument(
         "--all-teams", action="store_true", help="no filtrar por equipo"
     )
+    issues.add_argument(
+        "--sort",
+        choices=["updated", "created"],
+        default=None,
+        help="campo de orden: updated o created (con --oldest, created)",
+    )
+    issues.add_argument(
+        "--oldest", action="store_true", help="más antiguas primero"
+    )
     issues.set_defaults(func=cmd_issues)
 
     mine = add("mine", aliases=["me"], help="mis issues asignadas")
     mine.add_argument("--state", help="filtrar por estado")
     mine.add_argument("--limit", type=int, default=25)
+    mine.add_argument(
+        "--sort",
+        choices=["updated", "created"],
+        default=None,
+        help="campo de orden: updated o created (con --oldest, created)",
+    )
+    mine.add_argument(
+        "--oldest", action="store_true", help="más antiguas primero"
+    )
     mine.set_defaults(func=cmd_mine)
 
     person = add("person", help="issues asignadas a alguien")
     person.add_argument("person", help="nombre o email")
     person.add_argument("--state", help="filtrar por estado")
     person.add_argument("--limit", type=int, default=25)
+    person.add_argument(
+        "--sort",
+        choices=["updated", "created"],
+        default=None,
+        help="campo de orden: updated o created (con --oldest, created)",
+    )
+    person.add_argument(
+        "--oldest", action="store_true", help="más antiguas primero"
+    )
     person.set_defaults(func=cmd_person)
 
     show = add("show", aliases=["get"], help="detalle de una issue")
@@ -947,6 +1018,15 @@ def build_parser() -> argparse.ArgumentParser:
     search = add("search", help="busca en títulos y descripciones")
     search.add_argument("text")
     search.add_argument("--limit", type=int, default=25)
+    search.add_argument(
+        "--sort",
+        choices=["updated", "created"],
+        default=None,
+        help="campo de orden: updated o created (con --oldest, created)",
+    )
+    search.add_argument(
+        "--oldest", action="store_true", help="más antiguas primero"
+    )
     search.set_defaults(func=cmd_search)
 
     for name, aliases, text in (
