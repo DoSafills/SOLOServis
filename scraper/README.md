@@ -139,6 +139,57 @@ out/
 
 ---
 
+## 3.1 Requirements and store access
+
+### Runtime dependencies (TAL-83)
+
+| Requirement | Why |
+| --- | --- |
+| Python 3.12+ | `pyproject.toml` (`requires-python = ">=3.12"`) |
+| `scrapling[fetchers]` | HTTP fetcher with `curl_cffi` impersonation |
+| `libcurl4` | runtime library the fetcher links against |
+| `fastapi`, `uvicorn`, `httpx` | control API and ingestion client |
+
+There is **no browser dependency**: no Playwright, no Chromium, no Selenium.
+The chosen extraction method is HTTP plus CSS/attribute readers, so installing
+a browser would add hundreds of megabytes for nothing. The container installs
+`libcurl4` and nothing else:
+
+```dockerfile
+RUN apt-get install -y --no-install-recommends libcurl4
+```
+
+Verify the environment before crawling:
+
+```bash
+PYTHONPATH=src ./venv/bin/python -m scraper validate   # every spec parses
+PYTHONPATH=src ./venv/bin/python -m scraper stores     # storeId, name, URL
+```
+
+### Store access conditions (TAL-85)
+
+The initial store is **Ripley** (`simple.ripley.cl`): it serves the listing
+without a browser, returns the product URL in the `href`, and its fixture is the
+one used by the pipeline tests.
+
+| Store | Listing | Access | Notes |
+| --- | --- | --- | --- |
+| `ripley-cl` | `https://simple.ripley.cl/search/refrigerador` | Works | `storeId = 4`. One listing page returns ~57 items |
+| `falabella-cl` | `https://www.falabella.com/falabella-cl` | Works | `storeId = 1`. `href` is injected by JavaScript, so the spec builds the product URL from `externalId` |
+| `mercadolibre-cl` | `https://www.mercadolibre.cl` | **Blocked** | `storeId = 6`. Redirects automated traffic to `/gz/account-verification`; its runs fail without affecting the other stores |
+
+A real run is the acceptance test:
+
+```bash
+PYTHONPATH=src ./venv/bin/python -m scraper run --store ripley-cl
+jq '.counters' out/runs/<id>/run.json   # itemsFound > 0, itemsSent > 0
+```
+
+If `itemsSent` is `0` while `itemsFound > 0`, check `ingestion_disabled_reason`
+or the `ingestionError` field before blaming the store.
+
+---
+
 ## 4. The store spec
 
 One file per store: `stores/<slug>/spec.json`. The parser rejects unknown keys,
@@ -857,6 +908,8 @@ the spec and its fixture.
 | Ticket | Where it lives |
 | --- | --- |
 | TAL-79 — item contract | `validate.py`, `models.py`, `docs/estandares/formato-datos-extraidos.md` |
+| TAL-83 — runtime dependencies | §3.1, `pyproject.toml`, `docker/scraper/Dockerfile` |
+| TAL-85 — initial store access | §3.1, `stores/ripley-cl/spec.json`, `tests/fixtures/ripley-cl/` |
 | TAL-86 — normalized output | `models.Item.to_dict()` / `to_ingestion()` |
 | TAL-90 — per-store output | `output/catalog.py` |
 | TAL-129 — runtime control API | `api/app.py`, `api/manager.py` |
