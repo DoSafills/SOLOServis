@@ -104,6 +104,11 @@ class RunManager:
         self._completed: deque[int] = deque(
             maxlen=max(50, settings.task_history_limit)
         )
+        if not settings.ingestion_enabled:
+            _log.warning(
+                "ingestion disabled (%s): runs will only land in SQLite and the catalog",
+                settings.ingestion_disabled_reason,
+            )
 
     # -- lifecycle -----------------------------------------------------------
 

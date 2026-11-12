@@ -51,6 +51,7 @@ def test_control_api_end_to_end(settings, monkeypatch):
             ready = await client.get("/ready")
             assert ready.status_code == 200
             assert ready.json()["stores"] == 3
+            assert ready.json()["ingestion"].startswith("disabled:")
 
             assert (await client.get("/stores")).status_code == 401
             assert (

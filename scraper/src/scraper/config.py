@@ -106,8 +106,29 @@ class Settings:
         return parse_rate_limit(self.rate_limit)
 
     @property
+    def ingestion_disabled_reason(self) -> str | None:
+        """Why ingestion is off, or ``None`` when it is fully configured.
+
+        Keeping the reason in one place lets the control plane report it in
+        ``/ready`` and lets callers log a warning instead of silently
+        producing runs with ``itemsSent: 0``.
+        """
+        if not self.ingestion_url:
+            return "INGESTION_API_URL is not set"
+        if not self.ingestion_token:
+            return "INGESTION_API_TOKEN is empty"
+        if len(self.ingestion_token) < 32:
+            return "INGESTION_API_TOKEN is shorter than 32 characters"
+        return None
+
+    @property
     def ingestion_enabled(self) -> bool:
-        return bool(self.ingestion_url and len(self.ingestion_token) >= 32)
+        return self.ingestion_disabled_reason is None
+
+    @property
+    def ingestion_status(self) -> str:
+        reason = self.ingestion_disabled_reason
+        return "enabled" if reason is None else f"disabled: {reason}"
 
     def ensure_dirs(self) -> None:
         """Create the directories the process writes to."""
@@ -174,4 +195,12 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         raise ConfigError("SCRAPER_TASK_HISTORY_LIMIT must be >= 1")
     if not 1 <= settings.ingestion_batch_size <= 100:
         raise ConfigError("INGESTION_BATCH_SIZE must be between 1 and 100")
+    if (
+        settings.ingestion_url
+        and settings.ingestion_token
+        and len(settings.ingestion_token) < 32
+    ):
+        # A short token can never authenticate, so refuse to start instead of
+        # disabling ingestion silently.
+        raise ConfigError("INGESTION_API_TOKEN must be at least 32 characters")
     return settings

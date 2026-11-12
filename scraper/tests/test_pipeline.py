@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 from conftest import fixture_html, transport_for
 
 from scraper.db import repository as repo
 from scraper.fetch.client import Fetcher
+from scraper.ingestion import BatchResult
 from scraper.models import RUN_STATUS_FAILED, RUN_STATUS_SUCCESS
 from scraper.pipeline import execute
 
@@ -47,7 +49,7 @@ def _prepare(settings, spec):
     return source, config
 
 
-def _run(settings, spec, pages, *, stop=False):
+def _run(settings, spec, pages, *, stop=False, ingestion=None):
     source, config = _prepare(settings, spec)
     run_id = repo.create_run(settings.db_path, config.id)
     stop_event = asyncio.Event()
@@ -63,6 +65,7 @@ def _run(settings, spec, pages, *, stop=False):
             run_id=run_id,
             stop_event=stop_event,
             fetcher=fetcher,
+            ingestion=ingestion,
         )
     )
 
@@ -148,3 +151,28 @@ def test_fetch_failure_marks_the_run_failed(settings, spec_by_slug):
     assert result.error is not None and "failed" in result.error
     record = repo.get_run(settings.db_path, result.run_id)
     assert record.status == RUN_STATUS_FAILED
+
+
+class _ZeroIngestion:
+    """Accepts the run but reports zero processed items."""
+
+    async def open_run(self, *_args, **_kwargs):
+        return SimpleNamespace(id=99)
+
+    async def send_items(self, run_id, items):
+        return BatchResult(run_id=run_id, received=len(items), processed=0, failed=0)
+
+    async def finish_run(self, *_args, **_kwargs):
+        return None
+
+
+def test_zero_processed_items_are_reported_as_an_error(settings, spec_by_slug):
+    spec = spec_by_slug["ripley-cl"]
+    pages = {RIPLEY_PAGE_1: fixture_html("ripley-cl"), RIPLEY_PAGE_2: PAGE_2}
+    result = _run(settings, spec, pages, ingestion=_ZeroIngestion())
+    assert result.status == RUN_STATUS_SUCCESS
+    assert result.counters.items_sent == 0
+    assert result.ingestion_error is not None
+    assert "accepted 0" in result.ingestion_error
+    record = repo.get_run(settings.db_path, result.run_id)
+    assert record.ingestion_error == result.ingestion_error
