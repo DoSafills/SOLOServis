@@ -32,6 +32,20 @@ parejas activas de `DATA_SOURCE` + `SCRAPER_CONFIG`, crea su fila en
 `SCRAPE_RUN` y arranca. Las seeds se registran vía variable de entorno o SQL
 (ver abajo); no hay fuentes precargadas.
 
+Para reintentar ítems normalizados desde un JSONL canónico:
+
+```bash
+python src/main.py replay out/rejected/run-<id>.jsonl
+```
+
+Cada línea debe ser un `NormalizedItem` versión `1.0` con `source.storeId`.
+El comando valida los ítems localmente y los envía a Ingestion API en lotes;
+no importa el espejo SQLite ni ejecuta SQL directamente. La categoría indicada
+por `product.categorySlug` debe existir en PostgreSQL. El resumen distingue
+creados, actualizados, fallidos y rechazados. El backend procesa cada ítem
+por separado; un lote no es una transacción atómica. Este replay admite
+productos, no ofertas de servicios.
+
 ## Fuentes múltiples (array de seeds)
 
 Cada fila activa en `DATA_SOURCE` es una seed independiente: se crawlea con su

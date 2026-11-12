@@ -39,7 +39,7 @@ export interface StoreOffer {
   offerId: number;
   storeId: string;
   storeName: string;
-  price: number;
+  price: number | null;
   listPrice?: number | null;
   available: boolean;
   shipping: number | null;
@@ -65,6 +65,7 @@ export interface Product {
   model: string;
   /** Id de la categoría del producto en el backend (la subcategoría si la tiene) */
   categoryId?: number;
+  categorySlug?: string | null;
   category: string;
   subcategory: string;
   image: string;
@@ -74,7 +75,6 @@ export interface Product {
   reviewCount: number;
   specs: Record<string, string>;
   attributes?: Record<string, string | number | boolean>;
-  categorySlug?: string | null;
   offers: StoreOffer[];
   priceHistory: PricePoint[];
   /** Current sale/offer price if product is on promotion right now */
@@ -138,16 +138,16 @@ export interface Store {
 
 export interface StoreProduct {
   id: string;
-  offerId: number;
+  offerId: number | null;
   name: string;
   brand: string;
   model: string;
   category: string;
   description: string;
-  price: number;
-  listPrice: number;
+  price: number | null;
+  listPrice: number | null;
   currency: string;
-  shippingCost: number;
+  shippingCost: number | null;
   shippingFree: boolean;
   available: boolean;
   stock: number | null;

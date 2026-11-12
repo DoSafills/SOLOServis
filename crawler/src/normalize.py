@@ -37,7 +37,7 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -655,10 +655,12 @@ class Normalizer:
                     website: str | None, name: str,
                     payload: dict[str, Any]) -> int:
         """Return the id of this party, creating the row the first time."""
+        name_match = ("lower(trim(name)) = lower(trim(?))" if table == "store"
+                      else "lower(name) = lower(?)")
         found = target.execute(
             f"SELECT id FROM {table}"
             f" WHERE (? IS NOT NULL AND website_url = ?)"
-            f"    OR lower(name) = lower(?)",
+            f"    OR {name_match}",
             (website, website, name)).fetchone()
         if found:
             return int(found["id"])
@@ -712,6 +714,13 @@ class Normalizer:
 
     def _normalize_row(self, target: sqlite3.Connection, row: sqlite3.Row) -> None:
         url = row["external_url"]
+        external_id = row["external_id"]
+        if external_id is not None and len(str(external_id)) > 255:
+            self.result.warnings.append(
+                f"scraped_data {row['id']}: external_id exceeds 255 characters; "
+                "row rejected")
+            self.result.skipped += 1
+            return
         specs = self._specs_for(row["parser_config"], row["id"])
         if not specs:
             self.result.warnings.append(
@@ -769,11 +778,30 @@ class Normalizer:
                     f"({type(exc).__name__}: {exc})")
                 extractions[entity_type] = []
 
+        parser_config = _as_json(row["parser_config"]) or {}
+        raw_category_aliases = parser_config.get("category_aliases") or {}
+        category_aliases: dict[str, str] = {}
+        if not isinstance(raw_category_aliases, dict):
+            self.result.warnings.append(
+                f"scraped_data {row['id']}: category_aliases must be an "
+                "object; aliases ignored")
+        else:
+            for source_text, category_name in raw_category_aliases.items():
+                source_key = str(source_text).strip().casefold()
+                target_name = str(category_name).strip()
+                if not source_key or not target_name:
+                    self.result.warnings.append(
+                        f"scraped_data {row['id']}: invalid category_aliases "
+                        f"entry {source_text!r}; alias ignored")
+                    continue
+                category_aliases[source_key] = target_name
+
         base_context: dict[str, Any] = {
             "source_name": self._source_names.get(row["data_source_id"]),
             "external_url": url,
+            "category_aliases": category_aliases,
         }
-        parent_ids: dict[str, list[int]] = {}
+        parent_ids: dict[str, list[int | None]] = {}
         payload: dict[str, Any] = {"entities": {}}
 
         for entity_type in RESOLUTION_ORDER:
@@ -782,19 +810,23 @@ class Normalizer:
                 continue
 
             written: list[dict] = []
+            aligned_ids: list[int | None] = []
             for index, extraction in enumerate(rows):
                 context = dict(base_context)
                 for key, ids in parent_ids.items():
-                    if index < len(ids):
+                    if index < len(ids) and ids[index] is not None:
                         context[key] = ids[index]
                 try:
                     new_id = self._write_entity(
                         target, entity_type, extraction, context, url)
                 except sqlite3.Error as exc:
                     self.result.warnings.append(f"{entity_type} @ {url}: {exc}")
+                    aligned_ids.append(None)
                     continue
                 if new_id is None:
+                    aligned_ids.append(None)
                     continue
+                aligned_ids.append(new_id)
                 # to_dict() runs the values through the extractor's JSON
                 # coercion, which turns Decimal into text; raw values would not
                 # serialize.
@@ -804,10 +836,10 @@ class Normalizer:
                 payload["entities"][entity_type] = written
                 parent_key = PARENT_KEYS.get(entity_type)
                 if parent_key:
-                    parent_ids[parent_key] = [entry["id"] for entry in written]
+                    parent_ids[parent_key] = aligned_ids
 
         for key, ids in parent_ids.items():
-            orphans = len(extractions.get(key.removesuffix("_id"), [])) - len(ids)
+            orphans = sum(parent_id is None for parent_id in ids)
             if orphans > 0:
                 self.result.warnings.append(
                     f"{key}: {orphans} child row(s) had no parent to attach to "
@@ -846,8 +878,15 @@ class Normalizer:
         if text.lower() in known:
             return known[text.lower()]
 
+        name_expression = (f"lower(trim({column}))"
+                           if table == "store" and column == "name"
+                           else f"lower({column})")
+        key_expression = ("lower(trim(?))"
+                          if table == "store" and column == "name"
+                          else "lower(?)")
         found = target.execute(
-            f"SELECT id FROM {table} WHERE lower({column}) = lower(?)",
+            f"SELECT id FROM {table} WHERE {name_expression} = "
+            f"{key_expression}",
             (text,)).fetchone()
         if found:
             self._remember(table, text, found["id"])
@@ -870,7 +909,13 @@ class Normalizer:
         return self._resolve(target, "brand", "name", extraction.values["name"])
 
     def _write_store(self, target, extraction, context) -> int | None:
-        return self._resolve(target, "store", "name", extraction.values["name"])
+        name = str(extraction.values.get("name") or "").strip()
+        if not name:
+            self.result.warnings.append(
+                f"store @ {context.get('external_url')}: name is missing or "
+                "empty; row rejected")
+            return None
+        return self._resolve(target, "store", "name", name)
 
     def _write_provider(self, target, extraction, context) -> int | None:
         return self._resolve(target, "provider", "name", extraction.values["name"])
@@ -908,20 +953,55 @@ class Normalizer:
 
     def _write_product(self, target, extraction, context) -> int | None:
         values = extraction.values
-        category = self._resolve(
-            target, "product_category", "name",
-            extraction.references.get("category") or context.get("source_name"))
-        if category is None:
+        name = str(values.get("name") or "").strip()
+        if not name:
             self.result.warnings.append(
-                f"product @ {context.get('external_url')}: no category could be "
-                f"resolved; add a 'category' reference to the parser_config")
+                f"product @ {context.get('external_url')}: name is missing or "
+                "empty; row rejected")
             return None
+        source_category = str(
+            extraction.references.get("category") or "").strip()
+        category_aliases = context.get("category_aliases", {})
+        category_name = category_aliases.get(
+            source_category.casefold(), source_category)
+        category = None
+        if category_name:
+            matches = target.execute(
+                "SELECT id FROM product_category "
+                "WHERE lower(trim(name)) = lower(trim(?)) LIMIT 2",
+                (category_name,)).fetchall()
+            if len(matches) == 1:
+                category = int(matches[0]["id"])
+        if category is None:
+            category = self._resolve(
+                target, "product_category", "name", "Sin clasificar")
+            self.result.warnings.append(
+                f"pending category review for store "
+                f"{context.get('source_name')!r}: source category "
+                f"{source_category!r}")
+        brand_name = str(
+            extraction.references.get("brand") or "").strip()
+        model = str(values.get("model") or "").strip()
+        if brand_name and model:
+            found = target.execute(
+                "SELECT p.id FROM product p "
+                "JOIN brand b ON b.id = p.brand_id "
+                "WHERE lower(trim(b.name)) = lower(trim(?)) "
+                "AND lower(trim(p.name)) = lower(trim(?)) "
+                "AND lower(trim(p.model)) = lower(trim(?))",
+                (brand_name, name, model)).fetchone()
+            if found:
+                product_id = int(found["id"])
+                self.result.warnings.append(
+                    f"product @ {context.get('external_url')}: "
+                    f"reused existing product {product_id}")
+                return product_id
         brand = self._resolve(target, "brand", "name",
                               extraction.references.get("brand"))
         return self._insert(target, "product", {
             "category_id": category,
             "brand_id": brand,
-            "name": values["name"],
+            "name": name,
             "model": values.get("model"),
             "sku": values.get("sku"),
             "description": values.get("description"),
@@ -976,6 +1056,24 @@ class Normalizer:
             return None
 
         values = extraction.values
+        raw_price = values.get("price")
+        try:
+            price = Decimal(str(raw_price))
+            if not price.is_finite():
+                raise InvalidOperation
+            price = price.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError):
+            self.result.warnings.append(
+                f"product_offer @ {context.get('external_url')}: invalid price "
+                f"{raw_price!r}; row rejected")
+            return None
+        if price <= 0:
+            self.result.warnings.append(
+                f"product_offer @ {context.get('external_url')}: price <= 0 "
+                f"({price}); row rejected")
+            return None
+        values["price"] = price
+
         offer_id, previous = self._upsert_offer(
             target, "product_offer", "product_id", product_id, {
                 "store_id": store_id,
@@ -1060,23 +1158,33 @@ class Normalizer:
     def _record_price_history(self, target: sqlite3.Connection, table: str,
                               key_column: str, offer_id: int | None,
                               previous: Any, values: dict[str, Any]) -> None:
-        """Append history only when a price actually moved.
-
-        A price that has never changed is not history, so the first sighting of
-        an offer records nothing; only a later, different price does.
-        """
-        if not self.track_price_history or offer_id is None or previous is None:
+        """Record product history when it differs from the current offer price."""
+        if not self.track_price_history or offer_id is None:
             return
         price = values.get("price")
-        if price is None or _as_decimal(previous) == _as_decimal(price):
+        if price is None:
             return
+        if table == "product_price_history":
+            latest = target.execute(
+                f"SELECT price FROM {table} WHERE {key_column} = ? "
+                "ORDER BY recorded_at DESC, id DESC LIMIT 1",
+                (offer_id,)).fetchone()
+            if (latest is not None
+                    and _as_decimal(latest["price"]) == _as_decimal(price)):
+                return
+            history_price = price
+        else:
+            if (previous is None
+                    or _as_decimal(previous) == _as_decimal(price)):
+                return
+            history_price = previous
         list_price = values.get("list_price")
         self._insert(target, table, {
             key_column: offer_id,
-            "price": previous,
+            "price": history_price,
             "is_promotional": bool(
                 list_price is not None
-                and _as_decimal(previous) < _as_decimal(list_price)),
+                and _as_decimal(history_price) < _as_decimal(list_price)),
         })
 
     def _write_scraped_row(self, target: sqlite3.Connection, row: sqlite3.Row,
@@ -1089,6 +1197,11 @@ class Normalizer:
                 entity_type = next(iter(entities))
                 payload["entity_type"] = entity_type
                 external_id = external_id or _infer_external_id(entities)
+        if external_id is not None and len(str(external_id)) > 255:
+            self.result.warnings.append(
+                f"scraped_data {row['id']}: external_id exceeds 255 characters; "
+                "row rejected")
+            return
 
         self._insert(target, "scraped_data", {
             "id": row["id"],

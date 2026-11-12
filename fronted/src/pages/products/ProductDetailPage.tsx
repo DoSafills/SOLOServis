@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
-import { getProductById, getProductReviews } from "../../services/api/products";
+import {
+  getProductById,
+  getProductReviews,
+  type ApiProductReview,
+} from "../../services/api/products";
 import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 import PriceOfferComparison from "./PriceOfferComparison";

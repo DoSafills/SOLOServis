@@ -39,7 +39,7 @@
     "httpUrl": {
       "type": "string",
       "maxLength": 2048,
-      "pattern": "^https?://[^\\s]+$"
+      "pattern": "^https?://[^/?#\\s]+(?:[/?#][^\\s]*)?$"
     },
     "money": {
       "type": "string",
@@ -108,7 +108,7 @@
             "pattern": "^[a-z][a-z0-9_]{0,63}$"
           },
           "additionalProperties": {
-            "oneOf": [
+            "anyOf": [
               { "type": "string", "maxLength": 255 },
               { "type": "integer" },
               { "type": "number" },
@@ -145,7 +145,8 @@
         },
         "stock": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 2147483647
         },
         "condition": {
           "enum": ["new", "used", "refurbished"]

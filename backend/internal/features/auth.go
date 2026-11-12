@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/mail"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
@@ -58,11 +60,17 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
+
 	var userID int32
 	err = h.db.QueryRow(r.Context(), `INSERT INTO user_account(name,email,password_hash) VALUES ($1,$2,$3) RETURNING id`,
 		input.Name, input.Email, hash).Scan(&userID)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusConflict, "El email ya está registrado.")
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			h.dbError(w, r, err, http.StatusConflict, "email is already registered")
+			return
+		}
+		h.dbError(w, r, err, http.StatusConflict, "email is already registered")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusCreated)
@@ -86,16 +94,17 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	if !valid(w, r, &v) {
 		return
 	}
+
 	var userID int32
 	var hash string
-	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE email=$1 AND active`,
+	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE lower(btrim(email))=$1 AND active`,
 		input.Email).Scan(&userID, &hash)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusUnauthorized, "Credenciales inválidas.")
+		h.dbError(w, r, err, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if !checkPassword(hash, input.Password) {
-		writeError(w, r, http.StatusUnauthorized, "Credenciales inválidas.")
+		writeError(w, r, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusOK)

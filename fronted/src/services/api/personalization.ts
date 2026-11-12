@@ -5,6 +5,7 @@ import { API_URLS } from "./config";
 const AUTH_SESSION_KEY = "soloservice.auth-session";
 const COMPARISON_ID_KEY = "soloservice.product-comparison-id";
 const SERVICE_COMPARISON_ID_KEY = "soloservice.service-comparison-id";
+let refreshPromise: Promise<AuthSession | null> | null = null;
 
 export interface AuthUser {
   userId: number;
@@ -103,28 +104,9 @@ export async function request<T>(
   );
 
   if (response.status === 401 && retryWithRefresh && baseUrl !== API_URLS.auth && session) {
-    const refreshResponse = await fetchWithServiceError(
-      `${API_URLS.auth}/auth/refresh`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken: session.refreshToken }),
-      },
-      "Auth API",
-    );
-    if (refreshResponse.ok) {
-      const tokens = (await refreshResponse.json()) as TokenResponse;
-      if (tokens.accessToken && tokens.refreshToken) {
-        storeAuthSession({
-          ...session,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          accessTokenExpiresAt: Date.now() + tokens.expiresIn * 1000,
-        });
-        return request<T>(baseUrl, path, init, false);
-      }
-    } else if (refreshResponse.status === 401) {
-      localStorage.removeItem(AUTH_SESSION_KEY);
+    const refreshedSession = await refreshAuthSession(session);
+    if (refreshedSession) {
+      return request<T>(baseUrl, path, init, false);
     }
   }
 
@@ -225,6 +207,32 @@ function storeAuthSession(session: AuthSession): void {
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
 }
 
+async function refreshAuthSession(session: AuthSession): Promise<AuthSession | null> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${API_URLS.auth}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken: session.refreshToken }),
+      });
+      if (!response.ok) {
+        if (response.status === 401) localStorage.removeItem(AUTH_SESSION_KEY);
+        return null;
+      }
+      const tokens = (await response.json()) as TokenResponse;
+      return await createSession(tokens);
+    } catch {
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
 async function createSession(tokens: TokenResponse): Promise<AuthSession> {
   if (
     !Number.isInteger(tokens.userId) ||
@@ -282,19 +290,7 @@ export async function restoreAuthSession(): Promise<AuthSession | null> {
     }
   }
 
-  try {
-    const tokens = await request<TokenResponse>(API_URLS.auth, "/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ refreshToken: session.refreshToken }),
-    });
-    return createSession(tokens);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      localStorage.removeItem(AUTH_SESSION_KEY);
-      return null;
-    }
-    throw error;
-  }
+  return refreshAuthSession(session);
 }
 
 export async function logoutAccount(): Promise<void> {

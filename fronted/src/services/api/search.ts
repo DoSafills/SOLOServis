@@ -37,7 +37,7 @@ export interface SearchFacets {
   total: number;
   price: { min: string | null; max: string | null };
   brands: Array<{ id: number; name: string; count: number }>;
-  stores: Array<{ id: number; name: string; count: number }>;
+  stores?: Array<{ id: number; name: string; count: number }>;
   attributes: Array<{
     key: string;
     label: string;
@@ -197,7 +197,7 @@ export async function getSearchFacetsAcrossCategories(
     ),
   );
   const brands = new Map<number, SearchFacets["brands"][number]>();
-  const stores = new Map<number, SearchFacets["stores"][number]>();
+  const stores = new Map<number, NonNullable<SearchFacets["stores"]>[number]>();
   const prices = facets.flatMap((facet) =>
     [facet.price.min, facet.price.max]
       .filter((price): price is string => price !== null)
@@ -210,7 +210,7 @@ export async function getSearchFacetsAcrossCategories(
       const existing = brands.get(brand.id);
       brands.set(brand.id, { ...brand, count: brand.count + (existing?.count ?? 0) });
     }
-    for (const store of facet.stores) {
+    for (const store of facet.stores ?? []) {
       const existing = stores.get(store.id);
       stores.set(store.id, { ...store, count: store.count + (existing?.count ?? 0) });
     }

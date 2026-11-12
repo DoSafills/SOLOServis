@@ -127,6 +127,8 @@ out/
 │       ├── rip-2001-3e7a5f548f.json
 │       ├── _index.json
 │       └── _changes.jsonl
+├── sql/
+│   └── run-1-ripley-cl.sql  # PostgreSQL import script for manual review
 ├── runs/
 │   └── 1/
 │       ├── run.json
@@ -136,6 +138,24 @@ out/
 ```
 
 `out/` is ignored by git. In production it lives on a PersistentVolumeClaim.
+After a run that extracts products, the scraper writes a PostgreSQL transaction
+to `out/sql/run-<id>-<store>.sql`. It inserts or reuses the product and brand,
+adds its image when missing, and upserts the offer and price fields using the
+current database schema. The generated script expects the referenced active
+`store` and the category slug linked through
+`categories.legacy_product_category_id` to already exist. Review it before
+executing; this output is for manual import and does not connect to PostgreSQL.
+The SQL is portable between local PostgreSQL and Neon (both use PostgreSQL);
+it deliberately contains no database URL. To apply it to the same database
+selected for the backend, switch first from the repository root and then use
+the `DATABASE_URL` written to `.env`:
+
+```powershell
+.\scripts\switch-database.ps1 -Database postgres # or: neon
+$dbUrl = (Get-Content .env | Where-Object { $_ -match '^DATABASE_URL=' } |
+    Select-Object -First 1) -replace '^DATABASE_URL=', ''
+psql "$dbUrl" -v ON_ERROR_STOP=1 -f .\scraper\out\sql\run-<id>-ripley-cl.sql
+```
 
 ---
 

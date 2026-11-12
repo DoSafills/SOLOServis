@@ -23,7 +23,11 @@ type SpecCellState = "best" | "equal" | "default";
 const getAvailableOffers = (product: Product): ComparedOffer[] =>
   product.offers
     .filter((offer) => offer.available)
-    .sort((first, second) => first.price - second.price)
+    .sort(
+      (first, second) =>
+        (first.price ?? Number.POSITIVE_INFINITY) -
+        (second.price ?? Number.POSITIVE_INFINITY),
+    )
     .map((offer) => ({ offer }));
 
 const specificationGroups = [
@@ -337,13 +341,13 @@ export default function ProductComparisonPage({
   }
 
   const productOffers = selected.map((product) => getAvailableOffers(product));
-  const cartOffers = selected.map(
-    (product, index) => productOffers[index][0]?.offer ?? getMinOffer(product),
-  );
+  const cartOffers = selected.map(getMinOffer);
   const specificationRows = getSpecificationGroups(selected);
   const bestRating = Math.max(...selected.map((product) => product.rating));
   const comparableProductPrices = productOffers.flatMap((result) =>
-    result.map(({ offer }) => offer.price),
+    result
+      .map(({ offer }) => offer.price)
+      .filter((price): price is number => price !== null && Number.isFinite(price)),
   );
   const lowestProductPrice =
     comparableProductPrices.length > 0 ? Math.min(...comparableProductPrices) : null;

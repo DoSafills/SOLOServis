@@ -337,9 +337,9 @@ export default function FavoritesPage({
                     </div>
                   </article>
                 ))}
-              </div>
-            </section>
-          )}
+                </div>
+              </section>
+            )}
         </div>
       )}
     </div>

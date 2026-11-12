@@ -192,7 +192,7 @@ func TestIntegracion_Usuarios(t *testing.T) {
 	}
 
 	loginData := e.expect(http.StatusOK, "usuarios", "POST", "/auth/login", "",
-		map[string]any{"email": email, "password": "Clave12345!"})
+		map[string]any{"email": "  " + strings.ToUpper(email) + "  ", "password": "Clave12345!"})
 	var loggedIn session
 	if err := json.Unmarshal(loginData, &loggedIn); err != nil || loggedIn.UserID != s.UserID ||
 		loggedIn.AccessToken == "" || loggedIn.RefreshToken == "" || loggedIn.AccessToken == s.AccessToken {
@@ -204,7 +204,7 @@ func TestIntegracion_Usuarios(t *testing.T) {
 		t.Errorf("login session persisted = %d, want 1", n)
 	}
 	e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/login", "", map[string]any{"email": email, "password": "otra"})
-	e.expect(http.StatusConflict, "usuarios", "POST", "/auth/register", "", map[string]any{"name": "Otra", "email": email, "password": "Clave12345!"})
+	e.expect(http.StatusConflict, "usuarios", "POST", "/auth/register", "", map[string]any{"name": "Otra", "email": "  " + strings.ToUpper(email) + "  ", "password": "Clave12345!"})
 	e.expect(http.StatusOK, "usuarios", "GET", "/auth/validate", s.AccessToken, nil)
 
 	// user lee el perfil solo con el token del mismo usuario.

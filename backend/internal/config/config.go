@@ -49,7 +49,7 @@ func resolveDatabaseURL() string {
 func resolveFrontendURL() string {
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
-		frontendURL = "http://localhost:5173"
+		frontendURL = "http://localhost:8443"
 	}
 
 	return frontendURL

@@ -54,11 +54,78 @@ const emptyFilters: ProductFilterState = {
   availableOnly: false,
 };
 
+const specFilterGroups = [
+  {
+    title: "Pantalla e imagen",
+    pattern: /(pantalla|pulgad|resoluci[oó]n|panel|brillo|imagen|display|oled|led)/i,
+  },
+  {
+    title: "Memoria y almacenamiento",
+    pattern: /(ram|memoria|almacenamiento|ssd|disco|rom|vram)/i,
+  },
+  { title: "Capacidad y carga", pattern: /(capacidad|volumen|carga|soporte)/i },
+  {
+    title: "Peso y dimensiones",
+    pattern: /(peso|masa|dimensi[oó]n|ancho|alto|largo|profundidad|di[aá]metro|superficie)/i,
+  },
+  { title: "Rendimiento", pattern: /(procesador|cpu|n[uú]cleos|cuda|velocidad|rpm|rendimiento)/i },
+  {
+    title: "Consumo y energía",
+    pattern: /(consumo|energ[ií]a|eficiencia|potencia|tensi[oó]n|voltaje|watt|kwh)/i,
+  },
+  {
+    title: "Conectividad y funciones",
+    pattern: /(wifi|bluetooth|conect|sistema operativo|smart|asistente|voz|aplicaci[oó]n)/i,
+  },
+  { title: "Materiales y acabado", pattern: /(material|acabado|color)/i },
+  { title: "Otros", pattern: /.*/ },
+];
+
+const normalizeFilterValue = (value: string): string => value.trim().toLocaleLowerCase();
+
 const normalizeCategoryKey = (value: string) =>
   value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("es");
+
+const getProductPrice = (product: Product): number | null => {
+  const prices = product.offers
+    .map((offer) => offer.price)
+    .filter((price): price is number => price !== null && Number.isFinite(price));
+  return prices.length ? Math.min(...prices) : null;
+};
+
+const getSpecFilterGroups = (products: Product[]) => {
+  const names = [...new Set(products.flatMap((product) => Object.keys(product.specs)))].sort(
+    (first, second) => first.localeCompare(second, "es"),
+  );
+  const assigned = new Set<string>();
+
+  return specFilterGroups
+    .map(({ title, pattern }) => {
+      const specs = names
+        .filter((name) => {
+          if (assigned.has(name) || !pattern.test(name)) return false;
+          assigned.add(name);
+          return true;
+        })
+        .map((name) => ({
+          name,
+          values: [
+            ...new Set(
+              products
+                .map((product) => product.specs[name]?.trim())
+                .filter((value): value is string => Boolean(value)),
+            ),
+          ].sort((first, second) => first.localeCompare(second, "es", { numeric: true })),
+        }))
+        .filter((spec) => spec.values.length > 0);
+
+      return { title, specs };
+    })
+    .filter((group) => group.specs.length > 0);
+};
 
 export default function SearchResultsPage({
   query,
@@ -374,6 +441,7 @@ export default function SearchResultsPage({
   };
 
   const brands = facets?.brands ?? [];
+  const stores = facets?.stores ?? [];
   const attributeFacets = selectedCategorySlug ? (facets?.attributes ?? []) : [];
   const paginated = products;
 
@@ -561,9 +629,9 @@ export default function SearchResultsPage({
           Tienda{" "}
           <span className="text-slate-500 transition-transform group-open:rotate-180">⌄</span>
         </summary>
-        {facets?.stores.length ? (
+        {stores.length ? (
           <div className="max-h-48 space-y-2 overflow-y-auto pb-2 pt-1">
-            {facets.stores.map((store) => (
+            {stores.map((store) => (
               <label
                 key={store.id}
                 className="flex cursor-pointer items-center gap-2 text-sm text-slate-300"

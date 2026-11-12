@@ -111,6 +111,8 @@ def cmd_run(args: argparse.Namespace) -> int:
                 "error": result.error,
                 "ingestionRunId": result.ingestion_run_id,
                 "ingestionError": result.ingestion_error,
+                "sqlFile": result.sql_file,
+                "sqlError": result.sql_error,
             },
             indent=2,
             ensure_ascii=False,

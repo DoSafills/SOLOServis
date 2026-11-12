@@ -78,6 +78,11 @@ def test_pipeline_paginates_dedupes_and_persists(settings, spec_by_slug):
     assert result.counters.items_found == 3  # RIP-2001 is deduped
     assert result.catalog is not None
     assert result.catalog.added == 3
+    assert result.sql_file is not None
+    sql_file = settings.data_dir / "sql" / f"run-{result.run_id}-ripley-cl.sql"
+    assert result.sql_file == str(sql_file)
+    assert sql_file.exists()
+    assert "INSERT INTO product_offer" in sql_file.read_text(encoding="utf-8")
 
     items = repo.run_items(settings.db_path, result.run_id)
     assert {item["externalId"] for item in items} == {"RIP-2001", "RIP-2002", "RIP-2003"}
@@ -94,6 +99,7 @@ def test_pipeline_paginates_dedupes_and_persists(settings, spec_by_slug):
     assert snapshot["store"] == "ripley-cl"
     assert snapshot["spec"]["digest"] == spec.digest
     assert snapshot["catalog"]["added"] == 3
+    assert snapshot["sqlFile"] == str(sql_file)
     assert (settings.runs_dir / str(result.run_id) / "pages" / "001-2.html").exists() or any(
         (settings.runs_dir / str(result.run_id) / "pages").iterdir()
     )

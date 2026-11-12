@@ -9,12 +9,28 @@ import (
 )
 
 var (
-	offerURLPattern    = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9+.-]*://)([^/?#]+)([^?#]*)(\?[^#]*)?$`)
-	offerHostPattern   = regexp.MustCompile(`^(?:\[[^]]+\](?::[0-9]+)?|[^:\s\[\]]+(?::[0-9]+)?)$`)
-	offerZonePattern   = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
-	invalidEscape      = regexp.MustCompile(`%([^0-9A-Fa-f]|$)|%[0-9A-Fa-f]([^0-9A-Fa-f]|$)`)
-	errInvalidCurrency = errors.New("currency must contain exactly three uppercase ASCII letters")
+	offerURLPattern             = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9+.-]*://)([^/?#]+)([^?#]*)(\?[^#]*)?$`)
+	offerHostPattern            = regexp.MustCompile(`^(?:\[[^]]+\](?::[0-9]+)?|[^:\s\[\]]+(?::[0-9]+)?)$`)
+	offerZonePattern            = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
+	invalidEscape               = regexp.MustCompile(`%([^0-9A-Fa-f]|$)|%[0-9A-Fa-f]([^0-9A-Fa-f]|$)`)
+	errInvalidCurrency          = errors.New("currency must contain exactly three uppercase ASCII letters")
+	errUnsupportedOfferCurrency = errors.New("currency has no configured CLP conversion rate")
 )
+
+var supportedOfferCurrencies = map[string]struct{}{
+	"CLP": {},
+	"USD": {},
+	"EUR": {},
+	"GBP": {},
+	"CAD": {},
+	"AUD": {},
+	"CHF": {},
+	"JPY": {},
+	"CNY": {},
+	"BRL": {},
+	"MXN": {},
+	"ARS": {},
+}
 
 func ValidateCurrencyCode(currency string) error {
 	if len(currency) != 3 {
@@ -24,6 +40,16 @@ func ValidateCurrencyCode(currency string) error {
 		if char < 'A' || char > 'Z' {
 			return errInvalidCurrency
 		}
+	}
+	return nil
+}
+
+func ValidateSupportedOfferCurrencyCode(currency string) error {
+	if err := ValidateCurrencyCode(currency); err != nil {
+		return err
+	}
+	if _, ok := supportedOfferCurrencies[currency]; !ok {
+		return errUnsupportedOfferCurrency
 	}
 	return nil
 }

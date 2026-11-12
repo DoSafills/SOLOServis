@@ -31,6 +31,7 @@ const (
 	MaxScraperType    = 50  // scraper_config.scraper_type
 	MaxBrandName      = 150 // brand.name
 	MaxExternalID     = 255 // scraped_data.external_id
+	MaxImageURL       = 2048 // product_image.image_url (TEXT; JSON Schema limit)
 	MaxErrorMessage   = 2000
 	DefaultScraper    = "http"
 	DefaultListLimit  = 20
