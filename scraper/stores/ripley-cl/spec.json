@@ -41,6 +41,7 @@
         "transform": "absolute_url"
       },
       "product.categorySlug": { "value": "refrigeradores", "type": "slug" },
+      "product.attributes.capacidad_litros": { "selector": ".product-item--name", "regex": "(\\d{2,4})\\s*(?:lts?|litros?|l)\\b", "type": "integer" },
       "offer.price": {
         "selector": ".product-price-price",
         "type": "money",
