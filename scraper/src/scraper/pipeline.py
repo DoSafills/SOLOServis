@@ -254,6 +254,14 @@ async def execute(
         )
         counters.items_sent = sent
         counters.items_failed = failed
+        if ingestion_error is None and sent == 0:
+            # The API accepted the run but processed nothing: treat it as an
+            # error instead of reporting a healthy run with ``itemsSent: 0``.
+            ingestion_error = (
+                f"ingestion accepted 0 of {len(items)} items; "
+                "check the store mapping and the item contract"
+            )
+            warnings.append(ingestion_error)
 
     rejects_path = await asyncio.to_thread(
         save_rejects, settings.rejects_dir, run_id, [reject.to_dict() for reject in rejects]
