@@ -70,6 +70,11 @@ type fakeDB struct {
 	rules     []rule
 	commitErr error
 	pingErr   error
+
+	// Última consulta recibida, para probar que la entrada del cliente viaja
+	// como argumento y nunca se concatena al SQL.
+	lastSQL  string
+	lastArgs []any
 }
 
 func (f *fakeDB) match(sql string) rule {
@@ -82,12 +87,14 @@ func (f *fakeDB) match(sql string) rule {
 	return rule{err: errors.New("consulta inesperada")}
 }
 
-func (f *fakeDB) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+func (f *fakeDB) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	f.lastSQL, f.lastArgs = sql, args
 	r := f.match(sql)
 	return pgconn.NewCommandTag(fmt.Sprintf("UPDATE %d", r.affected)), r.err
 }
 
-func (f *fakeDB) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+func (f *fakeDB) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	f.lastSQL, f.lastArgs = sql, args
 	r := f.match(sql)
 	if r.err != nil {
 		return nil, r.err
@@ -95,7 +102,8 @@ func (f *fakeDB) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error
 	return &fakeRows{values: r.rows}, nil
 }
 
-func (f *fakeDB) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+func (f *fakeDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
+	f.lastSQL, f.lastArgs = sql, args
 	return fakeRow(f.match(sql))
 }
 
