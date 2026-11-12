@@ -1,7 +1,10 @@
 package features
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -132,5 +135,42 @@ func TestCheckPassword(t *testing.T) {
 	}
 	if checkPassword("md5$abc", testPassword) {
 		t.Fatal("un hash con otro formato valida")
+	}
+}
+
+// Reglas de #59 (TAL-49..57) sobre el formato de #56 (TAL-78): límite de body
+// de auth, email con net/mail y largos máximos, todo antes de tocar la base.
+func TestRegisterValidatesJSONAndEmailBeforeDatabaseAccess(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		contentType string
+		wantStatus  int
+		wantCode    string
+	}{
+		{"invalid email", `{"name":"Ana","email":"no-es-email","password":"Clave12345!"}`, "application/json", http.StatusUnprocessableEntity, httpx.CodeValidationFailed},
+		{"email with display name", `{"name":"Ana","email":"Ana <ana@example.test>","password":"Clave12345!"}`, "application/json", http.StatusUnprocessableEntity, httpx.CodeValidationFailed},
+		{"name too long", `{"name":"` + strings.Repeat("a", maxNameLength+1) + `","email":"ana@example.test","password":"Clave12345!"}`, "application/json", http.StatusUnprocessableEntity, httpx.CodeValidationFailed},
+		{"password too long", `{"name":"Ana","email":"ana@example.test","password":"` + strings.Repeat("x", maxPasswordBytes+1) + `"}`, "application/json", http.StatusUnprocessableEntity, httpx.CodeValidationFailed},
+		{"unsupported content type", `{"name":"Ana"}`, "text/plain", http.StatusUnsupportedMediaType, httpx.CodeUnsupportedMediaType},
+		{"oversized body", `{"name":"Ana","email":"ana@example.test","password":"` + strings.Repeat("x", maxAuthBodyBytes) + `"}`, "application/json", http.StatusRequestEntityTooLarge, httpx.CodeBodyTooLarge},
+		{"trailing JSON", `{"name":"Ana","email":"ana@example.test","password":"Clave12345!"} {}`, "application/json", http.StatusBadRequest, httpx.CodeMalformedJSON},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/auth/register", bytes.NewBufferString(test.body))
+			request.Header.Set("Content-Type", test.contentType)
+			recorder := httptest.NewRecorder()
+			httpx.RequestID(http.HandlerFunc((&Handler{}).Register)).ServeHTTP(recorder, request)
+
+			if recorder.Code != test.wantStatus || recorder.Header().Get("Content-Type") != httpx.ProblemContentType {
+				t.Fatalf("response = %d %q %s", recorder.Code, recorder.Header().Get("Content-Type"), recorder.Body.String())
+			}
+			var problem httpx.Problem
+			if err := json.Unmarshal(recorder.Body.Bytes(), &problem); err != nil || problem.Code != test.wantCode {
+				t.Fatalf("problem = %+v (%v)", problem, err)
+			}
+		})
 	}
 }

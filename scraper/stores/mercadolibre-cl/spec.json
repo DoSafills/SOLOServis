@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "store": {
+    "slug": "mercadolibre-cl",
+    "name": "Mercado Libre Chile",
+    "baseUrl": "https://www.mercadolibre.cl",
+    "storeId": 6
+  },
+  "match": {
+    "hosts": ["listado.mercadolibre.cl", "www.mercadolibre.cl"],
+    "pathPrefixes": ["/"]
+  },
+  "listing": {
+    "url": "https://listado.mercadolibre.cl/refrigeradores",
+    "root": "li.ui-search-layout__item",
+    "pagination": {
+      "mode": "next-link",
+      "selector": "a[rel=\"next\"]",
+      "maxPages": 20
+    },
+    "allowEmpty": false
+  },
+  "item": {
+    "externalId": { "attribute": "data-id" },
+    "externalUrl": {
+      "selector": "a.poly-component__title",
+      "attribute": "href",
+      "transform": "absolute_url"
+    },
+    "fields": {
+      "product.name": {
+        "selector": "a.poly-component__title",
+        "type": "string",
+        "required": true
+      },
+      "product.brand": {
+        "selector": ".poly-component__brand",
+        "type": "string",
+        "transform": "collapse_ws"
+      },
+      "product.imageUrl": {
+        "selector": "img.poly-component__picture",
+        "attribute": "src",
+        "type": "url",
+        "transform": "absolute_url"
+      },
+      "product.categorySlug": { "value": "refrigeradores", "type": "slug" },
+      "product.attributes.capacidad_litros": { "selector": "a.poly-component__title", "regex": "(\\d{2,4})\\s*(?:lts?|litros?|l)\\b", "type": "integer" },
+      "offer.price": {
+        "selector": ".poly-price__current .andes-money-amount__fraction",
+        "type": "money",
+        "required": true,
+        "currency": "CLP"
+      },
+      "offer.listPrice": {
+        "selector": ".poly-price__previous .andes-money-amount__fraction",
+        "type": "money",
+        "currency": "CLP"
+      },
+      "offer.currency": { "value": "CLP", "type": "string" },
+      "offer.condition": { "value": "new", "type": "string" },
+      "offer.available": {
+        "selector": ".poly-component__available",
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
+  "rules": {
+    "dedupeBy": "externalId",
+    "rejectIfMissing": ["externalUrl", "product.name", "offer.price"]
+  }
+}

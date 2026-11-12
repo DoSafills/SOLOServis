@@ -137,6 +137,8 @@ pg_query() {
   printf '%s\n' "$1" | k exec -i postgres-0 -c postgres -- sh -c 'psql -X -q -tA -v ON_ERROR_STOP=1 -U $POSTGRES_USER -d $POSTGRES_DB' 2>&1 | tr -d '\r'
 }
 api_health() { k exec "deployment/$1" -- wget -qO- -T 5 "http://127.0.0.1:$2/health" 2>/dev/null | grep -q '"database":"connected"'; }
+# El scraper no habla PostgreSQL: su /health solo prueba que el proceso vive.
+scraper_health() { k exec deployment/scraper-api -- python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8095/health', timeout=5).status == 200 else 1)" 2>/dev/null; }
 
 # Prueba HTTP desde tu maquina (-k: certificado de la plataforma aun no automatizado).
 probe() {
@@ -184,6 +186,7 @@ new_tag() {
 images() {
   echo "frontend|docker/frontend/Dockerfile|."
   echo "backend|docker/all-apis/Dockerfile|backend"
+  echo "scraper|docker/scraper/Dockerfile|."
 }
 image_ref() { echo "$REGISTRY/soloservis-$1:$TAG"; }
 frontend_url() { echo "$INGRESS_SCHEME://$INGRESS_HOST"; }
@@ -227,6 +230,7 @@ write_overlay() {
     echo "patches:"
     if [ -n "$STORAGE_CLASS" ]; then
       printf '%s\n' "  - target: {kind: StatefulSet, name: postgres}" "    patch: |-" "      - op: add" "        path: /spec/volumeClaimTemplates/0/spec/storageClassName" "        value: $STORAGE_CLASS"
+      printf '%s\n' "  - target: {kind: PersistentVolumeClaim, name: scraper-data}" "    patch: |-" "      - op: add" "        path: /spec/storageClassName" "        value: $STORAGE_CLASS"
     fi
     if [ -n "$INGRESS_CLASS" ]; then
       printf '%s\n' "  - target: {kind: Ingress, name: soloservis}" "    patch: |-" "      - op: add" "        path: /spec/ingressClassName" "        value: $INGRESS_CLASS"
@@ -405,6 +409,33 @@ phase3() {
 
 # ---------------------------------------------------------------- FASE 4
 
+# Reutiliza postgres-secret si existe (la contrasena vive tambien dentro del
+# volumen, asi que no se cambia sola). Si no existe, lo crea con una contrasena
+# aleatoria, salvo que el PVC ya tenga datos: no coincidiria con la guardada.
+# Sin la etiqueta part-of, igual que soloservis-internal.
+# Devuelve 0 = listo, 2 = falta el Secret pero hay datos, 1 = error de kubectl.
+ensure_postgres_secret() {
+  if k get secret postgres-secret -o name >/dev/null 2>&1; then
+    cp_set "Credenciales BD" "OK (Secret postgres-secret existente)"
+    return 0
+  fi
+  if [ "$(k get pvc postgres-data-postgres-0 -o 'jsonpath={.status.phase}' 2>/dev/null)" = Bound ]; then
+    cp_set "Credenciales BD" "ERROR (falta postgres-secret y el PVC postgres-data-postgres-0 tiene datos)"
+    return 2
+  fi
+  # 48 caracteres hex: seguros dentro de DATABASE_URL sin escapar.
+  local pw
+  pw="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 48)"
+  if k create secret generic postgres-secret --from-literal=POSTGRES_USER=postgres \
+      --from-literal=POSTGRES_DB=soloservis --from-literal=POSTGRES_PASSWORD="$pw" >/dev/null 2>&1; then
+    k label secret postgres-secret app.kubernetes.io/name=postgres app.kubernetes.io/component=database >/dev/null 2>&1
+    cp_set "Credenciales BD" "OK (Secret postgres-secret creado con contrasena aleatoria)"
+    return 0
+  fi
+  cp_set "Credenciales BD" "ERROR (no se pudo crear postgres-secret)"
+  return 1
+}
+
 phase4() {
   cp_reset
   local err
@@ -420,7 +451,15 @@ phase4() {
       cp_set "Token interno" "OK (Secret soloservis-internal creado)"
     else cp_set "Token interno" ERROR; fi
   fi
-  step "Aplicando Secret, Services y StatefulSet de PostgreSQL"
+  # Credenciales de PostgreSQL, fuera de git (TAL-98). Va antes del StatefulSet,
+  # que las lee. La contrasena nunca se imprime.
+  ensure_postgres_secret
+  case "$?" in
+    0) ;;
+    2) stop_phase 4 "el PVC de PostgreSQL ya tiene datos y falta postgres-secret: recrealo con la contrasena anterior (k8s/README.md) o borra el PVC si no necesitas los datos" ;;
+    *) stop_phase 4 "kubectl create secret postgres-secret fallo" ;;
+  esac
+  step "Aplicando Services y StatefulSet de PostgreSQL"
   apply_selector app.kubernetes.io/component=database || stop_phase 4 "kubectl apply fallo"
   step "Esperando rollout de postgres (max 5 min)"
   k rollout status statefulset/postgres --timeout=300s 2>&1 | show
@@ -492,6 +531,20 @@ phase6() {
       k logs "deployment/$name" --tail=20 2>&1 | show
     fi
   done
+  # El scraper no es una API de dominio: se aplica y se comprueba aparte para
+  # no contarlo como conexión a PostgreSQL ni mezclarlo con APIS.
+  step "Aplicando scraper (PVC, Deployment y CronJob de disparo)"
+  apply_selector app.kubernetes.io/component=scraper >/dev/null 2>&1 || true
+  k rollout status deployment/scraper-api --timeout=300s >/dev/null 2>&1
+  pod="$(newest_pod scraper-api)"
+  if [ -n "$pod" ] && pod_ready "$pod" && scraper_health; then
+    cp_set scraper-api "OK (Ready, :8095)"
+  else
+    cp_set scraper-api "ERROR ($(pod_state "$pod"))"
+    failed="$failed scraper-api"
+    [ -n "$pod" ] && diagnostics pod "$pod"
+    k logs deployment/scraper-api --tail=20 2>&1 | show
+  fi
   if [ -n "$failed" ]; then
     if printf '%s\n' "${CP_VALS[@]}" | grep -Eq 'ImagePull|ErrImage'; then
       stop_phase 6 "el cluster no puede descargar la imagen (registry privado: crear Secret docker-registry y usar --image-pull-secret)"

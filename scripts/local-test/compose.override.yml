@@ -1,0 +1,10 @@
+services:
+  comercial:
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
+  usuarios:
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
+  ingestion:
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"

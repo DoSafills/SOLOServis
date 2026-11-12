@@ -12,11 +12,21 @@ labels:
     includeSelectors: false
     includeTemplates: true
 
+# Cada API espera a PostgreSQL antes de arrancar (TAL-98).
+components:
+  - ../espera-postgres
+
 resources:
   - backend.yaml
 
 # El nginx del frontend envía todas las rutas públicas al backend único.
 patches:
+  # El scraper apunta a la API de ingestion; en consolidado vive en backend.
+  - target: {kind: ConfigMap, name: scraper-config}
+    patch: |-
+      - op: replace
+        path: /data/INGESTION_API_URL
+        value: http://backend:8080
   - target: {kind: Deployment, name: frontend}
     patch: |-
       - op: add

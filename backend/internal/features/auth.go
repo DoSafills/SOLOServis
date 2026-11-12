@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -14,7 +15,13 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 )
 
-const passwordIterations = 120000
+const (
+	passwordIterations = 120000
+	maxAuthBodyBytes   = 16 << 10
+	maxPasswordBytes   = 1024
+	maxNameLength      = 150
+	maxEmailLength     = 254
+)
 
 // minPasswordLength es el largo mínimo de contraseña al registrarse.
 const minPasswordLength = 10
@@ -28,7 +35,7 @@ type authInput struct {
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var input authInput
-	if !decode(w, r, &input) {
+	if !decodeAuth(w, r, &input) {
 		return
 	}
 	input.Name = strings.TrimSpace(input.Name)
@@ -36,9 +43,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	var v httpx.Validator
 	v.Required("name", input.Name)
-	v.Check(strings.Contains(input.Email, "@"), "email", "format", "email debe ser un correo válido")
+	v.MaxLength("name", input.Name, maxNameLength)
+	v.Check(validEmail(input.Email), "email", "format", "email debe ser un correo válido")
 	v.Check(len(input.Password) >= minPasswordLength, "password", "min",
 		fmt.Sprintf("password debe tener al menos %d caracteres", minPasswordLength))
+	v.Check(len(input.Password) <= maxPasswordBytes, "password", "max_length",
+		fmt.Sprintf("password no puede superar %d bytes", maxPasswordBytes))
 	if !valid(w, r, &v) {
 		return
 	}
@@ -60,19 +70,26 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var input authInput
-	if !decode(w, r, &input) {
+	if !decodeAuth(w, r, &input) {
 		return
 	}
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+
 	var v httpx.Validator
 	v.Required("email", input.Email)
+	if input.Email != "" {
+		v.Check(validEmail(input.Email), "email", "format", "email debe ser un correo válido")
+	}
 	v.Required("password", input.Password)
+	v.Check(len(input.Password) <= maxPasswordBytes, "password", "max_length",
+		fmt.Sprintf("password no puede superar %d bytes", maxPasswordBytes))
 	if !valid(w, r, &v) {
 		return
 	}
 	var userID int32
 	var hash string
 	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE email=$1 AND active`,
-		strings.ToLower(strings.TrimSpace(input.Email))).Scan(&userID, &hash)
+		input.Email).Scan(&userID, &hash)
 	if err != nil {
 		h.dbError(w, r, err, http.StatusUnauthorized, "Credenciales inválidas.")
 		return
@@ -119,7 +136,7 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var input authInput
-	if !decode(w, r, &input) {
+	if !decodeAuth(w, r, &input) {
 		return
 	}
 	var v httpx.Validator
@@ -141,12 +158,12 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 // refreshToken del body. Sin ninguno de los dos no hay nada que cerrar: 204.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	token := bearerToken(r)
-	if token == "" && r.ContentLength != 0 {
+	if token == "" && r.Body != nil && r.ContentLength != 0 {
 		var input authInput
-		if !decode(w, r, &input) {
+		if !decodeAuth(w, r, &input) {
 			return
 		}
-		token = input.RefreshToken
+		token = strings.TrimSpace(input.RefreshToken)
 	}
 	if token != "" {
 		if _, err := h.db.Exec(r.Context(), `DELETE FROM user_session WHERE access_token_hash=$1 OR refresh_token_hash=$1`, tokenHash(token)); err != nil {
@@ -155,6 +172,24 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// decodeAuth es decode con un límite de body menor (16 KiB): los endpoints de
+// auth son públicos y no necesitan más.
+func decodeAuth(w http.ResponseWriter, r *http.Request, input *authInput) bool {
+	if err := httpx.DecodeJSON(w, r, input, maxAuthBodyBytes); err != nil {
+		httpx.WriteDecodeError(w, r, err)
+		return false
+	}
+	return true
+}
+
+func validEmail(value string) bool {
+	if len(value) == 0 || len(value) > maxEmailLength {
+		return false
+	}
+	address, err := mail.ParseAddress(value)
+	return err == nil && address.Address == value && !strings.ContainsAny(value, " \t\r\n")
 }
 
 func (h *Handler) ValidateToken(w http.ResponseWriter, r *http.Request) {

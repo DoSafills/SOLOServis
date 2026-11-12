@@ -1,0 +1,85 @@
+# Optional legacy fan-out. The Deployment now schedules recurring tasks itself
+# from /data/tasks. This job only asks the API to start one run per store; the
+# bounded pool executes them, and a store with an open run answers 409.
+# Idempotency-Key makes a retried job return the same run instead of a duplicate.
+# Remove this resource from k8s/base/kustomization.yaml once every store has a
+# task and you no longer want a daily safety net.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scraper-trigger
+  labels:
+    app.kubernetes.io/name: scraper-trigger
+    app.kubernetes.io/component: scraper
+spec:
+  schedule: "0 3 * * *"
+  timeZone: America/Santiago
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # Tope de 10 min: un Job que no logra crear su pod (cuota, imagen) no
+      # queda "Running" para siempre bloqueando los siguientes (Forbid).
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: scraper-trigger
+            app.kubernetes.io/component: scraper
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: trigger
+              image: curlimages/curl:8.10.1
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: API_TOKEN
+                  valueFrom:
+                    secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  api="http://scraper-api:8095"
+                  auth="Authorization: Bearer ${API_TOKEN}"
+                  stores="$(curl -fsS -H "$auth" "$api/stores" \
+                    | grep -o '"slug":"[^"]*"' | cut -d'"' -f4)"
+                  if [ -z "$stores" ]; then
+                    echo "no stores returned by $api/stores" >&2
+                    exit 1
+                  fi
+                  for store in $stores; do
+                    code="$(curl -sS -o /dev/null -w '%{http_code}' \
+                      -X POST "$api/runs" \
+                      -H "$auth" \
+                      -H 'Content-Type: application/json' \
+                      -H "Idempotency-Key: $(date +%Y%m%d)-$store" \
+                      -d "{\"store\":\"$store\"}")"
+                    case "$code" in
+                      202|409) echo "$store: HTTP $code" ;;
+                      *) echo "$store: unexpected HTTP $code" >&2; exit 1 ;;
+                    esac
+                  done
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              # 25m/64Mi es el minimo del LimitRange de UCT: con menos, el pod se rechaza.
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi

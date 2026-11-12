@@ -6,6 +6,7 @@ export type Page =
       id: "search-products";
       query: string;
       category?: string;
+      categoryContext?: string;
       productGroup?: string;
       categoryId?: number;
     }
@@ -19,6 +20,7 @@ export type Page =
       id: "search-services";
       query: string;
       category?: string;
+      group?: string;
     }
   | { id: "service-detail"; serviceId: string }
   | {
@@ -59,6 +61,7 @@ export interface Product {
   id: string;
   name: string;
   brand: string;
+  brandId?: number | null;
   model: string;
   /** Id de la categoría del producto en el backend (la subcategoría si la tiene) */
   categoryId?: number;
@@ -70,6 +73,8 @@ export interface Product {
   rating: number;
   reviewCount: number;
   specs: Record<string, string>;
+  attributes?: Record<string, string | number | boolean>;
+  categorySlug?: string | null;
   offers: StoreOffer[];
   priceHistory: PricePoint[];
   /** Current sale/offer price if product is on promotion right now */
@@ -133,6 +138,7 @@ export interface Store {
 
 export interface StoreProduct {
   id: string;
+  offerId: number;
   name: string;
   brand: string;
   model: string;
@@ -148,6 +154,7 @@ export interface StoreProduct {
   condition: string;
   productUrl: string;
   image: string;
+  lastUpdated?: string;
 }
 
 export interface StoreLocation {

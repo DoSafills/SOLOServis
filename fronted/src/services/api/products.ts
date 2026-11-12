@@ -1,5 +1,5 @@
 import type { Product, PricePoint } from "../../types";
-import { API_URLS, getJson } from "./config";
+import { API_URLS, fetchServiceResponse, getJson } from "./config";
 
 interface ApiImage {
   url: string;
@@ -52,6 +52,7 @@ export interface ApiProduct {
   id: string;
   name: string;
   brand: string;
+  brandId?: number | null;
   model: string;
   categoryId: number;
   category: string;
@@ -60,6 +61,8 @@ export interface ApiProduct {
   rating: number;
   reviewCount: number;
   specs?: Record<string, string>;
+  attributes?: Record<string, string | number | boolean>;
+  categorySlug?: string | null;
   images?: ApiImage[];
   offers?: ApiOffer[];
   priceHistory?: ApiPricePoint[];
@@ -118,6 +121,7 @@ export const toProduct = (product: ApiProduct): Product => {
     id: product.id,
     name: product.name,
     brand: product.brand,
+    brandId: product.brandId,
     model: product.model,
     categoryId: product.categoryId,
     category: product.category,
@@ -128,6 +132,8 @@ export const toProduct = (product: ApiProduct): Product => {
     rating: product.rating,
     reviewCount: product.reviewCount,
     specs: product.specs ?? {},
+    attributes: product.attributes ?? {},
+    categorySlug: product.categorySlug,
     offers,
     priceHistory,
     offerPriceHistory,
@@ -139,24 +145,27 @@ export const toProduct = (product: ApiProduct): Product => {
 /** Filtrar por una categoría incluye los productos de sus subcategorías. */
 export async function getProducts(categoryId?: number): Promise<ApiProduct[]> {
   const query = categoryId === undefined ? "" : `?category=${categoryId}`;
-  return getJson<ApiProduct[]>(`${API_URLS.products}/products${query}`);
+  return getJson<ApiProduct[]>(`${API_URLS.products}/products${query}`, "Product API");
 }
 
 export async function getCategories(): Promise<ApiProductCategory[]> {
-  return getJson<ApiProductCategory[]>(`${API_URLS.products}/product-categories`);
+  return getJson<ApiProductCategory[]>(`${API_URLS.products}/product-categories`, "Product API");
 }
 
 export async function getProductReviews(id: string): Promise<ApiProductReview[]> {
-  return getJson<ApiProductReview[]>(`${API_URLS.products}/products/${id}/reviews`);
+  return getJson<ApiProductReview[]>(`${API_URLS.products}/products/${id}/reviews`, "Product API");
 }
 
 export async function getProductById(id: string): Promise<Product | null> {
-  const response = await fetch(`${API_URLS.products}/products/${id}`);
+  const response = await fetchServiceResponse(
+    `${API_URLS.products}/products/${encodeURIComponent(id)}`,
+    "Product API",
+  );
 
   if (response.status === 404) return null;
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch product: ${response.status}`);
+    throw new Error(`Product API: error HTTP ${response.status}.`);
   }
 
   return toProduct((await response.json()) as ApiProduct);

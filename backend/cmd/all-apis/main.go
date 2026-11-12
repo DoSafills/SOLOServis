@@ -3,7 +3,7 @@
 // API_DOMAIN elige cuáles: un dominio (por ejemplo comercial) o vacía para las
 // 14 (modo consolidado). Las llamadas entre APIs del mismo proceso
 // (PRODUCT_API_URL, PRICING_API_URL, ...) apuntan a él salvo que se definan;
-// las que van a otro dominio deben definirse o el proceso no arranca.
+// Para las que van a otro dominio se requiere su URL específica o GATEWAY_URL.
 package main
 
 import (

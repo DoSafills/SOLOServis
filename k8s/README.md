@@ -26,7 +26,7 @@ Las 14 APIs se agrupan en **3 pods, uno por contexto de negocio**. Los tres usan
 | `usuarios` | `usuarios` | auth, user | `/auth`, `/users` |
 | `ingestion` | `ingestion` | ingestion | `/ingestion` (solo red interna, la usa el scraper) |
 
-Además corren `frontend` (nginx con la app de Vite) y `postgres` (StatefulSet con PVC). En total: **5 pods y 6 Services**.
+Además corren `frontend` (nginx con la app de Vite), `postgres` (StatefulSet con PVC) y `scraper-api` (Deployment con PVC y API de control). En total: **6 pods, 7 Services y 1 CronJob** de disparo.
 
 ```
  navegador
@@ -35,10 +35,21 @@ Además corren `frontend` (nginx con la app de Vite) y `postgres` (StatefulSet c
  frontend (nginx) ── /auth ───────────────────────────► usuarios   (auth, user)
                   ── /products, /cart, /search, ... ──► comercial  (11 APIs)
                                                             ▲
- scraper ──(red interna + token)──► ingestion ── POST /notifications ┘
+ scraper-api (Deployment + PVC) ──► ingestion ── POST /notifications ┘
+        ▲
+        │ POST /runs (CronJob scraper-trigger, 03:00 America/Santiago)
 
  comercial, usuarios e ingestion ──► postgres (StatefulSet + PVC)
 ```
+
+**Scraper v2:** `scraper-api` no es una API pública ni habla PostgreSQL. Es un
+Deployment de 1 réplica (`strategy: Recreate`) con un PVC `scraper-data` que
+guarda `scraper.db`, el catálogo por tienda y las tareas recurrentes en
+`/data/tasks`. Expone `:8095` solo dentro del clúster (`/health`, `/ready`,
+`/stores`, `/runs`, `/tasks`). El daemon agenda sus propias tareas; el CronJob
+`scraper-trigger` no crawlea, solo llama `POST /runs` por tienda y sale, y es
+opcional una vez que cada tienda tiene tarea. El detalle del paquete está en
+[`scraper/README.md`](../scraper/README.md).
 
 **Cómo se reparten las llamadas:**
 - Una ruta que no es del dominio responde **404** en ese pod (por ejemplo, `/auth/login` en `comercial`). El nginx manda cada ruta al pod correcto.
@@ -232,10 +243,10 @@ Requests por pod en `dominios`: comercial 50m/128Mi, usuarios 25m/64Mi, ingestio
 | 0 | Inventario: herramientas, acceso al clúster, recursos actuales, cuota | solo lectura |
 | 1 | Borra el despliegue anterior. **Conserva el PVC y los Secrets** | no quedan recursos `part-of=soloservis` |
 | 2 | Elige la StorageClass (prueba que un PVC quede Bound y escribible) y genera `k8s/overlays/uct` | `kubectl kustomize` compila |
-| 3 | `docker build` y `docker push` de las 2 imágenes (frontend y backend) | cada imagen OK |
-| 4 | Crea el Secret `soloservis-internal` (token) si no existe y despliega PostgreSQL | `postgres-0` Ready |
+| 3 | `docker build` y `docker push` de las 3 imágenes (frontend, backend y scraper) | cada imagen OK |
+| 4 | Crea los Secrets `postgres-secret` (contraseña aleatoria) y `soloservis-internal` (token) si no existen y despliega PostgreSQL | `postgres-0` Ready |
 | 5 | Job de migraciones (`migration_order.txt`) | `schema_migrations` = archivos del manifiesto |
-| 6 | APIs: `comercial`, `usuarios` e `ingestion` (o `backend`) | cada una Ready y con `/health` → `database: connected` |
+| 6 | APIs: `comercial`, `usuarios` e `ingestion` (o `backend`), más `scraper-api` | cada API Ready y con `/health` → `database: connected`; scraper Ready y `/health` → `ok` |
 | 7 | Frontend (nginx) | Ready y `/products` responde a través de nginx |
 | 8 | Ingress | `/`, `/products`, `/categories`, `/stores`, `/services`, `/search` desde tu máquina |
 | 9 | Prueba de resiliencia: borra un pod de API y reinicia PostgreSQL | el pod se recrea, los datos persisten, las APIs reconectan |
@@ -363,6 +374,58 @@ kubectl logs deployment/comercial --tail 500 | Select-String '"level":"ERROR"'
 kubectl logs deployment/comercial --tail 500 | grep '"level":"ERROR"'
 ```
 
+### Scraper: disparar, mirar y detener
+
+El scraper no se publica: se llega por `port-forward` (o desde el backend).
+
+```bash
+kubectl port-forward svc/scraper-api 8095:8095
+TOKEN="$(kubectl get secret soloservis-internal -o jsonpath='{.data.INTERNAL_API_TOKEN}' | base64 -d)"
+curl -sS -X POST http://127.0.0.1:8095/runs \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"store":"ripley-cl"}'
+curl -sS http://127.0.0.1:8095/runs/1 -H "Authorization: Bearer $TOKEN"
+curl -sS -X POST http://127.0.0.1:8095/runs/1/stop -H "Authorization: Bearer $TOKEN"
+```
+
+Crear una tarea recurrente (el daemon la agenda; sobrevive al pod porque vive
+en `/data/tasks`):
+
+```bash
+curl -sS -X POST http://127.0.0.1:8095/tasks \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"store":"ripley-cl","schedule":{"kind":"interval","every":"1h"}}'
+curl -sS http://127.0.0.1:8095/tasks -H "Authorization: Bearer $TOKEN"
+```
+
+Freno de emergencia para todas las tareas y runs activos:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8095/tasks/stop -H "Authorization: Bearer $TOKEN"
+curl -sS -X POST http://127.0.0.1:8095/tasks/start -H "Authorization: Bearer $TOKEN"
+```
+
+El CronJob queda como disparo opcional. Si todas las tiendas ya tienen tarea,
+se puede quitar de `k8s/base/kustomization.yaml`; mientras conviva, un trigger
+que choque con una tarea recibe `409` y no duplica el crawl.
+
+Disparar el CronJob sin esperar la hora:
+
+```bash
+kubectl create job --from=cronjob/scraper-trigger "scraper-manual-$(date +%s)"
+kubectl logs job/scraper-trigger --tail 50   # o el nombre del Job creado
+```
+
+Ver el estado y el catálogo:
+
+```bash
+kubectl logs deployment/scraper-api --tail 100 -f
+kubectl exec deployment/scraper-api -- ls -la /data/catalog
+```
+
+Un `409` significa que esa tienda ya tiene un run `pending`/`running`; es la
+protección contra ejecuciones duplicadas, no un error del despliegue.
+
 ### Reiniciar un pod de API
 
 ```bash
@@ -391,11 +454,35 @@ kubectl exec -it postgres-0 -- psql -U postgres -d soloservis
 
 Dentro de `psql`: `\dt` lista las tablas, `SELECT version FROM schema_migrations;` muestra las migraciones aplicadas y `\q` sale.
 
-Para conectarte desde DBeaver, pgAdmin u otro cliente: abre un port-forward y conéctate a `localhost:15432` (usuario `postgres`, contraseña `postgres`, base `soloservis`).
+Para conectarte desde DBeaver, pgAdmin u otro cliente: abre un port-forward y conéctate a `localhost:15432` (usuario `postgres`, base `soloservis`). La contraseña está en el Secret `postgres-secret` (ver [Contraseña de PostgreSQL](#contraseña-de-postgresql)).
 
 ```bash
 kubectl port-forward svc/postgres 15432:5432
 ```
+
+### Contraseña de PostgreSQL
+
+No está en git: la Fase 4 crea `postgres-secret` con una contraseña aleatoria la primera vez y después lo reutiliza. PostgreSQL guarda la contraseña dentro del volumen al crear la base, así que **cambiar solo el Secret no basta**.
+
+Leerla sin mostrarla en pantalla (la copia al portapapeles):
+
+```powershell
+[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((kubectl get secret postgres-secret -o jsonpath='{.data.POSTGRES_PASSWORD}'))) | Set-Clipboard
+```
+
+Cambiarla (la base, el Secret y las APIs, en ese orden y seguido):
+
+```powershell
+$b = New-Object byte[] 24
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+$pw = ([BitConverter]::ToString($b) -replace '-', '').ToLower()
+"ALTER USER postgres WITH PASSWORD '$pw';" | kubectl exec -i postgres-0 -c postgres -- sh -c 'psql -X -q -v ON_ERROR_STOP=1 -U $POSTGRES_USER -d $POSTGRES_DB'
+kubectl create secret generic postgres-secret --from-literal=POSTGRES_USER=postgres --from-literal=POSTGRES_DB=soloservis "--from-literal=POSTGRES_PASSWORD=$pw" --dry-run=client -o yaml | kubectl apply -f -
+kubectl rollout restart deployment/comercial deployment/usuarios deployment/ingestion
+Remove-Variable pw, b
+```
+
+Si borras `postgres-secret` pero conservas el PVC, la Fase 4 se detiene: una contraseña nueva no coincidiría con la del volumen. Recréalo con la contraseña anterior, o borra también el PVC si no necesitas los datos.
 
 ### Borrar todo
 
@@ -562,14 +649,16 @@ kubectl get events --sort-by=.lastTimestamp
 ```
 k8s/
 ├── base/                         común a las dos topologías
-│   ├── postgres/                 Secret (credenciales de desarrollo), Services, StatefulSet + PVC
+│   ├── postgres/                 Services y StatefulSet + PVC (el Secret lo crea el script)
 │   ├── migrations/               Job + migrate.sh (aplica migration_order.txt y registra schema_migrations)
 │   ├── frontend/                 Deployment (nginx sin root, solo lectura) + Service
+│   ├── scraper/                  Deployment + PVC + Service + ConfigMap + CronJob de disparo
 │   ├── ingress.yaml              host *.dev.censei.cl
 │   └── kustomization.yaml
 ├── components/
 │   ├── dominios/                 comercial, usuarios e ingestion (Deployment + Service) + destinos del nginx
-│   └── consolidado/              Deployment "backend" con las 14 APIs + destino del nginx (respaldo)
+│   ├── consolidado/              Deployment "backend" con las 14 APIs + destino del nginx (respaldo)
+│   └── espera-postgres/          initContainer que espera a PostgreSQL; lo incluyen las dos topologías
 ├── tests/                        pod de test: Job + smoke-test.sh (solo lecturas)
 └── overlays/uct/                 GENERADO por el script (ignorado por git): namespace, imágenes,
                                   StorageClass, host y los .sql de backend/database/migrations
@@ -577,10 +666,12 @@ scripts/k8s/deploy.ps1            despliegue por fases (PowerShell 5.1+)
 scripts/k8s/deploy.sh             el mismo despliegue en bash (Linux, macOS, Git Bash)
 docker/all-apis/Dockerfile        imagen del backend (cmd/all-apis); la usan los 3 pods de API
 docker/frontend/                  build de Vite + nginx (default.conf.template, proxy.conf)
-docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/compose.yml)
+docker/scraper/Dockerfile         imagen del scraper v2 (paquete scraper/ + specs)
+docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/compose.microservicios.yml)
 ```
 
 **Seguridad:**
-- **Postgres:** `base/postgres/secret.yaml` tiene credenciales **de desarrollo** (las mismas de `docker/compose.yml`). Para un entorno real se reemplazan por un Secret creado fuera de git.
+- **Postgres:** la contraseña de `postgres-secret` la genera el script al azar en cada namespace y no está en git. Solo es accesible dentro del clúster (Service `ClusterIP`, el Ingress publica solo el frontend). `docker/compose.yml` sigue con credenciales de desarrollo, solo para uso local.
 - **Token interno:** el token de `soloservis-internal` lo genera el script al azar en cada namespace y no está en git. El pod de test lo usa sin imprimirlo.
+- **Orden de arranque:** cada pod de API tiene un initContainer (`espera-postgres`, con `pg_isready`) y queda en `Init` hasta que PostgreSQL acepta conexiones. Además, la API hace ping a la base al iniciar y su readiness (`/health`) exige la conexión. No suma a la cuota: corre antes que el contenedor principal y pide menos que él.
 - **Pods:** todos corren sin root, con `readOnlyRootFilesystem` y sin capabilities. Cumplen Pod Security `restricted`.

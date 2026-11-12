@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "1.0",
+  "store": {
+    "slug": "falabella-cl",
+    "name": "Falabella Chile",
+    "baseUrl": "https://www.falabella.com/falabella-cl",
+    "storeId": 1
+  },
+  "match": {
+    "hosts": ["www.falabella.com"],
+    "pathPrefixes": ["/falabella-cl/"]
+  },
+  "listing": {
+    "url": "https://www.falabella.com/falabella-cl/search?Ntt=refrigerador",
+    "root": "[data-pod=\"catalyst-pod\"]",
+    "pagination": {
+      "mode": "next-link",
+      "selector": "a.pagination-next",
+      "maxPages": 20
+    },
+    "allowEmpty": false
+  },
+  "item": {
+    "externalId": { "attribute": "id" },
+    "externalUrl": {
+      "template": "https://www.falabella.com/falabella-cl/product/{externalId}"
+    },
+    "fields": {
+      "product.name": {
+        "selector": ".pod-details .copy2.primary",
+        "type": "string",
+        "required": true
+      },
+      "product.brand": {
+        "selector": ".pod-details .title1",
+        "type": "string",
+        "transform": "collapse_ws"
+      },
+      "product.imageUrl": {
+        "selector": ".pod-head img",
+        "attribute": "src",
+        "type": "url",
+        "transform": "absolute_url"
+      },
+      "product.categorySlug": { "value": "refrigeradores", "type": "slug" },
+      "product.attributes.capacidad_litros": { "selector": ".pod-details .copy2.primary", "regex": "(\\d{2,4})\\s*(?:lts?|litros?|l)\\b", "type": "integer" },
+      "offer.price": {
+        "selector": ".pod-summary .prices li.prices-0 span",
+        "type": "money",
+        "required": true,
+        "currency": "CLP"
+      },
+      "offer.listPrice": {
+        "selector": ".pod-summary .prices li.prices-1 span",
+        "type": "money",
+        "currency": "CLP"
+      },
+      "offer.currency": { "value": "CLP", "type": "string" },
+      "offer.condition": { "value": "new", "type": "string" },
+      "offer.available": {
+        "selector": ".pod-summary .availability",
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
+  "rules": {
+    "dedupeBy": "externalId",
+    "rejectIfMissing": ["externalUrl", "product.name", "offer.price"]
+  }
+}
