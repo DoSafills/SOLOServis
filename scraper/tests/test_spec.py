@@ -91,3 +91,17 @@ def test_shipped_specs_are_the_only_ones():
     # Guard against an accidental spec being added without updating the docs.
     found = sorted(path.parent.name for path in STORES.glob("*/spec.json"))
     assert found == ["falabella-cl", "mercadolibre-cl", "ripley-cl"]
+
+
+def test_regex_must_compile():
+    raw = spec_raw("falabella-cl")
+    raw["item"]["fields"]["product.attributes.capacidad_litros"]["regex"] = r"(\d+"
+    with pytest.raises(SpecError, match="invalid regular expression"):
+        parse_spec(raw, "inline")
+
+
+def test_regex_needs_a_value_read_from_the_page():
+    raw = spec_raw("falabella-cl")
+    raw["item"]["fields"]["product.categorySlug"]["regex"] = "refri"
+    with pytest.raises(SpecError, match="regex"):
+        parse_spec(raw, "inline")
