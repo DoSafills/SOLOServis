@@ -80,13 +80,16 @@ _DETECT_KEYS = frozenset({"selector", "minMatches"})
 _LISTING_KEYS = frozenset({"url", "root", "pagination", "allowEmpty"})
 _PAGINATION_KEYS = frozenset({"mode", "selector", "template", "maxPages"})
 _ITEM_KEYS = frozenset({"externalId", "externalUrl", "fields"})
-_VALUE_KEYS = frozenset({"selector", "mode", "attribute", "transform", "value", "template"})
+_VALUE_KEYS = frozenset(
+    {"selector", "mode", "attribute", "transform", "regex", "value", "template"}
+)
 _FIELD_KEYS = frozenset(
     {
         "selector",
         "mode",
         "attribute",
         "transform",
+        "regex",
         "type",
         "value",
         "required",
@@ -211,11 +214,20 @@ def _value_spec(
         )
     if (has_value or template) and (mode != "text" or attribute):
         raise _fail(path, where, "a constant or template cannot use mode/attribute")
+    regex = _string(path, f"{where}.regex", obj.get("regex"), required=False)
+    if regex:
+        if has_value or template or mode == "list":
+            raise _fail(path, where, "'regex' needs a single value read from the page")
+        try:
+            re.compile(regex)
+        except re.error as exc:
+            raise _fail(path, f"{where}.regex", f"invalid regular expression: {exc}") from exc
     return ValueSpec(
         selector=selector,
         mode=mode,
         attribute=attribute,
         transform=transform,
+        regex=regex,
         value=obj.get("value") if has_value else None,
         template=template,
     )

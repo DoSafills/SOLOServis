@@ -18,6 +18,7 @@ from scrapling import Selector
 from scraper.errors import ExtractionError
 from scraper.extract.fields import read_value, select
 from scraper.extract.transforms import (
+    apply_regex,
     apply_transform,
     coerce,
     coerce_condition,
@@ -389,7 +390,7 @@ def _read_scalar(
     if value is None:
         return None
     text = str(value)
-    text = apply_transform(text, spec.transform, page_url)
+    text = apply_regex(apply_transform(text, spec.transform, page_url), spec.regex)
     raw[label] = text
     return text or None
 
@@ -430,7 +431,7 @@ def _read_field(
                 return None
             raw[path] = value
             return [str(entry) for entry in value if str(entry).strip()]
-        text = apply_transform(str(value), source.transform, page_url)
+        text = apply_regex(apply_transform(str(value), source.transform, page_url), source.regex)
         raw[path] = text
         if not text.strip():
             return None
