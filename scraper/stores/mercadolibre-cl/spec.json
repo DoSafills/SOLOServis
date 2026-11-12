@@ -4,7 +4,7 @@
     "slug": "mercadolibre-cl",
     "name": "Mercado Libre Chile",
     "baseUrl": "https://www.mercadolibre.cl",
-    "storeId": 3
+    "storeId": 6
   },
   "match": {
     "hosts": ["listado.mercadolibre.cl", "www.mercadolibre.cl"],
@@ -45,6 +45,7 @@
         "transform": "absolute_url"
       },
       "product.categorySlug": { "value": "refrigeradores", "type": "slug" },
+      "product.attributes.capacidad_litros": { "selector": "a.poly-component__title", "regex": "(\\d{2,4})\\s*(?:lts?|litros?|l)\\b", "type": "integer" },
       "offer.price": {
         "selector": ".poly-price__current .andes-money-amount__fraction",
         "type": "money",

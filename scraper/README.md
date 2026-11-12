@@ -246,6 +246,24 @@ Rules enforced at load time:
 Transforms (`transform`): `trim`, `collapse_ws`, `lower`, `upper`, `slugify`,
 `absolute_url`. They run on the raw string before type coercion.
 
+`regex` (optional, only for values read from the page) keeps the part of the
+text that matches, after the transform and before type coercion: the first
+capture group when the pattern has one, otherwise the whole match. Matching
+ignores case. No match means the value is absent, not an error. It is how a
+required category attribute is read out of a product name:
+
+```json
+"product.attributes.capacidad_litros": {
+  "selector": ".product-item--name",
+  "regex": "(\\d{2,4})\\s*(?:lts?|litros?|l)\\b",
+  "type": "integer"
+}
+```
+
+`"REFRIGERADOR SIDE BY SIDE 664 LITROS"` becomes `664`. A constant, a template
+or `mode: "list"` cannot declare `regex`, and an invalid pattern is rejected at
+load time.
+
 ### 4.3 Fields
 
 Keys are **contract paths**, not arbitrary names:

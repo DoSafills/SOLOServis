@@ -1748,7 +1748,7 @@ POST /ingestion/runs/7/finish
 
 ## Configuración
 
-`docker/compose.yml` (`ingestion-api`): `DATABASE_URL`, `INTERNAL_API_TOKEN` y `NOTIFICATION_API_URL`. Ya no usa `PRODUCT_API_URL`, `STORE_API_URL` ni `PRICING_API_URL`.
+`docker/compose.yml` (`ingestion`): `DATABASE_URL`, `INTERNAL_API_TOKEN` y `NOTIFICATION_API_URL` (`http://comercial:8080`). Ya no usa `PRODUCT_API_URL`, `STORE_API_URL` ni `PRICING_API_URL`.
 
 ## Tests
 
@@ -2412,7 +2412,20 @@ cd ..
 docker compose -f docker/compose.yml up -d --build
 ```
 
-Cada API expone `GET /health`, que informa el estado de PostgreSQL.
+`docker/compose.yml` levanta la arquitectura consolidada (TAL-109): PostgreSQL, el scraper y **3 procesos de dominio**, igual que la topología `dominios` de Kubernetes.
+
+| Servicio | `API_DOMAIN` | APIs que sirve | Puertos en tu máquina |
+|---|---|---|---|
+| `comercial` | `comercial` | product, store, service, pricing, search, comparison, favorites, cart, review, watchlist y notification | 8081, 8082, 8083, 8085, 8086, 8087, 8089, 8090, 8091, 8092 y 8093 |
+| `usuarios` | `usuarios` | user y auth | 8084 y 8088 |
+| `ingestion` | `ingestion` | ingestion | 8094 |
+
+- **Una sola imagen para los tres:** `docker/all-apis/Dockerfile` compila `cmd/all-apis`, y `API_DOMAIN` decide qué APIs registra el proceso. No hay un Dockerfile por dominio porque el binario es el mismo; mantener tres copias solo agregaría diferencias accidentales entre ellas.
+- **Los puertos de siempre siguen funcionando:** cada proceso escucha en 8080 dentro de la red de Compose, y hacia tu máquina se publican los puertos históricos de cada API apuntando al proceso de su dominio. El frontend y los `.env` existentes no cambian.
+- **Llamadas entre APIs:** dentro de un dominio van a `127.0.0.1:8080` (lo configura el binario). La única entre dominios es de `ingestion` a notification: `NOTIFICATION_API_URL=http://comercial:8080`.
+- **Modo anterior (un contenedor por API):** `docker compose -f docker/compose.microservicios.yml up -d --build`. Usa los 14 `docker/<api>/Dockerfile`. No levantar los dos a la vez: comparten puertos y el contenedor de PostgreSQL.
+
+Cada proceso expone `GET /health`, que informa el dominio y el estado de PostgreSQL.
 
 Para una modificación de datos de productos:
 

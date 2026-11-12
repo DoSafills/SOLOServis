@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from functools import lru_cache
 from urllib.parse import urljoin, urlparse, urlunparse
 
 from scraper.models import money_text
@@ -172,6 +173,26 @@ def apply_transform(text: str, transform: str | None, page_url: str) -> str:
     if transform == "absolute_url":
         return normalize_url(text, page_url) or text
     raise ValueError(f"unknown transform {transform!r}")
+
+
+@lru_cache(maxsize=256)
+def _compiled(pattern: str) -> re.Pattern[str]:
+    return re.compile(pattern, re.IGNORECASE)
+
+
+def apply_regex(text: str, pattern: str | None) -> str:
+    """Keep only the part of ``text`` that ``pattern`` matches.
+
+    Returns the first capture group when the pattern has one, otherwise the
+    whole match. No match yields ``""``: the value is absent, not an error, so
+    an optional field is simply left out. Matching ignores case.
+    """
+    if not pattern:
+        return text
+    match = _compiled(pattern).search(text)
+    if match is None:
+        return ""
+    return match.group(1) if match.re.groups else match.group(0)
 
 
 def coerce(

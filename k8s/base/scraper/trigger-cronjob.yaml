@@ -21,6 +21,9 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # Tope de 10 min: un Job que no logra crear su pod (cuota, imagen) no
+      # queda "Running" para siempre bloqueando los siguientes (Forbid).
+      activeDeadlineSeconds: 600
       template:
         metadata:
           labels:
@@ -72,10 +75,11 @@ spec:
                 readOnlyRootFilesystem: true
                 capabilities:
                   drop: ["ALL"]
+              # 25m/64Mi es el minimo del LimitRange de UCT: con menos, el pod se rechaza.
               resources:
                 requests:
-                  cpu: 10m
-                  memory: 32Mi
+                  cpu: 25m
+                  memory: 64Mi
                 limits:
                   cpu: 100m
                   memory: 64Mi

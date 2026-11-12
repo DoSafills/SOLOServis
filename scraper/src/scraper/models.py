@@ -109,6 +109,7 @@ class ValueSpec:
     mode: str = "text"  # text | attr | html | list
     attribute: str | None = None
     transform: str | None = None
+    regex: str | None = None
     value: Any = None
     template: str | None = None
 
