@@ -17,6 +17,10 @@ labels:
     includeSelectors: false
     includeTemplates: true
 
+# Cada API espera a PostgreSQL antes de arrancar (TAL-98).
+components:
+  - ../espera-postgres
+
 resources:
   - comercial.yaml
   - usuarios.yaml
