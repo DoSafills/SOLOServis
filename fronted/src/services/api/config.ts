@@ -1,5 +1,5 @@
 export function getApiBaseUrl(configuredUrl: string | undefined, port: number): string {
-  return configuredUrl ?? `http://${window.location.hostname}:${port}`;
+  return configuredUrl?.trim() ? configuredUrl : `http://${window.location.hostname}:${port}`;
 }
 
 // The frontend host routes API path prefixes to the corresponding services.
@@ -16,11 +16,11 @@ export const API_URLS = {
     import.meta.env.VITE_SERVICES_API_URL ?? import.meta.env.VITE_SERVICE_API_URL,
     8083,
   ),
-  search: import.meta.env.VITE_SEARCH_API_URL ?? "",
-  auth: import.meta.env.VITE_AUTH_API_URL ?? "",
-  favorites: import.meta.env.VITE_FAVORITES_API_URL ?? "",
-  cart: import.meta.env.VITE_CART_API_URL ?? "",
-  comparison: import.meta.env.VITE_COMPARISON_API_URL ?? "",
+  search: getApiBaseUrl(import.meta.env.VITE_SEARCH_API_URL, 8086),
+  auth: getApiBaseUrl(import.meta.env.VITE_AUTH_API_URL, 8088),
+  favorites: getApiBaseUrl(import.meta.env.VITE_FAVORITES_API_URL, 8089),
+  cart: getApiBaseUrl(import.meta.env.VITE_CART_API_URL, 8090),
+  comparison: getApiBaseUrl(import.meta.env.VITE_COMPARISON_API_URL, 8087),
 };
 
 export async function getJson<T>(url: string, apiName = "API"): Promise<T> {

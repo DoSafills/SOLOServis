@@ -9,8 +9,6 @@ import type {
 import { API_URLS, fetchServiceResponse, getServiceJson, getServiceResponse } from "./config";
 import { parseAmount, toProduct, type ApiProduct } from "./products";
 
-const PRODUCT_API_URL = API_URLS.products;
-const SERVICE_API_URL = API_URLS.services;
 const STORE_API_URL = API_URLS.stores;
 
 interface ApiStore {
@@ -28,13 +26,12 @@ interface ApiStore {
 
 interface ApiStoreProduct {
   id: string;
-  offerId: number;
+  offerId?: number | null;
   name: string;
   brand: string;
   model: string;
   category: string;
   description: string;
-  offerId?: number | null;
   price: number | string | null;
   listPrice: number | string | null;
   currency: string;
@@ -92,6 +89,7 @@ async function fetchStoreOffers(storeId: string): Promise<ApiStoreOffer[]> {
     const page = await fetchList<ApiStoreOffer>(
       STORE_API_URL,
       `/stores/${storeId}/offers?available=true&limit=${limit}&offset=${offset}`,
+      "Store API",
     );
     offers.push(...page);
     if (page.length < limit) return offers;
@@ -113,13 +111,12 @@ const toStore = (store: ApiStore): Store => ({
 
 const toStoreProduct = (product: ApiStoreProduct): StoreProduct => ({
   id: product.id,
-  offerId: product.offerId,
+  offerId: product.offerId ?? null,
   name: product.name,
   brand: product.brand,
   model: product.model,
   category: product.category,
   description: product.description,
-  offerId: product.offerId ?? null,
   price: parseAmount(product.price),
   listPrice: parseAmount(product.listPrice),
   currency: product.currency,

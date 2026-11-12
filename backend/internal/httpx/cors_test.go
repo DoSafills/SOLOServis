@@ -51,3 +51,18 @@ func TestCORS_DoesNotAllowPrivateOriginsForPublicFrontend(t *testing.T) {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want empty", got)
 	}
 }
+
+func TestCORS_ExposesPaginationHeader(t *testing.T) {
+	handler := CORS("http://localhost:8443")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Total-Count", "38")
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/products", nil)
+	req.Header.Set("Origin", "http://localhost:8443")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Expose-Headers"); got != "X-Total-Count" {
+		t.Fatalf("Access-Control-Expose-Headers = %q, want X-Total-Count", got)
+	}
+}

@@ -441,6 +441,7 @@ export default function SearchResultsPage({
   };
 
   const brands = facets?.brands ?? [];
+  const stores = facets?.stores ?? [];
   const attributeFacets = selectedCategorySlug ? (facets?.attributes ?? []) : [];
   const paginated = products;
 
@@ -628,9 +629,9 @@ export default function SearchResultsPage({
           Tienda{" "}
           <span className="text-slate-500 transition-transform group-open:rotate-180">⌄</span>
         </summary>
-        {facets?.stores.length ? (
+        {stores.length ? (
           <div className="max-h-48 space-y-2 overflow-y-auto pb-2 pt-1">
-            {facets.stores.map((store) => (
+            {stores.map((store) => (
               <label
                 key={store.id}
                 className="flex cursor-pointer items-center gap-2 text-sm text-slate-300"

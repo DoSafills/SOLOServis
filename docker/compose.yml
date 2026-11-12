@@ -4,6 +4,9 @@
 #
 #   docker compose -f docker/compose.yml up -d --build
 #
+# DATABASE_URL se lee desde .env en la raíz. Usa
+# scripts/switch-database.ps1 neon para cargar la URL de backend/.env.
+#
 # Los 3 procesos usan UNA imagen (docker/all-apis/Dockerfile, cmd/all-apis) y
 # solo cambia API_DOMAIN:
 #   comercial  = product, store, service, pricing, search, comparison,
@@ -35,7 +38,7 @@ x-dominio: &dominio
 
 x-dominio-env: &dominio-env
   PORT: "8080"
-  DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+  DATABASE_URL: ${DATABASE_URL:?Configura DATABASE_URL en .env o ejecuta scripts/switch-database.ps1 neon}
   FRONTEND_URL: http://localhost:8443
   # Credencial de DESARROLLO, solo para Compose local.
   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-solo-para-compose-local}

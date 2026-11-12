@@ -1,12 +1,6 @@
 import type { AnyCartItem, Product, Service } from "../../types";
 import { getProductById, getServiceById } from "../../services/api/api";
-import { API_URLS, getApiBaseUrl } from "./config";
-
-const FAVORITES_API_URL = getApiBaseUrl(import.meta.env.VITE_FAVORITES_API_URL, 8089);
-const CART_API_URL = getApiBaseUrl(import.meta.env.VITE_CART_API_URL, 8090);
-const COMPARISON_API_URL = getApiBaseUrl(import.meta.env.VITE_COMPARISON_API_URL, 8087);
-const AUTH_API_URL = getApiBaseUrl(import.meta.env.VITE_AUTH_API_URL, 8088);
-const SEARCH_API_URL = getApiBaseUrl(import.meta.env.VITE_SEARCH_API_URL, 8086);
+import { API_URLS } from "./config";
 
 const AUTH_SESSION_KEY = "soloservice.auth-session";
 const COMPARISON_ID_KEY = "soloservice.product-comparison-id";
@@ -109,7 +103,7 @@ export async function request<T>(
     apiName,
   );
 
-  if (response.status === 401 && retryWithRefresh && baseUrl !== AUTH_API_URL && session) {
+  if (response.status === 401 && retryWithRefresh && baseUrl !== API_URLS.auth && session) {
     const refreshedSession = await refreshAuthSession(session);
     if (refreshedSession) {
       return request<T>(baseUrl, path, init, false);
@@ -218,7 +212,7 @@ async function refreshAuthSession(session: AuthSession): Promise<AuthSession | n
 
   refreshPromise = (async () => {
     try {
-      const response = await fetch(`${AUTH_API_URL}/auth/refresh`, {
+      const response = await fetch(`${API_URLS.auth}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken: session.refreshToken }),

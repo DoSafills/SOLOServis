@@ -75,7 +75,6 @@ export interface Product {
   reviewCount: number;
   specs: Record<string, string>;
   attributes?: Record<string, string | number | boolean>;
-  categorySlug?: string | null;
   offers: StoreOffer[];
   priceHistory: PricePoint[];
   /** Current sale/offer price if product is on promotion right now */
@@ -139,13 +138,12 @@ export interface Store {
 
 export interface StoreProduct {
   id: string;
-  offerId: number;
+  offerId: number | null;
   name: string;
   brand: string;
   model: string;
   category: string;
   description: string;
-  offerId?: number | null;
   price: number | null;
   listPrice: number | null;
   currency: string;

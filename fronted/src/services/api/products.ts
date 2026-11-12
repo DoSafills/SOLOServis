@@ -63,7 +63,6 @@ export interface ApiProduct {
   reviewCount: number;
   specs?: Record<string, string>;
   attributes?: Record<string, string | number | boolean>;
-  categorySlug?: string | null;
   images?: ApiImage[];
   offers?: ApiOffer[];
   priceHistory?: ApiPricePoint[];
@@ -149,7 +148,6 @@ export const toProduct = (product: ApiProduct): Product => {
     reviewCount: product.reviewCount,
     specs: product.specs ?? {},
     attributes: product.attributes ?? {},
-    categorySlug: product.categorySlug,
     offers,
     priceHistory,
     offerPriceHistory,

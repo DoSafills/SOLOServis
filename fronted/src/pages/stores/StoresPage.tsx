@@ -312,8 +312,9 @@ function StoreProductCard({
 
         <button
           type="button"
-          disabled={!product.available || product.offerId <= 0 || adding}
+          disabled={!product.available || !mappedOffer || adding}
           onClick={() => {
+            if (!mappedOffer) return;
             setAdding(true);
             setMessage(null);
             void onAddToCart(mappedProduct, mappedOffer)
@@ -528,8 +529,7 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
           {filteredProducts.map((product) => (
             <StoreProductCard
-              key={product.id}
-              key={product.offerId}
+              key={product.offerId ?? product.id}
               product={product}
               storeId={store.id}
               storeName={store.name}
