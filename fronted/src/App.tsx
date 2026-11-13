@@ -763,11 +763,16 @@ export default function App() {
     onToggleCompare: toggleCompare,
     onToggleProductCompare: toggleProductCompare,
   };
+  const homeProps = {
+    ...sharedProps,
+    authenticated: Boolean(user),
+    searchHistory,
+  };
 
   const renderPage = () => {
     switch (page.id) {
       case "home":
-        return <HomePage {...sharedProps} />;
+        return <HomePage {...homeProps} />;
       case "product-categories":
         return <ProductCategoriesPage navigate={navigate} />;
       case "service-categories":
@@ -907,7 +912,7 @@ export default function App() {
           />
         );
       default:
-        return <HomePage {...sharedProps} />;
+        return <HomePage {...homeProps} />;
     }
   };
 
