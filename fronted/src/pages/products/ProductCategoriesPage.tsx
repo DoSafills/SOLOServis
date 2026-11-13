@@ -301,14 +301,14 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                 }`}
               >
                 <div className="relative z-10 overflow-hidden rounded-[11px] bg-surface">
-                  <div className="flex items-center">
+                  <div>
                     <button
                       type="button"
                       onClick={() => toggleSection(section.id)}
                       aria-expanded={isExpanded}
                       aria-controls={panelId}
                       aria-label={`${isExpanded ? "Ocultar" : "Ver"} subcategorías de ${section.title}`}
-                      className="flex min-w-0 flex-1 items-center gap-3 p-4 text-left sm:gap-4 sm:p-5"
+                      className="flex min-w-0 w-full items-center gap-3 px-4 pt-4 pb-2 text-left sm:gap-4 sm:px-5 sm:pt-5"
                     >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-prime">
                         <CategoryIcon name={section.icon} />
@@ -343,21 +343,23 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                         />
                       </svg>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate({
-                          id: "search-products",
-                          query: "",
-                          productGroup: section.id,
-                        })
-                      }
-                      className="mr-3 inline-flex shrink-0 items-center gap-1 rounded-lg border border-prime/40 bg-prime-muted px-3 py-2 text-xs font-semibold text-prime transition hover:border-prime hover:bg-prime/20 sm:mr-4 sm:px-3.5"
-                      aria-label={`Ver todo ${section.title}`}
-                    >
-                      Todo {section.title}
-                      <span aria-hidden="true">→</span>
-                    </button>
+                    <div className="pb-4 pl-[4.25rem] pr-4 sm:pb-5 sm:pl-[4.5rem] sm:pr-5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate({
+                            id: "search-products",
+                            query: "",
+                            productGroup: section.id,
+                          })
+                        }
+                        className="inline-flex items-center gap-1 rounded-lg border border-prime/40 bg-prime-muted px-3 py-2 text-xs font-semibold text-prime transition hover:border-prime hover:bg-prime/20 sm:px-3.5"
+                        aria-label={`Ver todo ${section.title}`}
+                      >
+                        Todo {section.title}
+                        <span aria-hidden="true">→</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isExpanded && (

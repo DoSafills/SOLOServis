@@ -152,61 +152,85 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
             <button
               key={store.id}
               onClick={() => navigate({ id: "store-detail", storeId: store.id })}
-              className="group flex h-full flex-col rounded-2xl border border-bd bg-surface p-5 text-left shadow-lg shadow-black/15 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-xl hover:shadow-black/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+              className="group relative isolate flex min-h-[24rem] flex-col overflow-hidden rounded-[1.75rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:min-h-[22rem]"
             >
-              <div className="flex min-w-0 items-center gap-3">
-                <StoreLogo name={store.name} logo={store.logo} className="h-14 w-14" />
+              <div className="absolute inset-y-0 left-0 w-[58%] bg-slate-950/60">
+                <StoreLogo
+                  name={store.name}
+                  logo={store.logo}
+                  className="h-full w-full rounded-none border-0 bg-transparent"
+                  fallbackClassName="text-5xl"
+                />
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
+                />
+              </div>
 
-                <div className="min-w-0 flex-1">
-                  <h2 className="truncate text-base font-semibold text-text transition-colors group-hover:text-prime">
+              <div
+                aria-hidden="true"
+                className="absolute inset-y-0 right-0 w-[66%]"
+                style={{
+                  background: "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
+                  clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
+                }}
+              />
+
+              <div className="relative z-10 ml-[38%] flex w-[62%] min-w-0 flex-1 flex-col justify-center gap-2 p-3 pl-8 sm:gap-2.5 sm:pl-10">
+                <div className="min-w-0">
+                  <h2 className="line-clamp-2 text-base font-bold leading-snug text-text transition-colors group-hover:text-prime">
                     {store.name}
                   </h2>
-                  <Badge variant={store.reputation === "Excelente" ? "best" : "available"}>
-                    {store.reputation}
-                  </Badge>
+                  <div className="mt-1">
+                    <Badge variant={store.reputation === "Excelente" ? "best" : "available"}>
+                      {store.reputation}
+                    </Badge>
+                  </div>
                 </div>
+
+                <div className="[&_span]:text-muted">
+                  <Rating value={store.rating} count={store.reviewCount} />
+                </div>
+
+                <div className="space-y-2 border-t border-bd pt-2">
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="shrink-0 text-muted">Productos</span>
+                    <span className="font-semibold text-prime">
+                      {store.productCount.toLocaleString("es-CL")}
+                    </span>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-2 text-[10px]">
+                    <span className="shrink-0 text-muted">Despacho</span>
+                    <span className="line-clamp-2 text-right font-medium text-muted-2">
+                      {store.dispatchTime}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="shrink-0 text-muted">Sitio</span>
+                    <span
+                      className="max-w-[70%] truncate text-right font-semibold text-prime"
+                      title={store.website}
+                    >
+                      {store.website}
+                    </span>
+                  </div>
+                </div>
+
+                <span className="mt-auto flex w-full items-center justify-between rounded-xl bg-prime px-2 py-2.5 text-[11px] font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all hover:bg-prime-dark">
+                  Ver tienda
+                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+                    <path
+                      d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
               </div>
-
-              <div className="mt-4">
-                <Rating value={store.rating} count={store.reviewCount} />
-              </div>
-
-              <div className="mt-4 space-y-2 border-t border-bd pt-4">
-                <div className="flex items-center justify-between gap-4 text-xs">
-                  <span className="text-muted">Productos</span>
-                  <span className="font-semibold text-text">
-                    {store.productCount.toLocaleString("es-CL")}
-                  </span>
-                </div>
-
-                <div className="flex items-start justify-between gap-4 text-xs">
-                  <span className="text-muted">Despacho</span>
-                  <span className="text-right font-medium text-text">{store.dispatchTime}</span>
-                </div>
-
-                <div className="flex items-center justify-between gap-4 text-xs">
-                  <span className="text-muted">Sitio</span>
-                  <span
-                    className="max-w-[70%] truncate font-semibold text-prime"
-                    title={store.website}
-                  >
-                    {store.website}
-                  </span>
-                </div>
-              </div>
-
-              <span className="mt-auto flex items-center justify-between border-t border-bd pt-4 text-xs font-semibold text-prime">
-                Ver tienda
-                <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
-                  <path
-                    d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
             </button>
           ))}
         </div>
