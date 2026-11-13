@@ -3,6 +3,8 @@ import type { Page, Service } from "../../types";
 import { getServices } from "../../services/api/api";
 import ServiceCard from "../../components/services/ServiceCard";
 import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
+import CategoryIcon from "../../components/common/CategoryIcon";
+import { getServiceCategoryIcon } from "../../constants/productCatalog";
 
 interface Props {
   query: string;
@@ -223,14 +225,6 @@ export default function ServicesPage({
 
   const clearFilters = () => updateActiveFilters({ ...emptyFilters });
   const goToAllServices = () => navigate({ id: "search-services", query: "" });
-  const getGroupIcon = (name: string) => {
-    const normalized = name.toLocaleLowerCase("es");
-    if (/internet|telefon/.test(normalized)) return "🌐";
-    if (/seguridad/.test(normalized)) return "🛡️";
-    if (/educaci|curso/.test(normalized)) return "📚";
-    return "✨";
-  };
-
   const renderFilters = () => (
     <div className="space-y-2">
       <details className="border-b border-bd pb-2" open>
@@ -423,7 +417,9 @@ export default function ServicesPage({
                       : "border-transparent text-muted-2 hover:text-text"
                   }`}
                 >
-                  {group.id !== "all" && <span aria-hidden="true">{getGroupIcon(group.name)}</span>}
+                  {group.id !== "all" && (
+                    <CategoryIcon name={getServiceCategoryIcon(group.name)} className="h-4 w-4" />
+                  )}
                   {group.name}
                   {groupFilterCount > 0 && (
                     <span className="rounded-full bg-prime/15 px-1.5 py-0.5 text-[10px] text-prime">

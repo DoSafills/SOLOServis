@@ -3,7 +3,9 @@ import type { Page, Product } from "../../types";
 import { getAllProducts } from "../../services/api/api";
 import { getCategories, type ApiProductCategory } from "../../services/api/products";
 import { Breadcrumb } from "../../components/common/ui";
+import CategoryIcon from "../../components/common/CategoryIcon";
 import {
+  CATEGORY_SECTION_ICONS,
   getProductCategoryGroup,
   getProductSubtype,
   getProductSubtypeSearchQuery,
@@ -29,19 +31,19 @@ const categorySections = [
     id: "home",
     title: "Hogar",
     description: "Electrodomésticos, muebles y productos para tu casa",
-    icon: "🏠",
+    icon: CATEGORY_SECTION_ICONS.home,
   },
   {
     id: "technology",
     title: "Tecnología",
     description: "TV, videojuegos, audio, computación y telefonía",
-    icon: "⚡",
+    icon: CATEGORY_SECTION_ICONS.technology,
   },
   {
     id: "other",
     title: "Otras categorías",
     description: "Deportes, fitness y nuevos tipos de productos",
-    icon: "✨",
+    icon: CATEGORY_SECTION_ICONS.other,
   },
 ] as const;
 
@@ -308,8 +310,8 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                       aria-label={`${isExpanded ? "Ocultar" : "Ver"} subcategorías de ${section.title}`}
                       className="flex min-w-0 flex-1 items-center gap-3 p-4 text-left sm:gap-4 sm:p-5"
                     >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-xl">
-                        {section.icon}
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-prime">
+                        <CategoryIcon name={section.icon} />
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-base font-semibold text-text sm:text-lg">
@@ -367,54 +369,72 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                       ) : (
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                           {section.categories.map((category) => (
-                            <button
+                            <article
                               key={`${category.categoryId ?? category.query}:${category.name}`}
-                              onClick={() =>
-                                navigate({
-                                  id: "search-products",
-                                  query: category.query,
-                                  categoryContext: category.name,
-                                  categoryId: category.categoryId,
-                                })
-                              }
-                              aria-label={`Ver ${category.count} ${category.count === 1 ? "producto" : "productos"} de ${category.name}`}
-                              className="group relative flex min-h-28 min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-bd bg-gradient-to-br from-surface to-surface-2 p-3.5 text-left transition-colors duration-200 hover:border-prime focus-visible:border-prime focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+                              className="group relative flex min-h-40 min-w-0 overflow-hidden rounded-[1.5rem] border border-bd bg-surface shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30"
                             >
-                              <span className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-bd bg-surface-2 p-2 shadow-inner sm:h-[4.5rem] sm:w-[4.5rem]">
+                              <div className="absolute inset-y-0 left-0 w-[58%] bg-slate-950/60">
                                 <img
                                   src={category.image}
                                   alt=""
                                   loading="lazy"
-                                  className="h-full w-full object-contain"
+                                  className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]"
                                 />
-                              </span>
-                              <span className="flex min-w-0 flex-1 flex-col justify-center py-1">
-                                <span className="line-clamp-2 text-sm font-semibold leading-snug text-text">
+                                <span
+                                  aria-hidden="true"
+                                  className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
+                                />
+                              </div>
+                              <div
+                                aria-hidden="true"
+                                className="absolute inset-y-0 right-0 w-[66%]"
+                                style={{
+                                  background:
+                                    "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
+                                  clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
+                                }}
+                              />
+                              <div className="relative z-10 ml-[38%] flex w-[62%] min-w-0 flex-col items-start justify-center gap-2 p-3 pl-8 sm:gap-2.5 sm:p-4 sm:pl-10">
+                                <h3 className="line-clamp-2 text-sm font-bold leading-snug text-text transition-colors group-hover:text-prime sm:text-base">
                                   {category.name}
-                                </span>
-                                <span className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-full border border-bd bg-surface-2 px-2 py-1 text-[10px] font-medium text-muted">
-                                  <span className="h-1 w-1 rounded-full bg-prime" />
+                                </h3>
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-bd bg-surface-2 px-2 py-1 text-[10px] font-medium text-muted">
+                                  <span
+                                    aria-hidden="true"
+                                    className="h-1 w-1 rounded-full bg-prime"
+                                  />
                                   {category.count} {category.count === 1 ? "producto" : "productos"}
                                 </span>
-                              </span>
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-bd bg-surface-2 text-muted">
-                                <svg
-                                  width="15"
-                                  height="15"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  aria-hidden="true"
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    navigate({
+                                      id: "search-products",
+                                      query: category.query,
+                                      categoryContext: category.name,
+                                      categoryId: category.categoryId,
+                                    })
+                                  }
+                                  aria-label={`Ver categoría ${category.name}`}
+                                  className="mt-0.5 inline-flex h-9 w-9 items-center justify-center self-end rounded-full bg-prime text-[#181714] shadow-lg shadow-black/20 transition-all hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
                                 >
-                                  <path
-                                    d="M5 12h14m-6-6 6 6-6 6"
-                                    stroke="currentColor"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-                                </svg>
-                              </span>
-                            </button>
+                                  <svg
+                                    aria-hidden="true"
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    className="h-5 w-5"
+                                  >
+                                    <path
+                                      d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                                      stroke="currentColor"
+                                      strokeWidth="1.7"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                </button>
+                              </div>
+                            </article>
                           ))}
                         </div>
                       )}

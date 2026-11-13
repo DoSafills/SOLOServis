@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServices } from "../../services/api/api";
 import { Breadcrumb } from "../../components/common/ui";
+import CategoryIcon from "../../components/common/CategoryIcon";
+import { getServiceCategoryIcon } from "../../constants/productCatalog";
 
 interface Props {
   navigate: (page: Page) => void;
@@ -20,14 +22,6 @@ const categoryColors = {
 const sectionStyle = {
   card: "border-[#343B40] bg-gradient-to-r from-[#22282C] via-[#191D20] to-[#191D20]",
   accent: "text-[#D1A85A]",
-};
-
-const sectionIcon = (name: string) => {
-  const normalized = name.toLocaleLowerCase("es");
-  if (/internet|telefon/.test(normalized)) return "🌐";
-  if (/seguridad/.test(normalized)) return "🛡️";
-  if (/educaci|curso/.test(normalized)) return "📚";
-  return "✨";
 };
 
 export default function ServiceCategoriesPage({ navigate }: Props) {
@@ -80,7 +74,7 @@ export default function ServiceCategoriesPage({ navigate }: Props) {
         return {
           id: name,
           name,
-          icon: sectionIcon(name),
+          icon: getServiceCategoryIcon(name),
           style: sectionStyle,
           categories: [...byCategory]
             .sort(([first], [second]) => first.localeCompare(second, "es"))
@@ -179,8 +173,8 @@ export default function ServiceCategoriesPage({ navigate }: Props) {
                   onClick={() => toggleSection(section.id)}
                   className="flex w-full items-center gap-4 p-4 text-left transition hover:bg-white/[0.035] sm:p-5"
                 >
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-bd bg-surface-2 text-2xl shadow-inner">
-                    {section.icon}
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-bd bg-surface-2 text-prime shadow-inner">
+                    <CategoryIcon name={section.icon} className="h-6 w-6" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span
@@ -252,9 +246,10 @@ export default function ServiceCategoriesPage({ navigate }: Props) {
                                   className="h-full w-full rounded-xl object-cover drop-shadow-lg transition-transform duration-300 group-hover:scale-110"
                                 />
                               ) : (
-                                <span className="text-3xl" aria-hidden="true">
-                                  {section.icon}
-                                </span>
+                                <CategoryIcon
+                                  name={getServiceCategoryIcon(category.name)}
+                                  className="h-8 w-8 text-prime"
+                                />
                               )}
                             </span>
                             <span className="relative flex min-w-0 flex-1 flex-col justify-center">

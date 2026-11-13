@@ -2,72 +2,35 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { UI_TEXT } from "../../constants/uiText";
 import type { Page, Product, Service, StoreOffer } from "../../types";
-import { PRODUCT_TYPES, type ProductTypeId } from "../../constants/productCatalog";
+import { PRODUCT_TYPES, SERVICE_CATEGORY_ICONS } from "../../constants/productCatalog";
 import type { SearchHistoryEntry } from "../../services/api/personalization";
 
 import { getProducts, getServices } from "../../services/api/api";
 import { getPopularProducts, type SearchProductResult } from "../../services/api/search";
 import ProductCard from "../../components/products/ProductCard";
 import ServiceCard from "../../components/services/ServiceCard";
+import CategoryIcon from "../../components/common/CategoryIcon";
 
 const productCategories = PRODUCT_TYPES;
 
 const serviceCategories = [
-  { name: UI_TEXT.categories.internet, icon: "wifi", color: "#D1A85A" },
-  { name: UI_TEXT.categories.insurance, icon: "shield", color: "#D1A85A" },
-  { name: UI_TEXT.categories.technicians, icon: "wrench", color: "#D1A85A" },
-  { name: UI_TEXT.categories.education, icon: "book", color: "#D1A85A" },
+  { name: UI_TEXT.categories.internet, icon: SERVICE_CATEGORY_ICONS.internet, color: "#D1A85A" },
+  { name: UI_TEXT.categories.insurance, icon: SERVICE_CATEGORY_ICONS.security, color: "#D1A85A" },
+  {
+    name: UI_TEXT.categories.technicians,
+    icon: SERVICE_CATEGORY_ICONS.technicians,
+    color: "#D1A85A",
+  },
+  { name: UI_TEXT.categories.education, icon: SERVICE_CATEGORY_ICONS.education, color: "#D1A85A" },
 ];
-
-const productCategoryIcons: Record<ProductTypeId, string> = {
-  appliances: "refrigerator",
-  technology: "bolt",
-  computing: "laptop",
-  phones: "phone",
-  gaming: "gamepad",
-  home: "house",
-};
 
 const featuredCategories = [
   ...productCategories.map((category) => ({
     ...category,
-    icon: productCategoryIcons[category.id],
     kind: "product" as const,
   })),
   ...serviceCategories.map((category) => ({ ...category, kind: "service" as const })),
 ];
-
-const categoryIconPaths: Record<string, string> = {
-  refrigerator: "M6 3h12v18H6z M6 10h12 M9 7v1 M9 13v2",
-  bolt: "M13 2 5 13h6l-1 9 9-12h-6l1-8Z",
-  laptop: "M5 4h14v11H5z M2 20h20l-2-5H4z",
-  phone: "M7 2.5h10v19H7z M11 18.5h2",
-  gamepad:
-    "M6.5 8h11a4.5 4.5 0 0 1 4.4 5.5l-.8 3.6a2 2 0 0 1-3.3 1l-2.6-2.1H8.8l-2.6 2.1a2 2 0 0 1-3.3-1l-.8-3.6A4.5 4.5 0 0 1 6.5 8Z M8 10.5v4 M6 12.5h4 M16 11h.01 M18 14h.01",
-  house: "M3 10.5 12 3l9 7.5 M5 9v12h14V9 M10 21v-7h4v7",
-  wifi: "M2 8.5a15 15 0 0 1 20 0 M5 12a10 10 0 0 1 14 0 M8.5 15.5a5 5 0 0 1 7 0",
-  shield: "M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z",
-  wrench: "M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4L15 12l-3-3 2.7-2.7Z",
-  book: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z M8 6h8",
-};
-
-function CategoryIcon({ name }: { name: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-4 w-4"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d={categoryIconPaths[name] ?? categoryIconPaths.house} />
-      {name === "wifi" && <circle cx="12" cy="19" r="0.8" fill="currentColor" stroke="none" />}
-    </svg>
-  );
-}
 
 const POPULAR_PRODUCTS_AUTOPLAY_MS = 7000;
 const MAX_RECENT_SEARCHES = 5;
@@ -558,7 +521,7 @@ export default function HomePage({
                   boxShadow: "inset 0 0 0 1px rgba(209, 168, 90, 0.35)",
                 }}
               >
-                <CategoryIcon name={cat.icon} />
+                <CategoryIcon name={cat.icon} className="h-4 w-4" />
               </span>
               <span className="text-[11px] font-semibold text-text group-hover:text-prime">
                 {cat.name}
