@@ -223,7 +223,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
               onClick={() => navigate({ id: "user" })}
               aria-label="Mi cuenta"
               title="Mi cuenta"
-              className={`rounded-xl border p-2.5 transition-all duration-200 ${
+              className={`hidden rounded-xl border p-2.5 transition-all duration-200 lg:block ${
                 currentPage.id === "user"
                   ? "border-prime/40 bg-prime-muted text-prime"
                   : "border-transparent text-muted hover:border-prime/30 hover:bg-prime-muted hover:text-prime"
@@ -320,6 +320,20 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
                 {l.label}
               </button>
             ))}
+            <button
+              onClick={() => {
+                navigate({ id: "user" });
+                setMobileOpen(false);
+              }}
+              aria-current={currentPage.id === "user" ? "page" : undefined}
+              className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm font-bold transition-all ${
+                currentPage.id === "user"
+                  ? "border-prime/30 bg-prime-muted text-prime"
+                  : "border-transparent text-muted hover:bg-surface-2 hover:text-text"
+              }`}
+            >
+              Mi cuenta
+            </button>
           </div>
         )}
       </div>
