@@ -2,13 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import type { Page, Product, Store, StoreDetail, StoreOffer, StoreProduct } from "../../types";
 import { getStores, getStoreById } from "../../services/api/api";
 import { Badge, Breadcrumb, EmptyState, Rating } from "../../components/common/ui";
+import ProductCard from "../../components/products/ProductCard";
 
 interface Props {
   navigate: (page: Page) => void;
   favorites: Set<string>;
-  compareList: Set<string>;
+  productCompareList: Set<string>;
+  cartProductIds: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
-  onToggleCompare: (id: string) => void;
+  onToggleProductCompare: (id: string, category: string) => void;
   onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
   storeId?: string;
 }
@@ -17,11 +19,13 @@ function StoreLogo({
   name,
   logo,
   className,
+  imageFit = "contain",
   fallbackClassName = "text-sm",
 }: {
   name: string;
   logo: string;
   className: string;
+  imageFit?: "contain" | "cover";
   fallbackClassName?: string;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
@@ -34,7 +38,7 @@ function StoreLogo({
         <img
           src={logo}
           alt={`${name} logo`}
-          className="h-full w-full object-contain p-1.5"
+          className={`h-full w-full ${imageFit === "cover" ? "object-cover" : "object-contain p-1.5"}`}
           onError={() => setImageFailed(true)}
         />
       ) : (
@@ -158,6 +162,7 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
                 <StoreLogo
                   name={store.name}
                   logo={store.logo}
+                  imageFit="cover"
                   className="h-full w-full rounded-none border-0 bg-transparent"
                   fallbackClassName="text-5xl"
                 />
@@ -243,35 +248,25 @@ function StoreProductCard({
   product,
   storeId,
   storeName,
+  navigate,
+  favorites,
+  productCompareList,
+  cartProductIds,
+  onToggleFavorite,
+  onToggleProductCompare,
   onAddToCart,
 }: {
   product: StoreProduct;
   storeId: string;
   storeName: string;
+  navigate: (page: Page) => void;
+  favorites: Set<string>;
+  productCompareList: Set<string>;
+  cartProductIds: ReadonlySet<string>;
+  onToggleFavorite: (id: string) => void;
+  onToggleProductCompare: (id: string, category: string) => void;
   onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
 }) {
-  const [adding, setAdding] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [imageFailed, setImageFailed] = useState(false);
-  const mappedProduct: Product = {
-    id: product.id,
-    name: product.name,
-    brand: product.brand,
-    model: product.model,
-    category: product.category,
-    subcategory: "",
-    image: product.image,
-    images: [],
-    description: product.description,
-    rating: 0,
-    reviewCount: 0,
-    specs: {},
-    offers: [],
-    priceHistory: [],
-    offerPriceHistory: [],
-    tags: [],
-  };
-
   const mappedOffer: StoreOffer = {
     offerId: product.offerId,
     storeId,
@@ -287,132 +282,49 @@ function StoreProductCard({
     lastUpdated: product.lastUpdated,
   };
 
+  const mappedProduct: Product = {
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    model: product.model,
+    category: product.category,
+    subcategory: "",
+    image: product.image,
+    images: product.image ? [product.image] : [],
+    description: product.description,
+    rating: 0,
+    reviewCount: 0,
+    specs: {},
+    offers: [mappedOffer],
+    priceHistory: [],
+    offerPriceHistory: [],
+    tags: [],
+  };
+
   return (
-    <div className="group relative isolate flex min-h-[22rem] flex-col overflow-hidden rounded-[1.5rem] border border-bd bg-surface shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30">
-      <div className="absolute inset-y-0 left-0 w-[58%] bg-slate-950/60">
-        {product.image && !imageFailed ? (
-          <img
-            src={product.image}
-            alt={product.name}
-            loading="lazy"
-            className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]"
-            onError={() => setImageFailed(true)}
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-sm font-medium text-muted">
-            Sin imagen
-          </div>
-        )}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
-        />
-      </div>
-
-      <div
-        aria-hidden="true"
-        className="absolute inset-y-0 right-0 w-[66%]"
-        style={{
-          background: "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
-          clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
-        }}
-      />
-
-      <div className="relative z-10 ml-[38%] flex w-[62%] min-w-0 flex-1 flex-col justify-center gap-2 p-3 pl-8 sm:gap-2.5 sm:pl-10">
-        <div className="min-w-0">
-          <p className="mb-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-prime">
-            {product.brand || "Sin marca"}
-          </p>
-          <h3 className="line-clamp-2 text-sm font-bold leading-snug text-text transition-colors group-hover:text-prime">
-            {product.name}
-          </h3>
-          <div className="mt-1.5">
-            <Badge variant={product.available ? "available" : "unavailable"}>
-              {product.available ? "Disponible" : "No disponible"}
-            </Badge>
-          </div>
-        </div>
-
-        <div className="border-t border-bd pt-2">
-          <div className="text-lg font-bold tracking-tight text-prime">
-            {Number(product.price).toLocaleString("es-CL")} {product.currency}
-          </div>
-
-          {Number(product.listPrice) > Number(product.price) && (
-            <div className="mt-0.5 text-[10px] text-muted line-through">
-              {Number(product.listPrice).toLocaleString("es-CL")} {product.currency}
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-1.5 border-t border-bd pt-2">
-          <div className="flex justify-between gap-2 text-[10px]">
-            <span className="shrink-0 text-muted">Despacho</span>
-            <span className="truncate text-right font-medium text-muted-2">
-              {product.shippingFree
-                ? "Gratis"
-                : `${Number(product.shippingCost).toLocaleString("es-CL")} ${product.currency}`}
-            </span>
-          </div>
-
-          <div className="flex justify-between gap-2 text-[10px]">
-            <span className="shrink-0 text-muted">Stock</span>
-            <span className="truncate text-right font-medium text-muted-2">
-              {product.stock === null ? "No informado" : product.stock}
-            </span>
-          </div>
-
-          <div className="flex justify-between gap-2 text-[10px]">
-            <span className="shrink-0 text-muted">Modelo</span>
-            <span className="truncate text-right font-medium text-muted-2">
-              {product.model || "—"}
-            </span>
-          </div>
-          <div className="flex justify-between gap-2 text-[10px]">
-            <span className="shrink-0 text-muted">Actualización</span>
-            <span
-              className="truncate text-right font-medium text-muted-2"
-              title={
-                product.lastUpdated
-                  ? new Date(product.lastUpdated).toLocaleString("es-CL")
-                  : undefined
-              }
-            >
-              {product.lastUpdated
-                ? new Date(product.lastUpdated).toLocaleString("es-CL")
-                : "No informada"}
-            </span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          disabled={!product.available || product.offerId <= 0 || adding}
-          onClick={() => {
-            setAdding(true);
-            setMessage(null);
-            void onAddToCart(mappedProduct, mappedOffer)
-              .then((added) =>
-                setMessage(added ? "Oferta agregada a la cesta." : "No se pudo agregar la oferta."),
-              )
-              .catch(() => setMessage("No se pudo conectar para agregar la oferta."))
-              .finally(() => setAdding(false));
-          }}
-          className="w-full rounded-lg bg-prime px-2 py-2 text-[10px] font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800/70 disabled:text-slate-400 disabled:shadow-none"
-        >
-          {adding ? "Agregando..." : "Agregar al carrito"}
-        </button>
-        {message && (
-          <p role="status" className="text-[10px] text-muted">
-            {message}
-          </p>
-        )}
-      </div>
-    </div>
+    <ProductCard
+      product={mappedProduct}
+      navigate={navigate}
+      isFavorite={favorites.has(product.id)}
+      isComparing={productCompareList.has(product.id)}
+      cartProductIds={cartProductIds}
+      onAddToCart={onAddToCart}
+      onToggleFavorite={onToggleFavorite}
+      onToggleCompare={onToggleProductCompare}
+    />
   );
 }
 
-function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
+function StoreDetail({
+  storeId,
+  navigate,
+  favorites,
+  productCompareList,
+  cartProductIds,
+  onToggleFavorite,
+  onToggleProductCompare,
+  onAddToCart,
+}: Required<Props>) {
   const [store, setStore] = useState<StoreDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -506,10 +418,11 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
       />
 
       <div className="mb-8 flex flex-col overflow-hidden rounded-[1.5rem] border border-bd bg-surface shadow-lg shadow-black/20 md:flex-row">
-        <div className="flex h-40 w-full shrink-0 items-center justify-center overflow-hidden border-b border-bd bg-surface-2 p-6 md:h-auto md:min-h-[220px] md:w-64 md:border-b-0 md:border-r">
+        <div className="flex h-40 w-full shrink-0 items-center justify-center overflow-hidden border-b border-bd bg-surface-2 md:h-auto md:min-h-[220px] md:w-64 md:border-b-0 md:border-r">
           <StoreLogo
             name={store.name}
             logo={store.logo}
+            imageFit="cover"
             className="h-full w-full rounded-none border-0 bg-transparent"
             fallbackClassName="text-5xl"
           />
@@ -517,41 +430,39 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
 
         <div className="flex min-w-0 flex-1 flex-col justify-between gap-6 p-5 sm:p-6 md:flex-row">
           <div className="min-w-0 flex-1">
-            <div className="mb-2 flex flex-wrap items-center gap-3">
-              <h1 className="text-xl font-semibold tracking-tight text-text sm:text-2xl">
+            <div className="mb-2">
+              <h1 className="text-[1.4375rem] leading-tight font-semibold tracking-tight text-text sm:text-[1.725rem]">
                 {store.name}
               </h1>
-              <Badge variant={store.reputation === "Excelente" ? "best" : "available"}>
-                {store.reputation}
-              </Badge>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="origin-left scale-[1.15]">
               <Rating value={store.rating} count={store.reviewCount} />
-              {store.website && (
-                <a
-                  href={store.website}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-semibold text-prime transition-colors hover:text-prime-dark hover:underline"
-                >
-                  Visitar sitio
-                </a>
-              )}
             </div>
+
+            {store.website && (
+              <a
+                href={store.website}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-flex w-fit items-center justify-center rounded-xl border border-prime/50 bg-prime-muted px-4 py-2 text-sm font-semibold text-prime transition-colors hover:border-prime hover:bg-prime/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+              >
+                Visitar tienda
+              </a>
+            )}
 
             <p className="mt-3 text-sm text-muted">{store.conditions}</p>
           </div>
 
           <div className="grid shrink-0 grid-cols-2 gap-3 text-center md:w-64">
-            <div className="rounded-xl border border-bd bg-surface-2 px-4 py-3">
+            <div className="flex min-h-24 flex-col items-center justify-center rounded-xl border border-bd bg-surface-2 px-3 py-3">
               <div className="price text-lg font-bold text-prime">
                 {store.productCount.toLocaleString("es-CL")}
               </div>
               <div className="text-xs text-muted">Productos</div>
             </div>
 
-            <div className="rounded-xl border border-bd bg-surface-2 px-4 py-3">
+            <div className="flex min-h-24 flex-col items-center justify-center rounded-xl border border-bd bg-surface-2 px-3 py-3">
               <div className="text-sm font-bold text-text">{store.dispatchTime}</div>
               <div className="mt-1 text-xs text-muted">Despacho</div>
             </div>
@@ -608,6 +519,12 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
               product={product}
               storeId={store.id}
               storeName={store.name}
+              navigate={navigate}
+              favorites={favorites}
+              productCompareList={productCompareList}
+              cartProductIds={cartProductIds}
+              onToggleFavorite={onToggleFavorite}
+              onToggleProductCompare={onToggleProductCompare}
               onAddToCart={onAddToCart}
             />
           ))}

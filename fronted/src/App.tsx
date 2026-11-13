@@ -902,9 +902,10 @@ export default function App() {
           <StoresPage
             navigate={navigate}
             favorites={favorites}
-            compareList={compareList}
+            productCompareList={productCompareList}
+            cartProductIds={cartProductIds}
             onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
+            onToggleProductCompare={toggleProductCompare}
             onAddToCart={addToCart}
           />
         );
@@ -914,9 +915,10 @@ export default function App() {
             navigate={navigate}
             storeId={page.storeId}
             favorites={favorites}
-            compareList={compareList}
+            productCompareList={productCompareList}
+            cartProductIds={cartProductIds}
             onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
+            onToggleProductCompare={toggleProductCompare}
             onAddToCart={addToCart}
           />
         );
