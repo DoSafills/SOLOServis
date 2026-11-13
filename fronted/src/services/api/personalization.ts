@@ -5,6 +5,11 @@ import { API_URLS } from "./config";
 const AUTH_SESSION_KEY = "soloservice.auth-session";
 const COMPARISON_ID_KEY = "soloservice.product-comparison-id";
 const SERVICE_COMPARISON_ID_KEY = "soloservice.service-comparison-id";
+let authRefreshInFlight: {
+  userId: number;
+  refreshToken: string;
+  promise: Promise<AuthSession | null>;
+} | null = null;
 
 export interface AuthUser {
   userId: number;
@@ -103,27 +108,17 @@ export async function request<T>(
   );
 
   if (response.status === 401 && retryWithRefresh && baseUrl !== API_URLS.auth && session) {
-    const refreshResponse = await fetchWithServiceError(
-      `${API_URLS.auth}/auth/refresh`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken: session.refreshToken }),
-      },
-      "Auth API",
-    );
-    if (refreshResponse.ok) {
-      const tokens = (await refreshResponse.json()) as TokenResponse;
-      if (tokens.accessToken && tokens.refreshToken) {
-        storeAuthSession({
-          ...session,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          accessTokenExpiresAt: Date.now() + tokens.expiresIn * 1000,
-        });
-        return request<T>(baseUrl, path, init, false);
-      }
-    } else if (refreshResponse.status === 401) {
+    const refreshedSession = await refreshAuthSession(session);
+    if (refreshedSession) return request<T>(baseUrl, path, init, false);
+  }
+
+  if (response.status === 401 && !retryWithRefresh && baseUrl !== API_URLS.auth && session) {
+    const currentSession = getStoredAuthSession();
+    if (
+      currentSession?.userId === session.userId &&
+      currentSession.accessToken === session.accessToken &&
+      currentSession.refreshToken === session.refreshToken
+    ) {
       localStorage.removeItem(AUTH_SESSION_KEY);
     }
   }
@@ -249,6 +244,83 @@ export function hasStoredAuthSession(userId: number): boolean {
 
 function storeAuthSession(session: AuthSession): void {
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+}
+
+async function refreshAuthSession(session: AuthSession): Promise<AuthSession | null> {
+  const currentSession = getStoredAuthSession();
+  if (!currentSession || currentSession.userId !== session.userId) return null;
+  if (
+    currentSession.accessToken !== session.accessToken ||
+    currentSession.refreshToken !== session.refreshToken
+  ) {
+    return currentSession;
+  }
+
+  if (
+    !authRefreshInFlight ||
+    authRefreshInFlight.userId !== session.userId ||
+    authRefreshInFlight.refreshToken !== session.refreshToken
+  ) {
+    const promise = (async () => {
+      const refreshResponse = await fetchWithServiceError(
+        `${API_URLS.auth}/auth/refresh`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken: session.refreshToken }),
+        },
+        "Auth API",
+      );
+
+      if (!refreshResponse.ok) {
+        if (refreshResponse.status === 401) {
+          const latestSession = getStoredAuthSession();
+          if (
+            latestSession?.userId === session.userId &&
+            latestSession.refreshToken === session.refreshToken
+          ) {
+            localStorage.removeItem(AUTH_SESSION_KEY);
+          }
+        }
+        return null;
+      }
+
+      const tokens = (await refreshResponse.json()) as TokenResponse;
+      if (!tokens.accessToken || !tokens.refreshToken) return null;
+
+      const latestSession = getStoredAuthSession();
+      if (
+        !latestSession ||
+        latestSession.userId !== session.userId ||
+        latestSession.refreshToken !== session.refreshToken
+      ) {
+        return null;
+      }
+
+      const refreshedSession: AuthSession = {
+        ...latestSession,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        accessTokenExpiresAt: Date.now() + tokens.expiresIn * 1000,
+      };
+      storeAuthSession(refreshedSession);
+      return refreshedSession;
+    })();
+
+    authRefreshInFlight = {
+      userId: session.userId,
+      refreshToken: session.refreshToken,
+      promise,
+    };
+  }
+
+  const inFlight = authRefreshInFlight;
+  if (!inFlight) return null;
+  try {
+    return await inFlight.promise;
+  } finally {
+    if (authRefreshInFlight === inFlight) authRefreshInFlight = null;
+  }
 }
 
 async function createSession(tokens: TokenResponse): Promise<AuthSession> {

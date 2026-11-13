@@ -3,12 +3,17 @@ import type { FormEvent } from "react";
 import type { Page } from "../../types";
 import type { AuthUser, SearchHistoryEntry } from "../../services/api/personalization";
 import { Breadcrumb } from "../../components/common/ui";
+import FavoritesPage from "./FavoritesPage";
 
 interface Props {
   navigate: (page: Page) => void;
+  section?: Tab;
   user: AuthUser | null;
   favoritesCount: number;
+  favorites: Set<string>;
+  authenticated: boolean;
   history: SearchHistoryEntry[];
+  onToggleFavorite: (id: string, kind?: "product" | "service") => void;
   onLogin: (email: string, password: string) => Promise<void>;
   onRegister: (name: string, email: string, password: string) => Promise<void>;
   onLogout: () => Promise<void>;
@@ -18,14 +23,18 @@ type Tab = "profile" | "favorites" | "history";
 
 export default function UserPage({
   navigate,
+  section,
   user,
   favoritesCount,
+  favorites,
+  authenticated,
   history,
+  onToggleFavorite,
   onLogin,
   onRegister,
   onLogout,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>("profile");
+  const activeTab = section ?? "profile";
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -203,7 +212,7 @@ export default function UserPage({
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => navigate({ id: "user", section: tab.id })}
                   aria-current={activeTab === tab.id ? "page" : undefined}
                   className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
                     activeTab === tab.id
@@ -239,84 +248,82 @@ export default function UserPage({
             )}
           </aside>
 
-          <section className="min-h-64 flex-1 rounded-2xl border border-bd bg-surface p-6">
-            {activeTab === "profile" && (
-              <>
-                <h1 className="text-xl font-black text-text">Mi perfil</h1>
-                <p className="mt-2 text-sm text-muted">
-                  Esta es la cuenta activa para tus favoritos y tu historial.
-                </p>
-                <dl className="mt-6 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-xl border border-bd bg-surface-2 p-4">
-                    <dt className="text-xs font-bold uppercase tracking-wide text-muted">Nombre</dt>
-                    <dd className="mt-1 text-sm font-semibold text-text">{user.name}</dd>
-                  </div>
-                  <div className="rounded-xl border border-bd bg-surface-2 p-4">
-                    <dt className="text-xs font-bold uppercase tracking-wide text-muted">
-                      Correo electrónico
-                    </dt>
-                    <dd className="mt-1 break-all text-sm font-semibold text-text">{user.email}</dd>
-                  </div>
-                </dl>
-              </>
-            )}
-            {activeTab === "favorites" && (
-              <>
-                <h2 className="text-xl font-black text-text">Mis favoritos</h2>
-                <p className="mt-2 text-sm text-muted">
-                  {favoritesCount === 0
-                    ? "Todavía no has guardado productos o servicios."
-                    : `Tienes ${favoritesCount} elementos guardados.`}
-                </p>
-                <button
-                  onClick={() => navigate({ id: "favorites" })}
-                  className="mt-5 rounded-xl border border-prime/40 bg-prime-muted px-4 py-2.5 text-sm font-bold text-prime transition hover:bg-prime/20"
-                >
-                  Ver todos mis favoritos
-                </button>
-              </>
-            )}
-            {activeTab === "history" && (
-              <>
-                <h2 className="text-xl font-black text-text">Historial de búsquedas</h2>
-                {history.length === 0 ? (
-                  <p className="mt-3 text-sm text-muted">
-                    Tus búsquedas aparecerán aquí cuando explores productos o servicios con tu
-                    sesión iniciada.
+          {activeTab === "favorites" ? (
+            <FavoritesPage
+              navigate={navigate}
+              favorites={favorites}
+              authenticated={authenticated}
+              onToggleFavorite={onToggleFavorite}
+              embedded
+            />
+          ) : (
+            <section className="min-h-64 flex-1 rounded-2xl border border-bd bg-surface p-6">
+              {activeTab === "profile" && (
+                <>
+                  <h1 className="text-xl font-black text-text">Mi perfil</h1>
+                  <p className="mt-2 text-sm text-muted">
+                    Esta es la cuenta activa para tus favoritos y tu historial.
                   </p>
-                ) : (
-                  <ul className="mt-4 space-y-2">
-                    {history.map((entry) => (
-                      <li
-                        key={entry.id}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-bd bg-surface-2 px-4 py-3"
-                      >
-                        <div>
-                          <div className="text-sm font-semibold text-text">{entry.query}</div>
-                          <div className="mt-1 text-xs text-muted">
-                            {entry.type === "service" ? "Servicios" : "Productos"} ·{" "}
-                            {new Date(entry.createdAt).toLocaleString()}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() =>
-                            navigate(
-                              entry.type === "service"
-                                ? { id: "search-services", query: entry.query }
-                                : { id: "search-products", query: entry.query },
-                            )
-                          }
-                          className="text-xs font-bold text-prime hover:text-text"
+                  <dl className="mt-6 grid gap-4 sm:grid-cols-2">
+                    <div className="rounded-xl border border-bd bg-surface-2 p-4">
+                      <dt className="text-xs font-bold uppercase tracking-wide text-muted">
+                        Nombre
+                      </dt>
+                      <dd className="mt-1 text-sm font-semibold text-text">{user.name}</dd>
+                    </div>
+                    <div className="rounded-xl border border-bd bg-surface-2 p-4">
+                      <dt className="text-xs font-bold uppercase tracking-wide text-muted">
+                        Correo electrónico
+                      </dt>
+                      <dd className="mt-1 break-all text-sm font-semibold text-text">
+                        {user.email}
+                      </dd>
+                    </div>
+                  </dl>
+                </>
+              )}
+              {activeTab === "history" && (
+                <>
+                  <h2 className="text-xl font-black text-text">Historial de búsquedas</h2>
+                  {history.length === 0 ? (
+                    <p className="mt-3 text-sm text-muted">
+                      Tus búsquedas aparecerán aquí cuando explores productos o servicios con tu
+                      sesión iniciada.
+                    </p>
+                  ) : (
+                    <ul className="mt-4 space-y-2">
+                      {history.map((entry) => (
+                        <li
+                          key={entry.id}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-bd bg-surface-2 px-4 py-3"
                         >
-                          Buscar de nuevo
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-          </section>
+                          <div>
+                            <div className="text-sm font-semibold text-text">{entry.query}</div>
+                            <div className="mt-1 text-xs text-muted">
+                              {entry.type === "service" ? "Servicios" : "Productos"} ·{" "}
+                              {new Date(entry.createdAt).toLocaleString()}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() =>
+                              navigate(
+                                entry.type === "service"
+                                  ? { id: "search-services", query: entry.query }
+                                  : { id: "search-products", query: entry.query },
+                              )
+                            }
+                            className="text-xs font-bold text-prime hover:text-text"
+                          >
+                            Buscar de nuevo
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>

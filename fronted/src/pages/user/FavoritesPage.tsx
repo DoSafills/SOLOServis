@@ -9,6 +9,7 @@ interface Props {
   favorites: Set<string>;
   authenticated: boolean;
   onToggleFavorite: (id: string, kind?: "product" | "service") => void;
+  embedded?: boolean;
 }
 
 export default function FavoritesPage({
@@ -16,6 +17,7 @@ export default function FavoritesPage({
   favorites,
   authenticated,
   onToggleFavorite,
+  embedded = false,
 }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -50,7 +52,7 @@ export default function FavoritesPage({
     };
   }, [authenticated]);
 
-  const breadcrumb = (
+  const breadcrumb = !embedded && (
     <Breadcrumb
       items={[{ label: "Inicio", onClick: () => navigate({ id: "home" }) }, { label: "Favoritos" }]}
     />
@@ -58,7 +60,7 @@ export default function FavoritesPage({
 
   if (!authenticated) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8">
+      <div className={embedded ? "w-full" : "mx-auto max-w-7xl px-4 py-8"}>
         {breadcrumb}
         <section className="mx-auto flex max-w-lg flex-col items-center rounded-2xl border border-bd bg-surface px-6 py-16 text-center">
           <span className="mb-5 flex h-12 w-12 items-center justify-center rounded-full border border-bd bg-surface-2 text-prime">
@@ -86,7 +88,7 @@ export default function FavoritesPage({
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8">
+      <div className={embedded ? "w-full" : "mx-auto max-w-7xl px-4 py-8"}>
         {breadcrumb}
         <div className="mb-6">
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-prime">
@@ -107,7 +109,7 @@ export default function FavoritesPage({
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
+    <div className={embedded ? "w-full" : "mx-auto max-w-7xl px-4 py-8"}>
       {breadcrumb}
 
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-bd pb-5">

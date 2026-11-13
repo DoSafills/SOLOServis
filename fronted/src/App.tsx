@@ -13,7 +13,6 @@ import ServicesPage from "./pages/services/ServicesPage";
 import ServiceDetailPage from "./pages/services/ServiceDetailPage";
 import ServiceComparisonPage from "./pages/services/ServiceComparisonPage";
 import StoresPage from "./pages/stores/StoresPage";
-import FavoritesPage from "./pages/user/FavoritesPage";
 import UserPage from "./pages/user/UserPage";
 import CartPage from "./pages/user/CartPage";
 import { areProductCategoriesCompatible } from "./pages/products/productComparisonUtils";
@@ -196,6 +195,14 @@ export default function App() {
   const userId = user?.userId ?? null;
   const activeUserId = useRef<number | null>(null);
 
+  const clearExpiredAuthState = () => {
+    activeUserId.current = null;
+    setUser(null);
+    setFavorites(new Set());
+    setSearchHistory([]);
+    setCart([]);
+  };
+
   useEffect(() => {
     let cancelled = false;
     localStorage.removeItem("soloservice.guest-key");
@@ -256,6 +263,10 @@ export default function App() {
       };
     }
 
+    if (!hasStoredAuthSession(userId)) {
+      return;
+    }
+
     const loadAccountData = async () => {
       const [productFavorites, serviceFavorites, cartResult, historyResult] =
         await Promise.allSettled([
@@ -266,6 +277,11 @@ export default function App() {
         ]);
 
       if (cancelled) return;
+      if (!hasStoredAuthSession(userId)) {
+        clearExpiredAuthState();
+        return;
+      }
+
       const failed: string[] = [];
       const loadedFavorites = new Set<string>();
       if (productFavorites.status === "fulfilled") {
@@ -355,6 +371,7 @@ export default function App() {
     setPage(next);
     const isSearchNavigation = next.id === "search-products" || next.id === "search-services";
     if (isSearchNavigation && (!userId || !hasStoredAuthSession(userId))) {
+      if (userId) clearExpiredAuthState();
       setPersistenceError((current) =>
         current?.startsWith(SEARCH_HISTORY_SAVE_ERROR_PREFIX) ? null : current,
       );
@@ -370,6 +387,11 @@ export default function App() {
         })
         .catch((error: unknown) => {
           if (activeUserId.current === userId) {
+            if (!hasStoredAuthSession(userId)) {
+              clearExpiredAuthState();
+              setPersistenceError(null);
+              return;
+            }
             setPersistenceError(
               `${SEARCH_HISTORY_SAVE_ERROR_PREFIX} ${error instanceof Error ? error.message : "error desconocido"}`,
             );
@@ -412,7 +434,11 @@ export default function App() {
     localStorage.removeItem("soloservice.service-favorites");
     activeUserId.current = session.userId;
     setUser(session);
-    setPage({ id: "user" });
+    setPage(
+      page.id === "favorites" || (page.id === "user" && page.section === "favorites")
+        ? { id: "user", section: "favorites" }
+        : { id: "user" },
+    );
     if (!cartSyncFailed) setPersistenceError(null);
   };
 
@@ -623,7 +649,8 @@ export default function App() {
   }, [page]);
 
   const toggleFavorite = async (id: string, kind: "product" | "service" = "product") => {
-    if (!userId) {
+    if (!userId || !hasStoredAuthSession(userId)) {
+      if (userId) clearExpiredAuthState();
       setPersistenceError("Inicia sesión o crea una cuenta para guardar tus favoritos.");
       setPage({ id: "user" });
       return;
@@ -641,6 +668,12 @@ export default function App() {
       });
       setPersistenceError(null);
     } catch (error) {
+      if (!hasStoredAuthSession(userId)) {
+        clearExpiredAuthState();
+        setPersistenceError("Inicia sesión o crea una cuenta para guardar tus favoritos.");
+        setPage({ id: "user" });
+        return;
+      }
       setPersistenceError(
         `No se pudo actualizar el favorito: ${error instanceof Error ? error.message : "error desconocido"}`,
       );
@@ -889,20 +922,31 @@ export default function App() {
         );
       case "favorites":
         return (
-          <FavoritesPage
+          <UserPage
             navigate={navigate}
+            section="favorites"
+            user={user}
+            favoritesCount={favorites.size}
             favorites={favorites}
             authenticated={Boolean(user)}
+            history={searchHistory}
             onToggleFavorite={toggleFavorite}
+            onLogin={handleLogin}
+            onRegister={handleRegister}
+            onLogout={handleLogout}
           />
         );
       case "user":
         return (
           <UserPage
             navigate={navigate}
+            section={page.section}
             user={user}
             favoritesCount={favorites.size}
+            favorites={favorites}
+            authenticated={Boolean(user)}
             history={searchHistory}
+            onToggleFavorite={toggleFavorite}
             onLogin={handleLogin}
             onRegister={handleRegister}
             onLogout={handleLogout}
