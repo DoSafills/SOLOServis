@@ -233,12 +233,12 @@ export default function ServicesPage({
 
   const renderFilters = () => (
     <div className="space-y-2">
-      <details className="border-b border-slate-200 pb-2" open>
-        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
-          Precio del servicio <span className="float-right text-slate-500">⌄</span>
+      <details className="border-b border-bd pb-2" open>
+        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-text">
+          Precio del servicio <span className="float-right text-muted">⌄</span>
         </summary>
         <div className="flex gap-2 pb-2 pt-1">
-          <label className="min-w-0 flex-1 text-xs text-slate-600">
+          <label className="min-w-0 flex-1 text-xs text-muted">
             Mínimo
             <input
               type="number"
@@ -246,10 +246,10 @@ export default function ServicesPage({
               value={priceMin}
               onChange={(event) => updateActiveFilters({ priceMin: event.target.value })}
               placeholder="$0"
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-violet-500 focus:outline-none"
+              className="mt-1 w-full rounded-lg border border-bd bg-surface-2 px-2.5 py-2 text-sm text-text placeholder:text-muted focus:border-prime focus:outline-none"
             />
           </label>
-          <label className="min-w-0 flex-1 text-xs text-slate-600">
+          <label className="min-w-0 flex-1 text-xs text-muted">
             Máximo
             <input
               type="number"
@@ -257,21 +257,21 @@ export default function ServicesPage({
               value={priceMax}
               onChange={(event) => updateActiveFilters({ priceMax: event.target.value })}
               placeholder="Sin límite"
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-violet-500 focus:outline-none"
+              className="mt-1 w-full rounded-lg border border-bd bg-surface-2 px-2.5 py-2 text-sm text-text placeholder:text-muted focus:border-prime focus:outline-none"
             />
           </label>
         </div>
       </details>
 
-      <details className="border-b border-slate-200 pb-2">
-        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
-          Proveedor <span className="float-right text-slate-500">⌄</span>
+      <details className="border-b border-bd pb-2">
+        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-text">
+          Proveedor <span className="float-right text-muted">⌄</span>
         </summary>
         <div className="max-h-48 space-y-2 overflow-y-auto pb-2 pt-1">
           {providers.map((provider) => (
             <label
               key={provider}
-              className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"
+              className="flex cursor-pointer items-center gap-2 text-sm text-text"
             >
               <input
                 type="checkbox"
@@ -285,11 +285,11 @@ export default function ServicesPage({
         </div>
       </details>
 
-      <details className="border-b border-slate-200 pb-2">
-        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
-          Disponibilidad <span className="float-right text-slate-500">⌄</span>
+      <details className="border-b border-bd pb-2">
+        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-text">
+          Disponibilidad <span className="float-right text-muted">⌄</span>
         </summary>
-        <label className="flex cursor-pointer items-center gap-2 pb-2 pt-1 text-sm text-slate-700">
+        <label className="flex cursor-pointer items-center gap-2 pb-2 pt-1 text-sm text-text">
           <input
             type="checkbox"
             checked={availableOnly}
@@ -301,21 +301,21 @@ export default function ServicesPage({
       </details>
 
       {specFilters.length > 0 && (
-        <details className="border-b border-slate-200 pb-2" open>
-          <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
+        <details className="border-b border-bd pb-2" open>
+          <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-text">
             Características de{" "}
             {activeMicrocategory === "all" ? "la categoría" : activeMicrocategory}
-            <span className="float-right text-slate-500">⌄</span>
+            <span className="float-right text-muted">⌄</span>
           </summary>
           <div className="max-h-72 space-y-3 overflow-y-auto pb-2 pt-1">
             {specFilters.map((spec) => (
               <fieldset key={spec.name}>
-                <legend className="mb-1.5 text-xs font-semibold text-slate-600">{spec.name}</legend>
+                <legend className="mb-1.5 text-xs font-semibold text-muted">{spec.name}</legend>
                 <div className="space-y-1.5">
                   {spec.values.map((value) => (
                     <label
                       key={value}
-                      className="flex cursor-pointer items-start gap-2 text-xs text-slate-700"
+                      className="flex cursor-pointer items-start gap-2 text-xs text-text"
                     >
                       <input
                         type="checkbox"
@@ -339,7 +339,7 @@ export default function ServicesPage({
         <button
           type="button"
           onClick={clearFilters}
-          className="pt-2 text-xs font-semibold text-violet-700 hover:text-violet-900"
+          className="pt-2 text-xs font-semibold text-prime hover:text-prime-dark"
         >
           Limpiar filtros
         </button>
@@ -497,7 +497,7 @@ export default function ServicesPage({
           <button
             type="button"
             onClick={() => setFiltersOpen(true)}
-            style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+            style={{ background: "#191D20", border: "1px solid #343B40" }}
             className="lg:hidden flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-muted-2 hover:border-prime hover:text-prime transition-all"
           >
             <svg
@@ -525,9 +525,9 @@ export default function ServicesPage({
               setPage(1);
             }}
             style={{
-              background: "#111111",
-              border: "1px solid #2A2A2A",
-              color: "#94A3B8",
+              background: "#191D20",
+              border: "1px solid #343B40",
+              color: "#A3AAAD",
             }}
             className="px-3 py-2 rounded-xl text-sm focus:outline-none focus:border-prime transition-colors"
           >
@@ -539,7 +539,7 @@ export default function ServicesPage({
           {compareList.size >= 2 && (
             <button
               onClick={() => navigate({ id: "service-comparison", serviceIds: [...compareList] })}
-              style={{ background: "#E8001B", color: "#0A0A0A" }}
+              style={{ background: "#D1A85A", color: "#181714" }}
               className="px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
             >
               Comparar {compareList.size} servicios
@@ -549,8 +549,8 @@ export default function ServicesPage({
       </div>
 
       <div className="flex gap-6">
-        <aside className="hidden lg:block w-56 shrink-0 rounded-2xl border border-slate-200 bg-slate-50 p-5 self-start sticky top-24 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900 mb-5">Filtros</h3>
+        <aside className="hidden lg:block w-56 shrink-0 rounded-2xl border border-bd bg-surface p-5 self-start sticky top-24 shadow-sm">
+          <h3 className="text-sm font-semibold text-text mb-5">Filtros</h3>
           {renderFilters()}
         </aside>
 
@@ -560,14 +560,14 @@ export default function ServicesPage({
               className="absolute inset-0 bg-black/60 backdrop-blur-sm"
               onClick={() => setFiltersOpen(false)}
             />
-            <div className="absolute right-0 top-0 bottom-0 w-72 border-l border-slate-200 bg-slate-50 p-6 overflow-y-auto shadow-2xl">
+            <div className="absolute right-0 top-0 bottom-0 w-72 border-l border-bd bg-surface p-6 overflow-y-auto shadow-2xl">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-sm font-semibold text-slate-900">Filtros</h3>
+                <h3 className="text-sm font-semibold text-text">Filtros</h3>
                 <button
                   type="button"
                   onClick={() => setFiltersOpen(false)}
                   aria-label="Cerrar filtros"
-                  className="text-slate-500 hover:text-slate-900 transition-colors"
+                  className="text-muted hover:text-text transition-colors"
                 >
                   <svg
                     width="18"

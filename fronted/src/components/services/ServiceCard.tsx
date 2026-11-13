@@ -41,10 +41,8 @@ export default function ServiceCard({
 
   return (
     <div
-      className={`group relative isolate flex min-h-[24rem] flex-col overflow-hidden rounded-[1.75rem] border bg-[#0f172a] shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-black/30 sm:min-h-[23rem] ${
-        isComparing
-          ? "z-[1] border-cyan-300/80 ring-1 ring-cyan-300/20"
-          : "border-white/10 hover:border-violet-200/40"
+      className={`group relative isolate flex min-h-[24rem] flex-col overflow-hidden rounded-[1.75rem] border bg-surface shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-black/30 sm:min-h-[23rem] ${
+        isComparing ? "z-[1] border-prime ring-1 ring-prime/20" : "border-bd hover:border-prime/50"
       }`}
     >
       <div
@@ -58,7 +56,7 @@ export default function ServiceCard({
             className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-sm font-medium text-slate-300">
+          <div className="flex h-full w-full items-center justify-center text-sm font-medium text-muted">
             Sin imagen
           </div>
         )}
@@ -72,12 +70,12 @@ export default function ServiceCard({
         aria-hidden="true"
         className="absolute inset-y-0 right-0 w-[66%]"
         style={{
-          background: "#0f172a",
+          background: "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
           clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
         }}
       />
 
-      <div className="absolute right-3 top-3 z-20 rounded-full border border-white/15 bg-slate-950/70 backdrop-blur-md">
+      <div className="absolute right-3 top-3 z-20 rounded-full border border-bd bg-surface/90 backdrop-blur-md">
         <FavoriteButton
           active={isFavorite}
           onClick={(e) => {
@@ -89,37 +87,37 @@ export default function ServiceCard({
 
       <div className="relative z-10 ml-[40%] flex w-[60%] flex-1 flex-col justify-center gap-2 p-3 pl-10 sm:gap-3 sm:p-4 sm:pl-12">
         <div>
-          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-200">
+          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-prime">
             {service.provider}
           </span>
-          <p className="mt-1 text-[9px] font-medium uppercase tracking-[0.12em] text-slate-400">
+          <p className="mt-1 text-[9px] font-medium uppercase tracking-[0.12em] text-muted">
             {service.category} · {service.subcategory}
           </p>
           <h3
-            className="mt-1 line-clamp-2 cursor-pointer text-base font-bold leading-snug text-white transition-colors group-hover:text-violet-100"
+            className="mt-1 line-clamp-2 cursor-pointer text-base font-bold leading-snug text-text transition-colors group-hover:text-prime"
             onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
           >
             {service.name}
           </h3>
         </div>
 
-        <div className="[&_span]:text-slate-300">
+        <div className="[&_span]:text-muted">
           <Rating value={service.rating} count={service.reviewCount} />
         </div>
 
-        <div className="border-t border-white/10 pt-2">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+        <div className="border-t border-bd pt-2">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
             Precio del servicio
           </div>
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="text-lg font-bold tracking-tight text-cyan-200">
+            <span className="text-lg font-bold tracking-tight text-prime">
               {formatPrice(service.monthlyPrice)}
             </span>
-            <span className="text-[10px] font-semibold text-slate-400">
+            <span className="text-[10px] font-semibold text-muted">
               {getBillingPeriodText(service.billingPeriod)}
             </span>
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[9px] font-medium text-slate-400">
+          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[9px] font-medium text-muted">
             <span>
               Instalación:{" "}
               {service.installationCost === null || service.installationCost === 0
@@ -144,7 +142,7 @@ export default function ServiceCard({
                 ? "border-emerald-300/20 bg-emerald-900/70 text-emerald-200"
                 : adding
                   ? "border-emerald-300/20 bg-emerald-900/70 text-emerald-200"
-                  : "border-white/15 bg-white/5 text-slate-100 hover:border-cyan-200/40 hover:bg-white/10"
+                  : "border-bd bg-surface-2 text-text hover:border-prime/40 hover:bg-prime-muted"
             } disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800/70 disabled:text-slate-400`}
           >
             {isInCart
@@ -156,7 +154,7 @@ export default function ServiceCard({
           <button
             type="button"
             onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
-            className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#ff7a59] to-[#8b5cf6] px-2 py-2.5 text-[11px] font-semibold text-white shadow-lg shadow-violet-950/20 transition-all hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-prime px-2 py-2.5 text-[11px] font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
           >
             Ver servicio
             <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
@@ -176,8 +174,8 @@ export default function ServiceCard({
           aria-pressed={isComparing}
           className={`w-full rounded-xl border py-2 text-[11px] font-semibold transition-colors ${
             isComparing
-              ? "border-cyan-300/50 bg-cyan-300/10 text-cyan-100"
-              : "border-white/15 bg-transparent text-slate-300 hover:border-violet-200/50 hover:text-white"
+              ? "border-prime/60 bg-prime-muted text-prime"
+              : "border-bd bg-transparent text-muted hover:border-prime/50 hover:text-text"
           }`}
         >
           {isComparing ? "✓ Comparando" : "Comparar"}

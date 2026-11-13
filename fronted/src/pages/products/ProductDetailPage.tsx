@@ -251,9 +251,9 @@ export default function ProductDetailPage({
         <div>
           <div
             style={{
-              background: "linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.86))",
-              border: "1px solid rgba(148, 163, 184, 0.25)",
-              boxShadow: "0 18px 40px rgba(15, 23, 42, 0.12)",
+              background: "linear-gradient(135deg, #343B40, #191D20)",
+              border: "1px solid #343B40",
+              boxShadow: "0 18px 40px rgba(0, 0, 0, 0.25)",
             }}
             className="rounded-2xl overflow-hidden h-[420px] md:h-[520px] mb-3"
           >
@@ -263,7 +263,7 @@ export default function ProductDetailPage({
               className="w-full h-full object-contain p-4 transition-all duration-200"
               style={{
                 background:
-                  "radial-gradient(circle at top, rgba(139,92,246,0.14), transparent 40%)",
+                  "radial-gradient(circle at top, rgba(209,168,90,0.12), transparent 40%)",
               }}
             />
           </div>
@@ -277,10 +277,10 @@ export default function ProductDetailPage({
                 aria-label={`Ver imagen ${i + 1} de ${product.name}`}
                 aria-pressed={i === selectedImage}
                 style={{
-                  border: `2px solid ${i === selectedImage ? "#8b5cf6" : "rgba(148,163,184,0.25)"}`,
-                  boxShadow: i === selectedImage ? "0 0 0 2px rgba(139,92,246,0.12)" : "none",
+                  border: `2px solid ${i === selectedImage ? "#D1A85A" : "#343B40"}`,
+                  boxShadow: i === selectedImage ? "0 0 0 2px rgba(209,168,90,0.12)" : "none",
                 }}
-                className="w-16 h-16 rounded-xl overflow-hidden transition-all shrink-0 bg-slate-900"
+                className="w-16 h-16 rounded-xl overflow-hidden transition-all shrink-0 bg-surface"
               >
                 <img src={img} alt="" className="w-full h-full object-contain p-1" />
               </button>
@@ -291,13 +291,13 @@ export default function ProductDetailPage({
         <div className="flex flex-col gap-4">
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-violet-200">
+              <span className="inline-flex items-center gap-2 rounded-full border border-prime/40 bg-prime-muted px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-prime">
                 {product.brand} · {product.category}
               </span>
               <FavoriteButton active={isFavorite} onClick={() => onToggleFavorite(product.id)} />
             </div>
 
-            <h1 className="text-2xl md:text-3xl font-black text-white leading-tight tracking-[-0.04em]">
+            <h1 className="text-2xl md:text-3xl font-black text-text leading-tight tracking-[-0.04em]">
               {product.name}
             </h1>
 
@@ -308,36 +308,32 @@ export default function ProductDetailPage({
 
           <div
             style={{
-              background: "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.88))",
-              border: "1px solid rgba(148, 163, 184, 0.24)",
-              boxShadow: "0 14px 30px rgba(15, 23, 42, 0.08)",
+              background: "linear-gradient(180deg, #22282C, #191D20)",
+              border: "1px solid #343B40",
+              boxShadow: "0 14px 30px rgba(0, 0, 0, 0.2)",
             }}
             className="rounded-xl p-4"
           >
-            <h3 className="text-sm font-semibold text-white mb-3">Características principales</h3>
+            <h3 className="text-sm font-semibold text-text mb-3">Características principales</h3>
 
             {primarySpecifications.length > 0 ? (
               <dl className="grid grid-cols-2 xl:grid-cols-4 gap-x-4 gap-y-3">
                 {primarySpecifications.map(([name, value]) => (
                   <div
                     key={name}
-                    className="min-w-0 rounded-xl border border-violet-400/20 bg-violet-500/5 pl-3 py-2"
+                    className="min-w-0 rounded-xl border border-bd bg-surface-2 pl-3 py-2"
                   >
-                    <dt className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
-                      {name}
-                    </dt>
-                    <dd className="mt-2 text-sm font-semibold text-slate-100 break-words">
-                      {value}
-                    </dd>
+                    <dt className="text-[10px] uppercase tracking-[0.14em] text-muted">{name}</dt>
+                    <dd className="mt-2 text-sm font-semibold text-text break-words">{value}</dd>
                   </div>
                 ))}
               </dl>
             ) : (
-              <p className="text-sm text-slate-300">No hay características informadas.</p>
+              <p className="text-sm text-muted">No hay características informadas.</p>
             )}
           </div>
 
-          <p className="text-sm leading-relaxed text-slate-300">
+          <p className="text-sm leading-relaxed text-muted">
             {product.description || "Este producto aún no tiene una descripción disponible."}
           </p>
         </div>
@@ -345,28 +341,28 @@ export default function ProductDetailPage({
 
       <section
         style={{
-          background: "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.88))",
-          border: "1px solid rgba(148, 163, 184, 0.24)",
+          background: "linear-gradient(180deg, #22282C, #191D20)",
+          border: "1px solid #343B40",
         }}
         className="rounded-xl p-5 sm:p-6 mb-6"
       >
-        <h2 className="text-lg font-semibold text-white">Especificaciones técnicas</h2>
+        <h2 className="text-lg font-semibold text-text">Especificaciones técnicas</h2>
 
         {specificationGroups.length > 0 ? (
           <div className="mt-4 space-y-5">
             {specificationGroups.map((group) => (
               <section key={group.title}>
-                <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-200">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-prime">
                   {group.title}
                 </h3>
                 <dl className="mt-2 grid grid-cols-1 gap-x-8 md:grid-cols-2">
                   {group.items.map(([name, value]) => (
                     <div
                       key={name}
-                      className="flex items-start justify-between gap-4 border-b border-slate-700/80 py-3"
+                      className="flex items-start justify-between gap-4 border-b border-bd py-3"
                     >
-                      <dt className="min-w-0 text-sm text-slate-300">{name}</dt>
-                      <dd className="max-w-[60%] break-words text-right text-sm font-semibold text-white">
+                      <dt className="min-w-0 text-sm text-muted">{name}</dt>
+                      <dd className="max-w-[60%] break-words text-right text-sm font-semibold text-text">
                         {value}
                       </dd>
                     </div>
@@ -376,9 +372,7 @@ export default function ProductDetailPage({
             ))}
           </div>
         ) : (
-          <p className="mt-4 text-sm text-slate-300">
-            No hay especificaciones técnicas informadas.
-          </p>
+          <p className="mt-4 text-sm text-muted">No hay especificaciones técnicas informadas.</p>
         )}
       </section>
 
@@ -399,7 +393,7 @@ export default function ProductDetailPage({
 
       {/* Reviews */}
       <section
-        style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+        style={{ background: "#191D20", border: "1px solid #343B40" }}
         className="rounded-2xl p-6 mt-6"
       >
         <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
@@ -431,7 +425,7 @@ export default function ProductDetailPage({
             {reviews.map((review, i) => (
               <article
                 key={`${review.author}-${review.createdAt}-${i}`}
-                style={{ background: "#1A1A1A" }}
+                style={{ background: "#22282C" }}
                 className="rounded-xl p-4"
               >
                 <div className="flex items-center justify-between gap-3 flex-wrap mb-2">

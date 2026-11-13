@@ -13,10 +13,10 @@ import ServiceCard from "../../components/services/ServiceCard";
 const productCategories = PRODUCT_TYPES;
 
 const serviceCategories = [
-  { name: UI_TEXT.categories.internet, icon: "wifi", color: "#F472B6" },
-  { name: UI_TEXT.categories.insurance, icon: "shield", color: "#FBBF24" },
-  { name: UI_TEXT.categories.technicians, icon: "wrench", color: "#60A5FA" },
-  { name: UI_TEXT.categories.education, icon: "book", color: "#34D399" },
+  { name: UI_TEXT.categories.internet, icon: "wifi", color: "#D1A85A" },
+  { name: UI_TEXT.categories.insurance, icon: "shield", color: "#D1A85A" },
+  { name: UI_TEXT.categories.technicians, icon: "wrench", color: "#D1A85A" },
+  { name: UI_TEXT.categories.education, icon: "book", color: "#D1A85A" },
 ];
 
 const productCategoryIcons: Record<ProductTypeId, string> = {
@@ -47,8 +47,7 @@ const categoryIconPaths: Record<string, string> = {
   house: "M3 10.5 12 3l9 7.5 M5 9v12h14V9 M10 21v-7h4v7",
   wifi: "M2 8.5a15 15 0 0 1 20 0 M5 12a10 10 0 0 1 14 0 M8.5 15.5a5 5 0 0 1 7 0",
   shield: "M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z",
-  wrench:
-    "M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4L15 12l-3-3 2.7-2.7Z",
+  wrench: "M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a5 5 0 0 0 6.4-6.4L15 12l-3-3 2.7-2.7Z",
   book: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z M8 6h8",
 };
 
@@ -110,8 +109,7 @@ export default function HomePage({
     ? searchHistory
         .filter(
           (entry) =>
-          entry.query.trim().length > 0 &&
-            (entry.type === "product" || entry.type === "service"),
+            entry.query.trim().length > 0 && (entry.type === "product" || entry.type === "service"),
         )
         .slice(0, MAX_RECENT_SEARCHES)
     : [];
@@ -241,24 +239,22 @@ export default function HomePage({
       <section
         style={{
           background:
-            "radial-gradient(circle at top, rgba(124, 58, 237, 0.28), transparent 32%), radial-gradient(circle at 20% 20%, rgba(45, 212, 191, 0.12), transparent 28%), linear-gradient(135deg, #0b1020 0%, #0f172a 42%, #111827 100%)",
-          borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
+            "radial-gradient(circle at top, rgba(209, 168, 90, 0.12), transparent 32%), linear-gradient(135deg, #111315 0%, #191D20 55%, #111315 100%)",
+          borderBottom: "1px solid #343B40",
         }}
         className="relative overflow-hidden py-20 px-4"
       >
         <div className="absolute inset-0 opacity-30" aria-hidden="true">
-          <div className="absolute -top-20 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-gradient-to-r from-[#7c3aed]/35 via-[#ff6b6b]/20 to-[#22d3ee]/20 blur-3xl" />
+          <div className="absolute -top-20 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-gradient-to-r from-[#D1A85A]/20 to-[#D1A85A]/5 blur-3xl" />
         </div>
 
         <div className="relative max-w-4xl mx-auto text-center">
-          <h1 className="text-3xl md:text-5xl font-black text-white mb-4 leading-[0.95] tracking-[-0.05em]">
+          <h1 className="text-3xl md:text-5xl font-black text-text mb-4 leading-[0.95] tracking-[-0.05em]">
             Compara precios,
             <br />
-            <span className="bg-gradient-to-r from-[#ff8a65] via-[#ff6b6b] to-[#8b5cf6] bg-clip-text text-transparent">
-              elige mejor.
-            </span>
+            <span className="text-prime">elige mejor.</span>
           </h1>
-          <p className="text-base text-slate-300 max-w-xl mx-auto mb-10 leading-relaxed">
+          <p className="text-base text-muted max-w-xl mx-auto mb-10 leading-relaxed">
             Busca productos y servicios entre cientos de tiendas y proveedores. Compara, ahorra y
             elige con confianza.
           </p>
@@ -267,7 +263,7 @@ export default function HomePage({
           <form onSubmit={handleSearch} className="flex gap-2 max-w-2xl mx-auto">
             <div className="relative flex-1">
               <svg
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-muted"
                 width="18"
                 height="18"
                 viewBox="0 0 24 24"
@@ -289,20 +285,20 @@ export default function HomePage({
                 aria-invalid={Boolean(searchError)}
                 aria-describedby={searchError ? "home-search-error" : undefined}
                 style={{
-                  background: "rgba(15, 23, 42, 0.8)",
-                  border: "1px solid rgba(148, 163, 184, 0.25)",
+                  background: "#191D20",
+                  border: "1px solid #343B40",
                 }}
-                className="w-full pl-11 pr-4 py-3.5 rounded-2xl text-sm text-white placeholder-slate-400 focus:outline-none focus:border-[#8b5cf6] transition-colors duration-200 shadow-[0_12px_30px_rgba(15,23,42,0.4)]"
+                className="w-full pl-11 pr-4 py-3.5 rounded-2xl text-sm text-text placeholder:text-muted focus:outline-none focus:border-prime transition-colors duration-200 shadow-[0_12px_30px_rgba(0,0,0,0.25)]"
               />
             </div>
             <button
               type="submit"
               style={{
-                background: "linear-gradient(135deg, #ff7a59 0%, #ff5f7b 32%, #8b5cf6 100%)",
-                color: "#fff",
-                boxShadow: "0 12px 30px rgba(139, 92, 246, 0.35)",
+                background: "#D1A85A",
+                color: "#181714",
+                boxShadow: "0 12px 30px rgba(209, 168, 90, 0.2)",
               }}
-              className="px-6 py-3.5 rounded-2xl font-semibold text-sm hover:scale-[1.01] transition-all prime-glow whitespace-nowrap"
+              className="px-6 py-3.5 rounded-2xl font-semibold text-sm hover:scale-[1.01] transition-all prime-glow whitespace-nowrap hover:bg-[#B98C40]"
             >
               Buscar
             </button>
@@ -315,9 +311,7 @@ export default function HomePage({
 
           {recentSearches.length > 0 && (
             <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-              <span className="w-full text-center text-xs text-slate-400">
-                Tus búsquedas recientes
-              </span>
+              <span className="w-full text-center text-xs text-muted">Tus búsquedas recientes</span>
               {recentSearches.map((entry) => {
                 const recentQuery = entry.query.trim();
                 const label =
@@ -338,11 +332,11 @@ export default function HomePage({
                       })
                     }
                     style={{
-                      background: "rgba(15, 23, 42, 0.7)",
-                      border: "1px solid rgba(148, 163, 184, 0.2)",
-                      color: "#cbd5e1",
+                      background: "#191D20",
+                      border: "1px solid #343B40",
+                      color: "#F1F2EF",
                     }}
-                    className="px-3 py-1.5 rounded-full text-xs hover:border-[#8b5cf6] hover:text-white transition-all"
+                    className="px-3 py-1.5 rounded-full text-xs hover:border-prime hover:text-prime transition-all"
                   >
                     {label}
                   </button>
@@ -356,30 +350,31 @@ export default function HomePage({
       <section
         aria-labelledby="popular-products-title"
         style={{
-          background: "linear-gradient(180deg, #0b1020 0%, #101827 100%)",
-          borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
+          background: "#111315",
+          borderBottom: "1px solid #343B40",
         }}
         className="px-4 py-8"
       >
         <div className="max-w-7xl mx-auto">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 id="popular-products-title" className="text-xl font-bold text-white">
+              <h2 id="popular-products-title" className="text-xl font-bold text-text">
                 Descubre estos productos destacados
               </h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Productos que están marcando tendencia
-              </p>
+              <p className="mt-1 text-sm text-muted">Productos que están marcando tendencia</p>
             </div>
           </div>
 
           {popularProductsLoading && (
-            <p className="py-4 text-sm text-slate-400" role="status">
+            <p className="py-4 text-sm text-muted" role="status">
               Cargando productos más buscados...
             </p>
           )}
           {popularProductsError && (
-            <div className="rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200" role="alert">
+            <div
+              className="rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200"
+              role="alert"
+            >
               No se pudieron cargar los productos más buscados: {popularProductsError}
               <button
                 type="button"
@@ -394,7 +389,7 @@ export default function HomePage({
             </div>
           )}
           {!popularProductsLoading && !popularProductsError && popularProducts.length === 0 && (
-            <p className="py-4 text-sm text-slate-400">
+            <p className="py-4 text-sm text-muted">
               Aún no hay búsquedas suficientes para mostrar productos.
             </p>
           )}
@@ -415,9 +410,9 @@ export default function HomePage({
                 role="group"
                 aria-roledescription="diapositiva"
                 aria-label={`Producto ${popularProductIndex + 1} de ${popularProducts.length}: ${activePopularProduct.name}`}
-                className="relative isolate aspect-[4/5] w-full overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950 shadow-2xl shadow-black/30 ring-1 ring-white/5 sm:aspect-[16/9] sm:min-h-[340px] lg:min-h-[400px]"
+                className="relative isolate aspect-[4/5] w-full overflow-hidden rounded-[2rem] border border-bd bg-surface shadow-2xl shadow-black/30 ring-1 ring-white/5 sm:aspect-[16/9] sm:min-h-[340px] lg:min-h-[400px]"
               >
-                <div aria-hidden="true" className="absolute inset-0 bg-slate-800">
+                <div aria-hidden="true" className="absolute inset-0 bg-surface-2">
                   <span className="absolute inset-0 flex items-center justify-center text-5xl">
                     🛍️
                   </span>
@@ -437,7 +432,7 @@ export default function HomePage({
                   aria-hidden="true"
                   className="absolute inset-x-0 bottom-0 h-[60%] md:hidden"
                   style={{
-                    background: "#0f172a",
+                    background: "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
                     clipPath: "polygon(0 14%, 100% 0, 100% 100%, 0 100%)",
                   }}
                 />
@@ -445,16 +440,16 @@ export default function HomePage({
                   aria-hidden="true"
                   className="absolute inset-y-0 right-0 hidden w-[60%] md:block"
                   style={{
-                    background: "#0f172a",
+                    background: "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
                     clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
                   }}
                 />
                 <div className="absolute inset-x-14 bottom-8 z-10 flex flex-col items-center gap-3 text-center sm:inset-x-16 md:inset-x-auto md:right-16 md:top-1/2 md:bottom-auto md:w-[36%] md:-translate-y-1/2 md:items-start md:text-left lg:right-20">
-                  <span className="inline-flex items-center gap-2 rounded-full border border-violet-200/20 bg-violet-300/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-violet-100 backdrop-blur-sm">
-                    <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.8)]" />
+                  <span className="inline-flex items-center gap-2 rounded-full border border-prime/40 bg-prime-muted px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-prime backdrop-blur-sm">
+                    <span className="h-1.5 w-1.5 rounded-full bg-prime shadow-[0_0_10px_rgba(209,168,90,0.6)]" />
                     Más buscado
                   </span>
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-cyan-200/90">
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-prime">
                     {activePopularProduct.brand} · {activePopularProduct.category}
                   </p>
                   <h3 className="line-clamp-3 text-xl font-bold leading-tight text-white sm:text-2xl md:text-3xl">
@@ -465,15 +460,10 @@ export default function HomePage({
                     onClick={() =>
                       navigate({ id: "product-detail", productId: activePopularProduct.id })
                     }
-                    className="mt-2 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#ff7a59] to-[#8b5cf6] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-950/30 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-violet-950/40 active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                    className="mt-2 inline-flex items-center gap-2 rounded-xl bg-prime px-6 py-3 text-sm font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
                   >
                     Ver producto
-                    <svg
-                      aria-hidden="true"
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      className="h-4 w-4"
-                    >
+                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
                       <path
                         d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
                         stroke="currentColor"
@@ -490,7 +480,7 @@ export default function HomePage({
                       type="button"
                       aria-label="Ver producto anterior"
                       onClick={() => changePopularProduct(-1)}
-                      className="absolute left-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-slate-950/65 text-white shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-violet-200/70 hover:bg-violet-600/80 active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:left-5 sm:h-12 sm:w-12"
+                      className="absolute left-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-bd bg-surface/90 text-text shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-prime hover:bg-prime hover:text-[#181714] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:left-5 sm:h-12 sm:w-12"
                     >
                       <span aria-hidden="true" className="text-xl leading-none">
                         ←
@@ -500,7 +490,7 @@ export default function HomePage({
                       type="button"
                       aria-label="Ver siguiente producto"
                       onClick={() => changePopularProduct(1)}
-                      className="absolute right-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-slate-950/65 text-white shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-violet-200/70 hover:bg-violet-600/80 active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:right-5 sm:h-12 sm:w-12"
+                      className="absolute right-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-bd bg-surface/90 text-text shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-prime hover:bg-prime hover:text-[#181714] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:right-5 sm:h-12 sm:w-12"
                     >
                       <span aria-hidden="true" className="text-xl leading-none">
                         →
@@ -523,17 +513,17 @@ export default function HomePage({
                         aria-label={`Mostrar producto ${index + 1}: ${product.name}`}
                         aria-pressed={index === popularProductIndex}
                         onClick={() => setPopularProductIndex(index)}
-                        className={`h-2.5 rounded-full transition-all duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 ${
+                        className={`h-2.5 rounded-full transition-all duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime ${
                           index === popularProductIndex
-                            ? "w-7 bg-violet-300 shadow-[0_0_12px_rgba(196,181,253,0.55)]"
-                            : "w-2.5 bg-slate-600 hover:bg-slate-300"
+                            ? "w-7 bg-prime shadow-[0_0_12px_rgba(209,168,90,0.4)]"
+                            : "w-2.5 bg-bd hover:bg-muted"
                         }`}
                       />
                     ))}
                   </div>
-                  <span className="min-w-[3.5rem] text-xs font-medium tabular-nums text-slate-400">
+                  <span className="min-w-[3.5rem] text-xs font-medium tabular-nums text-muted">
                     {String(popularProductIndex + 1).padStart(2, "0")}
-                    <span className="px-1 text-slate-600">/</span>
+                    <span className="px-1 text-muted">/</span>
                     {String(popularProducts.length).padStart(2, "0")}
                   </span>
                 </div>
@@ -554,23 +544,23 @@ export default function HomePage({
                   : navigate({ id: "search-products", query: "", productGroup: cat.id })
               }
               style={{
-                background: "rgba(15, 23, 42, 0.72)",
-                border: "1px solid rgba(148, 163, 184, 0.25)",
-                boxShadow: "0 10px 25px rgba(15, 23, 42, 0.2)",
+                background: "#191D20",
+                border: "1px solid #343B40",
+                boxShadow: "0 10px 25px rgba(0, 0, 0, 0.2)",
               }}
-              className="group inline-flex items-center gap-2 rounded-full px-3 py-2 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#a78bfa]"
+              className="group inline-flex items-center gap-2 rounded-full px-3 py-2 transition-all duration-200 hover:-translate-y-0.5 hover:border-prime"
             >
               <span
                 className="flex h-7 w-7 items-center justify-center rounded-full"
                 style={{
-                  background: `${cat.color}20`,
-                  color: cat.color,
-                  boxShadow: `inset 0 0 0 1px ${cat.color}40`,
+                  background: "rgba(209, 168, 90, 0.12)",
+                  color: "#D1A85A",
+                  boxShadow: "inset 0 0 0 1px rgba(209, 168, 90, 0.35)",
                 }}
               >
                 <CategoryIcon name={cat.icon} />
               </span>
-              <span className="text-[11px] font-semibold text-slate-100 group-hover:text-white">
+              <span className="text-[11px] font-semibold text-text group-hover:text-prime">
                 {cat.name}
               </span>
             </button>
@@ -586,7 +576,7 @@ export default function HomePage({
             </div>
             <button
               onClick={() => navigate({ id: "search-products", query: "" })}
-              className="text-sm font-medium transition-colors bg-gradient-to-r from-[#ff7a59] to-[#8b5cf6] bg-clip-text text-transparent"
+              className="text-sm font-medium text-prime transition-colors hover:text-[#B98C40]"
             >
               Ver todos →
             </button>
@@ -646,7 +636,7 @@ export default function HomePage({
             </div>
             <button
               onClick={() => navigate({ id: "search-services", query: "" })}
-              className="text-sm font-medium transition-colors bg-gradient-to-r from-[#22d3ee] to-[#8b5cf6] bg-clip-text text-transparent"
+              className="text-sm font-medium text-prime transition-colors hover:text-[#B98C40]"
             >
               Ver todos →
             </button>

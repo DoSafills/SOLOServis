@@ -925,7 +925,12 @@ export default function App() {
         cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
       />
 
-      <main style={{ flex: 1 }}>{renderPage()}</main>
+      <main
+        className={page.id === "stores" || page.id === "store-detail" ? "stores-theme" : undefined}
+        style={{ flex: 1 }}
+      >
+        {renderPage()}
+      </main>
 
       {productCompareList.size > 0 && (
         <div className="fixed bottom-4 left-4 z-50">
