@@ -98,6 +98,13 @@ export async function searchProducts(
   };
 }
 
+export function getPopularProducts(): Promise<SearchProductResult[]> {
+  return getServiceJson<SearchProductResult[]>(
+    `${API_URLS.search}/search/popular-products`,
+    "Search API",
+  );
+}
+
 export function getSearchFacets(params: SearchProductsParams): Promise<SearchFacets> {
   return fetchSearch<SearchFacets>("/search/facets", params);
 }

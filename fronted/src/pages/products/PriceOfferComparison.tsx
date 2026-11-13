@@ -104,7 +104,7 @@ function SelectedOffersTable({
                 >
                   <span className="block text-sm font-bold text-slate-100">{offer.storeName}</span>
                   {isBest && (
-                    <span className="mt-2 inline-flex rounded-full border border-cyan-200/50 bg-cyan-200 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-950">
+                    <span className="mt-2 inline-flex rounded-full border border-prime/50 bg-prime px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[#181714]">
                       Menor total
                     </span>
                   )}
@@ -132,13 +132,13 @@ function SelectedOffersTable({
                   key={offer.storeId}
                   className={`rounded-xl border p-3 text-center ${
                     isBest
-                      ? "border-cyan-300/70 bg-gradient-to-br from-cyan-400/20 via-cyan-300/10 to-violet-500/20 shadow-[0_0_22px_rgba(34,211,238,0.18)]"
-                      : "border-slate-800 bg-slate-950/65"
+                      ? "border-prime/70 bg-prime-muted shadow-[0_0_22px_rgba(209,168,90,0.16)]"
+                      : "border-bd bg-surface"
                   }`}
                 >
                   {discounted ? (
                     <>
-                      <span className="block text-[11px] font-medium text-cyan-200">
+                      <span className="block text-[11px] font-medium text-prime">
                         Precio oferta
                       </span>
                       <span className="text-sm font-bold text-slate-100">
@@ -191,8 +191,8 @@ function SelectedOffersTable({
                   key={offer.storeId}
                   className={`rounded-xl border p-3 text-center text-base font-extrabold ${
                     isBest
-                      ? "border-cyan-300/70 bg-gradient-to-br from-cyan-400/20 via-cyan-300/10 to-violet-500/20 text-cyan-100 shadow-[0_0_22px_rgba(34,211,238,0.18)]"
-                      : "border-slate-800 bg-slate-950/65 text-slate-100"
+                      ? "border-prime/70 bg-prime-muted text-prime shadow-[0_0_22px_rgba(209,168,90,0.16)]"
+                      : "border-bd bg-surface text-text"
                   }`}
                 >
                   {total === null ? "No informado" : formatPrice(total)}
@@ -285,7 +285,7 @@ function SelectedOffersTable({
                       href={safeUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm font-bold text-violet-300 hover:text-cyan-200 hover:underline"
+                      className="text-sm font-bold text-prime hover:text-prime-dark hover:underline"
                     >
                       Comprar oferta
                     </a>
@@ -312,7 +312,7 @@ function SelectedOffersTable({
                   type="button"
                   disabled={!offer.available}
                   onClick={() => onAddToCart(product, offer)}
-                  className="rounded-lg bg-gradient-to-r from-[#ff9878] to-[#fb7185] px-3 py-2 text-xs font-semibold text-white shadow-md shadow-rose-500/15 transition hover:brightness-105 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none"
+                  className="rounded-lg bg-prime px-3 py-2 text-xs font-semibold text-[#181714] shadow-md shadow-black/15 transition hover:bg-prime-dark disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-muted disabled:shadow-none"
                 >
                   Agregar al carrito
                 </button>
@@ -433,14 +433,14 @@ export default function PriceOfferComparison({
           ]}
         />
 
-        <h1 className="mb-2 mt-6 text-2xl font-bold text-slate-100">Comparación de ofertas</h1>
+        <h1 className="mb-2 mt-6 text-2xl font-bold text-text">Comparación de ofertas</h1>
         <p className="mb-8 text-sm text-slate-300">
           Comparando {selectedOffers.length} ofertas de {product.name}
         </p>
 
-        <section className="rounded-[28px] border border-slate-600/80 bg-gradient-to-br from-slate-900/95 via-slate-950/90 to-indigo-950/45 p-3 shadow-[0_24px_70px_rgba(2,6,23,0.55)] backdrop-blur-sm sm:p-5">
-          <p className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-950/45 px-3 py-2 text-[11px] text-slate-200">
-            <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200/50 bg-cyan-300 px-2 py-1 font-extrabold text-slate-950">
+        <section className="rounded-[28px] border border-bd bg-surface p-3 shadow-[0_24px_70px_rgba(0,0,0,0.4)] backdrop-blur-sm sm:p-5">
+          <p className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-[11px] text-text">
+            <span className="inline-flex items-center gap-1 rounded-full border border-prime/50 bg-prime px-2 py-1 font-extrabold text-[#181714]">
               ✦ Menor total
             </span>
             La mejor oferta considera el precio del producto y su costo de envío.
@@ -463,7 +463,7 @@ export default function PriceOfferComparison({
               <button
                 type="button"
                 onClick={() => navigate({ id: "product-detail", productId: product.id })}
-                className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-cyan-400 hover:text-cyan-200"
+                className="rounded-lg border border-bd bg-surface-2 px-4 py-2 text-sm font-semibold text-text transition hover:border-prime hover:text-prime"
               >
                 Volver al producto
               </button>
@@ -479,18 +479,18 @@ export default function PriceOfferComparison({
       <section
         aria-labelledby="lowest-offer-heading"
         style={{
-          background: "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.9))",
-          border: "1px solid rgba(148, 163, 184, 0.2)",
-          boxShadow: "0 12px 30px rgba(15, 23, 42, 0.08)",
+          background: "linear-gradient(180deg, #22282C, #191D20)",
+          border: "1px solid #343B40",
+          boxShadow: "0 12px 30px rgba(0, 0, 0, 0.2)",
         }}
         className="rounded-xl p-4 sm:p-5"
       >
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h2 id="lowest-offer-heading" className="text-base font-bold text-white">
+          <h2 id="lowest-offer-heading" className="text-base font-bold text-text">
             Precio oferta más bajo
           </h2>
           {lowestOffers.length > 1 && (
-            <span className="rounded-md border border-violet-400/30 bg-violet-500/10 px-2 py-1 text-xs font-semibold text-violet-200">
+            <span className="rounded-md border border-prime/40 bg-prime-muted px-2 py-1 text-xs font-semibold text-prime">
               Empate entre {lowestOffers.length} ofertas
             </span>
           )}
@@ -508,16 +508,16 @@ export default function PriceOfferComparison({
               return (
                 <article
                   key={offer.storeId}
-                  className="rounded-lg border border-slate-700/80 bg-slate-900/70 p-4 shadow-[0_12px_30px_rgba(15,23,42,0.1)]"
+                  className="rounded-lg border border-bd bg-surface-2 p-4 shadow-[0_12px_30px_rgba(0,0,0,0.2)]"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-xs text-slate-400">Tienda</p>
-                      <h3 className="text-base font-semibold text-white">{offer.storeName}</h3>
+                      <p className="text-xs text-muted">Tienda</p>
+                      <h3 className="text-base font-semibold text-text">{offer.storeName}</h3>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-slate-400">Total con envío</p>
-                      <p className="price text-xl font-bold text-cyan-200">
+                      <p className="text-xs text-muted">Total con envío</p>
+                      <p className="price text-xl font-bold text-prime">
                         {formatPrice(getTotal(offer)!)}
                       </p>
                     </div>
@@ -594,13 +594,13 @@ export default function PriceOfferComparison({
                     </div>
                   </dl>
 
-                  <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-700/80 pt-4">
+                  <div className="mt-4 flex flex-wrap gap-2 border-t border-bd pt-4">
                     {safeUrl && !readOnly ? (
                       <a
                         href={safeUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center rounded-lg bg-gradient-to-r from-[#ff7a59] to-[#8b5cf6] px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                        className="inline-flex items-center justify-center rounded-lg bg-prime px-3 py-2 text-sm font-semibold text-[#181714] transition hover:bg-prime-dark"
                       >
                         Comprar ahora
                       </a>
@@ -631,7 +631,7 @@ export default function PriceOfferComparison({
                           ? "bg-emerald-700 text-emerald-100 shadow-emerald-950/30"
                           : addingProductIds.has(product.id)
                             ? "bg-emerald-800 text-emerald-100 shadow-emerald-950/30"
-                            : "border border-slate-600 bg-slate-800 text-slate-100 hover:border-violet-400 hover:text-violet-200"
+                            : "border border-bd bg-surface text-text hover:border-prime hover:text-prime"
                       } disabled:cursor-not-allowed disabled:opacity-40`}
                     >
                       {cartProductIds.has(product.id)
@@ -648,8 +648,8 @@ export default function PriceOfferComparison({
                         aria-pressed={isComparing}
                         className={`rounded-lg px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                           isComparing
-                            ? "border border-violet-300/50 bg-violet-400/15 text-violet-100"
-                            : "border border-slate-600 bg-slate-800 text-slate-100 hover:border-violet-400 hover:text-violet-200"
+                            ? "border border-prime/50 bg-prime-muted text-prime"
+                            : "border border-bd bg-surface text-text hover:border-prime hover:text-prime"
                         }`}
                       >
                         {isComparing ? "✓ En el comparador" : "Agregar al comparador"}
@@ -675,8 +675,8 @@ export default function PriceOfferComparison({
                 aria-pressed={isComparing}
                 className={`rounded-lg px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   isComparing
-                    ? "border border-violet-300/50 bg-violet-400/15 text-violet-100"
-                    : "border border-slate-600 bg-slate-800 text-slate-100 hover:border-violet-400 hover:text-violet-200"
+                    ? "border border-prime/50 bg-prime-muted text-prime"
+                    : "border border-bd bg-surface text-text hover:border-prime hover:text-prime"
                 }`}
               >
                 {isComparing ? "✓ En el comparador" : "Agregar al comparador"}
@@ -689,15 +689,15 @@ export default function PriceOfferComparison({
       <section
         aria-labelledby="compare-offers-heading"
         style={{
-          background: "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.9))",
-          border: "1px solid rgba(148, 163, 184, 0.2)",
-          boxShadow: "0 12px 30px rgba(15, 23, 42, 0.08)",
+          background: "linear-gradient(180deg, #22282C, #191D20)",
+          border: "1px solid #343B40",
+          boxShadow: "0 12px 30px rgba(0, 0, 0, 0.2)",
         }}
         className="rounded-2xl p-5 sm:p-6"
       >
         <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
           <div>
-            <h2 id="compare-offers-heading" className="text-lg font-bold text-white">
+            <h2 id="compare-offers-heading" className="text-lg font-bold text-text">
               Comparar ofertas
             </h2>
             <p className="text-sm text-slate-300 mt-1">
@@ -720,7 +720,7 @@ export default function PriceOfferComparison({
                   storeIds: selectedStoreIds,
                 })
               }
-              className="rounded-md bg-gradient-to-r from-[#ff7a59] to-[#8b5cf6] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-md bg-prime px-3 py-2 text-xs font-semibold text-[#181714] transition-opacity hover:bg-prime-dark disabled:cursor-not-allowed disabled:opacity-40"
             >
               Comparar seleccionadas
             </button>
@@ -787,12 +787,12 @@ export default function PriceOfferComparison({
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleOffer(offer)}
-                            className="h-4 w-4 accent-violet-500"
+                            className="h-4 w-4 accent-prime"
                             aria-label={`Comparar ${offer.storeName}`}
                           />
                           <span className="whitespace-nowrap">{offer.storeName}</span>
                           {isLowest && (
-                            <span className="text-[11px] font-semibold text-violet-200">
+                            <span className="text-[11px] font-semibold text-prime">
                               Menor total
                             </span>
                           )}
@@ -801,8 +801,8 @@ export default function PriceOfferComparison({
                       <td className="px-4 py-4">
                         {isDiscounted ? (
                           <div className="min-w-36">
-                            <span className="block text-[11px] text-violet-200">Precio oferta</span>
-                            <span className="price text-sm font-bold text-white">
+                            <span className="block text-[11px] text-prime">Precio oferta</span>
+                            <span className="price text-sm font-bold text-text">
                               {formatPrice(offer.price)}
                             </span>
                             <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400">
@@ -813,7 +813,7 @@ export default function PriceOfferComparison({
                         ) : (
                           <div className="whitespace-nowrap">
                             <span className="block text-[11px] text-slate-400">Precio normal</span>
-                            <span className="price text-sm font-semibold text-white">
+                            <span className="price text-sm font-semibold text-text">
                               {formatPrice(offer.price)}
                             </span>
                           </div>
@@ -823,7 +823,7 @@ export default function PriceOfferComparison({
                         {shippingLabel(offer)}
                       </td>
                       <td
-                        className={`px-4 py-4 text-sm font-bold whitespace-nowrap ${isLowest ? "text-violet-200" : "text-white"}`}
+                        className={`px-4 py-4 text-sm font-bold whitespace-nowrap ${isLowest ? "text-prime" : "text-text"}`}
                       >
                         {total === null ? "No informado" : formatPrice(total)}
                       </td>
@@ -847,7 +847,7 @@ export default function PriceOfferComparison({
                             href={safeUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-slate-100 transition-colors hover:border-violet-400 hover:text-violet-200 whitespace-nowrap"
+                            className="inline-flex items-center gap-1.5 rounded-md border border-bd bg-surface-2 px-2.5 py-1.5 text-xs font-semibold text-text transition-colors hover:border-prime hover:text-prime whitespace-nowrap"
                           >
                             Comprar oferta
                             <span aria-hidden="true">↗</span>

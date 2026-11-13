@@ -55,11 +55,10 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
   return (
     <header
       style={{
-        background:
-          "linear-gradient(110deg, rgba(7,12,27,0.98) 0%, rgba(20,18,48,0.97) 52%, rgba(8,22,43,0.98) 100%)",
+        background: "#111315",
         backdropFilter: "blur(18px)",
-        borderBottom: "1px solid rgba(129,140,248,0.22)",
-        boxShadow: "0 12px 36px rgba(2,6,23,0.24)",
+        borderBottom: "1px solid #343B40",
+        boxShadow: "0 12px 36px rgba(0,0,0,0.2)",
       }}
       className="sticky top-0 z-50"
     >
@@ -71,23 +70,21 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
             aria-label="SoloService, inicio"
             className="group flex shrink-0 items-center gap-2.5"
           >
-            <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-fuchsia-500 via-violet-500 to-cyan-400 shadow-lg shadow-violet-950/50 transition duration-300 group-hover:rotate-[-5deg] group-hover:scale-105">
+            <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-prime shadow-lg shadow-black/30 transition duration-300 group-hover:rotate-[-5deg] group-hover:scale-105">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
                 <path
                   d="M4 5h16M4 12h10M4 19h13"
-                  stroke="white"
+                  stroke="#181714"
                   strokeWidth="2.2"
                   strokeLinecap="round"
                 />
-                <circle cx="19" cy="19" r="3" fill="#A5F3FC" stroke="#312E81" strokeWidth="1.5" />
+                <circle cx="19" cy="19" r="3" fill="#181714" stroke="#D1A85A" strokeWidth="1.5" />
               </svg>
             </div>
             <span className="block text-left text-[15px] font-black leading-none tracking-tight text-white sm:text-lg">
               Solo
-              <span className="bg-gradient-to-r from-fuchsia-300 via-violet-300 to-cyan-200 bg-clip-text text-transparent">
-                Service
-              </span>
-              <span className="mt-1 hidden text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-400 sm:block">
+              <span className="text-prime">Service</span>
+              <span className="mt-1 hidden text-[9px] font-semibold uppercase tracking-[0.2em] text-muted sm:block">
                 Compara y elige mejor
               </span>
             </span>
@@ -110,7 +107,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
                 maxLength={200}
                 aria-invalid={Boolean(searchError)}
                 aria-describedby={searchError ? "header-search-error" : undefined}
-                className="w-full rounded-2xl border border-indigo-200/15 bg-slate-950/65 py-2.5 pl-4 pr-12 text-sm text-white shadow-inner shadow-black/15 outline-none transition placeholder:text-slate-400 focus:border-cyan-300/60 focus:bg-slate-950/90 focus:ring-4 focus:ring-cyan-400/10"
+                className="w-full rounded-2xl border border-bd bg-surface py-2.5 pl-4 pr-12 text-sm text-text shadow-inner shadow-black/15 outline-none transition placeholder:text-muted focus:border-prime focus:ring-4 focus:ring-prime/10"
               />
               {searchError && (
                 <span id="header-search-error" role="alert" className="sr-only">
@@ -120,7 +117,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
               <button
                 type="submit"
                 aria-label="Buscar"
-                className="absolute right-1.5 top-1/2 flex h-8 w-9 -translate-y-1/2 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-cyan-500 text-white shadow-md shadow-violet-950/40 transition hover:brightness-110"
+                className="absolute right-1.5 top-1/2 flex h-8 w-9 -translate-y-1/2 items-center justify-center rounded-xl bg-prime text-[#181714] shadow-md shadow-black/30 transition hover:bg-prime-dark"
               >
                 <svg
                   width="16"
@@ -140,7 +137,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
           {/* Nav links (desktop) */}
           <nav
             aria-label="Navegación principal"
-            className="hidden items-center gap-1 rounded-2xl border border-white/[0.07] bg-white/[0.035] p-1 lg:flex"
+            className="hidden items-center gap-1 rounded-2xl border border-bd bg-surface p-1 lg:flex"
           >
             {navLinks.map((l) => (
               <button
@@ -149,8 +146,8 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
                 aria-current={l.active ? "page" : undefined}
                 className={`rounded-xl px-3 py-2 text-sm font-bold transition-all duration-200 ${
                   l.active
-                    ? "bg-gradient-to-r from-violet-500/25 to-cyan-400/15 text-white shadow-inner shadow-white/5"
-                    : "text-slate-300 hover:bg-white/[0.07] hover:text-cyan-100"
+                    ? "bg-prime-muted text-prime shadow-inner shadow-white/5"
+                    : "text-muted hover:bg-surface-2 hover:text-text"
                 }`}
               >
                 {l.label}
@@ -169,8 +166,8 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
               title="Carrito"
               className={`relative rounded-xl border p-2.5 transition-all duration-200 ${
                 currentPage.id === "cart"
-                  ? "border-cyan-300/35 bg-cyan-400/15 text-cyan-100"
-                  : "border-transparent text-slate-300 hover:border-cyan-200/20 hover:bg-cyan-400/10 hover:text-cyan-100"
+                  ? "border-prime/40 bg-prime-muted text-prime"
+                  : "border-transparent text-muted hover:border-prime/30 hover:bg-prime-muted hover:text-prime"
               }`}
             >
               <svg
@@ -186,7 +183,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
                 <path d="M2 3h2l2.7 12.4a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 2-1.6L21 8H5" />
               </svg>
               {cartCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-[#10152d] bg-gradient-to-r from-fuchsia-500 to-cyan-400 px-1 text-[10px] font-black text-white">
+                <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-[#111315] bg-prime px-1 text-[10px] font-black text-[#181714]">
                   {cartCount}
                 </span>
               )}
@@ -194,13 +191,14 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
 
             {/* Favorites */}
             <button
-              onClick={() => navigate({ id: "favorites" })}
+              onClick={() => navigate({ id: "user", section: "favorites" })}
               aria-label={`Favoritos, ${favCount} productos`}
               title="Favoritos"
               className={`relative rounded-xl border p-2.5 transition-all duration-200 ${
-                currentPage.id === "favorites"
-                  ? "border-fuchsia-300/35 bg-fuchsia-400/15 text-fuchsia-100"
-                  : "border-transparent text-slate-300 hover:border-fuchsia-200/20 hover:bg-fuchsia-400/10 hover:text-fuchsia-100"
+                currentPage.id === "favorites" ||
+                (currentPage.id === "user" && currentPage.section === "favorites")
+                  ? "border-prime/40 bg-prime-muted text-prime"
+                  : "border-transparent text-muted hover:border-prime/30 hover:bg-prime-muted hover:text-prime"
               }`}
             >
               <svg
@@ -214,7 +212,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
               </svg>
               {favCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-[#10152d] bg-gradient-to-r from-fuchsia-500 to-violet-500 px-1 text-[10px] font-black text-white">
+                <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-[#111315] bg-prime px-1 text-[10px] font-black text-[#181714]">
                   {favCount}
                 </span>
               )}
@@ -225,10 +223,10 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
               onClick={() => navigate({ id: "user" })}
               aria-label="Mi cuenta"
               title="Mi cuenta"
-              className={`rounded-xl border p-2.5 transition-all duration-200 ${
+              className={`hidden rounded-xl border p-2.5 transition-all duration-200 lg:block ${
                 currentPage.id === "user"
-                  ? "border-violet-300/35 bg-violet-400/15 text-violet-100"
-                  : "border-transparent text-slate-300 hover:border-violet-200/20 hover:bg-violet-400/10 hover:text-violet-100"
+                  ? "border-prime/40 bg-prime-muted text-prime"
+                  : "border-transparent text-muted hover:border-prime/30 hover:bg-prime-muted hover:text-prime"
               }`}
             >
               <svg
@@ -249,7 +247,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
               onClick={() => setMobileOpen(!mobileOpen)}
               aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"}
               aria-expanded={mobileOpen}
-              className="rounded-xl border border-indigo-200/10 p-2.5 text-slate-200 transition-all duration-200 hover:border-violet-200/30 hover:bg-violet-400/10 hover:text-white lg:hidden"
+              className="rounded-xl border border-bd p-2.5 text-text transition-all duration-200 hover:border-prime/40 hover:bg-prime-muted hover:text-prime lg:hidden"
             >
               <svg
                 width="18"
@@ -278,7 +276,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
 
         {/* Mobile menu */}
         {mobileOpen && (
-          <div className="mt-3 space-y-3 rounded-2xl border border-indigo-200/15 bg-slate-950/80 p-3 shadow-xl shadow-black/30 lg:hidden">
+          <div className="mt-3 space-y-3 rounded-2xl border border-bd bg-surface p-3 shadow-xl shadow-black/30 lg:hidden">
             <form onSubmit={handleSearch} className="flex flex-col gap-2">
               <input
                 value={query}
@@ -291,7 +289,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
                 maxLength={200}
                 aria-invalid={Boolean(searchError)}
                 aria-describedby={searchError ? "mobile-search-error" : undefined}
-                className="min-w-0 flex-1 rounded-xl border border-indigo-200/15 bg-slate-900 px-4 py-2.5 text-sm text-white outline-none placeholder:text-slate-400 focus:border-cyan-300/60 focus:ring-4 focus:ring-cyan-400/10"
+                className="min-w-0 flex-1 rounded-xl border border-bd bg-surface-2 px-4 py-2.5 text-sm text-text outline-none placeholder:text-muted focus:border-prime focus:ring-4 focus:ring-prime/10"
               />
               {searchError && (
                 <span id="mobile-search-error" role="alert" className="text-xs text-rose-300">
@@ -300,7 +298,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
               )}
               <button
                 type="submit"
-                className="rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-violet-950/40 transition hover:brightness-110"
+                className="rounded-xl bg-prime px-4 py-2.5 text-sm font-bold text-[#181714] shadow-md shadow-black/30 transition hover:bg-prime-dark"
               >
                 Buscar
               </button>
@@ -315,13 +313,27 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
                 aria-current={l.active ? "page" : undefined}
                 className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm font-bold transition-all ${
                   l.active
-                    ? "border-violet-300/20 bg-gradient-to-r from-violet-500/20 to-cyan-400/10 text-white"
-                    : "border-transparent text-slate-300 hover:bg-white/[0.06] hover:text-white"
+                    ? "border-prime/30 bg-prime-muted text-prime"
+                    : "border-transparent text-muted hover:bg-surface-2 hover:text-text"
                 }`}
               >
                 {l.label}
               </button>
             ))}
+            <button
+              onClick={() => {
+                navigate({ id: "user" });
+                setMobileOpen(false);
+              }}
+              aria-current={currentPage.id === "user" ? "page" : undefined}
+              className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm font-bold transition-all ${
+                currentPage.id === "user"
+                  ? "border-prime/30 bg-prime-muted text-prime"
+                  : "border-transparent text-muted hover:bg-surface-2 hover:text-text"
+              }`}
+            >
+              Mi cuenta
+            </button>
           </div>
         )}
       </div>

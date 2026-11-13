@@ -25,10 +25,13 @@ import (
 type Searcher interface {
 	CategoryDefinitions(ctx context.Context, slug string) ([]categories.Attribute, error)
 	SearchProducts(ctx context.Context, q Query) ([]ProductResult, int64, error)
+	PopularProducts(ctx context.Context, limit int) ([]ProductResult, error)
 	SearchFacets(ctx context.Context, q Query, defs []categories.Attribute) (Facets, error)
 	SearchCategories(ctx context.Context, text string, itemType *string) ([]CategoryResult, error)
 	SearchBrands(ctx context.Context, text string) ([]BrandResult, error)
 }
+
+const popularProductsLimit = 12
 
 type Handler struct {
 	searcher Searcher
@@ -57,6 +60,19 @@ func (h *Handler) Products(w http.ResponseWriter, r *http.Request) {
 		results = []ProductResult{}
 	}
 	w.Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
+	writeJSON(w, results)
+}
+
+// PopularProducts atiende GET /search/popular-products.
+func (h *Handler) PopularProducts(w http.ResponseWriter, r *http.Request) {
+	results, err := h.searcher.PopularProducts(r.Context(), popularProductsLimit)
+	if err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	if results == nil {
+		results = []ProductResult{}
+	}
 	writeJSON(w, results)
 }
 

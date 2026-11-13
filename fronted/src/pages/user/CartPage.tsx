@@ -13,6 +13,33 @@ interface Props {
   onRemove: (cartItemId: number) => void;
 }
 
+function RemoveCartItemButton({ itemName, onClick }: { itemName: string; onClick: () => void }) {
+  const label = `Eliminar ${itemName} del carrito`;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-bd bg-surface-2 text-muted transition-colors hover:border-rose-400/40 hover:bg-rose-500/10 hover:text-rose-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-5 w-5"
+      >
+        <path d="M4 7h16M10 11v6m4-6v6M5 7l1 14h12l1-14M9 7V4h6v3" />
+      </svg>
+    </button>
+  );
+}
+
 export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }: Props) {
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const storeSummaries = Array.from(
@@ -73,12 +100,12 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
 
   if (cart.length === 0) {
     return (
-      <div className="mx-auto my-6 max-w-4xl rounded-[32px] bg-gradient-to-br from-slate-900 via-indigo-950 to-violet-950 px-4 py-16 text-center shadow-xl shadow-black/30">
+      <div className="mx-auto my-6 max-w-4xl rounded-[32px] bg-gradient-to-br from-surface to-bg px-4 py-16 text-center shadow-xl shadow-black/30">
         <Breadcrumb
           items={[{ label: "Inicio", onClick: () => navigate({ id: "home" }) }, { label: "Cesta" }]}
         />
 
-        <div className="rounded-3xl border border-indigo-300/20 bg-slate-900/90 p-10 shadow-lg shadow-black/25">
+        <div className="rounded-3xl border border-bd bg-surface p-10 shadow-lg shadow-black/25">
           <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-prime-muted text-prime">
             <svg
               width="28"
@@ -93,13 +120,13 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
               <path d="M2 3h3l2.5 10.5a1 1 0 0 0 1 .8H18a1 1 0 0 0 1-.8L21 7H6" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-slate-100">Tu cesta está vacía</h1>
-          <p className="mx-auto mt-3 max-w-md text-sm text-slate-300">
+          <h1 className="text-2xl font-bold text-text">Tu cesta está vacía</h1>
+          <p className="mx-auto mt-3 max-w-md text-sm text-muted">
             Añade productos o servicios para tener tus opciones guardadas.
           </p>
           <button
             onClick={() => navigate({ id: "home" })}
-            className="mt-6 rounded-2xl bg-gradient-to-r from-violet-600 to-fuchsia-500 px-5 py-3 text-sm font-bold text-white shadow-md shadow-violet-950/50 transition hover:brightness-110"
+            className="mt-6 rounded-2xl bg-prime px-5 py-3 text-sm font-bold text-[#181714] shadow-md shadow-black/30 transition hover:bg-prime-dark"
           >
             Explorar productos
           </button>
@@ -109,17 +136,17 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
   }
 
   return (
-    <div className="mx-auto my-6 max-w-7xl rounded-[32px] border border-indigo-300/10 bg-gradient-to-br from-slate-900 via-[#111a33] to-indigo-950 px-4 py-8 shadow-xl shadow-black/30 md:px-6">
+    <div className="mx-auto my-6 max-w-7xl rounded-[32px] border border-bd bg-gradient-to-br from-surface to-bg px-4 py-8 shadow-xl shadow-black/30 md:px-6">
       <Breadcrumb
         items={[{ label: "Inicio", onClick: () => navigate({ id: "home" }) }, { label: "Cesta" }]}
       />
 
       <div className="mb-8 flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <p className="text-sm font-extrabold uppercase tracking-[0.2em] text-violet-300">Cesta</p>
-          <h1 className="mt-2 text-3xl font-extrabold text-slate-50">Tus productos y servicios</h1>
+          <p className="text-sm font-extrabold uppercase tracking-[0.2em] text-prime">Cesta</p>
+          <h1 className="mt-2 text-3xl font-extrabold text-text">Tus productos y servicios</h1>
         </div>
-        <span className="rounded-full border border-violet-300/30 bg-violet-400/10 px-4 py-2 text-sm font-bold text-violet-100">
+        <span className="rounded-full border border-prime/40 bg-prime-muted px-4 py-2 text-sm font-bold text-prime">
           {itemCount} artículos
         </span>
       </div>
@@ -133,7 +160,7 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
               return (
                 <div
                   key={`service-${cartItemId}`}
-                  className="rounded-3xl border border-indigo-300/20 bg-slate-800/90 p-4 shadow-lg shadow-black/20 md:p-5"
+                  className="rounded-3xl border border-bd bg-gradient-to-br from-surface to-surface-2 p-4 shadow-lg shadow-black/20 md:p-5"
                 >
                   <div className="flex flex-col gap-4 md:flex-row">
                     <button
@@ -148,65 +175,74 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                     </button>
                     <div className="flex flex-1 flex-col justify-between gap-4 md:flex-row md:items-center">
                       <div>
-                        <p className="text-sm font-extrabold uppercase tracking-[0.16em] text-violet-300">
+                        <p className="text-sm font-extrabold uppercase tracking-[0.16em] text-prime">
                           {service.provider}
                         </p>
                         <button
                           onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
                           className="text-left"
                         >
-                          <h2 className="mt-1 text-xl font-extrabold text-slate-50">
-                            {service.name}
-                          </h2>
+                          <h2 className="mt-1 text-xl font-extrabold text-text">{service.name}</h2>
                         </button>
-                        <p className="mt-2 text-sm font-medium text-slate-300">
-                          {service.category}
-                        </p>
-                        <div className="mt-3 rounded-xl border border-emerald-300/15 bg-gradient-to-r from-emerald-950/60 to-cyan-950/60 px-3 py-2">
-                          <div className="text-xl font-extrabold text-emerald-300">
-                            {formatPrice(service.monthlyPrice)}{" "}
-                            {getBillingPeriodText(service.billingPeriod)}
-                          </div>
-                          {service.installationCost !== null && (
-                            <p className="mt-1 text-xs font-medium text-slate-300">
-                              Instalación:{" "}
-                              {service.installationCost === 0
-                                ? "Gratis"
-                                : formatPrice(service.installationCost)}
-                            </p>
-                          )}
-                        </div>
+                        <p className="mt-2 text-sm font-medium text-muted">{service.category}</p>
+                        <button
+                          type="button"
+                          onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-prime/40 bg-prime-muted px-4 py-2.5 text-sm font-bold text-prime transition-colors hover:border-prime hover:bg-prime/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+                        >
+                          Ver servicio
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            className="h-4 w-4"
+                          >
+                            <path
+                              d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                        {service.installationCost !== null && (
+                          <p className="mt-2 text-xs font-medium text-muted">
+                            Instalación:{" "}
+                            {service.installationCost === 0
+                              ? "Gratis"
+                              : formatPrice(service.installationCost)}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center justify-between gap-4 md:justify-end">
-                        <div className="flex items-center gap-2 rounded-xl border border-violet-300/25 bg-violet-950/70 px-2 py-1.5">
+                        <div className="flex items-center gap-2 rounded-xl border border-bd bg-surface-2 px-2 py-1.5">
                           <button
                             onClick={() => onUpdateQuantity(cartItemId, quantity - 1)}
-                            className="h-8 w-8 rounded-lg text-xl font-bold text-violet-200 hover:bg-violet-800"
+                            className="h-8 w-8 rounded-lg text-xl font-bold text-prime hover:bg-prime-muted"
                             aria-label={`Disminuir cantidad de ${service.name}`}
                           >
                             −
                           </button>
-                          <span className="min-w-7 text-center text-base font-extrabold text-white">
+                          <span className="min-w-7 text-center text-base font-extrabold text-text">
                             {quantity}
                           </span>
                           <button
                             onClick={() => onUpdateQuantity(cartItemId, quantity + 1)}
-                            className="h-8 w-8 rounded-lg text-xl font-bold text-violet-200 hover:bg-violet-800"
+                            className="h-8 w-8 rounded-lg text-xl font-bold text-prime hover:bg-prime-muted"
                             aria-label={`Aumentar cantidad de ${service.name}`}
                           >
                             +
                           </button>
                         </div>
                         <div className="min-w-[90px] text-right">
-                          <div className="text-xl font-extrabold text-slate-50">
+                          <div className="text-xl font-extrabold text-text">
                             {formatPrice(totalItem)} {getBillingPeriodText(service.billingPeriod)}
                           </div>
-                          <button
+                          <RemoveCartItemButton
+                            itemName={service.name}
                             onClick={() => onRemove(cartItemId)}
-                            className="mt-1 text-sm font-semibold text-slate-400 transition-colors hover:text-rose-300"
-                          >
-                            Eliminar
-                          </button>
+                          />
                         </div>
                       </div>
                     </div>
@@ -218,13 +254,12 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
             const { product, offer, quantity, cartItemId } = item;
             const price = offer.price;
             const totalItem = price * quantity;
-            const discountPercent = getDiscountPercent(offer.listPrice, price);
             const offerUrl = getSafeOfferUrl(offer.url);
 
             return (
               <div
                 key={`product-${cartItemId}`}
-                className="rounded-3xl border border-indigo-300/20 bg-slate-800/90 p-4 shadow-lg shadow-black/20 md:p-5"
+                className="rounded-3xl border border-bd bg-gradient-to-br from-surface to-surface-2 p-4 shadow-lg shadow-black/20 md:p-5"
               >
                 <div className="flex flex-col md:flex-row gap-4">
                   <button
@@ -244,70 +279,62 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                         onClick={() => navigate({ id: "product-detail", productId: product.id })}
                         className="text-left"
                       >
-                        <p className="text-sm font-extrabold uppercase tracking-[0.16em] text-violet-700">
+                        <p className="text-sm font-extrabold uppercase tracking-[0.16em] text-prime">
                           {product.brand}
                         </p>
-                        <h2 className="mt-1 text-xl font-extrabold text-slate-50">
-                          {product.name}
-                        </h2>
+                        <h2 className="mt-1 text-xl font-extrabold text-text">{product.name}</h2>
                       </button>
 
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-medium text-slate-300">
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-medium text-muted">
                         <span>{product.category}</span>
-                        <span className="text-violet-300">•</span>
+                        <span className="text-prime">•</span>
                         <span>{product.model}</span>
                       </div>
 
-                      <p className="mt-2 text-base font-bold text-cyan-200">
-                        Oferta de {offer.storeName}
-                      </p>
-                      <div className="mt-3 rounded-xl border border-emerald-300/15 bg-gradient-to-r from-emerald-950/60 to-cyan-950/60 px-3 py-2">
-                        {discountPercent !== null && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-slate-400 line-through">
-                              {formatPrice(offer.listPrice!)}
-                            </span>
-                            <span className="rounded-full bg-rose-400/15 px-2 py-0.5 text-xs font-extrabold text-rose-200">
-                              {discountPercent}% OFF
-                            </span>
-                          </div>
-                        )}
-                        <div className="text-xl font-extrabold text-emerald-300">
-                          {formatPrice(price)}
-                        </div>
-                      </div>
                       {offerUrl ? (
                         <a
                           href={offerUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="mt-2 inline-flex text-sm font-bold text-violet-300 hover:text-fuchsia-200 hover:underline"
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-prime/40 bg-prime-muted px-4 py-2.5 text-sm font-bold text-prime transition-colors hover:border-prime hover:bg-prime/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
                         >
-                          Ver producto en {offer.storeName}
+                          Ver producto en la tienda
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            className="h-4 w-4"
+                          >
+                            <path
+                              d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
                         </a>
                       ) : (
-                        <p className="mt-2 text-sm text-slate-400">
-                          Enlace de tienda no disponible
-                        </p>
+                        <p className="mt-4 text-sm text-muted">Enlace de tienda no disponible</p>
                       )}
                     </div>
 
                     <div className="flex items-center justify-between gap-4 md:justify-end">
-                      <div className="flex items-center gap-2 rounded-xl border border-violet-300/25 bg-violet-950/70 px-2 py-1.5">
+                      <div className="flex items-center gap-2 rounded-xl border border-bd bg-surface-2 px-2 py-1.5">
                         <button
                           onClick={() => onUpdateQuantity(cartItemId, quantity - 1)}
                           disabled={quantity <= 1}
-                          className="h-8 w-8 rounded-lg text-xl font-bold text-violet-200 hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-8 w-8 rounded-lg text-xl font-bold text-prime hover:bg-prime-muted disabled:cursor-not-allowed disabled:opacity-40"
                           aria-label={`Disminuir cantidad de ${product.name}`}
                         >
                           −
                         </button>
-                        <span className="min-w-7 text-center text-base font-extrabold text-white">
+                        <span className="min-w-7 text-center text-base font-extrabold text-text">
                           {quantity}
                         </span>
                         <button
                           onClick={() => onUpdateQuantity(cartItemId, quantity + 1)}
-                          className="h-8 w-8 rounded-lg text-xl font-bold text-violet-200 hover:bg-violet-800"
+                          className="h-8 w-8 rounded-lg text-xl font-bold text-prime hover:bg-prime-muted"
                           aria-label={`Aumentar cantidad de ${product.name}`}
                         >
                           +
@@ -315,15 +342,13 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                       </div>
 
                       <div className="text-right min-w-[90px]">
-                        <div className="text-xl font-extrabold text-slate-50">
+                        <div className="text-xl font-extrabold text-text">
                           {formatPrice(totalItem)}
                         </div>
-                        <button
+                        <RemoveCartItemButton
+                          itemName={product.name}
                           onClick={() => onRemove(cartItemId)}
-                          className="mt-1 text-sm font-semibold text-slate-400 transition-colors hover:text-rose-300"
-                        >
-                          Eliminar
-                        </button>
+                        />
                       </div>
                     </div>
                   </div>
@@ -333,16 +358,16 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
           })}
         </div>
 
-        <aside className="h-fit rounded-3xl border border-indigo-300/20 bg-slate-800/90 p-5 shadow-lg shadow-black/20">
-          <h2 className="text-2xl font-extrabold text-slate-50">Resumen por tienda</h2>
+        <aside className="h-fit rounded-3xl border border-bd bg-surface p-5 shadow-lg shadow-black/20">
+          <h2 className="text-2xl font-extrabold text-text">Resumen por tienda</h2>
 
           <div className="mt-4 space-y-4">
             {storeSummaries.map((store) => (
               <section
                 key={store.id}
-                className="overflow-hidden rounded-2xl border border-violet-300/25 bg-gradient-to-br from-slate-800 via-indigo-950/80 to-slate-900 shadow-sm shadow-black/20"
+                className="overflow-hidden rounded-2xl border border-bd bg-gradient-to-br from-surface to-surface-2 shadow-sm shadow-black/20"
               >
-                <h3 className="border-b border-violet-300/25 bg-gradient-to-r from-violet-700/50 via-fuchsia-700/30 to-cyan-700/30 px-4 py-3 text-xl font-extrabold text-violet-50">
+                <h3 className="border-b border-bd bg-prime-muted px-4 py-3 text-xl font-extrabold text-prime">
                   {store.name}
                 </h3>
                 <ul className="space-y-3 p-4">
@@ -351,26 +376,24 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                     return (
                       <li
                         key={product.id}
-                        className="border-b border-indigo-300/15 pb-3 last:border-0 last:pb-0"
+                        className="border-b border-bd pb-3 last:border-0 last:pb-0"
                       >
-                        <p className="text-base font-bold leading-snug text-slate-100">
-                          {product.name}
-                        </p>
+                        <p className="text-base font-bold leading-snug text-text">{product.name}</p>
                         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="text-sm font-semibold text-slate-300">
+                          <span className="text-sm font-semibold text-muted">
                             Cantidad: {quantity}
                           </span>
                           {discountPercent !== null && (
                             <>
-                              <span className="text-sm font-medium text-slate-400 line-through">
+                              <span className="text-sm font-medium text-muted line-through">
                                 {formatPrice(offer.listPrice!)}
                               </span>
-                              <span className="rounded-full bg-rose-400/15 px-2 py-0.5 text-xs font-extrabold text-rose-200">
+                              <span className="rounded-full border border-prime/40 bg-prime-muted px-2 py-0.5 text-xs font-extrabold text-prime">
                                 {discountPercent}% OFF
                               </span>
                             </>
                           )}
-                          <span className="text-base font-extrabold text-emerald-300">
+                          <span className="text-base font-extrabold text-prime">
                             {formatPrice(offer.price)}
                           </span>
                         </div>
@@ -378,36 +401,32 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                     );
                   })}
                 </ul>
-                <div className="flex items-center justify-between border-t border-violet-300/20 bg-slate-950/50 px-4 py-3">
-                  <span className="text-base font-bold text-slate-200">Total en {store.name}</span>
-                  <span className="text-xl font-black text-emerald-300">
-                    {formatPrice(store.total)}
-                  </span>
+                <div className="flex items-center justify-between border-t border-bd bg-surface-2 px-4 py-3">
+                  <span className="text-base font-bold text-text">Total en {store.name}</span>
+                  <span className="text-xl font-black text-prime">{formatPrice(store.total)}</span>
                 </div>
               </section>
             ))}
             {serviceSummaries.map((provider) => (
               <section
                 key={`${provider.name}:${provider.billingPeriod}`}
-                className="overflow-hidden rounded-2xl border border-cyan-300/25 bg-gradient-to-br from-slate-800 via-indigo-950/80 to-slate-900 shadow-sm shadow-black/20"
+                className="overflow-hidden rounded-2xl border border-bd bg-gradient-to-br from-surface to-surface-2 shadow-sm shadow-black/20"
               >
-                <h3 className="border-b border-cyan-300/25 bg-gradient-to-r from-cyan-700/40 via-violet-700/30 to-indigo-700/30 px-4 py-3 text-xl font-extrabold text-cyan-50">
+                <h3 className="border-b border-bd bg-prime-muted px-4 py-3 text-xl font-extrabold text-prime">
                   {provider.name} · {getBillingPeriodName(provider.billingPeriod)}
                 </h3>
                 <ul className="space-y-3 p-4">
                   {provider.items.map(({ service, quantity, serviceOfferId }) => (
                     <li
                       key={serviceOfferId}
-                      className="border-b border-indigo-300/15 pb-3 last:border-0 last:pb-0"
+                      className="border-b border-bd pb-3 last:border-0 last:pb-0"
                     >
-                      <p className="text-base font-bold leading-snug text-slate-100">
-                        {service.name}
-                      </p>
+                      <p className="text-base font-bold leading-snug text-text">{service.name}</p>
                       <div className="mt-1.5 flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold text-slate-300">
+                        <span className="text-sm font-semibold text-muted">
                           Cantidad: {quantity}
                         </span>
-                        <span className="text-base font-extrabold text-emerald-300">
+                        <span className="text-base font-extrabold text-prime">
                           {formatPrice(service.monthlyPrice * quantity)}{" "}
                           {getBillingPeriodText(service.billingPeriod)}
                         </span>
@@ -415,11 +434,11 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                     </li>
                   ))}
                 </ul>
-                <div className="flex items-center justify-between border-t border-cyan-300/20 bg-slate-950/50 px-4 py-3">
-                  <span className="text-base font-bold text-slate-200">
+                <div className="flex items-center justify-between border-t border-bd bg-surface-2 px-4 py-3">
+                  <span className="text-base font-bold text-text">
                     Total {getBillingPeriodName(provider.billingPeriod)}
                   </span>
-                  <span className="text-xl font-black text-emerald-300">
+                  <span className="text-xl font-black text-prime">
                     {formatPrice(provider.total)} {getBillingPeriodText(provider.billingPeriod)}
                   </span>
                 </div>
@@ -429,7 +448,7 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
 
           <button
             onClick={() => navigate({ id: "home" })}
-            className="mt-6 w-full rounded-2xl border border-violet-300/40 bg-violet-500/10 py-3 text-base font-bold text-violet-100 transition-all hover:border-fuchsia-300/60 hover:bg-fuchsia-500/20 hover:text-white"
+            className="mt-6 w-full rounded-2xl border border-prime/40 bg-prime-muted py-3 text-base font-bold text-prime transition-all hover:border-prime hover:bg-prime/20 hover:text-text"
           >
             Seguir comparando
           </button>

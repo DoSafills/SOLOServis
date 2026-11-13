@@ -32,17 +32,19 @@ var refrigeradores = []categories.Attribute{
 }
 
 type fakeSearcher struct {
-	defs      []categories.Attribute
-	defsErr   error
-	results   []ProductResult
-	total     int64
-	facets    Facets
-	err       error
-	gotQuery  *Query
-	gotDefs   []categories.Attribute
-	gotText   string
-	gotType   *string
-	dbTouched int
+	defs         []categories.Attribute
+	defsErr      error
+	results      []ProductResult
+	popular      []ProductResult
+	popularLimit int
+	total        int64
+	facets       Facets
+	err          error
+	gotQuery     *Query
+	gotDefs      []categories.Attribute
+	gotText      string
+	gotType      *string
+	dbTouched    int
 }
 
 func (f *fakeSearcher) CategoryDefinitions(context.Context, string) ([]categories.Attribute, error) {
@@ -53,6 +55,11 @@ func (f *fakeSearcher) SearchProducts(_ context.Context, q Query) ([]ProductResu
 	f.dbTouched++
 	f.gotQuery = &q
 	return f.results, f.total, f.err
+}
+func (f *fakeSearcher) PopularProducts(_ context.Context, limit int) ([]ProductResult, error) {
+	f.dbTouched++
+	f.popularLimit = limit
+	return f.popular, f.err
 }
 func (f *fakeSearcher) SearchFacets(_ context.Context, q Query, defs []categories.Attribute) (Facets, error) {
 	f.dbTouched++
@@ -78,6 +85,7 @@ func serve(t *testing.T, searcher Searcher, target string) (*httptest.ResponseRe
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
 	r.Get("/search/products", h.Products)
+	r.Get("/search/popular-products", h.PopularProducts)
 	r.Get("/search/facets", h.Facets)
 	r.Get("/search/categories", h.Categories)
 	r.Get("/search/brands", h.Brands)
@@ -123,6 +131,33 @@ func TestProducts_CasoFelizYDefaults(t *testing.T) {
 	q := *s.gotQuery
 	if q.Sort != "name" || q.Limit != DefaultLimit || q.Offset != 0 || len(q.Words) != 0 || q.Available {
 		t.Fatalf("query = %+v", q)
+	}
+}
+
+func TestPopularProducts_CasoFelizYError(t *testing.T) {
+	emptyRec, _ := serve(t, &fakeSearcher{}, "/search/popular-products")
+	requireStatus(t, emptyRec, http.StatusOK)
+	if strings.TrimSpace(emptyRec.Body.String()) != "[]" {
+		t.Fatalf("respuesta sin búsquedas = %q, se esperaba []", emptyRec.Body.String())
+	}
+
+	s := &fakeSearcher{popular: []ProductResult{{ID: "x", Name: "Refrigerador"}}}
+	rec, _ := serve(t, s, "/search/popular-products")
+	requireStatus(t, rec, http.StatusOK)
+
+	var results []ProductResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &results); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ID != "x" || s.popularLimit != popularProductsLimit {
+		t.Fatalf("productos = %+v, límite = %d", results, s.popularLimit)
+	}
+
+	s = &fakeSearcher{err: errBoom}
+	rec, logs := serve(t, s, "/search/popular-products")
+	requireStatus(t, rec, http.StatusInternalServerError)
+	if logs == "" {
+		t.Fatal("el error de búsqueda debe registrarse")
 	}
 }
 

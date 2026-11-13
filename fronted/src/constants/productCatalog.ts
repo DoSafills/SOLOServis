@@ -1,10 +1,34 @@
 import type { Product } from "../types";
+import type { CategoryIconName } from "../components/common/CategoryIcon";
+
+export const PRODUCT_TYPE_ICONS = {
+  appliances: "refrigerator",
+  technology: "bolt",
+  computing: "laptop",
+  phones: "phone",
+  gaming: "gamepad",
+  home: "house",
+} as const;
+
+export const CATEGORY_SECTION_ICONS = {
+  home: "house",
+  technology: "bolt",
+  other: "grid",
+} as const;
+
+export const SERVICE_CATEGORY_ICONS = {
+  internet: "wifi",
+  security: "shield",
+  education: "book",
+  technicians: "wrench",
+  other: "grid",
+} as const;
 
 export const PRODUCT_TYPES = [
   {
     id: "appliances",
     name: "Electrodomésticos",
-    icon: "🏠",
+    icon: PRODUCT_TYPE_ICONS.appliances,
     color: "#FB923C",
     pattern:
       /electrodomest|refriger|nevera|freezer|congelador|microonda|lavador|secador|lavavajilla|horno|cocina|aspirador|cafetera|licuadora|freidora|batidora|tostador|hervidor|plancha|ventilador|calefactor|aire acondicionado/,
@@ -12,7 +36,7 @@ export const PRODUCT_TYPES = [
   {
     id: "technology",
     name: "Tecnología",
-    icon: "⚡",
+    icon: PRODUCT_TYPE_ICONS.technology,
     color: "#E8001B",
     pattern:
       /televisor|television|\btv\b|reloj|smartwatch|audif|auricular|headphone|parlante|speaker|camara|proyector|audio|microfono/,
@@ -20,28 +44,28 @@ export const PRODUCT_TYPES = [
   {
     id: "computing",
     name: "Computación",
-    icon: "💻",
+    icon: PRODUCT_TYPE_ICONS.computing,
     color: "#818CF8",
     pattern: /notebook|laptop|computador|computadora|desktop|impresora|monitor|tablet/,
   },
   {
     id: "phones",
     name: "Celulares",
-    icon: "📱",
+    icon: PRODUCT_TYPE_ICONS.phones,
     color: "#F472B6",
     pattern: /celular|smartphone|iphone|telefono movil|telefono celular/,
   },
   {
     id: "gaming",
     name: "Gaming",
-    icon: "🎮",
+    icon: PRODUCT_TYPE_ICONS.gaming,
     color: "#A78BFA",
     pattern: /gaming|gamer|consola|playstation|xbox|nintendo|videojuego|gamepad/,
   },
   {
     id: "home",
     name: "Hogar y muebles",
-    icon: "🛋️",
+    icon: PRODUCT_TYPE_ICONS.home,
     color: "#34D399",
     pattern:
       /electrodomest|refriger|nevera|freezer|congelador|microonda|lavador|secador|lavavajilla|horno|cocina|aspirador|cafetera|licuadora|freidora|batidora|tostador|hervidor|plancha|ventilador|calefactor|aire acondicionado|mueble|mesa|silla|sofa|cama|escritorio|colchon|decoracion|alfombra|ropero|estante/,
@@ -86,6 +110,17 @@ const normalize = (value: string): string =>
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase();
+
+export const getServiceCategoryIcon = (name: string): CategoryIconName => {
+  const normalized = normalize(name);
+  if (/internet|telefon|telecom/.test(normalized)) return SERVICE_CATEGORY_ICONS.internet;
+  if (/seguridad|seguro/.test(normalized)) return SERVICE_CATEGORY_ICONS.security;
+  if (/educaci|curso|capacit/.test(normalized)) return SERVICE_CATEGORY_ICONS.education;
+  if (/tecnic|repar|manten|electric|gasfiter|plomer|instal/.test(normalized)) {
+    return SERVICE_CATEGORY_ICONS.technicians;
+  }
+  return SERVICE_CATEGORY_ICONS.other;
+};
 
 export type ProductCategoryGroup = "home" | "technology" | "other";
 
