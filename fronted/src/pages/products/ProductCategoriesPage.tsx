@@ -3,7 +3,9 @@ import type { Page, Product } from "../../types";
 import { getAllProducts } from "../../services/api/api";
 import { getCategories, type ApiProductCategory } from "../../services/api/products";
 import { Breadcrumb } from "../../components/common/ui";
+import CategoryIcon from "../../components/common/CategoryIcon";
 import {
+  CATEGORY_SECTION_ICONS,
   getProductCategoryGroup,
   getProductSubtype,
   getProductSubtypeSearchQuery,
@@ -29,19 +31,19 @@ const categorySections = [
     id: "home",
     title: "Hogar",
     description: "Electrodomésticos, muebles y productos para tu casa",
-    icon: "🏠",
+    icon: CATEGORY_SECTION_ICONS.home,
   },
   {
     id: "technology",
     title: "Tecnología",
     description: "TV, videojuegos, audio, computación y telefonía",
-    icon: "⚡",
+    icon: CATEGORY_SECTION_ICONS.technology,
   },
   {
     id: "other",
     title: "Otras categorías",
     description: "Deportes, fitness y nuevos tipos de productos",
-    icon: "✨",
+    icon: CATEGORY_SECTION_ICONS.other,
   },
 ] as const;
 
@@ -231,22 +233,22 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         ]}
       />
 
-      <section className="mt-6 mb-7 flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <section className="mt-6 mb-7 flex flex-col gap-4 border-b border-bd pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300/80">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-prime">
             Catálogo
           </p>
-          <h1 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
+          <h1 className="text-xl font-semibold tracking-tight text-text sm:text-2xl">
             Explora por categoría
           </h1>
-          <p className="mt-1.5 text-sm text-slate-400">
+          <p className="mt-1.5 text-sm text-muted">
             Compara precios y encuentra tu próxima oferta.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
           <button
             onClick={showAllProducts}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-3.5 py-2 text-xs font-semibold text-slate-950 transition hover:bg-slate-200"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-prime px-3.5 py-2 text-xs font-semibold text-[#181714] transition hover:bg-prime-dark"
           >
             Ver ofertas
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -294,11 +296,11 @@ export default function ProductCategoriesPage({ navigate }: Props) {
             return (
               <section
                 key={section.id}
-                className={`category-outline relative isolate overflow-hidden rounded-xl bg-slate-700/70 p-px ${
+                className={`category-outline relative isolate overflow-hidden rounded-xl bg-surface-3 p-px ${
                   isExpanded ? "category-outline-active" : ""
                 }`}
               >
-                <div className="relative z-10 overflow-hidden rounded-[11px] bg-slate-900/45">
+                <div className="relative z-10 overflow-hidden rounded-[11px] bg-surface">
                   <div className="flex items-center">
                     <button
                       type="button"
@@ -308,18 +310,18 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                       aria-label={`${isExpanded ? "Ocultar" : "Ver"} subcategorías de ${section.title}`}
                       className="flex min-w-0 flex-1 items-center gap-3 p-4 text-left sm:gap-4 sm:p-5"
                     >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-800/80 text-xl">
-                        {section.icon}
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-prime">
+                        <CategoryIcon name={section.icon} />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-base font-semibold text-slate-100 sm:text-lg">
+                        <span className="block text-base font-semibold text-text sm:text-lg">
                           {section.title}
                         </span>
-                        <span className="mt-1 block text-xs text-slate-400 sm:text-sm">
+                        <span className="mt-1 block text-xs text-muted sm:text-sm">
                           {section.description}
                         </span>
                       </span>
-                      <span className="hidden shrink-0 text-xs text-slate-400 sm:block">
+                      <span className="hidden shrink-0 text-xs text-muted sm:block">
                         {section.categories.length}{" "}
                         {section.categories.length === 1 ? "categoría" : "categorías"} ·{" "}
                         {productCount} {productCount === 1 ? "producto" : "productos"}
@@ -330,7 +332,7 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                         viewBox="0 0 24 24"
                         fill="none"
                         aria-hidden="true"
-                        className={`shrink-0 text-slate-300 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                        className={`shrink-0 text-muted transition-transform ${isExpanded ? "rotate-180" : ""}`}
                       >
                         <path
                           d="m6 9 6 6 6-6"
@@ -350,7 +352,7 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                           productGroup: section.id,
                         })
                       }
-                      className="mr-3 inline-flex shrink-0 items-center gap-1 rounded-lg border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300/60 hover:bg-cyan-300/10 sm:mr-4 sm:px-3.5"
+                      className="mr-3 inline-flex shrink-0 items-center gap-1 rounded-lg border border-prime/40 bg-prime-muted px-3 py-2 text-xs font-semibold text-prime transition hover:border-prime hover:bg-prime/20 sm:mr-4 sm:px-3.5"
                       aria-label={`Ver todo ${section.title}`}
                     >
                       Todo {section.title}
@@ -359,62 +361,80 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                   </div>
 
                   {isExpanded && (
-                    <div id={panelId} className="border-t border-slate-800 p-3 sm:p-4">
+                    <div id={panelId} className="border-t border-bd p-3 sm:p-4">
                       {section.categories.length === 0 ? (
-                        <p className="px-2 py-3 text-sm text-slate-300">
+                        <p className="px-2 py-3 text-sm text-muted">
                           Todavía no hay productos disponibles en esta sección.
                         </p>
                       ) : (
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                           {section.categories.map((category) => (
-                            <button
+                            <article
                               key={`${category.categoryId ?? category.query}:${category.name}`}
-                              onClick={() =>
-                                navigate({
-                                  id: "search-products",
-                                  query: category.query,
-                                  categoryContext: category.name,
-                                  categoryId: category.categoryId,
-                                })
-                              }
-                              aria-label={`Ver ${category.count} ${category.count === 1 ? "producto" : "productos"} de ${category.name}`}
-                              className="group relative flex min-h-28 min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-700/70 bg-gradient-to-br from-slate-900/90 to-slate-950/70 p-3.5 text-left transition-colors duration-200 hover:border-cyan-300/70 focus-visible:border-cyan-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+                              className="group relative flex min-h-40 min-w-0 overflow-hidden rounded-[1.5rem] border border-bd bg-surface shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30"
                             >
-                              <span className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-white/[0.06] bg-slate-950/70 p-2 shadow-inner sm:h-[4.5rem] sm:w-[4.5rem]">
+                              <div className="absolute inset-y-0 left-0 w-[58%] bg-slate-950/60">
                                 <img
                                   src={category.image}
                                   alt=""
                                   loading="lazy"
-                                  className="h-full w-full object-contain"
+                                  className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]"
                                 />
-                              </span>
-                              <span className="flex min-w-0 flex-1 flex-col justify-center py-1">
-                                <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-100">
+                                <span
+                                  aria-hidden="true"
+                                  className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
+                                />
+                              </div>
+                              <div
+                                aria-hidden="true"
+                                className="absolute inset-y-0 right-0 w-[66%]"
+                                style={{
+                                  background:
+                                    "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
+                                  clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
+                                }}
+                              />
+                              <div className="relative z-10 ml-[38%] flex w-[62%] min-w-0 flex-col items-start justify-center gap-2 p-3 pl-8 sm:gap-2.5 sm:p-4 sm:pl-10">
+                                <h3 className="line-clamp-2 text-sm font-bold leading-snug text-text transition-colors group-hover:text-prime sm:text-base">
                                   {category.name}
-                                </span>
-                                <span className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-full border border-slate-700/80 bg-slate-950/50 px-2 py-1 text-[10px] font-medium text-slate-400">
-                                  <span className="h-1 w-1 rounded-full bg-cyan-300/80" />
+                                </h3>
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-bd bg-surface-2 px-2 py-1 text-[10px] font-medium text-muted">
+                                  <span
+                                    aria-hidden="true"
+                                    className="h-1 w-1 rounded-full bg-prime"
+                                  />
                                   {category.count} {category.count === 1 ? "producto" : "productos"}
                                 </span>
-                              </span>
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-700/80 bg-slate-950/50 text-slate-500">
-                                <svg
-                                  width="15"
-                                  height="15"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  aria-hidden="true"
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    navigate({
+                                      id: "search-products",
+                                      query: category.query,
+                                      categoryContext: category.name,
+                                      categoryId: category.categoryId,
+                                    })
+                                  }
+                                  aria-label={`Ver categoría ${category.name}`}
+                                  className="mt-0.5 inline-flex h-9 w-9 items-center justify-center self-end rounded-full bg-prime text-[#181714] shadow-lg shadow-black/20 transition-all hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
                                 >
-                                  <path
-                                    d="M5 12h14m-6-6 6 6-6 6"
-                                    stroke="currentColor"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-                                </svg>
-                              </span>
-                            </button>
+                                  <svg
+                                    aria-hidden="true"
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    className="h-5 w-5"
+                                  >
+                                    <path
+                                      d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                                      stroke="currentColor"
+                                      strokeWidth="1.7"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                </button>
+                              </div>
+                            </article>
                           ))}
                         </div>
                       )}
