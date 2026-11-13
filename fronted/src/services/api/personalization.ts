@@ -237,6 +237,16 @@ function getStoredAuthSession(): AuthSession | null {
   return null;
 }
 
+export function hasStoredAuthSession(userId: number): boolean {
+  const session = getStoredAuthSession();
+  return Boolean(
+    session &&
+    session.userId === userId &&
+    session.accessToken.trim() &&
+    session.refreshToken.trim(),
+  );
+}
+
 function storeAuthSession(session: AuthSession): void {
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
 }
@@ -328,6 +338,8 @@ export async function logoutAccount(): Promise<void> {
 }
 
 export async function getSearchHistory(userId: number): Promise<SearchHistoryEntry[]> {
+  if (!hasStoredAuthSession(userId)) return [];
+
   return request<SearchHistoryEntry[]>(API_URLS.search, `/search/history?userId=${userId}`);
 }
 
@@ -336,6 +348,8 @@ export async function addSearchHistory(
   query: string,
   type: "product" | "service",
 ): Promise<void> {
+  if (!hasStoredAuthSession(userId)) return;
+
   await request<void>(API_URLS.search, "/search/history", {
     method: "POST",
     body: JSON.stringify({ userId, query, type }),

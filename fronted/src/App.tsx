@@ -29,6 +29,7 @@ import {
   getFavoriteProductIds,
   getFavoriteServiceIds,
   getSearchHistory,
+  hasStoredAuthSession,
   loginAccount,
   logoutAccount,
   registerAccount,
@@ -43,6 +44,7 @@ import type { AuthSession, AuthUser, SearchHistoryEntry } from "./services/api/p
 const SERVICE_COMPARISON_KEY = "soloservice.service-comparison";
 const PRODUCT_COMPARISON_PRODUCTS_KEY = "soloservice.product-comparison-products";
 const GUEST_CART_KEY = "soloservice.guest-cart";
+const SEARCH_HISTORY_SAVE_ERROR_PREFIX = "No se pudo guardar la búsqueda en el historial:";
 
 interface StoredProductCartEntry {
   type: "product";
@@ -351,11 +353,15 @@ export default function App() {
 
   const navigate = (next: Page) => {
     setPage(next);
-    if (
-      userId &&
-      (next.id === "search-products" || next.id === "search-services") &&
-      next.query.trim()
-    ) {
+    const isSearchNavigation = next.id === "search-products" || next.id === "search-services";
+    if (isSearchNavigation && (!userId || !hasStoredAuthSession(userId))) {
+      setPersistenceError((current) =>
+        current?.startsWith(SEARCH_HISTORY_SAVE_ERROR_PREFIX) ? null : current,
+      );
+      return;
+    }
+
+    if (isSearchNavigation && userId && next.query.trim()) {
       const type = next.id === "search-services" ? "service" : "product";
       void addSearchHistory(userId, next.query.trim(), type)
         .then(() => getSearchHistory(userId))
@@ -365,7 +371,7 @@ export default function App() {
         .catch((error: unknown) => {
           if (activeUserId.current === userId) {
             setPersistenceError(
-              `No se pudo guardar la búsqueda en el historial: ${error instanceof Error ? error.message : "error desconocido"}`,
+              `${SEARCH_HISTORY_SAVE_ERROR_PREFIX} ${error instanceof Error ? error.message : "error desconocido"}`,
             );
           }
         });
@@ -925,12 +931,7 @@ export default function App() {
         cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
       />
 
-      <main
-        className={page.id === "stores" || page.id === "store-detail" ? "stores-theme" : undefined}
-        style={{ flex: 1 }}
-      >
-        {renderPage()}
-      </main>
+      <main style={{ flex: 1 }}>{renderPage()}</main>
 
       {productCompareList.size > 0 && (
         <div className="fixed bottom-4 left-4 z-50">
