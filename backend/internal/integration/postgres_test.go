@@ -172,7 +172,8 @@ func hash(token string) []byte {
 // Dominio usuarios: cuentas y sesiones en user_account y user_session.
 func TestIntegracion_Usuarios(t *testing.T) {
 	e := newEnv(t)
-	e.expect(http.StatusBadRequest, "usuarios", "POST", "/auth/register", "",
+	// Email inválido: el JSON se decodifica pero incumple una regla -> 422 (TAL-78).
+	e.expect(http.StatusUnprocessableEntity, "usuarios", "POST", "/auth/register", "",
 		map[string]any{"name": "Inválida", "email": "no-es-email", "password": "Clave12345!"})
 	e.expect(http.StatusUnsupportedMediaType, "usuarios", "POST", "/auth/register", "", nil)
 	e.expect(http.StatusMethodNotAllowed, "usuarios", "GET", "/auth/login", "", nil)
