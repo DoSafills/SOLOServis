@@ -105,7 +105,12 @@ def suite_backend(raw_dir: Path, database_url: str | None) -> Suite:
     if database_url:
         env["TEST_DATABASE_URL"] = database_url
     started = time.time()
-    code, out = run(["go", "test", "-json", "-count=1", "./..."], ROOT / "backend", env)
+    cmd = ["go", "test", "-json", "-count=1"]
+    if env.get("TEST_DATABASE_URL"):
+        # Los paquetes comparten una sola base: en paralelo se pisan los datos.
+        cmd += ["-p", "1"]
+        suite.command = "go test -json -p 1 ./..."
+    code, out = run([*cmd, "./..."], ROOT / "backend", env)
     suite.seconds = time.time() - started
     (raw_dir / "backend-go-test.json").write_text(out, encoding="utf-8")
 
