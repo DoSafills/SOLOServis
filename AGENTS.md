@@ -2,7 +2,7 @@
 
 Léelo completo antes de modificar el proyecto. Vale para cualquier agente (Claude Code, Copilot, Cursor, Codex). `fronted/AGENTS.md` y `crawler/AGENTS.md` agregan reglas propias de esas carpetas.
 
-**Fuente de verdad:** el código y este archivo. El `README.md` de la raíz está desactualizado (ver sección 3): no lo uses para decidir qué tecnología existe.
+**Fuente de verdad:** el código. Si este archivo o un README lo contradicen, gana el código: avisa y corrige el documento en el mismo cambio.
 
 ---
 
@@ -24,7 +24,7 @@ Léelo completo antes de modificar el proyecto. Vale para cualquier agente (Clau
 
 Plataforma web para buscar y comparar **productos y servicios** entre tiendas y proveedores de Chile (referencia: SoloTodo, ampliado a servicios). Un scraper trae ofertas reales de las tiendas y las carga al catálogo.
 
-Proyecto del curso Taller de Integración III (UCT). Las tareas viven en Linear con el identificador `TAL-XX`.
+Proyecto del curso Taller de Integración III (UCT). Las tareas viven en Linear con el identificador `TAL-XX`; se pueden consultar desde la terminal con `scripts/linear/linear.py` (ver `scripts/linear/README.md`).
 
 ---
 
@@ -45,16 +45,18 @@ Proyecto del curso Taller de Integración III (UCT). Las tareas viven en Linear 
 | Autenticación | Sesiones con tokens opacos (se guarda su SHA-256), contraseñas con PBKDF2-SHA256; token de servicio `INTERNAL_API_TOKEN` |
 | Herramientas git | husky + lint-staged |
 
-### Declarado en el README pero **no implementado**
+### **No** implementado (figuró en versiones antiguas del README)
 
-No hay rastro en el código de: **Redis**, **Scrapy**, **Playwright** (directo), **TanStack Query**, **Prisma**, "Go Workers" ni JSONL como almacenamiento. No las uses ni las des por existentes. Agregar cualquiera es una decisión de arquitectura: proponla primero.
+No hay rastro en el código de: **Redis**, **Scrapy**, **Playwright** (directo), **TanStack Query**, **Prisma**, **NestJS**, "Go Workers" ni JSONL como almacenamiento. No las uses ni las des por existentes. Agregar cualquiera es una decisión de arquitectura: proponla primero.
 
 ### Previsto, todavía sin implementar
 
 | Qué | Estado |
 | --- | --- |
 | IA / NLP para consultas | Solo existe la tabla `ai_query_process`; no hay código |
-| Caché (Redis) | Declarada en el README; sin implementar |
+| Caché (Redis) | Prevista; sin implementar |
+| Documentación OpenAPI | Prevista; hoy los endpoints están en `backend/README.md` |
+| Pantallas de seguimiento de precios y notificaciones | Las APIs `watchlist` y `notification` existen; el frontend no las usa |
 | CI (GitHub Actions) | No existe `.github/workflows` |
 | Tests del frontend | No hay ninguno; solo `pnpm check` |
 | Reportes de testing (TAL-168) | Propuesto, sin implementar |
@@ -78,6 +80,7 @@ crawler/            crawler v1
 docker/             Dockerfiles, compose.yml (3 dominios) y compose.microservicios.yml
 k8s/                base/, components/{dominios,consolidado,espera-postgres}, tests/
 scripts/k8s/        deploy.ps1, deploy.sh
+scripts/linear/     linear.py: CLI de Linear (necesita LINEAR_API_KEY)
 docs/               estandares/, auditorias/, database/, requirements/
 ```
 
@@ -203,9 +206,9 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 **Pendiente:**
 - Sprint 3, centrado en testing: TAL-168 (reportes de testing) y varios PR de pruebas abiertos.
 - Sin CI y sin tests en el frontend.
+- El frontend no tiene pantallas para seguimiento de precios ni notificaciones.
 - Mercado Libre bloqueado por anti-bots; evaluar su API oficial.
 - Que ingestion resuelva la tienda por nombre en vez de por ID.
-- El README de la raíz no refleja el stack ni la arquitectura actuales.
 - `lint-staged` de la raíz apunta a rutas que no existen (`backend/**/*.ts`, `frontend/`): el pre-commit no formatea nada.
 - Restos sin uso: `backend/src/database/*.ts` y `fronted/package-lock.json` junto al `pnpm-lock.yaml`.
 
