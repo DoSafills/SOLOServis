@@ -3,12 +3,17 @@ import type { FormEvent } from "react";
 import type { Page } from "../../types";
 import type { AuthUser, SearchHistoryEntry } from "../../services/api/personalization";
 import { Breadcrumb } from "../../components/common/ui";
+import FavoritesPage from "./FavoritesPage";
 
 interface Props {
   navigate: (page: Page) => void;
+  section?: Tab;
   user: AuthUser | null;
   favoritesCount: number;
+  favorites: Set<string>;
+  authenticated: boolean;
   history: SearchHistoryEntry[];
+  onToggleFavorite: (id: string, kind?: "product" | "service") => void;
   onLogin: (email: string, password: string) => Promise<void>;
   onRegister: (name: string, email: string, password: string) => Promise<void>;
   onLogout: () => Promise<void>;
@@ -18,14 +23,18 @@ type Tab = "profile" | "favorites" | "history";
 
 export default function UserPage({
   navigate,
+  section,
   user,
   favoritesCount,
+  favorites,
+  authenticated,
   history,
+  onToggleFavorite,
   onLogin,
   onRegister,
   onLogout,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>("profile");
+  const activeTab = section ?? "profile";
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -84,21 +93,19 @@ export default function UserPage({
       />
 
       {!user ? (
-        <section className="mx-auto mt-8 max-w-lg rounded-3xl border border-violet-200/15 bg-slate-950/75 p-6 shadow-xl shadow-violet-950/20 sm:p-8">
+        <section className="mx-auto mt-8 max-w-lg rounded-3xl border border-bd bg-surface p-6 shadow-xl shadow-black/25 sm:p-8">
           <div className="mb-6">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
-              SoloService
-            </p>
-            <h1 className="mt-2 text-2xl font-black text-white">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-prime">SoloService</p>
+            <h1 className="mt-2 text-2xl font-black text-text">
               {mode === "login" ? "Inicia sesión" : "Crea tu cuenta"}
             </h1>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
+            <p className="mt-2 text-sm leading-6 text-muted">
               Puedes explorar productos, servicios y tiendas sin una cuenta. Inicia sesión para
               guardar favoritos y consultar tu historial.
             </p>
           </div>
 
-          <div className="mb-5 grid grid-cols-2 rounded-xl border border-white/10 bg-slate-900/70 p-1">
+          <div className="mb-5 grid grid-cols-2 rounded-xl border border-bd bg-surface-2 p-1">
             <button
               type="button"
               onClick={() => {
@@ -106,7 +113,7 @@ export default function UserPage({
                 setFormError(null);
               }}
               className={`rounded-lg px-3 py-2 text-sm font-bold transition ${
-                mode === "login" ? "bg-violet-500/25 text-white" : "text-slate-400"
+                mode === "login" ? "bg-prime-muted text-prime" : "text-muted"
               }`}
             >
               Iniciar sesión
@@ -118,7 +125,7 @@ export default function UserPage({
                 setFormError(null);
               }}
               className={`rounded-lg px-3 py-2 text-sm font-bold transition ${
-                mode === "register" ? "bg-cyan-500/20 text-white" : "text-slate-400"
+                mode === "register" ? "bg-prime-muted text-prime" : "text-muted"
               }`}
             >
               Crear cuenta
@@ -127,7 +134,7 @@ export default function UserPage({
 
           <form onSubmit={submit} noValidate className="space-y-4">
             {mode === "register" && (
-              <label className="block text-sm font-semibold text-slate-200">
+              <label className="block text-sm font-semibold text-text">
                 Nombre
                 <input
                   required
@@ -136,12 +143,12 @@ export default function UserPage({
                   onChange={(event) => setName(event.target.value)}
                   minLength={2}
                   maxLength={150}
-                  className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60"
+                  className="mt-1.5 w-full rounded-xl border border-bd bg-surface-2 px-4 py-3 text-text outline-none transition placeholder:text-muted focus:border-prime"
                   placeholder="Tu nombre"
                 />
               </label>
             )}
-            <label className="block text-sm font-semibold text-slate-200">
+            <label className="block text-sm font-semibold text-text">
               Correo electrónico
               <input
                 required
@@ -150,11 +157,11 @@ export default function UserPage({
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 maxLength={254}
-                className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60"
+                className="mt-1.5 w-full rounded-xl border border-bd bg-surface-2 px-4 py-3 text-text outline-none transition placeholder:text-muted focus:border-prime"
                 placeholder="tu@correo.com"
               />
             </label>
-            <label className="block text-sm font-semibold text-slate-200">
+            <label className="block text-sm font-semibold text-text">
               Contraseña
               <input
                 required
@@ -164,7 +171,7 @@ export default function UserPage({
                 onChange={(event) => setPassword(event.target.value)}
                 minLength={mode === "register" ? 10 : undefined}
                 maxLength={1024}
-                className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/60"
+                className="mt-1.5 w-full rounded-xl border border-bd bg-surface-2 px-4 py-3 text-text outline-none transition placeholder:text-muted focus:border-prime"
                 placeholder={mode === "register" ? "Al menos 10 caracteres" : "Tu contraseña"}
               />
             </label>
@@ -179,7 +186,7 @@ export default function UserPage({
             <button
               type="submit"
               disabled={submitting}
-              className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-4 py-3 text-sm font-extrabold text-white shadow-lg shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60"
+              className="w-full rounded-xl bg-prime px-4 py-3 text-sm font-extrabold text-[#181714] shadow-lg shadow-black/20 transition hover:bg-prime-dark disabled:cursor-wait disabled:opacity-60"
             >
               {submitting
                 ? "Un momento..."
@@ -192,25 +199,25 @@ export default function UserPage({
       ) : (
         <div className="mt-6 flex flex-col gap-6 lg:flex-row">
           <aside className="shrink-0 lg:w-60">
-            <div className="mb-4 flex flex-col items-center gap-3 rounded-2xl border border-violet-200/15 bg-slate-950/75 p-5">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-cyan-300/40 bg-gradient-to-br from-violet-500/30 to-cyan-400/20 text-xl font-black text-white">
+            <div className="mb-4 flex flex-col items-center gap-3 rounded-2xl border border-bd bg-surface p-5">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-prime/50 bg-prime-muted text-xl font-black text-prime">
                 {user.name.trim().slice(0, 2).toUpperCase()}
               </div>
               <div className="text-center">
-                <div className="text-sm font-bold text-white">{user.name}</div>
-                <div className="mt-1 text-xs text-slate-400">{user.email}</div>
+                <div className="text-sm font-bold text-text">{user.name}</div>
+                <div className="mt-1 text-xs text-muted">{user.email}</div>
               </div>
             </div>
-            <nav className="space-y-1 rounded-2xl border border-violet-200/15 bg-slate-950/75 p-2">
+            <nav className="space-y-1 rounded-2xl border border-bd bg-surface p-2">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => navigate({ id: "user", section: tab.id })}
                   aria-current={activeTab === tab.id ? "page" : undefined}
                   className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
                     activeTab === tab.id
-                      ? "bg-violet-500/20 text-cyan-100"
-                      : "text-slate-300 hover:bg-white/5 hover:text-white"
+                      ? "bg-prime-muted text-prime"
+                      : "text-muted hover:bg-surface-2 hover:text-text"
                   }`}
                 >
                   {tab.label}
@@ -241,88 +248,82 @@ export default function UserPage({
             )}
           </aside>
 
-          <section className="min-h-64 flex-1 rounded-2xl border border-violet-200/15 bg-slate-950/75 p-6">
-            {activeTab === "profile" && (
-              <>
-                <h1 className="text-xl font-black text-white">Mi perfil</h1>
-                <p className="mt-2 text-sm text-slate-300">
-                  Esta es la cuenta activa para tus favoritos y tu historial.
-                </p>
-                <dl className="mt-6 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-xl border border-white/10 bg-slate-900/70 p-4">
-                    <dt className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                      Nombre
-                    </dt>
-                    <dd className="mt-1 text-sm font-semibold text-white">{user.name}</dd>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-slate-900/70 p-4">
-                    <dt className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                      Correo electrónico
-                    </dt>
-                    <dd className="mt-1 break-all text-sm font-semibold text-white">
-                      {user.email}
-                    </dd>
-                  </div>
-                </dl>
-              </>
-            )}
-            {activeTab === "favorites" && (
-              <>
-                <h2 className="text-xl font-black text-white">Mis favoritos</h2>
-                <p className="mt-2 text-sm text-slate-300">
-                  {favoritesCount === 0
-                    ? "Todavía no has guardado productos o servicios."
-                    : `Tienes ${favoritesCount} elementos guardados.`}
-                </p>
-                <button
-                  onClick={() => navigate({ id: "favorites" })}
-                  className="mt-5 rounded-xl border border-cyan-200/20 bg-cyan-400/10 px-4 py-2.5 text-sm font-bold text-cyan-100 transition hover:bg-cyan-400/20"
-                >
-                  Ver todos mis favoritos
-                </button>
-              </>
-            )}
-            {activeTab === "history" && (
-              <>
-                <h2 className="text-xl font-black text-white">Historial de búsquedas</h2>
-                {history.length === 0 ? (
-                  <p className="mt-3 text-sm text-slate-300">
-                    Tus búsquedas aparecerán aquí cuando explores productos o servicios con tu
-                    sesión iniciada.
+          {activeTab === "favorites" ? (
+            <FavoritesPage
+              navigate={navigate}
+              favorites={favorites}
+              authenticated={authenticated}
+              onToggleFavorite={onToggleFavorite}
+              embedded
+            />
+          ) : (
+            <section className="min-h-64 flex-1 rounded-2xl border border-bd bg-surface p-6">
+              {activeTab === "profile" && (
+                <>
+                  <h1 className="text-xl font-black text-text">Mi perfil</h1>
+                  <p className="mt-2 text-sm text-muted">
+                    Esta es la cuenta activa para tus favoritos y tu historial.
                   </p>
-                ) : (
-                  <ul className="mt-4 space-y-2">
-                    {history.map((entry) => (
-                      <li
-                        key={entry.id}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3"
-                      >
-                        <div>
-                          <div className="text-sm font-semibold text-white">{entry.query}</div>
-                          <div className="mt-1 text-xs text-slate-400">
-                            {entry.type === "service" ? "Servicios" : "Productos"} ·{" "}
-                            {new Date(entry.createdAt).toLocaleString()}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() =>
-                            navigate(
-                              entry.type === "service"
-                                ? { id: "search-services", query: entry.query }
-                                : { id: "search-products", query: entry.query },
-                            )
-                          }
-                          className="text-xs font-bold text-cyan-200 hover:text-white"
+                  <dl className="mt-6 grid gap-4 sm:grid-cols-2">
+                    <div className="rounded-xl border border-bd bg-surface-2 p-4">
+                      <dt className="text-xs font-bold uppercase tracking-wide text-muted">
+                        Nombre
+                      </dt>
+                      <dd className="mt-1 text-sm font-semibold text-text">{user.name}</dd>
+                    </div>
+                    <div className="rounded-xl border border-bd bg-surface-2 p-4">
+                      <dt className="text-xs font-bold uppercase tracking-wide text-muted">
+                        Correo electrónico
+                      </dt>
+                      <dd className="mt-1 break-all text-sm font-semibold text-text">
+                        {user.email}
+                      </dd>
+                    </div>
+                  </dl>
+                </>
+              )}
+              {activeTab === "history" && (
+                <>
+                  <h2 className="text-xl font-black text-text">Historial de búsquedas</h2>
+                  {history.length === 0 ? (
+                    <p className="mt-3 text-sm text-muted">
+                      Tus búsquedas aparecerán aquí cuando explores productos o servicios con tu
+                      sesión iniciada.
+                    </p>
+                  ) : (
+                    <ul className="mt-4 space-y-2">
+                      {history.map((entry) => (
+                        <li
+                          key={entry.id}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-bd bg-surface-2 px-4 py-3"
                         >
-                          Buscar de nuevo
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-          </section>
+                          <div>
+                            <div className="text-sm font-semibold text-text">{entry.query}</div>
+                            <div className="mt-1 text-xs text-muted">
+                              {entry.type === "service" ? "Servicios" : "Productos"} ·{" "}
+                              {new Date(entry.createdAt).toLocaleString()}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() =>
+                              navigate(
+                                entry.type === "service"
+                                  ? { id: "search-services", query: entry.query }
+                                  : { id: "search-products", query: entry.query },
+                              )
+                            }
+                            className="text-xs font-bold text-prime hover:text-text"
+                          >
+                            Buscar de nuevo
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>

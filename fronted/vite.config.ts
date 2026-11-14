@@ -33,6 +33,56 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: parseInt(process.env.PORT || "8443"),
       strictPort: true,
+      proxy: {
+        "/products": {
+          target: "http://127.0.0.1:8081",
+          changeOrigin: true,
+        },
+        "/product-categories": {
+          target: "http://127.0.0.1:8081",
+          changeOrigin: true,
+        },
+        "/categories": {
+          target: "http://127.0.0.1:8081",
+          changeOrigin: true,
+        },
+        "/stores": {
+          target: "http://127.0.0.1:8082",
+          changeOrigin: true,
+        },
+        "/auth": {
+          target: "http://127.0.0.1:8088",
+          changeOrigin: true,
+        },
+        "/services": {
+          target: "http://127.0.0.1:8083",
+          changeOrigin: true,
+        },
+        "/search": {
+          target: "http://127.0.0.1:8086",
+          changeOrigin: true,
+        },
+        "/comparisons": {
+          target: "http://127.0.0.1:8087",
+          changeOrigin: true,
+        },
+        "/favorites": {
+          target: "http://127.0.0.1:8089",
+          changeOrigin: true,
+        },
+        "/cart": {
+          target: "http://127.0.0.1:8090",
+          changeOrigin: true,
+        },
+        "/reviews": {
+          target: "http://127.0.0.1:8091",
+          changeOrigin: true,
+        },
+        "/watchlist": {
+          target: "http://127.0.0.1:8092",
+          changeOrigin: true,
+        },
+      },
       watch: { ignored: ["**/.figma/**"] },
     },
     preview: {

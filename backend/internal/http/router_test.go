@@ -258,6 +258,7 @@ func TestSearchRouter_RutasRegistradas(t *testing.T) {
 	want := []string{
 		"GET /health",
 		"GET /search/products",
+		"GET /search/popular-products",
 		"GET /search/facets",
 		"GET /search/categories",
 		"GET /search/brands",

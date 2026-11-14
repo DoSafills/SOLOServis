@@ -5,6 +5,11 @@ import { API_URLS } from "./config";
 const AUTH_SESSION_KEY = "soloservice.auth-session";
 const COMPARISON_ID_KEY = "soloservice.product-comparison-id";
 const SERVICE_COMPARISON_ID_KEY = "soloservice.service-comparison-id";
+let authRefreshInFlight: {
+  userId: number;
+  refreshToken: string;
+  promise: Promise<AuthSession | null>;
+} | null = null;
 
 export interface AuthUser {
   userId: number;
@@ -88,7 +93,7 @@ export async function request<T>(
   retryWithRefresh = true,
 ): Promise<T> {
   const session = getStoredAuthSession();
-  const apiName = getApiName(baseUrl);
+  const apiName = getApiName(baseUrl, path);
   const response = await fetchWithServiceError(
     `${baseUrl}${path}`,
     {
@@ -103,27 +108,17 @@ export async function request<T>(
   );
 
   if (response.status === 401 && retryWithRefresh && baseUrl !== API_URLS.auth && session) {
-    const refreshResponse = await fetchWithServiceError(
-      `${API_URLS.auth}/auth/refresh`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken: session.refreshToken }),
-      },
-      "Auth API",
-    );
-    if (refreshResponse.ok) {
-      const tokens = (await refreshResponse.json()) as TokenResponse;
-      if (tokens.accessToken && tokens.refreshToken) {
-        storeAuthSession({
-          ...session,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          accessTokenExpiresAt: Date.now() + tokens.expiresIn * 1000,
-        });
-        return request<T>(baseUrl, path, init, false);
-      }
-    } else if (refreshResponse.status === 401) {
+    const refreshedSession = await refreshAuthSession(session);
+    if (refreshedSession) return request<T>(baseUrl, path, init, false);
+  }
+
+  if (response.status === 401 && !retryWithRefresh && baseUrl !== API_URLS.auth && session) {
+    const currentSession = getStoredAuthSession();
+    if (
+      currentSession?.userId === session.userId &&
+      currentSession.accessToken === session.accessToken &&
+      currentSession.refreshToken === session.refreshToken
+    ) {
       localStorage.removeItem(AUTH_SESSION_KEY);
     }
   }
@@ -158,15 +153,31 @@ export async function request<T>(
   return (await response.json()) as T;
 }
 
-function getApiName(baseUrl: string): string {
-  if (baseUrl === API_URLS.products) return "Product API";
-  if (baseUrl === API_URLS.stores) return "Store API";
-  if (baseUrl === API_URLS.services) return "Services API";
-  if (baseUrl === API_URLS.auth) return "Auth API";
-  if (baseUrl === API_URLS.favorites) return "Favorites API";
-  if (baseUrl === API_URLS.cart) return "Cart API";
-  if (baseUrl === API_URLS.comparison) return "Comparison API";
-  if (baseUrl === API_URLS.search) return "Search API";
+function getApiName(baseUrl: string, path: string): string {
+  if (path === "/auth" || path.startsWith("/auth/")) return "Auth API";
+  if (
+    path === "/products" ||
+    path.startsWith("/products/") ||
+    path === "/categories" ||
+    path.startsWith("/categories/") ||
+    path === "/product-categories"
+  ) {
+    return "Product API";
+  }
+  if (path === "/stores" || path.startsWith("/stores/")) return "Store API";
+  if (path === "/services" || path.startsWith("/services/")) return "Services API";
+  if (path === "/favorites" || path.startsWith("/favorites/")) return "Favorites API";
+  if (path === "/cart" || path.startsWith("/cart/")) return "Cart API";
+  if (path === "/comparisons" || path.startsWith("/comparisons/")) return "Comparison API";
+  if (path === "/search" || path.startsWith("/search/")) return "Search API";
+  if (baseUrl && baseUrl === API_URLS.products) return "Product API";
+  if (baseUrl && baseUrl === API_URLS.stores) return "Store API";
+  if (baseUrl && baseUrl === API_URLS.services) return "Services API";
+  if (baseUrl && baseUrl === API_URLS.auth) return "Auth API";
+  if (baseUrl && baseUrl === API_URLS.favorites) return "Favorites API";
+  if (baseUrl && baseUrl === API_URLS.cart) return "Cart API";
+  if (baseUrl && baseUrl === API_URLS.comparison) return "Comparison API";
+  if (baseUrl && baseUrl === API_URLS.search) return "Search API";
   return "API";
 }
 
@@ -221,8 +232,95 @@ function getStoredAuthSession(): AuthSession | null {
   return null;
 }
 
+export function hasStoredAuthSession(userId: number): boolean {
+  const session = getStoredAuthSession();
+  return Boolean(
+    session &&
+    session.userId === userId &&
+    session.accessToken.trim() &&
+    session.refreshToken.trim(),
+  );
+}
+
 function storeAuthSession(session: AuthSession): void {
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+}
+
+async function refreshAuthSession(session: AuthSession): Promise<AuthSession | null> {
+  const currentSession = getStoredAuthSession();
+  if (!currentSession || currentSession.userId !== session.userId) return null;
+  if (
+    currentSession.accessToken !== session.accessToken ||
+    currentSession.refreshToken !== session.refreshToken
+  ) {
+    return currentSession;
+  }
+
+  if (
+    !authRefreshInFlight ||
+    authRefreshInFlight.userId !== session.userId ||
+    authRefreshInFlight.refreshToken !== session.refreshToken
+  ) {
+    const promise = (async () => {
+      const refreshResponse = await fetchWithServiceError(
+        `${API_URLS.auth}/auth/refresh`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken: session.refreshToken }),
+        },
+        "Auth API",
+      );
+
+      if (!refreshResponse.ok) {
+        if (refreshResponse.status === 401) {
+          const latestSession = getStoredAuthSession();
+          if (
+            latestSession?.userId === session.userId &&
+            latestSession.refreshToken === session.refreshToken
+          ) {
+            localStorage.removeItem(AUTH_SESSION_KEY);
+          }
+        }
+        return null;
+      }
+
+      const tokens = (await refreshResponse.json()) as TokenResponse;
+      if (!tokens.accessToken || !tokens.refreshToken) return null;
+
+      const latestSession = getStoredAuthSession();
+      if (
+        !latestSession ||
+        latestSession.userId !== session.userId ||
+        latestSession.refreshToken !== session.refreshToken
+      ) {
+        return null;
+      }
+
+      const refreshedSession: AuthSession = {
+        ...latestSession,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        accessTokenExpiresAt: Date.now() + tokens.expiresIn * 1000,
+      };
+      storeAuthSession(refreshedSession);
+      return refreshedSession;
+    })();
+
+    authRefreshInFlight = {
+      userId: session.userId,
+      refreshToken: session.refreshToken,
+      promise,
+    };
+  }
+
+  const inFlight = authRefreshInFlight;
+  if (!inFlight) return null;
+  try {
+    return await inFlight.promise;
+  } finally {
+    if (authRefreshInFlight === inFlight) authRefreshInFlight = null;
+  }
 }
 
 async function createSession(tokens: TokenResponse): Promise<AuthSession> {
@@ -312,6 +410,8 @@ export async function logoutAccount(): Promise<void> {
 }
 
 export async function getSearchHistory(userId: number): Promise<SearchHistoryEntry[]> {
+  if (!hasStoredAuthSession(userId)) return [];
+
   return request<SearchHistoryEntry[]>(API_URLS.search, `/search/history?userId=${userId}`);
 }
 
@@ -320,6 +420,8 @@ export async function addSearchHistory(
   query: string,
   type: "product" | "service",
 ): Promise<void> {
+  if (!hasStoredAuthSession(userId)) return;
+
   await request<void>(API_URLS.search, "/search/history", {
     method: "POST",
     body: JSON.stringify({ userId, query, type }),

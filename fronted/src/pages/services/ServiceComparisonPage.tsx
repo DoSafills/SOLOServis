@@ -70,7 +70,7 @@ export default function ServiceComparisonPage({
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <p className="text-slate-300">Cargando comparación...</p>
+        <p className="text-muted">Cargando comparación...</p>
       </div>
     );
   }
@@ -78,11 +78,11 @@ export default function ServiceComparisonPage({
   if (selected.length < 2) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <p className="mb-4 text-slate-300">Selecciona al menos 2 servicios para comparar.</p>
+        <p className="mb-4 text-muted">Selecciona al menos 2 servicios para comparar.</p>
 
         <button
           onClick={() => navigate({ id: "search-services", query: "" })}
-          className="rounded-xl bg-gradient-to-r from-cyan-500 via-violet-500 to-fuchsia-400 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-violet-950/40 transition hover:brightness-110"
+          className="rounded-xl bg-prime px-5 py-2 text-sm font-semibold text-[#181714] shadow-md shadow-black/20 transition hover:bg-prime-dark"
         >
           Buscar servicios
         </button>
@@ -105,7 +105,7 @@ export default function ServiceComparisonPage({
         </p>
         <button
           onClick={() => navigate({ id: "search-services", query: "" })}
-          className="rounded-xl bg-gradient-to-r from-cyan-500 via-violet-500 to-fuchsia-400 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-violet-950/40 transition hover:brightness-110"
+          className="rounded-xl bg-prime px-5 py-2 text-sm font-semibold text-[#181714] shadow-md shadow-black/20 transition hover:bg-prime-dark"
         >
           Buscar servicios compatibles
         </button>
@@ -206,13 +206,11 @@ export default function ServiceComparisonPage({
         ]}
       />
 
-      <h1 className="mb-2 text-2xl font-bold text-slate-100">Comparación de servicios</h1>
-
-      <p className="mb-8 text-sm text-slate-300">Comparando {selected.length} servicios</p>
-
-      <div className="rounded-[28px] border border-slate-600/80 bg-gradient-to-br from-slate-900/95 via-slate-950/90 to-indigo-950/45 p-3 shadow-[0_24px_70px_rgba(2,6,23,0.55)] backdrop-blur-sm sm:p-5">
-        <p className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-950/45 px-3 py-2 text-[11px] text-slate-200">
-          <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200/50 bg-cyan-300 px-2 py-1 font-extrabold text-slate-950">
+      <h1 className="mb-2 text-2xl font-bold text-text">Comparación de servicios</h1>
+      <p className="mb-8 text-sm text-muted">Comparando {selected.length} servicios</p>
+      <div className="rounded-[28px] border border-bd bg-surface p-3 shadow-[0_24px_70px_rgba(0,0,0,0.4)] backdrop-blur-sm sm:p-5">
+        <p className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-[11px] text-text">
+          <span className="inline-flex items-center gap-1 rounded-full border border-prime/50 bg-prime px-2 py-1 font-extrabold text-[#181714]">
             ✦ Mejor
           </span>
           El brillo cian destaca los servicios con mejor precio en su período y valoración.
@@ -221,14 +219,14 @@ export default function ServiceComparisonPage({
           <table className="w-full min-w-[760px] border-separate border-spacing-1.5">
             <thead>
               <tr>
-                <th className="w-44 rounded-xl border border-slate-700 bg-slate-800/90 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
+                <th className="w-44 rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-text">
                   Característica
                 </th>
 
                 {selected.map((service) => (
                   <th
                     key={service.id}
-                    className="rounded-xl border border-slate-700 bg-gradient-to-br from-slate-800/95 to-slate-900/95 p-4 text-center"
+                    className="rounded-xl border border-bd bg-surface-2 p-4 text-center"
                   >
                     <div className="flex flex-col items-center gap-3">
                       {service.image ? (
@@ -238,17 +236,17 @@ export default function ServiceComparisonPage({
                           className="h-16 w-20 rounded-2xl object-cover"
                         />
                       ) : (
-                        <div className="flex h-16 w-20 items-center justify-center rounded-2xl bg-slate-700/80 text-[10px] text-slate-300">
+                        <div className="flex h-16 w-20 items-center justify-center rounded-2xl bg-surface-3 text-[10px] text-muted">
                           Sin imagen
                         </div>
                       )}
 
                       <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-prime">
                           {service.provider}
                         </div>
 
-                        <div className="mt-1 max-w-[180px] text-sm font-semibold leading-tight text-slate-100">
+                        <div className="mt-1 max-w-[180px] text-sm font-semibold leading-tight text-text">
                           {service.name}
                         </div>
                       </div>
@@ -260,7 +258,7 @@ export default function ServiceComparisonPage({
                             serviceId: service.id,
                           })
                         }
-                        className="rounded-lg border border-slate-600 bg-slate-700/80 px-3 py-1 text-[11px] font-medium text-slate-200 transition-colors hover:border-cyan-400 hover:text-cyan-200"
+                        className="rounded-lg border border-bd bg-surface-2 px-3 py-1 text-[11px] font-medium text-text transition-colors hover:border-prime hover:text-prime"
                       >
                         Ver detalle
                       </button>
@@ -277,7 +275,7 @@ export default function ServiceComparisonPage({
                             ? "bg-emerald-700 text-emerald-100 shadow-emerald-950/30"
                             : addingServiceIdsState.has(service.id)
                               ? "bg-emerald-800 text-emerald-100 shadow-emerald-950/30"
-                              : "bg-gradient-to-r from-[#ff9878] to-[#fb7185] text-white shadow-rose-500/15 hover:brightness-105"
+                              : "bg-prime text-[#181714] shadow-black/15 hover:bg-prime-dark"
                         } ${
                           service.offerId &&
                           (cartServiceIds.has(service.id) || addingServiceIdsState.has(service.id))
@@ -303,7 +301,7 @@ export default function ServiceComparisonPage({
                   <tr>
                     <th
                       colSpan={selected.length + 1}
-                      className="rounded-xl border border-violet-400/30 bg-gradient-to-r from-violet-500/20 via-slate-900 to-cyan-500/15 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-cyan-200"
+                      className="rounded-xl border border-bd bg-surface-2 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-prime"
                     >
                       {group.title}
                     </th>
@@ -312,7 +310,7 @@ export default function ServiceComparisonPage({
                     <tr key={row.key}>
                       <th
                         scope="row"
-                        className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                        className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-text"
                       >
                         {row.label}
                       </th>
@@ -331,13 +329,13 @@ export default function ServiceComparisonPage({
                             <div
                               className={`flex min-h-16 flex-col items-center justify-center rounded-xl border px-3 py-2.5 transition duration-200 hover:-translate-y-0.5 ${
                                 isBest
-                                  ? "border-cyan-200 bg-gradient-to-br from-cyan-300/25 via-sky-500/15 to-violet-500/20 text-white shadow-[0_0_24px_rgba(34,211,238,0.24),inset_0_0_0_1px_rgba(165,243,252,0.2)] ring-1 ring-cyan-200/30"
-                                  : "border-slate-700/70 bg-slate-950/40 text-slate-100"
+                                  ? "border-prime/70 bg-prime-muted text-text shadow-[0_0_24px_rgba(209,168,90,0.16)] ring-1 ring-prime/30"
+                                  : "border-bd bg-surface text-text"
                               }`}
                             >
                               <span className="block text-sm font-bold leading-snug">{value}</span>
                               {isBest && (
-                                <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-cyan-100/70 bg-cyan-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-slate-950 shadow-[0_0_14px_rgba(103,232,249,0.45)]">
+                                <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-prime/70 bg-prime px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-[#181714]">
                                   ✦
                                   {row.key === "rating"
                                     ? "Mejor valoración"
@@ -360,7 +358,7 @@ export default function ServiceComparisonPage({
                   <tr>
                     <th
                       colSpan={selected.length + 1}
-                      className="rounded-xl border border-violet-400/30 bg-gradient-to-r from-violet-500/20 via-slate-900 to-cyan-500/15 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-cyan-200"
+                      className="rounded-xl border border-bd bg-surface-2 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-prime"
                     >
                       Especificaciones del servicio
                     </th>
@@ -369,7 +367,7 @@ export default function ServiceComparisonPage({
                     <tr key={key}>
                       <th
                         scope="row"
-                        className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                        className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-text"
                       >
                         {key}
                       </th>
@@ -377,7 +375,7 @@ export default function ServiceComparisonPage({
                         const value = service.specs[key]?.trim();
                         return (
                           <td key={service.id} className="p-1.5 text-center align-middle">
-                            <div className="flex min-h-16 flex-col items-center justify-center rounded-xl border border-slate-700/70 bg-slate-950/40 px-3 py-2.5 text-slate-100">
+                            <div className="flex min-h-16 flex-col items-center justify-center rounded-xl border border-bd bg-surface px-3 py-2.5 text-text">
                               <span className="block text-sm font-bold leading-snug">
                                 {value || "No informado"}
                               </span>
@@ -393,7 +391,7 @@ export default function ServiceComparisonPage({
               <tr>
                 <th
                   colSpan={selected.length + 1}
-                  className="rounded-xl border border-violet-400/30 bg-gradient-to-r from-violet-500/20 via-slate-900 to-cyan-500/15 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-cyan-200"
+                  className="rounded-xl border border-bd bg-surface-2 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-prime"
                 >
                   Beneficios incluidos
                 </th>
@@ -401,19 +399,19 @@ export default function ServiceComparisonPage({
               <tr>
                 <th
                   scope="row"
-                  className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200 align-top"
+                  className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-text align-top"
                 >
                   Beneficios
                 </th>
                 {selected.map((service) => (
                   <td key={service.id} className="p-1.5 align-top">
-                    <div className="min-h-16 rounded-xl border border-slate-700/70 bg-slate-950/40 p-3">
+                    <div className="min-h-16 rounded-xl border border-bd bg-surface p-3">
                       <ul className="space-y-1">
                         {service.benefits.length > 0 ? (
                           service.benefits.map((benefit) => (
                             <li
                               key={benefit}
-                              className="flex items-center gap-1.5 text-xs text-slate-200"
+                              className="flex items-center gap-1.5 text-xs text-text"
                             >
                               <svg
                                 width="10"
@@ -429,7 +427,7 @@ export default function ServiceComparisonPage({
                             </li>
                           ))
                         ) : (
-                          <li className="text-sm text-slate-400">No informado</li>
+                          <li className="text-sm text-muted">No informado</li>
                         )}
                       </ul>
                     </div>

@@ -191,11 +191,11 @@ const getSpecCellStates = (
 const getCellTone = (state: SpecCellState) => {
   switch (state) {
     case "best":
-      return "border-cyan-200 bg-gradient-to-br from-cyan-300/25 via-sky-500/15 to-violet-500/20 text-white shadow-[0_0_24px_rgba(34,211,238,0.24),inset_0_0_0_1px_rgba(165,243,252,0.2)] ring-1 ring-cyan-200/30";
+      return "border-prime/70 bg-prime-muted text-text shadow-[0_0_24px_rgba(209,168,90,0.16)] ring-1 ring-prime/30";
     case "equal":
-      return "border-slate-500/70 bg-slate-700/35 text-slate-100";
+      return "border-bd bg-surface-2 text-text";
     default:
-      return "border-slate-700/70 bg-slate-950/40 text-slate-100";
+      return "border-bd bg-surface text-text";
   }
 };
 
@@ -358,21 +358,20 @@ export default function ProductComparisonPage({
         ]}
       />
 
-      <h1 className="mb-2 text-2xl font-bold text-slate-100">Comparación de productos</h1>
-      <p className="mb-8 text-sm text-slate-300">Comparando {selected.length} productos</p>
-
-      <div className="rounded-[28px] border border-slate-600/80 bg-gradient-to-br from-slate-900/95 via-slate-950/90 to-indigo-950/45 p-3 shadow-[0_24px_70px_rgba(2,6,23,0.55)] backdrop-blur-sm sm:p-5">
+      <h1 className="mb-2 text-2xl font-bold text-text">Comparación de productos</h1>
+      <p className="mb-8 text-sm text-muted">Comparando {selected.length} productos</p>
+      <div className="rounded-[28px] border border-bd bg-surface p-3 shadow-[0_24px_70px_rgba(0,0,0,0.4)] backdrop-blur-sm sm:p-5">
         <p className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-950/45 px-3 py-2 text-[11px] text-slate-200">
-          <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200/50 bg-cyan-300 px-2 py-1 font-extrabold text-slate-950">
+          <span className="inline-flex items-center gap-1 rounded-full border border-prime/50 bg-prime px-2 py-1 font-extrabold text-[#181714]">
             ✦ Mejor
           </span>
-          El brillo cian identifica el mejor valor comparable en cada característica.
+          El resaltado dorado identifica el mejor valor comparable en cada característica.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] border-separate border-spacing-1.5">
             <thead>
               <tr>
-                <th className="w-44 rounded-xl border border-slate-700 bg-slate-800/90 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
+                <th className="w-44 rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-text">
                   Característica
                 </th>
                 {selected.map((product, index) => {
@@ -382,7 +381,7 @@ export default function ProductComparisonPage({
                   return (
                     <th
                       key={product.id}
-                      className="rounded-xl border border-slate-700 bg-gradient-to-br from-slate-800/95 to-slate-900/95 p-4 text-center"
+                      className="rounded-xl border border-bd bg-surface-2 p-4 text-center"
                     >
                       <div className="flex flex-col items-center gap-3">
                         {product.image ? (
@@ -392,13 +391,13 @@ export default function ProductComparisonPage({
                             className="h-16 w-20 rounded-2xl object-contain"
                           />
                         ) : (
-                          <div className="flex h-16 w-20 items-center justify-center rounded-2xl bg-slate-700/80 text-[10px] text-slate-300">
+                          <div className="flex h-16 w-20 items-center justify-center rounded-2xl bg-surface-3 text-[10px] text-muted">
                             Sin imagen
                           </div>
                         )}
 
                         <div>
-                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-prime">
                             {product.brand}
                           </div>
                           <div className="mt-1 max-w-[180px] text-sm font-semibold leading-tight text-slate-100">
@@ -408,7 +407,7 @@ export default function ProductComparisonPage({
 
                         <button
                           onClick={() => navigate({ id: "product-detail", productId: product.id })}
-                          className="rounded-lg border border-slate-600 bg-slate-700/80 px-3 py-1 text-[11px] font-medium text-slate-200 transition-colors hover:border-cyan-400 hover:text-cyan-200"
+                          className="rounded-lg border border-bd bg-surface-2 px-3 py-1 text-[11px] font-medium text-text transition-colors hover:border-prime hover:text-prime"
                         >
                           Ver detalle
                         </button>
@@ -424,7 +423,7 @@ export default function ProductComparisonPage({
                               ? "bg-emerald-700 text-emerald-100 shadow-emerald-950/30"
                               : offerIsAdding
                                 ? "bg-emerald-800 text-emerald-100 shadow-emerald-950/30"
-                                : "bg-gradient-to-r from-[#ff9878] to-[#fb7185] text-white shadow-rose-500/15 hover:brightness-105"
+                                : "bg-prime text-[#181714] shadow-black/15 hover:bg-prime-dark"
                           } disabled:cursor-not-allowed disabled:opacity-40`}
                         >
                           {offerInCart
@@ -458,7 +457,7 @@ export default function ProductComparisonPage({
               <tr>
                 <th
                   scope="row"
-                  className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                  className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-text"
                 >
                   Precio del producto
                 </th>
@@ -470,19 +469,19 @@ export default function ProductComparisonPage({
                     {result.length > 0 ? (
                       result.map(({ offer }) => (
                         <div key={offer.storeId} className="mb-1 rounded-lg px-2 py-2 last:mb-0">
-                          <div className="text-base font-bold text-white">
+                          <div className="text-base font-bold text-text">
                             {formatPrice(offer.price)}
                           </div>
-                          <div className="text-xs text-slate-300">{offer.storeName}</div>
+                          <div className="text-xs text-muted">{offer.storeName}</div>
                           {offer.price === lowestProductPrice && (
-                            <span className="mt-1 inline-flex rounded-full bg-cyan-200 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-950">
+                            <span className="mt-1 inline-flex rounded-full bg-prime px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[#181714]">
                               Mejor precio
                             </span>
                           )}
                         </div>
                       ))
                     ) : (
-                      <span className="text-sm text-slate-300">No disponible</span>
+                      <span className="text-sm text-muted">No disponible</span>
                     )}
                   </td>
                 ))}
@@ -491,7 +490,7 @@ export default function ProductComparisonPage({
               <tr>
                 <th
                   scope="row"
-                  className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                  className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-text"
                 >
                   Valoración
                 </th>
@@ -503,7 +502,7 @@ export default function ProductComparisonPage({
                       className={`rounded-xl border p-3 text-center ${getCellTone(isBestRating ? "best" : "default")}`}
                     >
                       <span
-                        className={`text-base font-extrabold ${isBestRating ? "text-amber-200" : "text-slate-100"}`}
+                        className={`text-base font-extrabold ${isBestRating ? "text-prime" : "text-text"}`}
                       >
                         ★ {product.rating.toFixed(1)}
                       </span>
@@ -511,7 +510,7 @@ export default function ProductComparisonPage({
                         ({product.reviewCount.toLocaleString("es-CL")})
                       </div>
                       {isBestRating && (
-                        <span className="mt-1 inline-flex rounded-full bg-amber-200 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-950">
+                        <span className="mt-1 inline-flex rounded-full bg-prime px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[#181714]">
                           Mejor valoración
                         </span>
                       )}
@@ -525,7 +524,7 @@ export default function ProductComparisonPage({
                   <tr>
                     <th
                       colSpan={selected.length + 1}
-                      className="rounded-xl border border-violet-400/30 bg-gradient-to-r from-violet-500/20 via-slate-900 to-cyan-500/15 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-cyan-200"
+                      className="rounded-xl border border-bd bg-surface-2 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-prime"
                     >
                       {group.title}
                     </th>
@@ -541,7 +540,7 @@ export default function ProductComparisonPage({
                       <tr key={name}>
                         <th
                           scope="row"
-                          className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                          className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-text"
                         >
                           {name}
                         </th>
@@ -564,7 +563,7 @@ export default function ProductComparisonPage({
                                   {displayValue}
                                 </span>
                                 {state === "best" && (
-                                  <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-cyan-100/70 bg-cyan-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-slate-950 shadow-[0_0_14px_rgba(103,232,249,0.45)]">
+                                  <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-prime/70 bg-prime px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-[#181714]">
                                     ✦ Mejor
                                   </span>
                                 )}
@@ -583,7 +582,7 @@ export default function ProductComparisonPage({
                   <tr>
                     <th
                       colSpan={selected.length + 1}
-                      className="rounded-xl border border-cyan-400/30 bg-gradient-to-r from-cyan-500/20 via-slate-900 to-indigo-500/15 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-cyan-200"
+                      className="rounded-xl border border-bd bg-surface-2 px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-[0.18em] text-prime"
                     >
                       Atributos comparables de {selected[0].category}
                     </th>
@@ -592,7 +591,7 @@ export default function ProductComparisonPage({
                     <tr key={attribute.key}>
                       <th
                         scope="row"
-                        className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                        className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-text"
                       >
                         {attribute.label}
                         {attribute.unit ? ` (${attribute.unit})` : ""}

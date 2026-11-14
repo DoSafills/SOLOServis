@@ -2,15 +2,52 @@ import { useEffect, useMemo, useState } from "react";
 import type { Page, Product, Store, StoreDetail, StoreOffer, StoreProduct } from "../../types";
 import { getStores, getStoreById } from "../../services/api/api";
 import { Badge, Breadcrumb, EmptyState, Rating } from "../../components/common/ui";
+import ProductCard from "../../components/products/ProductCard";
 
 interface Props {
   navigate: (page: Page) => void;
   favorites: Set<string>;
-  compareList: Set<string>;
+  productCompareList: Set<string>;
+  cartProductIds: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
-  onToggleCompare: (id: string) => void;
+  onToggleProductCompare: (id: string, category: string) => void;
   onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
   storeId?: string;
+}
+
+function StoreLogo({
+  name,
+  logo,
+  className,
+  imageFit = "contain",
+  fallbackClassName = "text-sm",
+}: {
+  name: string;
+  logo: string;
+  className: string;
+  imageFit?: "contain" | "cover";
+  fallbackClassName?: string;
+}) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-bd bg-surface-2 ${className}`}
+    >
+      {logo && !imageFailed ? (
+        <img
+          src={logo}
+          alt={`${name} logo`}
+          className={`h-full w-full ${imageFit === "cover" ? "object-cover" : "object-contain p-1.5"}`}
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <span className={`px-2 font-bold text-prime ${fallbackClassName}`}>
+          {name.slice(0, 2).toLocaleUpperCase("es")}
+        </span>
+      )}
+    </div>
+  );
 }
 
 function StoreList({ navigate }: { navigate: (page: Page) => void }) {
@@ -54,19 +91,25 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:py-12">
       <Breadcrumb
         items={[{ label: "Inicio", onClick: () => navigate({ id: "home" }) }, { label: "Tiendas" }]}
       />
 
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold text-text mb-2">Tiendas y proveedores</h1>
+      <header className="mt-6 mb-7 flex flex-col gap-4 border-b border-bd pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-prime">
+            Directorio
+          </p>
+          <h1 className="text-xl font-semibold tracking-tight text-text sm:text-2xl">
+            Tiendas y proveedores
+          </h1>
+          <p className="mt-1.5 text-sm text-muted">
+            Compara tiendas, despacho y reputación en un solo lugar.
+          </p>
+        </div>
 
-        <p className="text-sm text-muted mb-2">
-          Directorio de tiendas comparadas en nuestra plataforma
-        </p>
-
-        <div className="flex flex-wrap gap-2">
+        <div className="w-full sm:w-auto">
           <label className="sr-only" htmlFor="store-search">
             Buscar tienda o proveedor
           </label>
@@ -77,7 +120,7 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar tienda o proveedor..."
             maxLength={100}
-            className="w-full sm:max-w-sm rounded-xl border border-slate-300/50 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-prime focus:bg-slate-950/80 transition-colors"
+            className="w-full rounded-lg border border-bd bg-surface-2 px-3.5 py-2.5 text-sm text-text outline-none transition-colors placeholder:text-muted focus:border-prime sm:w-80"
           />
         </div>
       </header>
@@ -87,12 +130,12 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
           <p className="text-muted">Cargando tiendas...</p>
         </div>
       ) : error ? (
-        <div className="py-20 text-center" role="alert">
-          <p className="text-warn">{error}</p>
+        <div className="rounded-2xl border border-bd bg-surface p-8 text-center" role="alert">
+          <p className="text-sm text-warn">{error}</p>
           <button
             type="button"
             onClick={() => setReload((attempt) => attempt + 1)}
-            className="mt-4 rounded-xl border border-prime px-4 py-2 text-sm font-semibold text-prime"
+            className="mt-4 rounded-lg border border-prime/40 bg-prime-muted px-4 py-2 text-sm font-semibold text-prime transition hover:border-prime hover:bg-prime/20"
           >
             Reintentar carga de Store API
           </button>
@@ -108,60 +151,90 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
           action={query ? { label: "Limpiar búsqueda", onClick: () => setQuery("") } : undefined}
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filteredStores.map((store) => (
             <button
               key={store.id}
               onClick={() => navigate({ id: "store-detail", storeId: store.id })}
-              className="rounded-2xl p-5 bg-store-bg text-left hover:border-prime transition-all duration-200 group"
-              style={{
-                background: "rgb(17, 17, 17)",
-                border: "1px solid rgb(42, 42, 42)",
-              }}
+              className="group relative isolate flex min-h-[24rem] flex-col overflow-hidden rounded-[1.75rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:min-h-[22rem]"
             >
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden bg-store-surface/50 border border-store-border/20">
-                  {store.logo ? (
-                    <img
-                      src={store.logo}
-                      alt={store.name}
-                      className="w-full h-full object-contain"
-                    />
-                  ) : (
-                    <span className="text-sm font-bold text-prime">
-                      {store.name.slice(0, 2).toUpperCase()}
-                    </span>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-sm font-bold text-prime transition-colors">{store.name}</div>
-
-                  <Badge variant={store.reputation === "Excelente" ? "best" : "available"}>
-                    {store.reputation}
-                  </Badge>
-                </div>
+              <div className="absolute inset-y-0 left-0 w-[58%] bg-slate-950/60">
+                <StoreLogo
+                  name={store.name}
+                  logo={store.logo}
+                  imageFit="cover"
+                  className="h-full w-full rounded-none border-0 bg-transparent"
+                  fallbackClassName="text-5xl"
+                />
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
+                />
               </div>
 
-              <Rating value={store.rating} count={store.reviewCount} />
+              <div
+                aria-hidden="true"
+                className="absolute inset-y-0 right-0 w-[66%]"
+                style={{
+                  background: "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
+                  clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
+                }}
+              />
 
-              <div className="mt-4 space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted">Productos</span>
-                  <span className="text-muted-2 font-semibold">
-                    {store.productCount.toLocaleString("es-CL")}
-                  </span>
+              <div className="relative z-10 ml-[38%] flex w-[62%] min-w-0 flex-1 flex-col justify-center gap-2 p-3 pl-8 sm:gap-2.5 sm:pl-10">
+                <div className="min-w-0">
+                  <h2 className="line-clamp-2 text-base font-bold leading-snug text-text transition-colors group-hover:text-prime">
+                    {store.name}
+                  </h2>
+                  <div className="mt-1">
+                    <Badge variant={store.reputation === "Excelente" ? "best" : "available"}>
+                      {store.reputation}
+                    </Badge>
+                  </div>
                 </div>
 
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted">Despacho</span>
-                  <span className="text-muted-2 font-semibold">{store.dispatchTime}</span>
+                <div className="[&_span]:text-muted">
+                  <Rating value={store.rating} count={store.reviewCount} />
                 </div>
 
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted">Sitio</span>
-                  <span className="text-prime font-semibold">{store.website}</span>
+                <div className="space-y-2 border-t border-bd pt-2">
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="shrink-0 text-muted">Productos</span>
+                    <span className="font-semibold text-prime">
+                      {store.productCount.toLocaleString("es-CL")}
+                    </span>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-2 text-[10px]">
+                    <span className="shrink-0 text-muted">Despacho</span>
+                    <span className="line-clamp-2 text-right font-medium text-muted-2">
+                      {store.dispatchTime}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="shrink-0 text-muted">Sitio</span>
+                    <span
+                      className="max-w-[70%] truncate text-right font-semibold text-prime"
+                      title={store.website}
+                    >
+                      {store.website}
+                    </span>
+                  </div>
                 </div>
+
+                <span className="mt-auto flex w-full items-center justify-between rounded-xl bg-prime px-2 py-2.5 text-[11px] font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all hover:bg-prime-dark">
+                  Ver tienda
+                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+                    <path
+                      d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
               </div>
             </button>
           ))}
@@ -175,34 +248,25 @@ function StoreProductCard({
   product,
   storeId,
   storeName,
+  navigate,
+  favorites,
+  productCompareList,
+  cartProductIds,
+  onToggleFavorite,
+  onToggleProductCompare,
   onAddToCart,
 }: {
   product: StoreProduct;
   storeId: string;
   storeName: string;
+  navigate: (page: Page) => void;
+  favorites: Set<string>;
+  productCompareList: Set<string>;
+  cartProductIds: ReadonlySet<string>;
+  onToggleFavorite: (id: string) => void;
+  onToggleProductCompare: (id: string, category: string) => void;
   onAddToCart: (product: Product, offer: StoreOffer) => Promise<boolean>;
 }) {
-  const [adding, setAdding] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const mappedProduct: Product = {
-    id: product.id,
-    name: product.name,
-    brand: product.brand,
-    model: product.model,
-    category: product.category,
-    subcategory: "",
-    image: product.image,
-    images: [],
-    description: product.description,
-    rating: 0,
-    reviewCount: 0,
-    specs: {},
-    offers: [],
-    priceHistory: [],
-    offerPriceHistory: [],
-    tags: [],
-  };
-
   const mappedOffer: StoreOffer = {
     offerId: product.offerId,
     storeId,
@@ -218,110 +282,49 @@ function StoreProductCard({
     lastUpdated: product.lastUpdated,
   };
 
+  const mappedProduct: Product = {
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    model: product.model,
+    category: product.category,
+    subcategory: "",
+    image: product.image,
+    images: product.image ? [product.image] : [],
+    description: product.description,
+    rating: 0,
+    reviewCount: 0,
+    specs: {},
+    offers: [mappedOffer],
+    priceHistory: [],
+    offerPriceHistory: [],
+    tags: [],
+  };
+
   return (
-    <div
-      className="rounded-2xl overflow-hidden bg-store-bg hover:border-prime transition-colors"
-      style={{
-        background: "rgb(17, 17, 17)",
-        border: "1px solid rgb(42, 42, 42)",
-      }}
-    >
-      <div className="h-56 bg-surface flex items-center justify-center p-5">
-        {product.image && product.image.startsWith("http") ? (
-          <img src={product.image} alt={product.name} className="w-full h-full object-contain" />
-        ) : product.image ? (
-          <img src={product.image} alt={product.name} className="w-full h-full object-contain" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-sm text-muted">
-            Sin imagen
-          </div>
-        )}
-      </div>
-
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div>
-            <p className="text-xs text-muted mb-1">{product.brand || "Sin marca"}</p>
-
-            <h3 className="text-sm font-semibold text-prime leading-5">{product.name}</h3>
-          </div>
-
-          <Badge variant={product.available ? "available" : "unavailable"}>
-            {product.available ? "Disponible" : "No disponible"}
-          </Badge>
-        </div>
-
-        <div className="mt-4">
-          <div className="text-xl font-bold text-prime">
-            {Number(product.price).toLocaleString("es-CL")} {product.currency}
-          </div>
-
-          {Number(product.listPrice) > Number(product.price) && (
-            <div className="text-xs text-muted line-through mt-1">
-              {Number(product.listPrice).toLocaleString("es-CL")} {product.currency}
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4 pt-4 border-t border-border space-y-2">
-          <div className="flex justify-between text-xs gap-4">
-            <span className="text-muted">Despacho</span>
-            <span className="text-muted-2 font-medium text-right">
-              {product.shippingFree
-                ? "Gratis"
-                : `${Number(product.shippingCost).toLocaleString("es-CL")} ${product.currency}`}
-            </span>
-          </div>
-
-          <div className="flex justify-between text-xs gap-4">
-            <span className="text-muted">Stock</span>
-            <span className="text-muted-2 font-medium text-right">
-              {product.stock === null ? "No informado" : product.stock}
-            </span>
-          </div>
-
-          <div className="flex justify-between text-xs gap-4">
-            <span className="text-muted">Modelo</span>
-            <span className="text-muted-2 font-medium text-right">{product.model || "—"}</span>
-          </div>
-          <div className="flex justify-between text-xs gap-4">
-            <span className="text-muted">Actualización</span>
-            <span className="text-muted-2 font-medium text-right">
-              {product.lastUpdated
-                ? new Date(product.lastUpdated).toLocaleString("es-CL")
-                : "No informada"}
-            </span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          disabled={!product.available || product.offerId <= 0 || adding}
-          onClick={() => {
-            setAdding(true);
-            setMessage(null);
-            void onAddToCart(mappedProduct, mappedOffer)
-              .then((added) =>
-                setMessage(added ? "Oferta agregada a la cesta." : "No se pudo agregar la oferta."),
-              )
-              .catch(() => setMessage("No se pudo conectar para agregar la oferta."))
-              .finally(() => setAdding(false));
-          }}
-          className="mt-4 w-full rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:shadow-none"
-        >
-          {adding ? "Agregando..." : "Agregar al carrito"}
-        </button>
-        {message && (
-          <p role="status" className="mt-2 text-xs text-slate-200">
-            {message}
-          </p>
-        )}
-      </div>
-    </div>
+    <ProductCard
+      product={mappedProduct}
+      navigate={navigate}
+      isFavorite={favorites.has(product.id)}
+      isComparing={productCompareList.has(product.id)}
+      cartProductIds={cartProductIds}
+      onAddToCart={onAddToCart}
+      onToggleFavorite={onToggleFavorite}
+      onToggleCompare={onToggleProductCompare}
+    />
   );
 }
 
-function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
+function StoreDetail({
+  storeId,
+  navigate,
+  favorites,
+  productCompareList,
+  cartProductIds,
+  onToggleFavorite,
+  onToggleProductCompare,
+  onAddToCart,
+}: Required<Props>) {
   const [store, setStore] = useState<StoreDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -371,39 +374,41 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando tienda...</p>
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:py-12">
+        <p className="py-8 text-center text-sm text-muted">Cargando tienda...</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p role="alert" className="text-warn">
-          {error}
-        </p>
-        <button
-          type="button"
-          onClick={() => setReload((attempt) => attempt + 1)}
-          className="mt-4 rounded-xl border border-prime px-4 py-2 text-sm font-semibold text-prime"
-        >
-          Reintentar carga de Store API
-        </button>
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:py-12">
+        <div className="rounded-2xl border border-bd bg-surface p-8 text-center">
+          <p role="alert" className="text-sm text-warn">
+            {error}
+          </p>
+          <button
+            type="button"
+            onClick={() => setReload((attempt) => attempt + 1)}
+            className="mt-4 rounded-lg border border-prime/40 bg-prime-muted px-4 py-2 text-sm font-semibold text-prime transition hover:border-prime hover:bg-prime/20"
+          >
+            Reintentar carga de Store API
+          </button>
+        </div>
       </div>
     );
   }
 
   if (!store) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Tienda no encontrada</p>
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:py-12">
+        <EmptyState title="Tienda no encontrada" description="No pudimos encontrar esta tienda." />
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:py-12">
       <Breadcrumb
         items={[
           { label: "Inicio", onClick: () => navigate({ id: "home" }) },
@@ -412,142 +417,161 @@ function StoreDetail({ storeId, navigate, onAddToCart }: Required<Props>) {
         ]}
       />
 
-      <div
-        className="mb-8 flex flex-col overflow-hidden rounded-2xl md:flex-row bg-store-border border border-store-border"
-        style={{
-          background: "rgb(17, 17, 17)",
-          border: "1px solid rgb(42, 42, 42)",
-        }}
-      >
-        <div className="flex h-48 w-full shrink-0 items-center justify-center overflow-hidden p-6 md:h-auto md:min-h-[220px] md:w-72">
-          {store.logo && store.logo.startsWith("http") ? (
-            <img
-              src={store.logo}
-              alt={`Imagen de ${store.name}`}
-              className="max-h-full max-w-full object-contain"
-            />
-          ) : store.logo ? (
-            <img
-              src={store.logo}
-              alt={`Imagen de ${store.name}`}
-              className="max-h-full max-w-full object-contain"
-            />
-          ) : (
-            <span className="text-5xl font-bold text-prime">
-              {store.name.slice(0, 2).toUpperCase()}
-            </span>
-          )}
+      <div className="mb-8 flex flex-col overflow-hidden rounded-[1.5rem] border border-bd bg-surface shadow-lg shadow-black/20 md:flex-row">
+        <div className="flex h-40 w-full shrink-0 items-center justify-center overflow-hidden border-b border-bd bg-surface-2 md:h-auto md:min-h-[220px] md:w-64 md:border-b-0 md:border-r">
+          <StoreLogo
+            name={store.name}
+            logo={store.logo}
+            imageFit="cover"
+            className="h-full w-full rounded-none border-0 bg-transparent"
+            fallbackClassName="text-5xl"
+          />
         </div>
 
-        <div className="flex min-w-0 flex-1 items-start gap-4 p-6 flex-wrap">
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-1 flex-wrap">
-              <h1 className="text-xl font-bold text-slate-50">{store.name}</h1>
-
-              <Badge variant={store.reputation === "Excelente" ? "best" : "available"}>
-                {store.reputation}
-              </Badge>
+        <div className="flex min-w-0 flex-1 flex-col justify-between gap-6 p-5 sm:p-6 md:flex-row">
+          <div className="min-w-0 flex-1">
+            <div className="mb-2">
+              <h1 className="text-[1.4375rem] leading-tight font-semibold tracking-tight text-text sm:text-[1.725rem]">
+                {store.name}
+              </h1>
             </div>
 
-            <div className="flex items-center gap-3 flex-wrap">
+            <div className="origin-left scale-[1.15]">
               <Rating value={store.rating} count={store.reviewCount} />
-
-              {store.website && (
-                <a
-                  href={store.website}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-semibold text-prime hover:underline"
-                >
-                  Visitar sitio
-                </a>
-              )}
             </div>
 
-            <p className="text-sm text-slate-200 mt-2">{store.conditions}</p>
+            {store.website && (
+              <a
+                href={store.website}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-flex w-fit items-center justify-center rounded-xl border border-prime/50 bg-prime-muted px-4 py-2 text-sm font-semibold text-prime transition-colors hover:border-prime hover:bg-prime/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+              >
+                Visitar tienda
+              </a>
+            )}
+
+            <p className="mt-3 text-sm text-muted">{store.conditions}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 text-center">
-            <div className="rounded-xl px-4 py-3 bg-store-surface-2 border border-store-border">
-              <div className="price text-lg font-bold text-white">
+          <div className="grid shrink-0 grid-cols-2 gap-3 text-center md:w-64">
+            <div className="flex min-h-24 flex-col items-center justify-center rounded-xl border border-bd bg-surface-2 px-3 py-3">
+              <div className="price text-lg font-bold text-prime">
                 {store.productCount.toLocaleString("es-CL")}
               </div>
-              <div className="text-xs text-slate-200">Productos</div>
+              <div className="text-xs text-muted">Productos</div>
             </div>
 
-            <div className="rounded-xl px-4 py-3 bg-store-surface-2 border border-store-border">
-              <div className="text-lg font-bold text-slate-50">{store.dispatchTime}</div>
-              <div className="text-xs text-slate-200">Despacho</div>
+            <div className="flex min-h-24 flex-col items-center justify-center rounded-xl border border-bd bg-surface-2 px-3 py-3">
+              <div className="text-sm font-bold text-text">{store.dispatchTime}</div>
+              <div className="mt-1 text-xs text-muted">Despacho</div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
-        <h2 className="text-lg font-bold text-text">Productos disponibles en {store.name}</h2>
-
-        <div className="relative w-full sm:w-80">
+      <section className="mb-5 flex flex-col gap-4 border-b border-bd pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-prime">
+            Catálogo de tienda
+          </p>
+          <h2 className="text-lg font-semibold tracking-tight text-text">
+            Productos disponibles en {store.name}
+          </h2>
+        </div>
+        <div className="w-full sm:w-80">
+          <label className="sr-only" htmlFor="store-product-search">
+            Buscar producto por nombre
+          </label>
           <input
+            id="store-product-search"
             type="search"
             value={productSearch}
             onChange={(event) => setProductSearch(event.target.value)}
             placeholder="Buscar producto por nombre..."
-            className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm text-text outline-none focus:border-prime"
+            maxLength={100}
+            className="w-full rounded-lg border border-bd bg-surface-2 px-3.5 py-2.5 text-sm text-text outline-none transition-colors placeholder:text-muted focus:border-prime"
           />
         </div>
-      </div>
+      </section>
 
-      <div className="flex items-center justify-between mb-5">
+      <div className="mb-4 flex items-center justify-between">
         <p className="text-xs text-muted">
           {filteredProducts.length} {filteredProducts.length === 1 ? "producto" : "productos"}
         </p>
       </div>
 
       {filteredProducts.length === 0 ? (
-        <div className="rounded-2xl p-10 bg-store-border border border-store-border text-store-bg font-medium">
-          <p className="text-text font-medium">No se encontraron productos</p>
-          <p className="text-sm text-muted mt-1">Prueba con otro nombre de producto.</p>
-        </div>
+        <EmptyState
+          title="No se encontraron productos"
+          description="Prueba con otro nombre de producto."
+          action={
+            productSearch
+              ? { label: "Limpiar búsqueda", onClick: () => setProductSearch("") }
+              : undefined
+          }
+        />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
+        <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {filteredProducts.map((product) => (
             <StoreProductCard
               key={product.offerId}
               product={product}
               storeId={store.id}
               storeName={store.name}
+              navigate={navigate}
+              favorites={favorites}
+              productCompareList={productCompareList}
+              cartProductIds={cartProductIds}
+              onToggleFavorite={onToggleFavorite}
+              onToggleProductCompare={onToggleProductCompare}
               onAddToCart={onAddToCart}
             />
           ))}
         </div>
       )}
 
-      <h2 className="text-lg font-bold text-text mb-4">Ubicaciones de {store.name}</h2>
+      <section className="mt-8">
+        <div className="mb-4 border-b border-bd pb-4">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-prime">
+            Información
+          </p>
+          <h2 className="text-lg font-semibold tracking-tight text-text">
+            Ubicaciones de {store.name}
+          </h2>
+        </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {store.locations.map((location) => (
-          <div
-            key={location.id}
-            className="rounded-2xl p-5 bg-store-surface-2 border border-store-border"
-          >
-            <div className="text-sm font-semibold text-prime">
-              {location.address || "Direccion no disponible"}
-            </div>
+        {store.locations.length === 0 ? (
+          <p className="rounded-xl border border-bd bg-surface p-4 text-sm text-muted">
+            No hay ubicaciones disponibles.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {store.locations.map((location) => (
+              <div
+                key={location.id}
+                className="rounded-2xl border border-bd bg-surface p-5 shadow-lg shadow-black/10"
+              >
+                <div className="text-sm font-semibold text-text">
+                  {location.address || "Dirección no disponible"}
+                </div>
 
-            <div className="text-sm text-muted mt-2">
-              {[
-                location.commune,
-                location.city,
-                location.region,
-                location.postalCode,
-                location.country,
-              ]
-                .filter(Boolean)
-                .join(", ")}
-            </div>
+                <div className="mt-2 text-sm text-muted">
+                  {[
+                    location.commune,
+                    location.city,
+                    location.region,
+                    location.postalCode,
+                    location.country,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        )}
+      </section>
     </div>
   );
 }
