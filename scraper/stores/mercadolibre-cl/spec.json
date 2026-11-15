@@ -68,6 +68,11 @@
   },
   "rules": {
     "dedupeBy": "externalId",
-    "rejectIfMissing": ["externalUrl", "product.name", "offer.price"]
+    "rejectIfMissing": [
+      "externalUrl",
+      "product.name",
+      "offer.price",
+      "product.attributes.capacidad_litros"
+    ]
   }
 }

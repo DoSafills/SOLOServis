@@ -38,6 +38,8 @@ TRUE_WORDS = frozenset(
         "en stock",
         "in stock",
         "instock",
+        "últimas unidades",
+        "ultimas unidades",
     }
 )
 FALSE_WORDS = frozenset(
@@ -55,8 +57,6 @@ FALSE_WORDS = frozenset(
         "indisponible",
         "inactivo",
         "disabled",
-        "últimas unidades",
-        "ultimas unidades",
     }
 )
 
@@ -78,8 +78,9 @@ ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 
 def collapse_ws(text: str) -> str:
-    """Collapse every run of whitespace into a single space and trim."""
-    return WHITESPACE_RE.sub(" ", text).strip()
+    """Normalize Unicode to NFC, collapse whitespace and trim."""
+    normalized = unicodedata.normalize("NFC", text)
+    return WHITESPACE_RE.sub(" ", normalized).strip()
 
 
 def slugify(text: str) -> str:

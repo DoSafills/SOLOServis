@@ -261,10 +261,10 @@ Each field declares a `type`:
 
 | Type | Result |
 | --- | --- |
-| `string` | Whitespace-collapsed text. |
+| `string` | NFC-normalized text with collapsed whitespace; case and accents are preserved. |
 | `money` | Decimal, quantized to two places, serialized as `"549990.00"`. |
 | `integer` | Whole number; a fractional value is an error. |
-| `boolean` | Spanish/English availability words. |
+| `boolean` | Spanish/English availability words; `últimas unidades` means available. |
 | `url` | Absolute `http(s)` URL, resolved against the page. |
 | `slug` | `^[a-z0-9-]{1,64}$`. |
 
