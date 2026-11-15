@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServiceById } from "../../services/api/api";
 import { formatPrice, getBillingPeriodText } from "../../services/utils/productUtils";
-import { Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
+import { Breadcrumb, FavoriteButton, Rating, Skeleton } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 
 interface Props {
@@ -102,8 +102,19 @@ export default function ServiceDetailPage({
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando servicio...</p>
+      <div role="status" aria-label="Cargando servicio" className="mx-auto max-w-7xl px-4 py-8">
+        <Skeleton className="mb-6 h-4 w-44" />
+        <div className="grid gap-8 lg:grid-cols-2">
+          <Skeleton className="min-h-80 rounded-2xl sm:min-h-[28rem]" />
+          <div className="space-y-4">
+            <Skeleton className="h-8 w-4/5" />
+            <Skeleton className="h-5 w-2/5" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-10 w-1/2" />
+            <Skeleton className="h-14 w-full rounded-xl" />
+          </div>
+        </div>
+        <Skeleton className="mt-10 h-48 w-full rounded-2xl" />
       </div>
     );
   }
@@ -144,8 +155,8 @@ export default function ServiceDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
         <div
           style={{
-            background: "linear-gradient(135deg, #343B40, #191D20)",
-            border: "1px solid #343B40",
+            background: "linear-gradient(135deg, var(--color-surface-3), var(--color-surface))",
+            border: "1px solid var(--color-bd)",
             boxShadow: "0 18px 40px rgba(0, 0, 0, 0.25)",
           }}
           className="rounded-2xl overflow-hidden h-[420px] md:h-[520px]"
@@ -196,8 +207,8 @@ export default function ServiceDetailPage({
 
           <div
             style={{
-              background: "linear-gradient(180deg, #22282C, #191D20)",
-              border: "1px solid #343B40",
+              background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+              border: "1px solid var(--color-bd)",
               boxShadow: "0 14px 30px rgba(0, 0, 0, 0.2)",
             }}
             className="rounded-xl p-4"
@@ -223,8 +234,8 @@ export default function ServiceDetailPage({
 
           <div
             style={{
-              background: "linear-gradient(180deg, #22282C, #191D20)",
-              border: "1px solid #343B40",
+              background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+              border: "1px solid var(--color-bd)",
             }}
             className="rounded-xl p-4"
           >
@@ -281,13 +292,13 @@ export default function ServiceDetailPage({
             style={
               isComparing
                 ? {
-                    background: "#D1A85A",
+                    background: "var(--color-action)",
                     color: "#181714",
                   }
                 : {
-                    background: "#191D20",
-                    border: "1px solid #343B40",
-                    color: "#F1F2EF",
+                    background: "var(--color-surface)",
+                    border: "1px solid var(--color-bd)",
+                    color: "var(--color-text)",
                   }
             }
             className="py-3 rounded-2xl text-sm font-semibold transition-all hover:opacity-95"
@@ -301,8 +312,8 @@ export default function ServiceDetailPage({
 
       <section
         style={{
-          background: "linear-gradient(180deg, #22282C, #191D20)",
-          border: "1px solid #343B40",
+          background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+          border: "1px solid var(--color-bd)",
         }}
         className="rounded-xl p-5 sm:p-6 mt-6"
       >
@@ -340,8 +351,8 @@ export default function ServiceDetailPage({
 
       <section
         style={{
-          background: "linear-gradient(180deg, #22282C, #191D20)",
-          border: "1px solid #343B40",
+          background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+          border: "1px solid var(--color-bd)",
         }}
         className="rounded-xl p-5 sm:p-6 mt-6"
       >

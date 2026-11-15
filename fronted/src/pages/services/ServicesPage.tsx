@@ -2,9 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServices } from "../../services/api/api";
 import ServiceCard from "../../components/services/ServiceCard";
-import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
+import {
+  Breadcrumb,
+  EmptyState,
+  Pagination,
+  Skeleton,
+  ServiceSkeletonGrid,
+} from "../../components/common/ui";
 import CategoryIcon from "../../components/common/CategoryIcon";
 import { getServiceCategoryIcon } from "../../constants/productCatalog";
+import {
+  type SessionStorageCodec,
+  positiveIntegerSessionCodec,
+  stringSessionCodec,
+  useSessionStorageState,
+} from "../../hooks/useSessionStorageState";
 
 interface Props {
   query: string;
@@ -37,6 +49,75 @@ const emptyFilters: ServiceFilterState = {
   availableOnly: false,
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
+}
+
+const stringRecordSessionCodec: SessionStorageCodec<Record<string, string>> = {
+  decode: (value) => (isStringRecord(value) ? value : undefined),
+  encode: (value) => value,
+};
+
+const serviceSortSessionCodec: SessionStorageCodec<SortOption> = {
+  decode: (value) =>
+    value === "relevance" || value === "price-asc" || value === "price-desc" || value === "rating"
+      ? value
+      : undefined,
+  encode: (value) => value,
+};
+
+const serviceFiltersSessionCodec: SessionStorageCodec<Record<string, ServiceFilterState>> = {
+  decode: (value) => {
+    if (!isRecord(value)) return undefined;
+    const restored: Record<string, ServiceFilterState> = {};
+    for (const [key, candidate] of Object.entries(value)) {
+      if (!isRecord(candidate)) continue;
+      const { priceMin, priceMax, selectedProviders, selectedSpecs, availableOnly } = candidate;
+      if (
+        typeof priceMin !== "string" ||
+        typeof priceMax !== "string" ||
+        !Array.isArray(selectedProviders) ||
+        !selectedProviders.every((provider) => typeof provider === "string") ||
+        typeof availableOnly !== "boolean" ||
+        !isRecord(selectedSpecs)
+      ) {
+        continue;
+      }
+      const restoredSpecs: Record<string, Set<string>> = {};
+      for (const [name, values] of Object.entries(selectedSpecs)) {
+        if (Array.isArray(values) && values.every((item) => typeof item === "string")) {
+          restoredSpecs[name] = new Set(values);
+        }
+      }
+      restored[key] = {
+        priceMin,
+        priceMax,
+        selectedProviders: new Set(selectedProviders),
+        selectedSpecs: restoredSpecs,
+        availableOnly,
+      };
+    }
+    return restored;
+  },
+  encode: (filters) =>
+    Object.fromEntries(
+      Object.entries(filters).map(([key, filter]) => [
+        key,
+        {
+          ...filter,
+          selectedProviders: [...filter.selectedProviders],
+          selectedSpecs: Object.fromEntries(
+            Object.entries(filter.selectedSpecs).map(([name, values]) => [name, [...values]]),
+          ),
+        },
+      ]),
+    ),
+};
+
 const normalizeFilterValue = (value: string) => value.trim().toLocaleLowerCase("es");
 
 const getServiceSpecFilters = (services: Service[]) =>
@@ -66,18 +147,39 @@ export default function ServicesPage({
   onToggleCompare,
   onAddServiceToCart,
 }: Props) {
+  const sessionKey = `soloservice.service-search:${JSON.stringify([query, category, group])}`;
   const [services, setServices] = useState<Service[]>([]);
-  const [sort, setSort] = useState<SortOption>("relevance");
-  const [activeGroup, setActiveGroup] = useState(group ?? "all");
-  const [activeMicrocategory, setActiveMicrocategory] = useState("all");
-  const [microcategoriesByGroup, setMicrocategoriesByGroup] = useState<Record<string, string>>({
-    all: "all",
-  });
-  const [filtersByMicrocategory, setFiltersByMicrocategory] = useState<
-    Record<string, ServiceFilterState>
-  >({});
+  const [sort, setSort] = useSessionStorageState<SortOption>(
+    `${sessionKey}:sort`,
+    () => "relevance",
+    serviceSortSessionCodec,
+  );
+  const [activeGroup, setActiveGroup] = useSessionStorageState(
+    `${sessionKey}:group`,
+    () => group ?? "all",
+    stringSessionCodec,
+  );
+  const [activeMicrocategory, setActiveMicrocategory] = useSessionStorageState(
+    `${sessionKey}:microcategory`,
+    () => "all",
+    stringSessionCodec,
+  );
+  const [microcategoriesByGroup, setMicrocategoriesByGroup] = useSessionStorageState(
+    `${sessionKey}:microcategories`,
+    () => ({ all: "all" }),
+    stringRecordSessionCodec,
+  );
+  const [filtersByMicrocategory, setFiltersByMicrocategory] = useSessionStorageState(
+    `${sessionKey}:filters`,
+    () => ({}),
+    serviceFiltersSessionCodec,
+  );
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useSessionStorageState(
+    `${sessionKey}:page`,
+    () => 1,
+    positiveIntegerSessionCodec,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const perPage = 6;
@@ -343,8 +445,18 @@ export default function ServicesPage({
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando servicios...</p>
+      <div className="mx-auto max-w-7xl px-4 py-8">
+        <Skeleton className="mb-6 h-4 w-44" />
+        <div className="mb-6 border-b border-bd pb-5">
+          <Skeleton className="mb-3 h-8 w-64" />
+          <Skeleton className="h-4 w-80 max-w-full" />
+        </div>
+        <div className="mb-6 flex gap-2">
+          <Skeleton className="h-10 w-28 rounded-lg" />
+          <Skeleton className="h-10 w-28 rounded-lg" />
+          <Skeleton className="h-10 w-28 rounded-lg" />
+        </div>
+        <ServiceSkeletonGrid count={6} className="grid grid-cols-1 gap-4 sm:grid-cols-2" />
       </div>
     );
   }
@@ -493,7 +605,7 @@ export default function ServicesPage({
           <button
             type="button"
             onClick={() => setFiltersOpen(true)}
-            style={{ background: "#191D20", border: "1px solid #343B40" }}
+            style={{ background: "var(--color-surface)", border: "1px solid var(--color-bd)" }}
             className="lg:hidden flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-muted-2 hover:border-prime hover:text-prime transition-all"
           >
             <svg
@@ -521,9 +633,9 @@ export default function ServicesPage({
               setPage(1);
             }}
             style={{
-              background: "#191D20",
-              border: "1px solid #343B40",
-              color: "#A3AAAD",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-bd)",
+              color: "var(--color-muted)",
             }}
             className="px-3 py-2 rounded-xl text-sm focus:outline-none focus:border-prime transition-colors"
           >
@@ -535,7 +647,7 @@ export default function ServicesPage({
           {compareList.size >= 2 && (
             <button
               onClick={() => navigate({ id: "service-comparison", serviceIds: [...compareList] })}
-              style={{ background: "#D1A85A", color: "#181714" }}
+              style={{ background: "var(--color-action)", color: "#181714" }}
               className="px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
             >
               Comparar {compareList.size} servicios

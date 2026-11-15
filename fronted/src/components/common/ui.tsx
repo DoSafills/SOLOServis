@@ -39,6 +39,14 @@ export function Rating({ value, count }: { value: number; count?: number }) {
   // serializados desde el backend), así que forzamos number antes de operar.
   const safeValue = Number(value) || 0;
   const safeCount = count !== undefined ? Number(count) || 0 : undefined;
+  const scoreColor =
+    safeValue >= 4
+      ? "text-emerald-400"
+      : safeValue >= 3
+        ? "text-amber-400"
+        : safeValue > 0
+          ? "text-rose-400"
+          : "text-muted";
 
   return (
     <div className="flex items-center gap-1.5">
@@ -55,7 +63,7 @@ export function Rating({ value, count }: { value: number; count?: number }) {
           </svg>
         ))}
       </div>
-      <span className="text-xs font-semibold text-warn">{safeValue.toFixed(1)}</span>
+      <span className={`text-xs font-semibold ${scoreColor}`}>{safeValue.toFixed(1)}</span>
       {safeCount !== undefined && (
         <span className="text-xs text-muted">({safeCount.toLocaleString("es-CL")})</span>
       )}
@@ -72,16 +80,19 @@ export function FavoriteButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="p-1.5 rounded-lg transition-all duration-200 hover:bg-prime-muted"
+      aria-label={active ? "Quitar de favoritos" : "Agregar a favoritos"}
+      aria-pressed={active}
+      className="rounded-lg p-2 transition-all duration-200 hover:bg-red-500/10"
       title={active ? "Quitar de favoritos" : "Agregar a favoritos"}
     >
       <svg
-        width="16"
-        height="16"
+        width="18"
+        height="18"
         viewBox="0 0 24 24"
-        fill={active ? "var(--color-prime)" : "none"}
-        stroke={active ? "var(--color-prime)" : "#64748B"}
+        fill={active ? "#EF4444" : "none"}
+        stroke={active ? "#EF4444" : "#64748B"}
         strokeWidth="2"
       >
         <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
@@ -114,6 +125,129 @@ export function LoadingState() {
     <div className="flex flex-col items-center justify-center py-24 gap-4">
       <div className="w-10 h-10 border-2 border-prime border-t-transparent rounded-full animate-spin" />
       <p className="text-sm text-muted">Buscando ofertas...</p>
+    </div>
+  );
+}
+
+export function Skeleton({ className = "" }: { className?: string }) {
+  return (
+    <div aria-hidden="true" className={`animate-pulse rounded-lg bg-surface-2 ${className}`} />
+  );
+}
+
+export function SkeletonCard() {
+  return (
+    <article
+      aria-hidden="true"
+      className="overflow-hidden rounded-xl border border-bd bg-surface p-4"
+    >
+      <Skeleton className="mb-4 h-40 w-full" />
+      <Skeleton className="mb-2 h-5 w-3/4" />
+      <Skeleton className="mb-2 h-3 w-1/2" />
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <Skeleton className="h-6 w-1/3" />
+        <Skeleton className="h-9 w-24 rounded-lg" />
+      </div>
+    </article>
+  );
+}
+
+export function SkeletonGrid({
+  count = 4,
+  className = "grid grid-cols-1 gap-4 sm:grid-cols-2",
+}: {
+  count?: number;
+  className?: string;
+}) {
+  return (
+    <div role="status" aria-label="Cargando contenido" className={className}>
+      {Array.from({ length: count }, (_, index) => (
+        <SkeletonCard key={index} />
+      ))}
+    </div>
+  );
+}
+
+export function ProductSkeletonGrid({
+  count = 4,
+  compact = false,
+  className = "grid grid-cols-1 gap-4 sm:grid-cols-2",
+}: {
+  count?: number;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <div role="status" aria-label="Cargando productos" className={className}>
+      {Array.from({ length: count }, (_, index) => (
+        <article
+          key={index}
+          aria-hidden="true"
+          className={`flex ${
+            compact ? "min-h-[11rem] sm:min-h-[10.5rem]" : "min-h-[14.4rem] sm:min-h-[13.2rem]"
+          } overflow-hidden rounded-[1.75rem] border border-bd bg-surface`}
+        >
+          <div
+            className="h-full w-[58%] shrink-0"
+            style={{ clipPath: "polygon(0 0, 100% 0, 88% 100%, 0 100%)" }}
+          >
+            <Skeleton className="h-full w-full rounded-none" />
+          </div>
+          <div className="flex h-full min-w-0 flex-1 flex-col justify-center gap-1 bg-surface px-2 py-1.5">
+            <Skeleton className="h-2 w-12" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-4 w-20" />
+            <div className="flex flex-col gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
+                <Skeleton className="h-8 rounded-lg" />
+                <Skeleton className="h-8 rounded-lg" />
+              </div>
+              <Skeleton className="h-8 rounded-lg" />
+            </div>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+export function ServiceSkeletonGrid({
+  count = 4,
+  className = "grid grid-cols-1 gap-4 sm:grid-cols-2",
+}: {
+  count?: number;
+  className?: string;
+}) {
+  return (
+    <div role="status" aria-label="Cargando servicios" className={className}>
+      {Array.from({ length: count }, (_, index) => (
+        <article
+          key={index}
+          aria-hidden="true"
+          className="flex min-h-[14.4rem] overflow-hidden rounded-[1.75rem] border border-bd bg-surface sm:min-h-[13.2rem]"
+        >
+          <div
+            className="h-full w-[58%] shrink-0"
+            style={{ clipPath: "polygon(0 0, 100% 0, 88% 100%, 0 100%)" }}
+          >
+            <Skeleton className="h-full w-full rounded-none" />
+          </div>
+          <div className="flex h-full min-w-0 flex-1 flex-col justify-center gap-1 bg-surface px-2 py-1.5">
+            <Skeleton className="h-2 w-14" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-4 w-20" />
+            <div className="flex flex-col gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
+                <Skeleton className="h-8 rounded-lg" />
+                <Skeleton className="h-8 rounded-lg" />
+              </div>
+              <Skeleton className="h-8 rounded-lg" />
+            </div>
+          </div>
+        </article>
+      ))}
     </div>
   );
 }

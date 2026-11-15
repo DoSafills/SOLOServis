@@ -12,8 +12,22 @@ import {
   type SearchProductsParams,
 } from "../../services/api/search";
 import ProductCard from "../../components/products/ProductCard";
-import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
+import {
+  Breadcrumb,
+  EmptyState,
+  Pagination,
+  ProductSkeletonGrid,
+  Skeleton,
+} from "../../components/common/ui";
 import { getProductCategoryGroup } from "../../constants/productCatalog";
+import {
+  type SessionStorageCodec,
+  nullablePositiveIntegerSessionCodec,
+  nullableStringSessionCodec,
+  positiveIntegerSessionCodec,
+  stringSessionCodec,
+  useSessionStorageState,
+} from "../../hooks/useSessionStorageState";
 
 interface Props {
   query: string;
@@ -54,6 +68,66 @@ const emptyFilters: ProductFilterState = {
   availableOnly: false,
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
+}
+
+const productFiltersSessionCodec: SessionStorageCodec<Record<string, ProductFilterState>> = {
+  decode: (value) => {
+    if (!isRecord(value)) return undefined;
+    const restored: Record<string, ProductFilterState> = {};
+    for (const [key, candidate] of Object.entries(value)) {
+      if (!isRecord(candidate)) continue;
+      const { priceMin, priceMax, selectedBrands, selectedStores, availableOnly } = candidate;
+      const { selectedAttributes, attributeRanges } = candidate;
+      if (
+        typeof priceMin !== "string" ||
+        typeof priceMax !== "string" ||
+        !Array.isArray(selectedBrands) ||
+        !selectedBrands.every((id) => typeof id === "number" && Number.isInteger(id)) ||
+        !Array.isArray(selectedStores) ||
+        !selectedStores.every((id) => typeof id === "number" && Number.isInteger(id)) ||
+        typeof availableOnly !== "boolean" ||
+        !isStringRecord(selectedAttributes) ||
+        !isRecord(attributeRanges)
+      ) {
+        continue;
+      }
+      const restoredRanges: Record<string, { min: string; max: string }> = {};
+      for (const [name, range] of Object.entries(attributeRanges)) {
+        if (isRecord(range) && typeof range.min === "string" && typeof range.max === "string") {
+          restoredRanges[name] = { min: range.min, max: range.max };
+        }
+      }
+      restored[key] = {
+        priceMin,
+        priceMax,
+        selectedBrands: new Set(selectedBrands),
+        selectedStores: new Set(selectedStores),
+        selectedAttributes,
+        attributeRanges: restoredRanges,
+        availableOnly,
+      };
+    }
+    return restored;
+  },
+  encode: (filters) =>
+    Object.fromEntries(
+      Object.entries(filters).map(([key, filter]) => [
+        key,
+        {
+          ...filter,
+          selectedBrands: [...filter.selectedBrands],
+          selectedStores: [...filter.selectedStores],
+        },
+      ]),
+    ),
+};
+
 const normalizeCategoryKey = (value: string) =>
   value
     .normalize("NFD")
@@ -76,11 +150,30 @@ export default function SearchResultsPage({
   onToggleFavorite,
   onToggleProductCompare,
 }: Props) {
-  const [sort, setSort] = useState<SortOption>("name");
+  const sessionKey = `soloservice.product-search:${JSON.stringify([
+    query,
+    category,
+    categoryContext,
+    productGroup,
+    categoryId,
+  ])}`;
+  const [sort, setSort] = useSessionStorageState<SortOption>(
+    `${sessionKey}:sort`,
+    () => "name",
+    stringSessionCodec,
+  );
   const activeProductGroup = productGroup ?? "all";
-  const [filtersByGroup, setFiltersByGroup] = useState<Record<string, ProductFilterState>>({});
+  const [filtersByGroup, setFiltersByGroup] = useSessionStorageState(
+    `${sessionKey}:filters`,
+    () => ({}),
+    productFiltersSessionCodec,
+  );
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useSessionStorageState(
+    `${sessionKey}:page`,
+    () => 1,
+    positiveIntegerSessionCodec,
+  );
   const [products, setProducts] = useState<Product[]>([]);
   const [resultTotal, setResultTotal] = useState(0);
   const [facets, setFacets] = useState<SearchFacets | null>(null);
@@ -91,8 +184,16 @@ export default function SearchResultsPage({
   const [categories, setCategories] = useState<ApiProductCategory[]>([]);
   const [categoriesLoaded, setCategoriesLoaded] = useState(false);
   const [dynamicCategories, setDynamicCategories] = useState<ProductCategory[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<number | null>(categoryId ?? null);
-  const [selectedCategorySlug, setSelectedCategorySlug] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useSessionStorageState(
+    `${sessionKey}:category`,
+    () => categoryId ?? null,
+    nullablePositiveIntegerSessionCodec,
+  );
+  const [selectedCategorySlug, setSelectedCategorySlug] = useSessionStorageState(
+    `${sessionKey}:category-slug`,
+    () => null,
+    nullableStringSessionCodec,
+  );
   const [searchAttempt, setSearchAttempt] = useState(0);
   const hasCategoryContext =
     Boolean(category) || Boolean(categoryContext) || categoryId !== undefined;
@@ -296,6 +397,7 @@ export default function SearchResultsPage({
     searchParams,
     searchAttempt,
     searchRequestKey,
+    setPage,
   ]);
 
   const subcategoriesOf = (parentId: number) =>
@@ -762,10 +864,24 @@ export default function SearchResultsPage({
 
   if (searching) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <p className="text-sm text-slate-400" role="status">
-          Cargando productos...
-        </p>
+      <div
+        className="mx-auto max-w-7xl px-4 py-8 sm:py-10"
+        role="status"
+        aria-label="Cargando productos"
+      >
+        <Skeleton className="mb-6 h-4 w-44" />
+        <div className="mb-6 border-b border-bd pb-5">
+          <Skeleton className="mb-3 h-8 w-64" />
+          <Skeleton className="h-4 w-80 max-w-full" />
+        </div>
+        <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
+          <aside className="hidden space-y-3 lg:block">
+            {[0, 1, 2, 3, 4].map((item) => (
+              <Skeleton key={item} className="h-12 w-full" />
+            ))}
+          </aside>
+          <ProductSkeletonGrid count={6} />
+        </div>
       </div>
     );
   }

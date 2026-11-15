@@ -13,6 +13,7 @@ import {
 } from "../../services/api/product-write";
 import { ApiError } from "../../services/api/personalization";
 import { getSearchBrands, type SearchBrand } from "../../services/api/search";
+import { Skeleton } from "../common/ui";
 import {
   validateDynamicAttributes,
   type DynamicFieldErrors,
@@ -226,27 +227,35 @@ export default function DynamicProductForm({ onCreated, onUpdated, initialProduc
           Los campos cambian según la categoría seleccionada.
         </p>
       </div>
-      <label className="block text-sm font-medium">
-        Categoría
-        <select
-          className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 p-3"
-          value={activeCategory?.slug ?? ""}
-          onChange={(event) => {
-            const selected = categories.find((item) => item.slug === event.target.value) ?? null;
-            setCategory(selected);
-            setValues({});
-            setErrors({});
-          }}
-        >
-          <option value="">Selecciona una categoría</option>
-          {categories.map((item) => (
-            <option key={item.slug} value={item.slug}>
-              {item.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      {categoriesLoading && <p role="status">Cargando categorías...</p>}
+      <div>
+        <span className="block text-sm font-medium">Categoría</span>
+        {categoriesLoading ? (
+          <Skeleton className="mt-2 h-12 w-full rounded-lg" />
+        ) : (
+          <select
+            className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 p-3"
+            value={activeCategory?.slug ?? ""}
+            onChange={(event) => {
+              const selected = categories.find((item) => item.slug === event.target.value) ?? null;
+              setCategory(selected);
+              setValues({});
+              setErrors({});
+            }}
+          >
+            <option value="">Selecciona una categoría</option>
+            {categories.map((item) => (
+              <option key={item.slug} value={item.slug}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {categoriesLoading && (
+        <span role="status" className="sr-only">
+          Cargando categorías...
+        </span>
+      )}
       {categoriesError && (
         <div role="alert" className="rounded-lg border border-rose-700 p-3 text-sm text-rose-200">
           <p>{categoriesError}</p>
@@ -280,33 +289,39 @@ export default function DynamicProductForm({ onCreated, onUpdated, initialProduc
           </div>
           <label className="block text-sm font-medium">
             Marca
-            <select
-              value={brandId}
-              onChange={(event) => {
-                setBrandId(event.target.value);
-                setDuplicateCandidates([]);
-                setPendingWrite(null);
-                setErrors((previous) => {
-                  const next = { ...previous };
-                  delete next.brandId;
-                  return next;
-                });
-              }}
-              className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 p-3"
-            >
-              <option value="">Sin marca</option>
-              {initialProduct?.brandId &&
-                !brands.some((item) => item.id === initialProduct.brandId) && (
-                  <option value={initialProduct.brandId}>{initialProduct.brand}</option>
-                )}
-              {brands.map((brand) => (
-                <option key={brand.id} value={brand.id}>
-                  {brand.name}
-                </option>
-              ))}
-            </select>
+            {brandsLoading ? (
+              <Skeleton className="mt-2 h-12 w-full rounded-lg" />
+            ) : (
+              <select
+                value={brandId}
+                onChange={(event) => {
+                  setBrandId(event.target.value);
+                  setDuplicateCandidates([]);
+                  setPendingWrite(null);
+                  setErrors((previous) => {
+                    const next = { ...previous };
+                    delete next.brandId;
+                    return next;
+                  });
+                }}
+                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 p-3"
+              >
+                <option value="">Sin marca</option>
+                {initialProduct?.brandId &&
+                  !brands.some((item) => item.id === initialProduct.brandId) && (
+                    <option value={initialProduct.brandId}>{initialProduct.brand}</option>
+                  )}
+                {brands.map((brand) => (
+                  <option key={brand.id} value={brand.id}>
+                    {brand.name}
+                  </option>
+                ))}
+              </select>
+            )}
             {brandsLoading && (
-              <span className="mt-1 block text-xs text-slate-400">Cargando marcas...</span>
+              <span role="status" className="sr-only">
+                Cargando marcas...
+              </span>
             )}
             {brandsError && (
               <span role="alert" className="mt-1 block text-xs text-rose-300">

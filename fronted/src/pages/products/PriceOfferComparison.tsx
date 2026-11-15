@@ -479,8 +479,8 @@ export default function PriceOfferComparison({
       <section
         aria-labelledby="lowest-offer-heading"
         style={{
-          background: "linear-gradient(180deg, #22282C, #191D20)",
-          border: "1px solid #343B40",
+          background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+          border: "1px solid var(--color-bd)",
           boxShadow: "0 12px 30px rgba(0, 0, 0, 0.2)",
         }}
         className="rounded-xl p-4 sm:p-5"
@@ -689,8 +689,8 @@ export default function PriceOfferComparison({
       <section
         aria-labelledby="compare-offers-heading"
         style={{
-          background: "linear-gradient(180deg, #22282C, #191D20)",
-          border: "1px solid #343B40",
+          background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+          border: "1px solid var(--color-bd)",
           boxShadow: "0 12px 30px rgba(0, 0, 0, 0.2)",
         }}
         className="rounded-2xl p-5 sm:p-6"

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Page, Product, Service } from "../../types";
 import { getProducts, getServices } from "../../services/api/api";
+import { SkeletonGrid } from "../../components/common/ui";
 import { formatPrice, getBillingPeriodText, getMinOffer } from "../../services/utils/productUtils";
 import { Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 
@@ -8,6 +9,7 @@ interface Props {
   navigate: (page: Page) => void;
   favorites: Set<string>;
   authenticated: boolean;
+  accountDataLoading?: boolean;
   onToggleFavorite: (id: string, kind?: "product" | "service") => void;
   embedded?: boolean;
 }
@@ -16,6 +18,7 @@ export default function FavoritesPage({
   navigate,
   favorites,
   authenticated,
+  accountDataLoading = false,
   onToggleFavorite,
   embedded = false,
 }: Props) {
@@ -86,7 +89,7 @@ export default function FavoritesPage({
   const favServices = services.filter((service) => favorites.has(service.id));
   const visibleCount = favProducts.length + favServices.length;
 
-  if (loading) {
+  if (loading || accountDataLoading) {
     return (
       <div className={embedded ? "w-full" : "mx-auto max-w-7xl px-4 py-8"}>
         {breadcrumb}
@@ -96,14 +99,7 @@ export default function FavoritesPage({
           </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-text">Favoritos</h1>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
-          {[0, 1, 2].map((item) => (
-            <div key={item} className="h-36 animate-pulse rounded-xl border border-bd bg-surface" />
-          ))}
-        </div>
-        <p role="status" className="mt-4 text-center text-sm text-muted">
-          Cargando favoritos...
-        </p>
+        <SkeletonGrid count={3} className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3" />
       </div>
     );
   }

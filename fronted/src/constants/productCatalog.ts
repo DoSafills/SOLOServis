@@ -122,6 +122,38 @@ export const getServiceCategoryIcon = (name: string): CategoryIconName => {
   return SERVICE_CATEGORY_ICONS.other;
 };
 
+export const getProductCategoryIcon = (name: string): CategoryIconName => {
+  const normalized = normalize(name);
+  if (/refriger|nevera|freezer|congel/.test(normalized)) return "refrigerator";
+  if (/lavador|secador|lavavajilla|lavaplatos/.test(normalized)) return "washer";
+  if (/televisor|television|\btv\b|monitor|proyector/.test(normalized)) return "television";
+  if (/notebook|laptop|comput|impresora|tablet/.test(normalized)) return "laptop";
+  if (/celular|smartphone|iphone|telefono/.test(normalized)) return "phone";
+  if (/audif|auricular|headphone|parlante|speaker|audio/.test(normalized)) return "headphones";
+  if (/camara|fotograf/.test(normalized)) return "camera";
+  if (/reloj|smartwatch/.test(normalized)) return "watch";
+  if (/cafetera|coffee/.test(normalized)) return "coffee";
+  if (/aspirador/.test(normalized)) return "vacuum";
+  if (/aire acondicionado|climatizador/.test(normalized)) return "airConditioning";
+  if (/freidora|air.?fryer/.test(normalized)) return "airFryer";
+  if (/microonda/.test(normalized)) return "microwave";
+  if (/horno|cocina|tostador|hervidor|tetera/.test(normalized)) return "kitchen";
+  if (/licuadora|batidora/.test(normalized)) return "blender";
+  if (
+    /mueble|mesa|silla|sofa|cama|escritorio|colchon|decoracion|alfombra|ropero|estante/.test(
+      normalized,
+    )
+  ) {
+    return "furniture";
+  }
+  if (/gaming|gamer|consola|playstation|xbox|nintendo|videojuego|gamepad/.test(normalized)) {
+    return "gamepad";
+  }
+  if (/electrodom/.test(normalized)) return "refrigerator";
+  if (/tecnolog|electron/.test(normalized)) return "bolt";
+  return "grid";
+};
+
 export type ProductCategoryGroup = "home" | "technology" | "other";
 
 export const getProductCategoryGroup = (name: string): ProductCategoryGroup => {

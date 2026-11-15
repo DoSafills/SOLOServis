@@ -1,5 +1,5 @@
 import type { AnyCartItem, CartItem, Page, ServiceCartItem } from "../../types";
-import { Breadcrumb } from "../../components/common/ui";
+import { Breadcrumb, Skeleton, SkeletonGrid } from "../../components/common/ui";
 import {
   formatPrice,
   getBillingPeriodName,
@@ -8,6 +8,7 @@ import {
 
 interface Props {
   cart: AnyCartItem[];
+  loading: boolean;
   navigate: (page: Page) => void;
   onUpdateQuantity: (cartItemId: number, quantity: number) => void;
   onRemove: (cartItemId: number) => void;
@@ -40,7 +41,7 @@ function RemoveCartItemButton({ itemName, onClick }: { itemName: string; onClick
   );
 }
 
-export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }: Props) {
+export default function CartPage({ cart, loading, navigate, onUpdateQuantity, onRemove }: Props) {
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const storeSummaries = Array.from(
     cart
@@ -97,6 +98,25 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
       return null;
     }
   };
+
+  if (loading) {
+    return (
+      <div role="status" aria-label="Cargando cesta" className="mx-auto max-w-4xl px-4 py-8">
+        <Skeleton className="mb-6 h-4 w-44" />
+        <Skeleton className="mb-3 h-8 w-48" />
+        <Skeleton className="mb-8 h-4 w-64" />
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+          <SkeletonGrid count={3} className="space-y-3" />
+          <div className="h-fit rounded-2xl border border-bd bg-surface p-5">
+            <Skeleton className="mb-5 h-6 w-2/3" />
+            <Skeleton className="mb-3 h-4 w-full" />
+            <Skeleton className="mb-6 h-4 w-3/4" />
+            <Skeleton className="h-11 w-full rounded-xl" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (cart.length === 0) {
     return (

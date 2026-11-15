@@ -6,7 +6,10 @@ interface Props {
 
 export default function Footer({ navigate }: Props) {
   return (
-    <footer style={{ background: "#111315", borderTop: "1px solid #343B40" }} className="mt-16">
+    <footer
+      style={{ background: "var(--color-bg)", borderTop: "1px solid var(--color-bd)" }}
+      className="mt-16"
+    >
       <div className="max-w-7xl mx-auto px-4 py-12">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
           {/* Brand */}
@@ -96,7 +99,7 @@ export default function Footer({ navigate }: Props) {
         </div>
 
         <div
-          style={{ borderTop: "1px solid #343B40" }}
+          style={{ borderTop: "1px solid var(--color-bd)" }}
           className="pt-6 flex flex-col sm:flex-row justify-between items-center gap-3"
         >
           <p className="text-xs text-muted">© 2025 SoloServis. Todos los derechos reservados.</p>

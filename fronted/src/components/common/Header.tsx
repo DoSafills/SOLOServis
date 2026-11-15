@@ -1,14 +1,28 @@
 import { useState } from "react";
 import type { Page } from "../../types";
+import { Skeleton } from "./ui";
 
 interface Props {
   navigate: (page: Page) => void;
   currentPage: Page;
+  colorTheme: "dark" | "light";
+  onToggleColorTheme: () => void;
   favCount: number;
   cartCount: number;
+  favoritesLoading: boolean;
+  cartLoading: boolean;
 }
 
-export default function Header({ navigate, currentPage, favCount, cartCount }: Props) {
+export default function Header({
+  navigate,
+  currentPage,
+  colorTheme,
+  onToggleColorTheme,
+  favCount,
+  cartCount,
+  favoritesLoading,
+  cartLoading,
+}: Props) {
   const [query, setQuery] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -55,9 +69,9 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
   return (
     <header
       style={{
-        background: "#111315",
+        background: "var(--color-bg)",
         backdropFilter: "blur(18px)",
-        borderBottom: "1px solid #343B40",
+        borderBottom: "1px solid var(--color-bd)",
         boxShadow: "0 12px 36px rgba(0,0,0,0.2)",
       }}
       className="sticky top-0 z-50"
@@ -81,7 +95,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
                 <circle cx="19" cy="19" r="3" fill="#181714" stroke="#D1A85A" strokeWidth="1.5" />
               </svg>
             </div>
-            <span className="block text-left text-[15px] font-black leading-none tracking-tight text-white sm:text-lg">
+            <span className="block text-left text-[15px] font-black leading-none tracking-tight text-text sm:text-lg">
               Solo
               <span className="text-prime">Service</span>
               <span className="mt-1 hidden text-[9px] font-semibold uppercase tracking-[0.2em] text-muted sm:block">
@@ -162,7 +176,7 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
             {/* Cart */}
             <button
               onClick={() => navigate({ id: "cart" })}
-              aria-label={`Carrito, ${cartCount} artículos`}
+              aria-label={cartLoading ? "Carrito, cargando" : `Carrito, ${cartCount} artículos`}
               title="Carrito"
               className={`relative rounded-xl border p-2.5 transition-all duration-200 ${
                 currentPage.id === "cart"
@@ -182,17 +196,21 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
                 <circle cx="18" cy="20" r="1" />
                 <path d="M2 3h2l2.7 12.4a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 2-1.6L21 8H5" />
               </svg>
-              {cartCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-[#111315] bg-prime px-1 text-[10px] font-black text-[#181714]">
+              {cartLoading ? (
+                <Skeleton className="absolute -right-1 -top-1 h-[18px] min-w-[18px] rounded-full border-2 border-bg" />
+              ) : cartCount > 0 ? (
+                <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-bg bg-prime px-1 text-[10px] font-black text-[#181714]">
                   {cartCount}
                 </span>
-              )}
+              ) : null}
             </button>
 
             {/* Favorites */}
             <button
               onClick={() => navigate({ id: "user", section: "favorites" })}
-              aria-label={`Favoritos, ${favCount} productos`}
+              aria-label={
+                favoritesLoading ? "Favoritos, cargando" : `Favoritos, ${favCount} productos`
+              }
               title="Favoritos"
               className={`relative rounded-xl border p-2.5 transition-all duration-200 ${
                 currentPage.id === "favorites" ||
@@ -211,10 +229,47 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
               >
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
               </svg>
-              {favCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-[#111315] bg-prime px-1 text-[10px] font-black text-[#181714]">
+              {favoritesLoading ? (
+                <Skeleton className="absolute -right-1 -top-1 h-[18px] min-w-[18px] rounded-full border-2 border-bg" />
+              ) : favCount > 0 ? (
+                <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-bg bg-prime px-1 text-[10px] font-black text-[#181714]">
                   {favCount}
                 </span>
+              ) : null}
+            </button>
+
+            <button
+              type="button"
+              onClick={onToggleColorTheme}
+              aria-label={colorTheme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
+              title={colorTheme === "dark" ? "Modo claro" : "Modo oscuro"}
+              className="hidden rounded-xl border border-transparent p-2.5 text-muted transition-all duration-200 hover:border-prime/30 hover:bg-prime-muted hover:text-prime lg:block"
+            >
+              {colorTheme === "dark" ? (
+                <svg
+                  aria-hidden="true"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />
+                </svg>
+              ) : (
+                <svg
+                  aria-hidden="true"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M20.9 13A9 9 0 0 1 11 3.1 9 9 0 1 0 20.9 13Z" />
+                </svg>
               )}
             </button>
 
@@ -333,6 +388,14 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
               }`}
             >
               Mi cuenta
+            </button>
+            <button
+              type="button"
+              onClick={onToggleColorTheme}
+              className="w-full rounded-xl border border-bd px-3 py-2.5 text-left text-sm font-bold text-text transition-colors hover:border-prime/40 hover:bg-prime-muted hover:text-prime"
+              aria-label={colorTheme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
+            >
+              {colorTheme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
             </button>
           </div>
         )}

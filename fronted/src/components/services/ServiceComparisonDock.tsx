@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServiceById } from "../../services/api/api";
+import { Skeleton } from "../common/ui";
 
 interface Props {
   serviceIds: string[];
@@ -57,7 +58,7 @@ export default function ServiceComparisonDock({
   return (
     <section
       aria-label="Servicios seleccionados para comparar"
-      className="w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/15 bg-slate-950/95 text-white shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      className="theme-dark-panel w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/15 bg-slate-950/95 text-white shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl"
     >
       <button
         type="button"
@@ -87,7 +88,20 @@ export default function ServiceComparisonDock({
       {expanded && (
         <div className="space-y-3 p-3">
           {loading ? (
-            <p className="px-1 py-2 text-xs text-slate-300">Cargando servicios...</p>
+            <div role="status" aria-label="Cargando servicios" className="space-y-2">
+              {[0, 1].map((item) => (
+                <div
+                  key={item}
+                  className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] p-2"
+                >
+                  <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-3 w-3/4" />
+                    <Skeleton className="h-2 w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
             <ul className="space-y-2">
               {services.map((service) => (

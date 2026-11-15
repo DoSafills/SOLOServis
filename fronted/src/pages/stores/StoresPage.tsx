@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Page, Product, Store, StoreDetail, StoreOffer, StoreProduct } from "../../types";
 import { getStores, getStoreById } from "../../services/api/api";
-import { Breadcrumb, EmptyState, Rating } from "../../components/common/ui";
+import {
+  Breadcrumb,
+  EmptyState,
+  ProductSkeletonGrid,
+  Rating,
+  Skeleton,
+  SkeletonGrid,
+} from "../../components/common/ui";
 import ProductCard from "../../components/products/ProductCard";
+import { stringSessionCodec, useSessionStorageState } from "../../hooks/useSessionStorageState";
 
 interface Props {
   navigate: (page: Page) => void;
@@ -18,28 +26,43 @@ interface Props {
 function StoreLogo({
   name,
   logo,
+  website,
   className,
   imageFit = "contain",
   fallbackClassName = "text-sm",
 }: {
   name: string;
   logo: string;
+  website: string;
   className: string;
   imageFit?: "contain" | "cover";
   fallbackClassName?: string;
 }) {
-  const [imageFailed, setImageFailed] = useState(false);
+  const websiteOrigin = website.match(/^https?:\/\/[^/]+/i)?.[0] ?? "";
+  const sourceKey = JSON.stringify([logo, website]);
+  const [failedImage, setFailedImage] = useState<{ sourceKey: string; index: number } | null>(null);
+  const logoSources = [
+    ...(logo && !/(?:example\.com|placehold\.co)/i.test(logo) ? [logo] : []),
+    ...(websiteOrigin
+      ? [
+          `${websiteOrigin}/favicon.ico`,
+          `https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(websiteOrigin)}&sz=128`,
+        ]
+      : []),
+  ];
+  const imageIndex = failedImage?.sourceKey === sourceKey ? failedImage.index : 0;
+  const imageSource = logoSources[imageIndex];
 
   return (
     <div
       className={`flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-bd bg-surface-2 ${className}`}
     >
-      {logo && !imageFailed ? (
+      {imageSource ? (
         <img
-          src={logo}
+          src={imageSource}
           alt={`${name} logo`}
           className={`h-full w-full ${imageFit === "cover" ? "object-cover" : "object-contain p-1.5"}`}
-          onError={() => setImageFailed(true)}
+          onError={() => setFailedImage({ sourceKey, index: imageIndex + 1 })}
         />
       ) : (
         <span className={`px-2 font-bold text-prime ${fallbackClassName}`}>
@@ -54,7 +77,11 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useSessionStorageState(
+    "soloservice.stores-search",
+    () => "",
+    stringSessionCodec,
+  );
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
@@ -126,9 +153,7 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
       </header>
 
       {loading ? (
-        <div className="text-center py-20">
-          <p className="text-muted">Cargando tiendas...</p>
-        </div>
+        <SkeletonGrid count={6} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" />
       ) : error ? (
         <div className="rounded-2xl border border-bd bg-surface p-8 text-center" role="alert">
           <p className="text-sm text-warn">{error}</p>
@@ -158,10 +183,11 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
               onClick={() => navigate({ id: "store-detail", storeId: store.id })}
               className="group relative isolate flex min-h-[24rem] flex-col overflow-hidden rounded-[1.75rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime lg:min-h-[22rem]"
             >
-              <div className="relative h-40 w-full shrink-0 bg-slate-950/60 sm:h-44 lg:absolute lg:inset-y-0 lg:left-0 lg:h-full lg:w-[58%]">
+              <div className="theme-media-panel relative h-40 w-full shrink-0 bg-slate-950/60 sm:h-44 lg:absolute lg:inset-y-0 lg:left-0 lg:h-full lg:w-[58%]">
                 <StoreLogo
                   name={store.name}
                   logo={store.logo}
+                  website={store.website}
                   imageFit="cover"
                   className="h-full w-full rounded-none border-0 bg-transparent"
                   fallbackClassName="text-5xl"
@@ -176,7 +202,8 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
                 aria-hidden="true"
                 className="absolute inset-y-0 right-0 hidden w-[66%] lg:block"
                 style={{
-                  background: "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
+                  background:
+                    "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
                   clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
                 }}
               />
@@ -300,6 +327,7 @@ function StoreProductCard({
   return (
     <ProductCard
       product={mappedProduct}
+      compact
       navigate={navigate}
       isFavorite={favorites.has(product.id)}
       isComparing={productCompareList.has(product.id)}
@@ -324,7 +352,11 @@ function StoreDetail({
   const [store, setStore] = useState<StoreDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [productSearch, setProductSearch] = useState("");
+  const [productSearch, setProductSearch] = useSessionStorageState(
+    `soloservice.store-products-search:${storeId}`,
+    () => "",
+    stringSessionCodec,
+  );
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
@@ -371,7 +403,22 @@ function StoreDetail({
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:py-12">
-        <p className="py-8 text-center text-sm text-muted">Cargando tienda...</p>
+        <Skeleton className="mb-6 h-4 w-44" />
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+          <Skeleton className="min-h-72 rounded-2xl" />
+          <div className="space-y-4">
+            <Skeleton className="h-9 w-2/3" />
+            <Skeleton className="h-5 w-1/3" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-12 w-40 rounded-lg" />
+          </div>
+        </div>
+        <Skeleton className="mt-10 h-7 w-48" />
+        <ProductSkeletonGrid
+          count={4}
+          compact
+          className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2"
+        />
       </div>
     );
   }
@@ -414,11 +461,12 @@ function StoreDetail({
       />
 
       <div className="mb-8 flex flex-col overflow-hidden rounded-[1.5rem] border border-bd bg-surface shadow-lg shadow-black/20 md:flex-row">
-        <div className="flex h-40 w-full shrink-0 items-center justify-center overflow-hidden border-b border-bd bg-surface-2 md:h-auto md:min-h-[220px] md:w-64 md:border-b-0 md:border-r">
+        <div className="flex aspect-[1.9] w-full shrink-0 items-center justify-center overflow-hidden border-b border-bd bg-surface-2 md:aspect-auto md:min-h-[220px] md:w-[35%] md:max-w-[28rem] md:border-b-0 md:border-r">
           <StoreLogo
             name={store.name}
             logo={store.logo}
-            imageFit="cover"
+            website={store.website}
+            imageFit="contain"
             className="h-full w-full rounded-none border-0 bg-transparent"
             fallbackClassName="text-5xl"
           />
@@ -508,7 +556,7 @@ function StoreDetail({
           }
         />
       ) : (
-        <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {filteredProducts.map((product) => (
             <StoreProductCard
               key={product.offerId}
