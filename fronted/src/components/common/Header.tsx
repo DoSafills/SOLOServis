@@ -191,11 +191,12 @@ export default function Header({ navigate, currentPage, favCount, cartCount }: P
 
             {/* Favorites */}
             <button
-              onClick={() => navigate({ id: "favorites" })}
+              onClick={() => navigate({ id: "user", section: "favorites" })}
               aria-label={`Favoritos, ${favCount} productos`}
               title="Favoritos"
               className={`relative rounded-xl border p-2.5 transition-all duration-200 ${
-                currentPage.id === "favorites"
+                currentPage.id === "favorites" ||
+                (currentPage.id === "user" && currentPage.section === "favorites")
                   ? "border-prime/40 bg-prime-muted text-prime"
                   : "border-transparent text-muted hover:border-prime/30 hover:bg-prime-muted hover:text-prime"
               }`}

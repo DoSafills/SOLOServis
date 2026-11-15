@@ -48,24 +48,6 @@ html {
   background: #111315;
 }
 
-.stores-theme {
-  --color-prime: #8b5cf6;
-  --color-prime-dark: #7c3aed;
-  --color-prime-muted: rgba(139, 92, 246, 0.12);
-  --color-bg: #0b1020;
-  --color-surface: #111827;
-  --color-surface-2: #1f2937;
-  --color-surface-3: #374151;
-  --color-bd: #2a2a2a;
-  --color-text: #f1f5f9;
-  --color-muted: #94a3b8;
-  --color-muted-2: #64748b;
-  background:
-    radial-gradient(circle at top, rgba(139, 92, 246, 0.18), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(45, 212, 191, 0.12), transparent 24%),
-    linear-gradient(180deg, #0b1020 0%, #111827 38%, #0f172a 100%);
-}
-
 /* Hide scrollbar but keep scroll */
 ::-webkit-scrollbar {
   width: 6px;

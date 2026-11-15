@@ -13,6 +13,33 @@ interface Props {
   onRemove: (cartItemId: number) => void;
 }
 
+function RemoveCartItemButton({ itemName, onClick }: { itemName: string; onClick: () => void }) {
+  const label = `Eliminar ${itemName} del carrito`;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-bd bg-surface-2 text-muted transition-colors hover:border-rose-400/40 hover:bg-rose-500/10 hover:text-rose-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-5 w-5"
+      >
+        <path d="M4 7h16M10 11v6m4-6v6M5 7l1 14h12l1-14M9 7V4h6v3" />
+      </svg>
+    </button>
+  );
+}
+
 export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }: Props) {
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const storeSummaries = Array.from(
@@ -158,20 +185,35 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                           <h2 className="mt-1 text-xl font-extrabold text-text">{service.name}</h2>
                         </button>
                         <p className="mt-2 text-sm font-medium text-muted">{service.category}</p>
-                        <div className="mt-3 rounded-xl border border-bd bg-surface-2 px-3 py-2">
-                          <div className="text-xl font-extrabold text-prime">
-                            {formatPrice(service.monthlyPrice)}{" "}
-                            {getBillingPeriodText(service.billingPeriod)}
-                          </div>
-                          {service.installationCost !== null && (
-                            <p className="mt-1 text-xs font-medium text-muted">
-                              Instalación:{" "}
-                              {service.installationCost === 0
-                                ? "Gratis"
-                                : formatPrice(service.installationCost)}
-                            </p>
-                          )}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-prime/40 bg-prime-muted px-4 py-2.5 text-sm font-bold text-prime transition-colors hover:border-prime hover:bg-prime/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+                        >
+                          Ver servicio
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            className="h-4 w-4"
+                          >
+                            <path
+                              d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                        {service.installationCost !== null && (
+                          <p className="mt-2 text-xs font-medium text-muted">
+                            Instalación:{" "}
+                            {service.installationCost === 0
+                              ? "Gratis"
+                              : formatPrice(service.installationCost)}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center justify-between gap-4 md:justify-end">
                         <div className="flex items-center gap-2 rounded-xl border border-bd bg-surface-2 px-2 py-1.5">
@@ -197,12 +239,10 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                           <div className="text-xl font-extrabold text-text">
                             {formatPrice(totalItem)} {getBillingPeriodText(service.billingPeriod)}
                           </div>
-                          <button
+                          <RemoveCartItemButton
+                            itemName={service.name}
                             onClick={() => onRemove(cartItemId)}
-                            className="mt-1 text-sm font-semibold text-slate-400 transition-colors hover:text-rose-300"
-                          >
-                            Eliminar
-                          </button>
+                          />
                         </div>
                       </div>
                     </div>
@@ -214,7 +254,6 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
             const { product, offer, quantity, cartItemId } = item;
             const price = offer.price;
             const totalItem = price * quantity;
-            const discountPercent = getDiscountPercent(offer.listPrice, price);
             const offerUrl = getSafeOfferUrl(offer.url);
 
             return (
@@ -252,35 +291,31 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                         <span>{product.model}</span>
                       </div>
 
-                      <p className="mt-2 text-base font-bold text-prime">
-                        Oferta de {offer.storeName}
-                      </p>
-                      <div className="mt-3 rounded-xl border border-bd bg-surface-2 px-3 py-2">
-                        {discountPercent !== null && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-muted line-through">
-                              {formatPrice(offer.listPrice!)}
-                            </span>
-                            <span className="rounded-full border border-prime/40 bg-prime-muted px-2 py-0.5 text-xs font-extrabold text-prime">
-                              {discountPercent}% OFF
-                            </span>
-                          </div>
-                        )}
-                        <div className="text-xl font-extrabold text-prime">
-                          {formatPrice(price)}
-                        </div>
-                      </div>
                       {offerUrl ? (
                         <a
                           href={offerUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="mt-2 inline-flex text-sm font-bold text-prime hover:text-text hover:underline"
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl border border-prime/40 bg-prime-muted px-4 py-2.5 text-sm font-bold text-prime transition-colors hover:border-prime hover:bg-prime/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
                         >
-                          Ver producto en {offer.storeName}
+                          Ver producto en la tienda
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            className="h-4 w-4"
+                          >
+                            <path
+                              d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
                         </a>
                       ) : (
-                        <p className="mt-2 text-sm text-muted">Enlace de tienda no disponible</p>
+                        <p className="mt-4 text-sm text-muted">Enlace de tienda no disponible</p>
                       )}
                     </div>
 
@@ -310,12 +345,10 @@ export default function CartPage({ cart, navigate, onUpdateQuantity, onRemove }:
                         <div className="text-xl font-extrabold text-text">
                           {formatPrice(totalItem)}
                         </div>
-                        <button
+                        <RemoveCartItemButton
+                          itemName={product.name}
                           onClick={() => onRemove(cartItemId)}
-                          className="mt-1 text-sm font-semibold text-slate-400 transition-colors hover:text-rose-300"
-                        >
-                          Eliminar
-                        </button>
+                        />
                       </div>
                     </div>
                   </div>

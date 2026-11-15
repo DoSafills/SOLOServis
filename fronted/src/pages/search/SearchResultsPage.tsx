@@ -421,8 +421,8 @@ export default function SearchResultsPage({
         style={{ marginLeft: `${depth * 12}px` }}
         className={`flex w-[calc(100%-0.75rem)] items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
           selectedCategory === categoryItem.id
-            ? "bg-cyan-300/10 font-semibold text-cyan-100"
-            : "text-slate-300 hover:bg-white/[0.04] hover:text-white"
+            ? "bg-prime-muted font-semibold text-prime"
+            : "text-muted-2 hover:bg-surface-2 hover:text-text"
         }`}
       >
         {categoryItem.name}
@@ -445,10 +445,10 @@ export default function SearchResultsPage({
   const renderFilters = () => (
     <div className="space-y-1">
       {showCategoryFilter && (
-        <details className="group border-b border-slate-700/70 pb-3" open={isGroupedProductsView}>
-          <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-slate-100">
+        <details className="group border-b border-bd pb-3" open={isGroupedProductsView}>
+          <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-text">
             Categorías
-            <span className="text-slate-500 transition-transform group-open:rotate-180">⌄</span>
+            <span className="text-muted transition-transform group-open:rotate-180">⌄</span>
           </summary>
           <div className="space-y-1 pb-2">
             <button
@@ -457,8 +457,8 @@ export default function SearchResultsPage({
               aria-pressed={selectedCategory === null && selectedCategorySlug === null}
               className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
                 selectedCategory === null && selectedCategorySlug === null
-                  ? "bg-cyan-300/10 font-semibold text-cyan-100"
-                  : "text-slate-300 hover:bg-white/[0.04] hover:text-white"
+                  ? "bg-prime-muted font-semibold text-prime"
+                  : "text-muted-2 hover:bg-surface-2 hover:text-text"
               }`}
             >
               {isGroupedProductsView ? `Todo ${groupCategoryLabel}` : "Todas las categorías"}
@@ -469,12 +469,12 @@ export default function SearchResultsPage({
             {visibleRootCategories.map((root) => renderCategoryOption(root))}
           </div>
           {availableDynamicCategories.length > 0 && (
-            <label className="mt-2 block text-xs font-medium text-slate-400">
+            <label className="mt-2 block text-xs font-medium text-muted">
               Atributos específicos
               <select
                 value={selectedCategorySlug ?? ""}
                 onChange={(event) => selectDynamicCategory(event.target.value)}
-                className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-2 text-sm text-slate-100 focus:border-cyan-300/70 focus:outline-none"
+                className="mt-1.5 w-full rounded-lg border border-bd bg-surface-2 px-2.5 py-2 text-sm text-text focus:border-prime focus:outline-none"
               >
                 <option value="">Sin atributos específicos</option>
                 {availableDynamicCategories.map((item) => (
@@ -485,19 +485,16 @@ export default function SearchResultsPage({
               </select>
             </label>
           )}
-          {categoryError && <p className="mt-2 text-xs text-rose-300">{categoryError}</p>}
+          {categoryError && <p className="mt-2 text-xs text-warn">{categoryError}</p>}
         </details>
       )}
-      {categoryError && !showCategoryFilter && (
-        <p className="text-xs text-rose-300">{categoryError}</p>
-      )}
-      <details className="group border-b border-slate-700/70 pb-3" open>
-        <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-slate-100">
-          Precio{" "}
-          <span className="text-slate-500 transition-transform group-open:rotate-180">⌄</span>
+      {categoryError && !showCategoryFilter && <p className="text-xs text-warn">{categoryError}</p>}
+      <details className="group border-b border-bd pb-3" open>
+        <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-text">
+          Precio <span className="text-muted transition-transform group-open:rotate-180">⌄</span>
         </summary>
         <div className="flex gap-2 pb-2 pt-1">
-          <label className="min-w-0 flex-1 text-xs text-slate-400">
+          <label className="min-w-0 flex-1 text-xs text-muted">
             Mínimo
             <input
               type="number"
@@ -507,10 +504,10 @@ export default function SearchResultsPage({
                 updateActiveFilters({ priceMin: event.target.value });
               }}
               placeholder="$0"
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/70 focus:outline-none"
+              className="mt-1 w-full rounded-lg border border-bd bg-surface-2 px-2.5 py-2 text-sm text-text placeholder:text-muted focus:border-prime focus:outline-none"
             />
           </label>
-          <label className="min-w-0 flex-1 text-xs text-slate-400">
+          <label className="min-w-0 flex-1 text-xs text-muted">
             Máximo
             <input
               type="number"
@@ -520,22 +517,22 @@ export default function SearchResultsPage({
                 updateActiveFilters({ priceMax: event.target.value });
               }}
               placeholder="Sin límite"
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2.5 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/70 focus:outline-none"
+              className="mt-1 w-full rounded-lg border border-bd bg-surface-2 px-2.5 py-2 text-sm text-text placeholder:text-muted focus:border-prime focus:outline-none"
             />
           </label>
         </div>
       </details>
 
-      <details className="group border-b border-slate-700/70 pb-3">
-        <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-slate-100">
-          Marca <span className="text-slate-500 transition-transform group-open:rotate-180">⌄</span>
+      <details className="group border-b border-bd pb-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-text">
+          Marca <span className="text-muted transition-transform group-open:rotate-180">⌄</span>
         </summary>
         <div className="max-h-48 space-y-2 overflow-y-auto pb-2 pt-1">
           {brands.length ? (
             brands.map((brand) => (
               <label
                 key={brand.id}
-                className="flex cursor-pointer items-center gap-2 text-sm text-slate-300"
+                className="flex cursor-pointer items-center gap-2 text-sm text-muted-2"
               >
                 <input
                   type="checkbox"
@@ -549,24 +546,21 @@ export default function SearchResultsPage({
               </label>
             ))
           ) : (
-            <p className="text-xs text-slate-500">
-              No hay marcas disponibles para estos resultados.
-            </p>
+            <p className="text-xs text-muted">No hay marcas disponibles para estos resultados.</p>
           )}
         </div>
       </details>
 
-      <details className="group border-b border-slate-700/70 pb-3">
-        <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-slate-100">
-          Tienda{" "}
-          <span className="text-slate-500 transition-transform group-open:rotate-180">⌄</span>
+      <details className="group border-b border-bd pb-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-text">
+          Tienda <span className="text-muted transition-transform group-open:rotate-180">⌄</span>
         </summary>
         {facets?.stores.length ? (
           <div className="max-h-48 space-y-2 overflow-y-auto pb-2 pt-1">
             {facets.stores.map((store) => (
               <label
                 key={store.id}
-                className="flex cursor-pointer items-center gap-2 text-sm text-slate-300"
+                className="flex cursor-pointer items-center gap-2 text-sm text-muted-2"
               >
                 <input
                   type="checkbox"
@@ -581,18 +575,18 @@ export default function SearchResultsPage({
             ))}
           </div>
         ) : (
-          <p className="pb-2 text-xs text-slate-500">
+          <p className="pb-2 text-xs text-muted">
             No hay tiendas con ofertas disponibles para estos resultados.
           </p>
         )}
       </details>
 
-      <details className="group border-b border-slate-700/70 pb-3">
-        <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-slate-100">
+      <details className="group border-b border-bd pb-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-text">
           Disponibilidad{" "}
-          <span className="text-slate-500 transition-transform group-open:rotate-180">⌄</span>
+          <span className="text-muted transition-transform group-open:rotate-180">⌄</span>
         </summary>
-        <label className="flex cursor-pointer items-center gap-2 pb-2 pt-1 text-sm text-slate-300">
+        <label className="flex cursor-pointer items-center gap-2 pb-2 pt-1 text-sm text-muted-2">
           <input
             type="checkbox"
             checked={availableOnly}
@@ -609,16 +603,16 @@ export default function SearchResultsPage({
         const numeric = attribute.dataType === "integer" || attribute.dataType === "decimal";
         const range = attributeRanges[attribute.key] ?? { min: "", max: "" };
         return (
-          <details key={attribute.key} className="group border-b border-slate-700/70 pb-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-slate-100">
+          <details key={attribute.key} className="group border-b border-bd pb-3">
+            <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-text">
               {attribute.label}
               {attribute.unit ? ` (${attribute.unit})` : ""}
-              <span className="text-slate-500 transition-transform group-open:rotate-180">⌄</span>
+              <span className="text-muted transition-transform group-open:rotate-180">⌄</span>
             </summary>
             {numeric ? (
               <div className="flex gap-2 pb-2 pt-1">
                 {(["min", "max"] as const).map((bound) => (
-                  <label key={bound} className="min-w-0 flex-1 text-xs text-slate-400">
+                  <label key={bound} className="min-w-0 flex-1 text-xs text-muted">
                     {bound === "min" ? "Mínimo" : "Máximo"}
                     <input
                       type="number"
@@ -638,7 +632,7 @@ export default function SearchResultsPage({
                           },
                         }))
                       }
-                      className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2 py-2 text-sm text-slate-100 focus:border-cyan-300/70 focus:outline-none"
+                      className="mt-1 w-full rounded-lg border border-bd bg-surface-2 px-2 py-2 text-sm text-text focus:border-prime focus:outline-none"
                     />
                   </label>
                 ))}
@@ -650,7 +644,7 @@ export default function SearchResultsPage({
                   return (
                     <label
                       key={stringValue}
-                      className="flex cursor-pointer items-start gap-2 text-xs text-slate-300"
+                      className="flex cursor-pointer items-start gap-2 text-xs text-muted-2"
                     >
                       <input
                         type="checkbox"
@@ -682,7 +676,7 @@ export default function SearchResultsPage({
         (showCategoryFilter && (selectedCategory !== null || selectedCategorySlug !== null))) && (
         <button
           onClick={clearFilters}
-          className="pt-3 text-xs font-semibold text-cyan-200 hover:text-white"
+          className="pt-3 text-xs font-semibold text-prime hover:text-prime-dark"
         >
           Limpiar filtros
         </button>
@@ -819,14 +813,14 @@ export default function SearchResultsPage({
             type="button"
             disabled={searching}
             onClick={() => setSearchAttempt((attempt) => attempt + 1)}
-            className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-slate-300 transition-colors hover:border-slate-500 hover:text-white disabled:opacity-50"
+            className="rounded-lg border border-bd bg-surface-2 px-3 py-2 text-sm text-muted-2 transition-colors hover:border-prime/60 hover:bg-prime-muted hover:text-prime disabled:opacity-50"
           >
             {searching ? "Actualizando..." : "Actualizar"}
           </button>
           {/* Mobile filter button */}
           <button
             onClick={() => setFiltersOpen(true)}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-slate-200 transition-colors hover:border-cyan-300/50 hover:text-white lg:hidden"
+            className="inline-flex items-center gap-2 rounded-lg border border-bd bg-surface-2 px-3 py-2 text-sm text-muted-2 transition-colors hover:border-prime/60 hover:text-text lg:hidden"
           >
             <svg
               width="14"
@@ -848,7 +842,7 @@ export default function SearchResultsPage({
             </svg>
             Filtros
             {activeFilterCount > 0 && (
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-cyan-300/15 px-1.5 text-[10px] font-semibold text-cyan-100">
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-prime-muted px-1.5 text-[10px] font-semibold text-prime">
                 {activeFilterCount}
               </span>
             )}
@@ -859,7 +853,7 @@ export default function SearchResultsPage({
             value={sort}
             onChange={(e) => setSort(e.target.value as SortOption)}
             aria-label="Ordenar productos"
-            className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-slate-200 transition-colors focus:border-cyan-300/60 focus:outline-none"
+            className="rounded-lg border border-bd bg-surface-2 px-3 py-2 text-sm text-text transition-colors hover:border-prime/60 hover:bg-prime-muted hover:text-prime focus:border-prime focus:outline-none"
           >
             <option value="name">Relevancia</option>
             <option value="price_asc">Precio: menor a mayor</option>
@@ -877,7 +871,7 @@ export default function SearchResultsPage({
           </select>
 
           <label className="flex items-center gap-2 text-sm text-muted-2">
-            <span className="text-slate-400">Por página</span>
+            <span className="text-muted">Por página</span>
             <select
               aria-label="Cantidad de productos por página"
               value={pageSize}
@@ -885,7 +879,7 @@ export default function SearchResultsPage({
                 onPageSizeChange(Number(event.target.value));
                 setPage(1);
               }}
-              className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-slate-200 transition-colors focus:border-cyan-300/60 focus:outline-none"
+              className="rounded-lg border border-bd bg-surface-2 px-3 py-2 text-sm text-text transition-colors hover:border-prime/60 hover:bg-prime-muted hover:text-prime focus:border-prime focus:outline-none"
             >
               {[10, 20, 30, 40, 50].map((size) => (
                 <option key={size} value={size}>
@@ -914,14 +908,14 @@ export default function SearchResultsPage({
 
       <div className="flex gap-6">
         {/* Sidebar filters (desktop) */}
-        <aside className="sticky top-24 hidden w-60 shrink-0 self-start rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4 shadow-xl shadow-black/10 lg:block">
+        <aside className="sticky top-24 hidden w-60 shrink-0 self-start rounded-2xl border border-bd bg-surface p-4 shadow-xl shadow-black/10 lg:block">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-100">Filtrar por</h2>
+            <h2 className="text-sm font-semibold text-text">Filtrar por</h2>
             {activeFilterCount > 0 && (
               <button
                 type="button"
                 onClick={clearFilters}
-                className="text-xs font-medium text-cyan-200 transition-colors hover:text-white"
+                className="text-xs font-medium text-prime transition-colors hover:text-prime-dark"
               >
                 Limpiar
               </button>
@@ -943,20 +937,20 @@ export default function SearchResultsPage({
               role="dialog"
               aria-modal="true"
               aria-labelledby="mobile-filters-title"
-              className="absolute bottom-0 right-0 top-0 w-80 max-w-[90vw] overflow-y-auto border-l border-slate-700 bg-slate-950 p-5 shadow-2xl"
+              className="absolute bottom-0 right-0 top-0 w-80 max-w-[90vw] overflow-y-auto border-l border-bd bg-surface p-5 shadow-2xl"
             >
               <div className="mb-5 flex items-center justify-between">
                 <div>
-                  <h2 id="mobile-filters-title" className="text-base font-semibold text-slate-100">
+                  <h2 id="mobile-filters-title" className="text-base font-semibold text-text">
                     Filtros
                   </h2>
-                  <p className="mt-1 text-xs text-slate-400">Ajusta los resultados a tu búsqueda</p>
+                  <p className="mt-1 text-xs text-muted">Ajusta los resultados a tu búsqueda</p>
                 </div>
                 <button
                   type="button"
                   aria-label="Cerrar filtros"
                   onClick={() => setFiltersOpen(false)}
-                  className="rounded-full border border-slate-700 p-2 text-slate-400 transition-colors hover:text-white"
+                  className="rounded-full border border-bd p-2 text-muted transition-colors hover:text-text"
                 >
                   <svg
                     width="18"
@@ -972,18 +966,18 @@ export default function SearchResultsPage({
                 </button>
               </div>
               {renderFilters()}
-              <div className="sticky bottom-0 mt-5 flex gap-2 border-t border-slate-800 bg-slate-950 py-4">
+              <div className="sticky bottom-0 mt-5 flex gap-2 border-t border-bd bg-surface py-4">
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="flex-1 rounded-lg border border-slate-700 px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                  className="flex-1 rounded-lg border border-bd px-3 py-2.5 text-sm font-medium text-muted-2 transition-colors hover:border-prime/60 hover:text-text"
                 >
                   Limpiar
                 </button>
                 <button
                   type="button"
                   onClick={() => setFiltersOpen(false)}
-                  className="flex-1 rounded-lg bg-gradient-to-r from-cyan-600 to-violet-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:brightness-110"
+                  className="flex-1 rounded-lg bg-prime px-3 py-2.5 text-sm font-semibold text-[#181714] transition hover:bg-prime-dark"
                 >
                   Ver {resultTotal} resultados
                 </button>
