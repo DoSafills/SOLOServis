@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AnyCartItem, CartItem, Page, Product, Service, StoreOffer } from "./types";
 import Header from "./components/common/Header";
 import Footer from "./components/common/Footer";
@@ -13,7 +13,6 @@ import ServicesPage from "./pages/services/ServicesPage";
 import ServiceDetailPage from "./pages/services/ServiceDetailPage";
 import ServiceComparisonPage from "./pages/services/ServiceComparisonPage";
 import StoresPage from "./pages/stores/StoresPage";
-import FavoritesPage from "./pages/user/FavoritesPage";
 import UserPage from "./pages/user/UserPage";
 import CartPage from "./pages/user/CartPage";
 import { areProductCategoriesCompatible } from "./pages/products/productComparisonUtils";
@@ -25,10 +24,12 @@ import {
   addCartItem,
   addServiceCartItem,
   addSearchHistory,
+  formatSearchHistoryQuery,
   getCartItems,
   getFavoriteProductIds,
   getFavoriteServiceIds,
   getSearchHistory,
+  hasStoredAuthSession,
   loginAccount,
   logoutAccount,
   registerAccount,
@@ -39,10 +40,19 @@ import {
   updateCartItem,
 } from "./services/api/personalization";
 import type { AuthSession, AuthUser, SearchHistoryEntry } from "./services/api/personalization";
+import {
+  getInitialPage,
+  getPageFromHistoryState,
+  pushPage,
+  replacePage,
+} from "./services/pageRouting";
 
 const SERVICE_COMPARISON_KEY = "soloservice.service-comparison";
 const PRODUCT_COMPARISON_PRODUCTS_KEY = "soloservice.product-comparison-products";
 const GUEST_CART_KEY = "soloservice.guest-cart";
+const PRODUCTS_PER_PAGE_KEY = "soloservice.products-per-page";
+const COLOR_THEME_KEY = "soloservice.color-theme";
+const SEARCH_HISTORY_SAVE_ERROR_PREFIX = "No se pudo guardar la búsqueda en el historial:";
 
 interface StoredProductCartEntry {
   type: "product";
@@ -68,6 +78,24 @@ function readStoredIds(key: string): Set<string> {
       : new Set();
   } catch {
     return new Set();
+  }
+}
+
+function readProductsPerPage(): number {
+  try {
+    const value = Number(localStorage.getItem(PRODUCTS_PER_PAGE_KEY));
+    return Number.isInteger(value) && value >= 1 && value <= 100 ? value : 10;
+  } catch {
+    return 10;
+  }
+}
+
+function readColorTheme(): "dark" | "light" {
+  try {
+    return localStorage.getItem(COLOR_THEME_KEY) === "light" ? "light" : "dark";
+  } catch (error) {
+    console.error("No se pudo leer la preferencia del tema.", error);
+    return "dark";
   }
 }
 
@@ -168,8 +196,9 @@ function makeServiceCartItem(
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>({ id: "home" });
-  const [productsPerPage, setProductsPerPage] = useState(10);
+  const [page, setPage] = useState<Page>(getInitialPage);
+  const [colorTheme, setColorTheme] = useState<"dark" | "light">(readColorTheme);
+  const [productsPerPage, setProductsPerPage] = useState(readProductsPerPage);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>([]);
@@ -188,11 +217,43 @@ export default function App() {
   );
   const [productCompareError, setProductCompareError] = useState<string | null>(null);
   const [cart, setCart] = useState<AnyCartItem[]>([]);
+  const [cartLoading, setCartLoading] = useState(true);
+  const [accountDataLoading, setAccountDataLoading] = useState(true);
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const addingProductIds = useRef(new Set<string>());
   const addingServiceIds = useRef(new Set<string>());
   const userId = user?.userId ?? null;
   const activeUserId = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = colorTheme;
+    try {
+      localStorage.setItem(COLOR_THEME_KEY, colorTheme);
+    } catch (error) {
+      console.error("No se pudo guardar la preferencia del tema.", error);
+    }
+  }, [colorTheme]);
+
+  useEffect(() => {
+    replacePage(getInitialPage());
+    const handlePopState = (event: PopStateEvent) => {
+      setPage(getPageFromHistoryState(event.state) ?? getInitialPage());
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(PRODUCTS_PER_PAGE_KEY, String(productsPerPage));
+  }, [productsPerPage]);
+
+  const clearExpiredAuthState = () => {
+    activeUserId.current = null;
+    setUser(null);
+    setFavorites(new Set());
+    setSearchHistory([]);
+    setCart([]);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -204,6 +265,8 @@ export default function App() {
       .then((session) => {
         if (!cancelled && session) {
           activeUserId.current = session.userId;
+          setCartLoading(true);
+          setAccountDataLoading(true);
           setUser(session);
         }
       })
@@ -227,34 +290,51 @@ export default function App() {
     let cancelled = false;
 
     if (!userId) {
-      void Promise.all(
-        readGuestCart().map(async (entry) => {
-          if (entry.type === "service") {
-            const service = await getServiceById(entry.serviceId);
-            return service
-              ? makeServiceCartItem(service, entry.serviceOfferId, entry.quantity)
-              : null;
-          }
-          const product = await getProductById(entry.productId);
-          return product ? makeCartItem(product, entry.offerId, entry.quantity) : null;
-        }),
-      )
-        .then((items) => {
+      const loadGuestCart = async () => {
+        setCartLoading(true);
+        setAccountDataLoading(false);
+        try {
+          const items = await Promise.all(
+            readGuestCart().map(async (entry) => {
+              if (entry.type === "service") {
+                const service = await getServiceById(entry.serviceId);
+                return service
+                  ? makeServiceCartItem(service, entry.serviceOfferId, entry.quantity)
+                  : null;
+              }
+              const product = await getProductById(entry.productId);
+              return product ? makeCartItem(product, entry.offerId, entry.quantity) : null;
+            }),
+          );
           if (!cancelled) setCart(items.filter((item): item is AnyCartItem => item !== null));
-        })
-        .catch((error: unknown) => {
+        } catch (error: unknown) {
           if (!cancelled) {
             setPersistenceError(
               `No se pudo recuperar la cesta local: ${error instanceof Error ? error.message : "error desconocido"}`,
             );
           }
-        });
+        } finally {
+          if (!cancelled) setCartLoading(false);
+        }
+      };
+      void loadGuestCart();
       return () => {
         cancelled = true;
       };
     }
 
+    if (!hasStoredAuthSession(userId)) {
+      void Promise.resolve().then(() => {
+        if (cancelled) return;
+        setCartLoading(false);
+        setAccountDataLoading(false);
+      });
+      return;
+    }
+
     const loadAccountData = async () => {
+      setCartLoading(true);
+      setAccountDataLoading(true);
       const [productFavorites, serviceFavorites, cartResult, historyResult] =
         await Promise.allSettled([
           getFavoriteProductIds(userId),
@@ -264,6 +344,13 @@ export default function App() {
         ]);
 
       if (cancelled) return;
+      if (!hasStoredAuthSession(userId)) {
+        clearExpiredAuthState();
+        setCartLoading(false);
+        setAccountDataLoading(false);
+        return;
+      }
+
       const failed: string[] = [];
       const loadedFavorites = new Set<string>();
       if (productFavorites.status === "fulfilled") {
@@ -283,6 +370,8 @@ export default function App() {
           ? `No se pudieron cargar: ${failed.join(", ")}. Inténtalo nuevamente.`
           : null,
       );
+      setCartLoading(false);
+      setAccountDataLoading(false);
     };
 
     void loadAccountData();
@@ -350,22 +439,33 @@ export default function App() {
   }, [compareList]);
 
   const navigate = (next: Page) => {
+    pushPage(next);
     setPage(next);
-    if (
-      userId &&
-      (next.id === "search-products" || next.id === "search-services") &&
-      next.query.trim()
-    ) {
+    const isSearchNavigation = next.id === "search-products" || next.id === "search-services";
+    if (isSearchNavigation && (!userId || !hasStoredAuthSession(userId))) {
+      if (userId) clearExpiredAuthState();
+      setPersistenceError((current) =>
+        current?.startsWith(SEARCH_HISTORY_SAVE_ERROR_PREFIX) ? null : current,
+      );
+      return;
+    }
+
+    if (isSearchNavigation && userId && next.query.trim()) {
       const type = next.id === "search-services" ? "service" : "product";
-      void addSearchHistory(userId, next.query.trim(), type)
+      void addSearchHistory(userId, formatSearchHistoryQuery(next.query.trim()), type)
         .then(() => getSearchHistory(userId))
         .then((history) => {
           if (activeUserId.current === userId) setSearchHistory(history);
         })
         .catch((error: unknown) => {
           if (activeUserId.current === userId) {
+            if (!hasStoredAuthSession(userId)) {
+              clearExpiredAuthState();
+              setPersistenceError(null);
+              return;
+            }
             setPersistenceError(
-              `No se pudo guardar la búsqueda en el historial: ${error instanceof Error ? error.message : "error desconocido"}`,
+              `${SEARCH_HISTORY_SAVE_ERROR_PREFIX} ${error instanceof Error ? error.message : "error desconocido"}`,
             );
           }
         });
@@ -406,7 +506,11 @@ export default function App() {
     localStorage.removeItem("soloservice.service-favorites");
     activeUserId.current = session.userId;
     setUser(session);
-    setPage({ id: "user" });
+    navigate(
+      page.id === "favorites" || (page.id === "user" && page.section === "favorites")
+        ? { id: "user", section: "favorites" }
+        : { id: "user" },
+    );
     if (!cartSyncFailed) setPersistenceError(null);
   };
 
@@ -433,7 +537,7 @@ export default function App() {
       setFavorites(new Set());
       setSearchHistory([]);
       setCart([]);
-      setPage({ id: "home" });
+      navigate({ id: "home" });
     }
   };
 
@@ -617,9 +721,10 @@ export default function App() {
   }, [page]);
 
   const toggleFavorite = async (id: string, kind: "product" | "service" = "product") => {
-    if (!userId) {
+    if (!userId || !hasStoredAuthSession(userId)) {
+      if (userId) clearExpiredAuthState();
       setPersistenceError("Inicia sesión o crea una cuenta para guardar tus favoritos.");
-      setPage({ id: "user" });
+      navigate({ id: "user" });
       return;
     }
 
@@ -635,6 +740,12 @@ export default function App() {
       });
       setPersistenceError(null);
     } catch (error) {
+      if (!hasStoredAuthSession(userId)) {
+        clearExpiredAuthState();
+        setPersistenceError("Inicia sesión o crea una cuenta para guardar tus favoritos.");
+        navigate({ id: "user" });
+        return;
+      }
       setPersistenceError(
         `No se pudo actualizar el favorito: ${error instanceof Error ? error.message : "error desconocido"}`,
       );
@@ -763,11 +874,17 @@ export default function App() {
     onToggleCompare: toggleCompare,
     onToggleProductCompare: toggleProductCompare,
   };
+  const homeProps = {
+    ...sharedProps,
+    authenticated: Boolean(user),
+    searchHistory,
+    accountDataLoading,
+  };
 
   const renderPage = () => {
     switch (page.id) {
       case "home":
-        return <HomePage {...sharedProps} />;
+        return <HomePage {...homeProps} />;
       case "product-categories":
         return <ProductCategoriesPage navigate={navigate} />;
       case "service-categories":
@@ -858,9 +975,10 @@ export default function App() {
           <StoresPage
             navigate={navigate}
             favorites={favorites}
-            compareList={compareList}
+            productCompareList={productCompareList}
+            cartProductIds={cartProductIds}
             onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
+            onToggleProductCompare={toggleProductCompare}
             onAddToCart={addToCart}
           />
         );
@@ -870,28 +988,42 @@ export default function App() {
             navigate={navigate}
             storeId={page.storeId}
             favorites={favorites}
-            compareList={compareList}
+            productCompareList={productCompareList}
+            cartProductIds={cartProductIds}
             onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
+            onToggleProductCompare={toggleProductCompare}
             onAddToCart={addToCart}
           />
         );
       case "favorites":
         return (
-          <FavoritesPage
+          <UserPage
             navigate={navigate}
+            section="favorites"
+            user={user}
+            favoritesCount={favorites.size}
             favorites={favorites}
             authenticated={Boolean(user)}
+            history={searchHistory}
+            accountDataLoading={accountDataLoading}
             onToggleFavorite={toggleFavorite}
+            onLogin={handleLogin}
+            onRegister={handleRegister}
+            onLogout={handleLogout}
           />
         );
       case "user":
         return (
           <UserPage
             navigate={navigate}
+            section={page.section}
             user={user}
             favoritesCount={favorites.size}
+            favorites={favorites}
+            authenticated={Boolean(user)}
             history={searchHistory}
+            accountDataLoading={accountDataLoading}
+            onToggleFavorite={toggleFavorite}
             onLogin={handleLogin}
             onRegister={handleRegister}
             onLogout={handleLogout}
@@ -901,13 +1033,14 @@ export default function App() {
         return (
           <CartPage
             cart={cart}
+            loading={cartLoading}
             navigate={navigate}
             onUpdateQuantity={updateCartQuantity}
             onRemove={removeFromCart}
           />
         );
       default:
-        return <HomePage {...sharedProps} />;
+        return <HomePage {...homeProps} />;
     }
   };
 
@@ -916,8 +1049,14 @@ export default function App() {
       <Header
         navigate={navigate}
         currentPage={page}
+        colorTheme={colorTheme}
+        onToggleColorTheme={() =>
+          setColorTheme((current) => (current === "dark" ? "light" : "dark"))
+        }
         favCount={favorites.size}
         cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
+        favoritesLoading={accountDataLoading}
+        cartLoading={cartLoading}
       />
 
       <main style={{ flex: 1 }}>{renderPage()}</main>
@@ -933,7 +1072,7 @@ export default function App() {
           {productCompareError && (
             <p
               role="alert"
-              className="mt-2 max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-amber-300/25 bg-slate-950/95 px-3 py-2 text-[11px] font-medium text-amber-200 shadow-lg"
+              className="theme-dark-panel mt-2 max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-amber-300/25 bg-slate-950/95 px-3 py-2 text-[11px] font-medium text-amber-200 shadow-lg"
             >
               {productCompareError}
             </p>
@@ -952,7 +1091,7 @@ export default function App() {
           {serviceCompareError && (
             <p
               role="alert"
-              className="mt-2 max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-amber-300/25 bg-slate-950/95 px-3 py-2 text-[11px] font-medium text-amber-200 shadow-lg"
+              className="theme-dark-panel mt-2 max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-amber-300/25 bg-slate-950/95 px-3 py-2 text-[11px] font-medium text-amber-200 shadow-lg"
             >
               {serviceCompareError}
             </p>
@@ -963,7 +1102,7 @@ export default function App() {
       {persistenceError && (
         <div
           role="alert"
-          className="fixed right-4 top-20 z-[60] max-w-md rounded-xl border border-rose-300/30 bg-slate-950/95 px-4 py-3 text-sm text-rose-100 shadow-xl"
+          className="theme-dark-panel fixed right-4 top-20 z-[60] max-w-md rounded-xl border border-rose-300/30 bg-slate-950/95 px-4 py-3 text-sm text-rose-100 shadow-xl"
         >
           <div className="flex items-start gap-3">
             <p className="flex-1">{persistenceError}</p>

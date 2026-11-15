@@ -571,7 +571,7 @@ Categorías unificadas de productos y servicios con sus **definiciones de atribu
 - Incluye el validador de atributos (TAL-72) que usan los endpoints de escritura de productos y servicios (ver más abajo).
 - Solo se exponen categorías con `active = TRUE`.
 
-## Esquema (migraciones `012_categories.sql` y `013_categories_seed.sql`)
+## Esquema (migraciones `012_categories.sql`, `013_categories_seed.sql` y `018_category_artworks.sql`)
 
 Se numeran 012 y 013 porque 009–011 son de TAL-67/68. Están registradas al final de `backend/database/migration_order.txt`: el runner rechaza cualquier `.sql` que no figure en ese manifiesto.
 
@@ -579,10 +579,15 @@ Se numeran 012 y 013 porque 009–011 son de TAL-67/68. Están registradas al fi
 | --- | --- | --- |
 | `categories` | `slug`, `name`, `item_type` (`product`/`service`), `description`, `active`, `legacy_product_category_id`, `legacy_service_category_id`, timestamps | `slug` UNIQUE + CHECK `^[a-z0-9-]{1,64}$`; CHECK de `item_type`; enlace legado UNIQUE, FK `ON DELETE SET NULL` y del mismo tipo de ítem |
 | `category_attributes` | `key`, `label`, `data_type`, `unit`, `required`, `comparable`, `filterable`, `min_value`, `max_value`, `max_length`, `allowed_values`, `display_order` | FK a `categories` `ON DELETE CASCADE`; UNIQUE `(category_id, key)`; CHECK `key ^[a-z][a-z0-9_]{0,63}$`; `data_type` ∈ `string`, `integer`, `decimal`, `boolean`, `enum`; `allowed_values` solo y obligatorio en `enum`; `min`/`max` solo numéricos (enteros en `integer`, `min <= max`); `max_length` solo `string` (1–255); `unit` solo numéricos |
+| `category_artworks` | `artwork_key`, `svg_content`, `updated_at` | Clave primaria; contiene los SVG estáticos de las categorías |
 
 Las tablas antiguas (`product_category`, `service_category` y sus `*_specification`) **no se modificaron**. Las columnas `legacy_*` enlazan cada categoría nueva con su equivalente antigua para migrar productos y servicios en TAL-70/72.
 
 Seeds: `refrigeradores`, `notebooks`, `televisores` (producto) e `internet-fibra-optica` (servicio), con atributos de los cinco `data_type`.
+
+## `GET /categories/artworks/{key}`
+
+Devuelve la ilustración SVG guardada en `category_artworks` con `Content-Type: image/svg+xml`. Las ilustraciones se cargan mediante la migración `018_category_artworks.sql`.
 
 ## `GET /categories`
 
@@ -2390,6 +2395,7 @@ docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U
 docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/008_normalize_prices_to_clp.sql
 docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/012_categories.sql
 docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/013_categories_seed.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/018_category_artworks.sql
 ```
 
 Las integraciones entre servicios usan las URLs internas definidas en `docker/compose.yml`: Search, Comparison, Favorites y Cart consultan Product API; Comparison y Cart consultan Pricing API; Review valida producto/tienda/servicio; Watchlist consulta Pricing; Pricing genera notificaciones mediante Notification API; e Ingestion delega en Product, Store y Pricing APIs. User API solo expone el perfil asociado al token de sesión autenticado.
@@ -2491,3 +2497,11 @@ Esta estructura permite que cada capa tenga una responsabilidad concreta y facil
 Docker Compose y Kubernetes ejecutan `k8s/base/migrations/migrate.sh` con el orden explícito de `backend/database/migration_order.txt`. El runner valida que el manifiesto incluya todos los archivos SQL, registra cada basename y checksum en `schema_migrations`, y no vuelve a aplicar versiones ya registradas. El manifiesto conserva los nombres y contenidos existentes; los prefijos pueden repetirse, pero el orden ya no depende del locale.
 
 Docker aplica el runner automáticamente al inicializar un volumen PostgreSQL vacío. Para un volumen existente con `schema_migrations`, ejecuta el runner para aplicar versiones pendientes. Una base antigua con esquema pero sin registro se rechaza intencionalmente: primero requiere establecer un baseline verificado; el runner no asume que migraciones o seeds se hayan aplicado.
+
+El mismo runner admite una base remota como Neon mediante `DATABASE_URL`. En PowerShell, configura `NEON_DATABASE_URL` desde tu gestor de secretos y ejecuta desde la raíz del repositorio:
+
+```powershell
+$env:DATABASE_URL = $env:NEON_DATABASE_URL
+if (-not $env:DATABASE_URL) { throw "NEON_DATABASE_URL no está configurada." }
+docker compose -f docker/compose.yml run --rm --no-deps -e DATABASE_URL postgres bash /docker-entrypoint-initdb.d/001_migrations.sh
+```

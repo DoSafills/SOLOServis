@@ -3,7 +3,11 @@ import type { Page, Product } from "../../types";
 import { getAllProducts } from "../../services/api/api";
 import { getCategories, type ApiProductCategory } from "../../services/api/products";
 import { Breadcrumb } from "../../components/common/ui";
+import { Skeleton, SkeletonGrid } from "../../components/common/ui";
+import CategoryIcon from "../../components/common/CategoryIcon";
+import CategoryArtwork from "../../components/common/CategoryArtwork";
 import {
+  CATEGORY_SECTION_ICONS,
   getProductCategoryGroup,
   getProductSubtype,
   getProductSubtypeSearchQuery,
@@ -13,39 +17,31 @@ interface Props {
   navigate: (page: Page) => void;
 }
 
-const fallbackCategoryImages = [
-  "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1583394838336-acd977736f90?auto=format&fit=crop&w=320&q=80",
-];
-
 const categorySections = [
   {
     id: "home",
     title: "Hogar",
     description: "Electrodomésticos, muebles y productos para tu casa",
-    icon: "🏠",
+    icon: CATEGORY_SECTION_ICONS.home,
   },
   {
     id: "technology",
     title: "Tecnología",
     description: "TV, videojuegos, audio, computación y telefonía",
-    icon: "⚡",
+    icon: CATEGORY_SECTION_ICONS.technology,
   },
   {
     id: "other",
     title: "Otras categorías",
     description: "Deportes, fitness y nuevos tipos de productos",
-    icon: "✨",
+    icon: CATEGORY_SECTION_ICONS.other,
   },
 ] as const;
 
 type CategorySectionId = (typeof categorySections)[number]["id"];
+
+const normalizeCategoryName = (name: string) =>
+  name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase();
 
 export default function ProductCategoriesPage({ navigate }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
@@ -135,7 +131,6 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         ),
     );
 
-    const usedImages = new Set<string>();
     const makeCard = (
       name: string,
       items: Product[],
@@ -143,16 +138,10 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       categoryId: number,
       query = "",
     ) => {
-      const productImages = items.flatMap((product) => [product.image, ...product.images]);
-      const image = productImages.find((url) => url && !usedImages.has(url));
-      const fallbackImage = fallbackCategoryImages.find((url) => !usedImages.has(url));
-      const uniqueImage = image ?? fallbackImage ?? fallbackCategoryImages[0];
-      usedImages.add(uniqueImage);
       return {
         name,
         rootName: root.name,
         count: items.length,
-        image: uniqueImage,
         categoryId,
         query,
         sectionId: getProductCategoryGroup(root.name),
@@ -169,6 +158,9 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         if (matchingProducts.length === 0 || childHasProducts) return [];
         return [makeCard(category.name, matchingProducts, rootCategoryFor(category), category.id)];
       });
+    const categoryCardKeys = new Set(
+      categoryCards.map((category) => `${category.sectionId}:${normalizeCategoryName(category.name)}`),
+    );
 
     const directProductsBySubtype = new Map<string, Product[]>();
     for (const product of products) {
@@ -190,7 +182,9 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       const root = categoriesById.get(Number(rootId));
       if (!root) return [];
       const subtype = subtypeParts.join(":");
-      return [makeCard(subtype, items, root, root.id, getProductSubtypeSearchQuery(subtype))];
+      const card = makeCard(subtype, items, root, root.id, getProductSubtypeSearchQuery(subtype));
+      const cardKey = `${card.sectionId}:${normalizeCategoryName(card.name)}`;
+      return categoryCardKeys.has(cardKey) ? [] : [card];
     });
     const displayCards = [...categoryCards, ...inferredCards].sort((first, second) =>
       first.name.localeCompare(second.name, "es"),
@@ -231,22 +225,22 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         ]}
       />
 
-      <section className="mt-6 mb-7 flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <section className="mt-6 mb-7 flex flex-col gap-4 border-b border-bd pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300/80">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-prime">
             Catálogo
           </p>
-          <h1 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
+          <h1 className="text-xl font-semibold tracking-tight text-text sm:text-2xl">
             Explora por categoría
           </h1>
-          <p className="mt-1.5 text-sm text-slate-400">
+          <p className="mt-1.5 text-sm text-muted">
             Compara precios y encuentra tu próxima oferta.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
           <button
             onClick={showAllProducts}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-3.5 py-2 text-xs font-semibold text-slate-950 transition hover:bg-slate-200"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-prime px-3.5 py-2 text-xs font-semibold text-[#181714] transition hover:bg-prime-dark"
           >
             Ver ofertas
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -263,7 +257,18 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       </section>
 
       {loading ? (
-        <p className="py-8 text-center text-sm text-muted">Cargando categorías...</p>
+        <div role="status" aria-label="Cargando categorías" className="space-y-4">
+          {[0, 1, 2].map((section) => (
+            <div key={section} className="rounded-xl border border-bd bg-surface p-4">
+              <Skeleton className="mb-3 h-12 w-full" />
+              <Skeleton className="mb-4 h-8 w-36" />
+              <SkeletonGrid
+                count={3}
+                className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3"
+              />
+            </div>
+          ))}
+        </div>
       ) : error ? (
         <div className="py-8 text-center">
           <p className="mb-4 text-sm text-warn">{error}</p>
@@ -294,32 +299,32 @@ export default function ProductCategoriesPage({ navigate }: Props) {
             return (
               <section
                 key={section.id}
-                className={`category-outline relative isolate overflow-hidden rounded-xl bg-slate-700/70 p-px ${
+                className={`category-outline relative isolate overflow-hidden rounded-xl bg-surface-3 p-px ${
                   isExpanded ? "category-outline-active" : ""
                 }`}
               >
-                <div className="relative z-10 overflow-hidden rounded-[11px] bg-slate-900/45">
-                  <div className="flex items-center">
+                <div className="relative z-10 overflow-hidden rounded-[11px] bg-surface">
+                  <div>
                     <button
                       type="button"
                       onClick={() => toggleSection(section.id)}
                       aria-expanded={isExpanded}
                       aria-controls={panelId}
                       aria-label={`${isExpanded ? "Ocultar" : "Ver"} subcategorías de ${section.title}`}
-                      className="flex min-w-0 flex-1 items-center gap-3 p-4 text-left sm:gap-4 sm:p-5"
+                      className="flex min-w-0 w-full items-center gap-3 px-4 pt-4 pb-2 text-left sm:gap-4 sm:px-5 sm:pt-5"
                     >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-800/80 text-xl">
-                        {section.icon}
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-prime">
+                        <CategoryIcon name={section.icon} />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-base font-semibold text-slate-100 sm:text-lg">
+                        <span className="block text-base font-semibold text-text sm:text-lg">
                           {section.title}
                         </span>
-                        <span className="mt-1 block text-xs text-slate-400 sm:text-sm">
+                        <span className="mt-1 block text-xs text-muted sm:text-sm">
                           {section.description}
                         </span>
                       </span>
-                      <span className="hidden shrink-0 text-xs text-slate-400 sm:block">
+                      <span className="hidden shrink-0 text-xs text-muted sm:block">
                         {section.categories.length}{" "}
                         {section.categories.length === 1 ? "categoría" : "categorías"} ·{" "}
                         {productCount} {productCount === 1 ? "producto" : "productos"}
@@ -330,7 +335,7 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                         viewBox="0 0 24 24"
                         fill="none"
                         aria-hidden="true"
-                        className={`shrink-0 text-slate-300 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                        className={`shrink-0 text-muted transition-transform ${isExpanded ? "rotate-180" : ""}`}
                       >
                         <path
                           d="m6 9 6 6 6-6"
@@ -341,81 +346,105 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                         />
                       </svg>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate({
-                          id: "search-products",
-                          query: "",
-                          productGroup: section.id,
-                        })
-                      }
-                      className="mr-3 inline-flex shrink-0 items-center gap-1 rounded-lg border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300/60 hover:bg-cyan-300/10 sm:mr-4 sm:px-3.5"
-                      aria-label={`Ver todo ${section.title}`}
-                    >
-                      Todo {section.title}
-                      <span aria-hidden="true">→</span>
-                    </button>
+                    <div className="pb-4 pl-[4.25rem] pr-4 sm:pb-5 sm:pl-[4.5rem] sm:pr-5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate({
+                            id: "search-products",
+                            query: "",
+                            productGroup: section.id,
+                          })
+                        }
+                        className="inline-flex items-center gap-1 rounded-lg border border-prime/40 bg-prime-muted px-3 py-2 text-xs font-semibold text-prime transition hover:border-prime hover:bg-prime/20 sm:px-3.5"
+                        aria-label={`Ver todo ${section.title}`}
+                      >
+                        Todo {section.title}
+                        <span aria-hidden="true">→</span>
+                      </button>
+                    </div>
                   </div>
 
                   {isExpanded && (
-                    <div id={panelId} className="border-t border-slate-800 p-3 sm:p-4">
+                    <div id={panelId} className="border-t border-bd p-3 sm:p-4">
                       {section.categories.length === 0 ? (
-                        <p className="px-2 py-3 text-sm text-slate-300">
+                        <p className="px-2 py-3 text-sm text-muted">
                           Todavía no hay productos disponibles en esta sección.
                         </p>
                       ) : (
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                          {section.categories.map((category) => (
-                            <button
-                              key={`${category.categoryId ?? category.query}:${category.name}`}
-                              onClick={() =>
-                                navigate({
-                                  id: "search-products",
-                                  query: category.query,
-                                  categoryContext: category.name,
-                                  categoryId: category.categoryId,
-                                })
-                              }
-                              aria-label={`Ver ${category.count} ${category.count === 1 ? "producto" : "productos"} de ${category.name}`}
-                              className="group relative flex min-h-28 min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-slate-700/70 bg-gradient-to-br from-slate-900/90 to-slate-950/70 p-3.5 text-left transition-colors duration-200 hover:border-cyan-300/70 focus-visible:border-cyan-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
-                            >
-                              <span className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-white/[0.06] bg-slate-950/70 p-2 shadow-inner sm:h-[4.5rem] sm:w-[4.5rem]">
-                                <img
-                                  src={category.image}
-                                  alt=""
-                                  loading="lazy"
-                                  className="h-full w-full object-contain"
-                                />
-                              </span>
-                              <span className="flex min-w-0 flex-1 flex-col justify-center py-1">
-                                <span className="line-clamp-2 text-sm font-semibold leading-snug text-slate-100">
-                                  {category.name}
-                                </span>
-                                <span className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-full border border-slate-700/80 bg-slate-950/50 px-2 py-1 text-[10px] font-medium text-slate-400">
-                                  <span className="h-1 w-1 rounded-full bg-cyan-300/80" />
-                                  {category.count} {category.count === 1 ? "producto" : "productos"}
-                                </span>
-                              </span>
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-700/80 bg-slate-950/50 text-slate-500">
-                                <svg
-                                  width="15"
-                                  height="15"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  aria-hidden="true"
-                                >
-                                  <path
-                                    d="M5 12h14m-6-6 6 6-6 6"
-                                    stroke="currentColor"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
+                          {section.categories.map((category) => {
+                            const openCategory = () =>
+                              navigate({
+                                id: "search-products",
+                                query: category.query,
+                                categoryContext: category.name,
+                                categoryId: category.categoryId,
+                              });
+
+                            return (
+                              <article
+                                key={`${category.categoryId ?? category.query}:${category.name}`}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`Ver categoría ${category.name}`}
+                                onClick={openCategory}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    openCategory();
+                                  }
+                                }}
+                                className="group relative flex min-h-40 min-w-0 cursor-pointer overflow-hidden rounded-[1.5rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+                              >
+                                <div className="theme-media-panel absolute inset-y-0 left-0 w-[58%]">
+                                  <CategoryArtwork name={category.name} type="product" />
+                                  <span
+                                    aria-hidden="true"
+                                    className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
                                   />
-                                </svg>
-                              </span>
-                            </button>
-                          ))}
+                                </div>
+                                <div
+                                  aria-hidden="true"
+                                  className="absolute inset-y-0 right-0 w-[66%]"
+                                  style={{
+                                    background:
+                                      "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
+                                    clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
+                                  }}
+                                />
+                                <div className="relative z-10 ml-[38%] flex w-[62%] min-w-0 flex-col items-start justify-center gap-2 p-3 pl-8 sm:gap-2.5 sm:p-4 sm:pl-10">
+                                  <h3 className="line-clamp-2 text-sm font-bold leading-snug text-text transition-colors group-hover:text-prime sm:text-base">
+                                    {category.name}
+                                  </h3>
+                                  <span className="inline-flex items-center gap-1.5 rounded-full border border-bd bg-surface-2 px-2 py-1 text-[10px] font-medium text-muted">
+                                    <span
+                                      aria-hidden="true"
+                                      className="h-1 w-1 rounded-full bg-prime"
+                                    />
+                                    {category.count}{" "}
+                                    {category.count === 1 ? "producto" : "productos"}
+                                  </span>
+                                  <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center self-end rounded-full bg-prime text-[#181714] shadow-lg shadow-black/20 transition-all group-hover:-translate-y-0.5 group-hover:bg-prime-dark group-hover:shadow-xl">
+                                    <svg
+                                      aria-hidden="true"
+                                      viewBox="0 0 20 20"
+                                      fill="none"
+                                      className="h-5 w-5"
+                                    >
+                                      <path
+                                        d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                                        stroke="currentColor"
+                                        strokeWidth="1.7"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                    </svg>
+                                  </span>
+                                </div>
+                              </article>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

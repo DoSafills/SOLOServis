@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServiceById } from "../../services/api/api";
 import { formatPrice, getBillingPeriodText } from "../../services/utils/productUtils";
-import { Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
+import { Breadcrumb, FavoriteButton, Rating, Skeleton } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 
 interface Props {
@@ -102,8 +102,19 @@ export default function ServiceDetailPage({
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando servicio...</p>
+      <div role="status" aria-label="Cargando servicio" className="mx-auto max-w-7xl px-4 py-8">
+        <Skeleton className="mb-6 h-4 w-44" />
+        <div className="grid gap-8 lg:grid-cols-2">
+          <Skeleton className="min-h-80 rounded-2xl sm:min-h-[28rem]" />
+          <div className="space-y-4">
+            <Skeleton className="h-8 w-4/5" />
+            <Skeleton className="h-5 w-2/5" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-10 w-1/2" />
+            <Skeleton className="h-14 w-full rounded-xl" />
+          </div>
+        </div>
+        <Skeleton className="mt-10 h-48 w-full rounded-2xl" />
       </div>
     );
   }
@@ -144,9 +155,9 @@ export default function ServiceDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
         <div
           style={{
-            background: "linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.86))",
-            border: "1px solid rgba(148, 163, 184, 0.25)",
-            boxShadow: "0 18px 40px rgba(15, 23, 42, 0.12)",
+            background: "linear-gradient(135deg, var(--color-surface-3), var(--color-surface))",
+            border: "1px solid var(--color-bd)",
+            boxShadow: "0 18px 40px rgba(0, 0, 0, 0.25)",
           }}
           className="rounded-2xl overflow-hidden h-[420px] md:h-[520px]"
         >
@@ -157,11 +168,11 @@ export default function ServiceDetailPage({
               className="w-full h-full object-contain p-4 transition-all duration-200"
               style={{
                 background:
-                  "radial-gradient(circle at top, rgba(139,92,246,0.14), transparent 40%)",
+                  "radial-gradient(circle at top, rgba(209,168,90,0.12), transparent 40%)",
               }}
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-slate-300">
+            <div className="flex h-full items-center justify-center text-sm text-muted">
               Sin imagen disponible
             </div>
           )}
@@ -170,7 +181,7 @@ export default function ServiceDetailPage({
         <div className="flex flex-col gap-4">
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-violet-200">
+              <span className="inline-flex items-center gap-2 rounded-full border border-prime/40 bg-prime-muted px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-prime">
                 {service.provider} · {service.category}
               </span>
               <FavoriteButton
@@ -179,11 +190,11 @@ export default function ServiceDetailPage({
               />
             </div>
 
-            <h1 className="text-2xl md:text-3xl font-black text-slate-900 leading-tight tracking-[-0.04em]">
+            <h1 className="text-2xl md:text-3xl font-black text-text leading-tight tracking-[-0.04em]">
               {service.name}
             </h1>
 
-            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-violet-300">
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-prime">
               {service.subcategory}
             </p>
 
@@ -192,68 +203,64 @@ export default function ServiceDetailPage({
             </div>
           </div>
 
-          <p className="text-sm text-slate-600 leading-relaxed">{service.description}</p>
+          <p className="text-sm text-muted leading-relaxed">{service.description}</p>
 
           <div
             style={{
-              background: "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.88))",
-              border: "1px solid rgba(148, 163, 184, 0.24)",
-              boxShadow: "0 14px 30px rgba(15, 23, 42, 0.08)",
+              background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+              border: "1px solid var(--color-bd)",
+              boxShadow: "0 14px 30px rgba(0, 0, 0, 0.2)",
             }}
             className="rounded-xl p-4"
           >
-            <h2 className="text-sm font-semibold text-white mb-3">Características principales</h2>
+            <h2 className="text-sm font-semibold text-text mb-3">Características principales</h2>
 
             {primarySpecifications.length > 0 ? (
               <dl className="grid grid-cols-2 xl:grid-cols-4 gap-x-4 gap-y-3">
                 {primarySpecifications.map(([name, value]) => (
                   <div
                     key={name}
-                    className="min-w-0 rounded-xl border border-violet-400/20 bg-violet-500/5 px-3 py-2"
+                    className="min-w-0 rounded-xl border border-bd bg-surface-2 px-3 py-2"
                   >
-                    <dt className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
-                      {name}
-                    </dt>
-                    <dd className="mt-2 text-sm font-semibold text-slate-100 break-words">
-                      {value}
-                    </dd>
+                    <dt className="text-[10px] uppercase tracking-[0.14em] text-muted">{name}</dt>
+                    <dd className="mt-2 text-sm font-semibold text-text break-words">{value}</dd>
                   </div>
                 ))}
               </dl>
             ) : (
-              <p className="text-sm text-slate-300">No hay características informadas.</p>
+              <p className="text-sm text-muted">No hay características informadas.</p>
             )}
           </div>
 
           <div
             style={{
-              background: "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.88))",
-              border: "1px solid rgba(148, 163, 184, 0.24)",
+              background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+              border: "1px solid var(--color-bd)",
             }}
             className="rounded-xl p-4"
           >
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-200">
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-prime">
               Precio del servicio
             </div>
-            <div className="mt-2 text-3xl font-black text-emerald-300">
+            <div className="mt-2 text-3xl font-black text-prime">
               {formatPrice(service.monthlyPrice)}
-              <span className="text-sm font-medium text-slate-400">
+              <span className="text-sm font-medium text-muted">
                 {" "}
                 {getBillingPeriodText(service.billingPeriod)}
               </span>
             </div>
-            <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-700/80 pt-3 text-xs">
+            <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-bd pt-3 text-xs">
               <div>
-                <dt className="text-slate-400">Instalación</dt>
-                <dd className="mt-1 font-semibold text-slate-100">
+                <dt className="text-muted">Instalación</dt>
+                <dd className="mt-1 font-semibold text-text">
                   {service.installationCost === null || service.installationCost === 0
                     ? "Gratis"
                     : formatPrice(service.installationCost)}
                 </dd>
               </div>
               <div>
-                <dt className="text-slate-400">Contrato</dt>
-                <dd className="mt-1 font-semibold text-slate-100">
+                <dt className="text-muted">Contrato</dt>
+                <dd className="mt-1 font-semibold text-text">
                   {service.contractMonths ? `${service.contractMonths} meses` : "Sin permanencia"}
                 </dd>
               </div>
@@ -265,12 +272,12 @@ export default function ServiceDetailPage({
             onClick={() => void addServiceToCart()}
             aria-live="polite"
             aria-disabled={isInCart || adding}
-            className={`rounded-xl px-5 py-3 text-sm font-semibold text-white shadow-md transition ${
+            className={`rounded-xl px-5 py-3 text-sm font-semibold shadow-md transition ${
               isInCart
                 ? "bg-emerald-700 text-emerald-100 shadow-emerald-950/30"
                 : adding
                   ? "bg-emerald-800 text-emerald-100 shadow-emerald-950/30"
-                  : "bg-gradient-to-r from-violet-600 to-fuchsia-500 shadow-violet-950/30 hover:brightness-110"
+                  : "bg-prime text-[#181714] shadow-black/20 hover:bg-prime-dark"
             } ${isInCart || adding ? "cursor-default" : ""}`}
           >
             {isInCart
@@ -285,13 +292,13 @@ export default function ServiceDetailPage({
             style={
               isComparing
                 ? {
-                    background: "linear-gradient(135deg, #ff7a59 0%, #ff5f7b 32%, #8b5cf6 100%)",
-                    color: "#fff",
+                    background: "var(--color-action)",
+                    color: "#181714",
                   }
                 : {
-                    background: "rgba(15, 23, 42, 0.8)",
-                    border: "1px solid rgba(148, 163, 184, 0.25)",
-                    color: "#e2e8f0",
+                    background: "var(--color-surface)",
+                    border: "1px solid var(--color-bd)",
+                    color: "var(--color-text)",
                   }
             }
             className="py-3 rounded-2xl text-sm font-semibold transition-all hover:opacity-95"
@@ -305,28 +312,28 @@ export default function ServiceDetailPage({
 
       <section
         style={{
-          background: "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.88))",
-          border: "1px solid rgba(148, 163, 184, 0.24)",
+          background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+          border: "1px solid var(--color-bd)",
         }}
         className="rounded-xl p-5 sm:p-6 mt-6"
       >
-        <h2 className="text-lg font-semibold text-white">Especificaciones del servicio</h2>
+        <h2 className="text-lg font-semibold text-text">Especificaciones del servicio</h2>
 
         {specificationGroups.length > 0 ? (
           <div className="mt-4 space-y-5">
             {specificationGroups.map((group) => (
               <section key={group.title}>
-                <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-200">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-prime">
                   {group.title}
                 </h3>
                 <dl className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-8">
                   {group.items.map(([name, value]) => (
                     <div
                       key={name}
-                      className="flex items-start justify-between gap-4 border-b border-slate-700/80 py-3"
+                      className="flex items-start justify-between gap-4 border-b border-bd py-3"
                     >
-                      <dt className="min-w-0 text-sm text-slate-300">{name}</dt>
-                      <dd className="max-w-[60%] text-right text-sm font-semibold text-white break-words">
+                      <dt className="min-w-0 text-sm text-muted">{name}</dt>
+                      <dd className="max-w-[60%] text-right text-sm font-semibold text-text break-words">
                         {value}
                       </dd>
                     </div>
@@ -336,7 +343,7 @@ export default function ServiceDetailPage({
             ))}
           </div>
         ) : (
-          <p className="mt-4 text-sm text-slate-300">
+          <p className="mt-4 text-sm text-muted">
             No hay especificaciones informadas para este servicio.
           </p>
         )}
@@ -344,18 +351,18 @@ export default function ServiceDetailPage({
 
       <section
         style={{
-          background: "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.88))",
-          border: "1px solid rgba(148, 163, 184, 0.24)",
+          background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+          border: "1px solid var(--color-bd)",
         }}
         className="rounded-xl p-5 sm:p-6 mt-6"
       >
-        <h2 className="text-lg font-semibold text-white">Beneficios y cobertura</h2>
+        <h2 className="text-lg font-semibold text-text">Beneficios y cobertura</h2>
         {service.benefits.length > 0 ? (
           <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {service.benefits.map((benefit) => (
               <li
                 key={benefit}
-                className="flex items-start gap-2 rounded-xl border border-violet-400/20 bg-violet-500/5 px-3 py-3 text-sm text-slate-200"
+                className="flex items-start gap-2 rounded-xl border border-bd bg-surface-2 px-3 py-3 text-sm text-text"
               >
                 <svg
                   className="mt-0.5 shrink-0"
@@ -363,7 +370,7 @@ export default function ServiceDetailPage({
                   height="14"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="#a78bfa"
+                  stroke="#D1A85A"
                   strokeWidth="3"
                   aria-hidden="true"
                 >
@@ -374,10 +381,10 @@ export default function ServiceDetailPage({
             ))}
           </ul>
         ) : (
-          <p className="mt-4 text-sm text-slate-300">No hay beneficios informados.</p>
+          <p className="mt-4 text-sm text-muted">No hay beneficios informados.</p>
         )}
-        <p className="mt-5 border-t border-slate-700/80 pt-4 text-sm text-slate-300">
-          <span className="font-semibold text-white">Cobertura: </span>
+        <p className="mt-5 border-t border-bd pt-4 text-sm text-muted">
+          <span className="font-semibold text-text">Cobertura: </span>
           {service.coverage || "No informada"}
         </p>
       </section>

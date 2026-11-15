@@ -1,73 +1,46 @@
-# React + TypeScript + Vite
+# SOLOServis Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Aplicación web de SOLOServis construida con React, TypeScript, Vite y Tailwind
+CSS. Consume las APIs REST del backend y presenta el catálogo de productos,
+servicios y tiendas.
 
-Currently, two official plugins are available:
+## Requisitos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Node.js compatible con la versión de Vite del proyecto.
+- pnpm (`fronted/package.json` declara la versión del package manager).
+- Backend disponible para las funcionalidades que consultan datos.
 
-## React Compiler
+## Desarrollo local
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Desde esta carpeta (`fronted/`):
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+```powershell
+pnpm install
+pnpm dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Vite muestra en la terminal la URL local del frontend (por defecto,
+`http://localhost:8443`). Las URLs de APIs son relativas al mismo origen y el
+proxy de desarrollo las enruta a los servicios locales. Las URLs se pueden
+sobrescribir con variables `VITE_PRODUCTS_API_URL`, `VITE_STORES_API_URL`,
+`VITE_SERVICES_API_URL`, `VITE_SEARCH_API_URL`, `VITE_AUTH_API_URL`,
+`VITE_FAVORITES_API_URL`, `VITE_CART_API_URL` y `VITE_COMPARISON_API_URL`.
 
-```js
-// eslint.config.js
-import reactX from "eslint-plugin-react-x";
-import reactDom from "eslint-plugin-react-dom";
+El frontend consume las APIs HTTP configuradas y no se conecta directamente a
+la base de datos.
 
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs["recommended-typescript"],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
+## Tiendas e ilustraciones de categorías
+
+- Los logos de tiendas proceden de `store.logo_url` a través de Store API. Si
+  falta el logo o la URL es un placeholder conocido, la página intenta usar el
+  favicon del sitio; las iniciales son el último fallback.
+- Las ilustraciones SVG de categorías de productos y servicios se cargan desde
+  Product API (`GET /categories/artworks/{key}`). Si no se puede cargar una,
+  se muestra un emoji minimalista temporal.
+
+## Comprobaciones
+
+```powershell
+pnpm lint
+pnpm build
 ```

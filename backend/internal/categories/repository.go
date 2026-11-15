@@ -11,6 +11,9 @@ import (
 // ErrNotFound indica que la categoría no existe o está inactiva.
 var ErrNotFound = errors.New("category not found")
 
+// ErrArtworkNotFound indica que no existe una ilustración para la clave.
+var ErrArtworkNotFound = errors.New("category artwork not found")
+
 // PostgresRepository lee categorías y atributos desde PostgreSQL.
 // Todas las consultas son parametrizadas.
 type PostgresRepository struct {
@@ -99,6 +102,19 @@ func (r *PostgresRepository) GetBySlug(ctx context.Context, slug string) (Catego
 	}
 
 	return detail, nil
+}
+
+// GetArtwork returns the SVG stored for a category artwork key.
+func (r *PostgresRepository) GetArtwork(ctx context.Context, key string) (string, error) {
+	var svg string
+	err := r.db.QueryRow(ctx, `SELECT svg_content FROM category_artworks WHERE artwork_key = $1`, key).Scan(&svg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrArtworkNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return svg, nil
 }
 
 // AttributesByCategoryID devuelve las definiciones de una categoría ordenadas

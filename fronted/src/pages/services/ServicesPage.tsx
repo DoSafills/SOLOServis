@@ -2,7 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServices } from "../../services/api/api";
 import ServiceCard from "../../components/services/ServiceCard";
-import { Breadcrumb, EmptyState, Pagination } from "../../components/common/ui";
+import {
+  Breadcrumb,
+  EmptyState,
+  Pagination,
+  Skeleton,
+  ServiceSkeletonGrid,
+} from "../../components/common/ui";
+import CategoryIcon from "../../components/common/CategoryIcon";
+import { getServiceCategoryIcon } from "../../constants/productCatalog";
+import {
+  type SessionStorageCodec,
+  positiveIntegerSessionCodec,
+  stringSessionCodec,
+  useSessionStorageState,
+} from "../../hooks/useSessionStorageState";
 
 interface Props {
   query: string;
@@ -35,6 +49,75 @@ const emptyFilters: ServiceFilterState = {
   availableOnly: false,
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
+}
+
+const stringRecordSessionCodec: SessionStorageCodec<Record<string, string>> = {
+  decode: (value) => (isStringRecord(value) ? value : undefined),
+  encode: (value) => value,
+};
+
+const serviceSortSessionCodec: SessionStorageCodec<SortOption> = {
+  decode: (value) =>
+    value === "relevance" || value === "price-asc" || value === "price-desc" || value === "rating"
+      ? value
+      : undefined,
+  encode: (value) => value,
+};
+
+const serviceFiltersSessionCodec: SessionStorageCodec<Record<string, ServiceFilterState>> = {
+  decode: (value) => {
+    if (!isRecord(value)) return undefined;
+    const restored: Record<string, ServiceFilterState> = {};
+    for (const [key, candidate] of Object.entries(value)) {
+      if (!isRecord(candidate)) continue;
+      const { priceMin, priceMax, selectedProviders, selectedSpecs, availableOnly } = candidate;
+      if (
+        typeof priceMin !== "string" ||
+        typeof priceMax !== "string" ||
+        !Array.isArray(selectedProviders) ||
+        !selectedProviders.every((provider) => typeof provider === "string") ||
+        typeof availableOnly !== "boolean" ||
+        !isRecord(selectedSpecs)
+      ) {
+        continue;
+      }
+      const restoredSpecs: Record<string, Set<string>> = {};
+      for (const [name, values] of Object.entries(selectedSpecs)) {
+        if (Array.isArray(values) && values.every((item) => typeof item === "string")) {
+          restoredSpecs[name] = new Set(values);
+        }
+      }
+      restored[key] = {
+        priceMin,
+        priceMax,
+        selectedProviders: new Set(selectedProviders),
+        selectedSpecs: restoredSpecs,
+        availableOnly,
+      };
+    }
+    return restored;
+  },
+  encode: (filters) =>
+    Object.fromEntries(
+      Object.entries(filters).map(([key, filter]) => [
+        key,
+        {
+          ...filter,
+          selectedProviders: [...filter.selectedProviders],
+          selectedSpecs: Object.fromEntries(
+            Object.entries(filter.selectedSpecs).map(([name, values]) => [name, [...values]]),
+          ),
+        },
+      ]),
+    ),
+};
+
 const normalizeFilterValue = (value: string) => value.trim().toLocaleLowerCase("es");
 
 const getServiceSpecFilters = (services: Service[]) =>
@@ -64,18 +147,39 @@ export default function ServicesPage({
   onToggleCompare,
   onAddServiceToCart,
 }: Props) {
+  const sessionKey = `soloservice.service-search:${JSON.stringify([query, category, group])}`;
   const [services, setServices] = useState<Service[]>([]);
-  const [sort, setSort] = useState<SortOption>("relevance");
-  const [activeGroup, setActiveGroup] = useState(group ?? "all");
-  const [activeMicrocategory, setActiveMicrocategory] = useState("all");
-  const [microcategoriesByGroup, setMicrocategoriesByGroup] = useState<Record<string, string>>({
-    all: "all",
-  });
-  const [filtersByMicrocategory, setFiltersByMicrocategory] = useState<
-    Record<string, ServiceFilterState>
-  >({});
+  const [sort, setSort] = useSessionStorageState<SortOption>(
+    `${sessionKey}:sort`,
+    () => "relevance",
+    serviceSortSessionCodec,
+  );
+  const [activeGroup, setActiveGroup] = useSessionStorageState(
+    `${sessionKey}:group`,
+    () => group ?? "all",
+    stringSessionCodec,
+  );
+  const [activeMicrocategory, setActiveMicrocategory] = useSessionStorageState(
+    `${sessionKey}:microcategory`,
+    () => "all",
+    stringSessionCodec,
+  );
+  const [microcategoriesByGroup, setMicrocategoriesByGroup] = useSessionStorageState(
+    `${sessionKey}:microcategories`,
+    () => ({ all: "all" }),
+    stringRecordSessionCodec,
+  );
+  const [filtersByMicrocategory, setFiltersByMicrocategory] = useSessionStorageState(
+    `${sessionKey}:filters`,
+    () => ({}),
+    serviceFiltersSessionCodec,
+  );
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useSessionStorageState(
+    `${sessionKey}:page`,
+    () => 1,
+    positiveIntegerSessionCodec,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const perPage = 6;
@@ -223,22 +327,14 @@ export default function ServicesPage({
 
   const clearFilters = () => updateActiveFilters({ ...emptyFilters });
   const goToAllServices = () => navigate({ id: "search-services", query: "" });
-  const getGroupIcon = (name: string) => {
-    const normalized = name.toLocaleLowerCase("es");
-    if (/internet|telefon/.test(normalized)) return "🌐";
-    if (/seguridad/.test(normalized)) return "🛡️";
-    if (/educaci|curso/.test(normalized)) return "📚";
-    return "✨";
-  };
-
   const renderFilters = () => (
     <div className="space-y-2">
-      <details className="border-b border-slate-200 pb-2" open>
-        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
-          Precio del servicio <span className="float-right text-slate-500">⌄</span>
+      <details className="border-b border-bd pb-2" open>
+        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-text">
+          Precio del servicio <span className="float-right text-muted">⌄</span>
         </summary>
         <div className="flex gap-2 pb-2 pt-1">
-          <label className="min-w-0 flex-1 text-xs text-slate-600">
+          <label className="min-w-0 flex-1 text-xs text-muted">
             Mínimo
             <input
               type="number"
@@ -246,10 +342,10 @@ export default function ServicesPage({
               value={priceMin}
               onChange={(event) => updateActiveFilters({ priceMin: event.target.value })}
               placeholder="$0"
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-violet-500 focus:outline-none"
+              className="mt-1 w-full rounded-lg border border-bd bg-surface-2 px-2.5 py-2 text-sm text-text placeholder:text-muted focus:border-prime focus:outline-none"
             />
           </label>
-          <label className="min-w-0 flex-1 text-xs text-slate-600">
+          <label className="min-w-0 flex-1 text-xs text-muted">
             Máximo
             <input
               type="number"
@@ -257,21 +353,21 @@ export default function ServicesPage({
               value={priceMax}
               onChange={(event) => updateActiveFilters({ priceMax: event.target.value })}
               placeholder="Sin límite"
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-violet-500 focus:outline-none"
+              className="mt-1 w-full rounded-lg border border-bd bg-surface-2 px-2.5 py-2 text-sm text-text placeholder:text-muted focus:border-prime focus:outline-none"
             />
           </label>
         </div>
       </details>
 
-      <details className="border-b border-slate-200 pb-2">
-        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
-          Proveedor <span className="float-right text-slate-500">⌄</span>
+      <details className="border-b border-bd pb-2">
+        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-text">
+          Proveedor <span className="float-right text-muted">⌄</span>
         </summary>
         <div className="max-h-48 space-y-2 overflow-y-auto pb-2 pt-1">
           {providers.map((provider) => (
             <label
               key={provider}
-              className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"
+              className="flex cursor-pointer items-center gap-2 text-sm text-text"
             >
               <input
                 type="checkbox"
@@ -285,11 +381,11 @@ export default function ServicesPage({
         </div>
       </details>
 
-      <details className="border-b border-slate-200 pb-2">
-        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
-          Disponibilidad <span className="float-right text-slate-500">⌄</span>
+      <details className="border-b border-bd pb-2">
+        <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-text">
+          Disponibilidad <span className="float-right text-muted">⌄</span>
         </summary>
-        <label className="flex cursor-pointer items-center gap-2 pb-2 pt-1 text-sm text-slate-700">
+        <label className="flex cursor-pointer items-center gap-2 pb-2 pt-1 text-sm text-text">
           <input
             type="checkbox"
             checked={availableOnly}
@@ -301,21 +397,21 @@ export default function ServicesPage({
       </details>
 
       {specFilters.length > 0 && (
-        <details className="border-b border-slate-200 pb-2" open>
-          <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-slate-900">
+        <details className="border-b border-bd pb-2" open>
+          <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-text">
             Características de{" "}
             {activeMicrocategory === "all" ? "la categoría" : activeMicrocategory}
-            <span className="float-right text-slate-500">⌄</span>
+            <span className="float-right text-muted">⌄</span>
           </summary>
           <div className="max-h-72 space-y-3 overflow-y-auto pb-2 pt-1">
             {specFilters.map((spec) => (
               <fieldset key={spec.name}>
-                <legend className="mb-1.5 text-xs font-semibold text-slate-600">{spec.name}</legend>
+                <legend className="mb-1.5 text-xs font-semibold text-muted">{spec.name}</legend>
                 <div className="space-y-1.5">
                   {spec.values.map((value) => (
                     <label
                       key={value}
-                      className="flex cursor-pointer items-start gap-2 text-xs text-slate-700"
+                      className="flex cursor-pointer items-start gap-2 text-xs text-text"
                     >
                       <input
                         type="checkbox"
@@ -339,7 +435,7 @@ export default function ServicesPage({
         <button
           type="button"
           onClick={clearFilters}
-          className="pt-2 text-xs font-semibold text-violet-700 hover:text-violet-900"
+          className="pt-2 text-xs font-semibold text-prime hover:text-prime-dark"
         >
           Limpiar filtros
         </button>
@@ -349,8 +445,18 @@ export default function ServicesPage({
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando servicios...</p>
+      <div className="mx-auto max-w-7xl px-4 py-8">
+        <Skeleton className="mb-6 h-4 w-44" />
+        <div className="mb-6 border-b border-bd pb-5">
+          <Skeleton className="mb-3 h-8 w-64" />
+          <Skeleton className="h-4 w-80 max-w-full" />
+        </div>
+        <div className="mb-6 flex gap-2">
+          <Skeleton className="h-10 w-28 rounded-lg" />
+          <Skeleton className="h-10 w-28 rounded-lg" />
+          <Skeleton className="h-10 w-28 rounded-lg" />
+        </div>
+        <ServiceSkeletonGrid count={6} className="grid grid-cols-1 gap-4 sm:grid-cols-2" />
       </div>
     );
   }
@@ -423,7 +529,9 @@ export default function ServicesPage({
                       : "border-transparent text-muted-2 hover:text-text"
                   }`}
                 >
-                  {group.id !== "all" && <span aria-hidden="true">{getGroupIcon(group.name)}</span>}
+                  {group.id !== "all" && (
+                    <CategoryIcon name={getServiceCategoryIcon(group.name)} className="h-4 w-4" />
+                  )}
                   {group.name}
                   {groupFilterCount > 0 && (
                     <span className="rounded-full bg-prime/15 px-1.5 py-0.5 text-[10px] text-prime">
@@ -497,7 +605,7 @@ export default function ServicesPage({
           <button
             type="button"
             onClick={() => setFiltersOpen(true)}
-            style={{ background: "#111111", border: "1px solid #2A2A2A" }}
+            style={{ background: "var(--color-surface)", border: "1px solid var(--color-bd)" }}
             className="lg:hidden flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-muted-2 hover:border-prime hover:text-prime transition-all"
           >
             <svg
@@ -525,9 +633,9 @@ export default function ServicesPage({
               setPage(1);
             }}
             style={{
-              background: "#111111",
-              border: "1px solid #2A2A2A",
-              color: "#94A3B8",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-bd)",
+              color: "var(--color-muted)",
             }}
             className="px-3 py-2 rounded-xl text-sm focus:outline-none focus:border-prime transition-colors"
           >
@@ -539,7 +647,7 @@ export default function ServicesPage({
           {compareList.size >= 2 && (
             <button
               onClick={() => navigate({ id: "service-comparison", serviceIds: [...compareList] })}
-              style={{ background: "#E8001B", color: "#0A0A0A" }}
+              style={{ background: "var(--color-action)", color: "#181714" }}
               className="px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
             >
               Comparar {compareList.size} servicios
@@ -549,8 +657,8 @@ export default function ServicesPage({
       </div>
 
       <div className="flex gap-6">
-        <aside className="hidden lg:block w-56 shrink-0 rounded-2xl border border-slate-200 bg-slate-50 p-5 self-start sticky top-24 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900 mb-5">Filtros</h3>
+        <aside className="hidden lg:block w-56 shrink-0 rounded-2xl border border-bd bg-surface p-5 self-start sticky top-24 shadow-sm">
+          <h3 className="text-sm font-semibold text-text mb-5">Filtros</h3>
           {renderFilters()}
         </aside>
 
@@ -560,14 +668,14 @@ export default function ServicesPage({
               className="absolute inset-0 bg-black/60 backdrop-blur-sm"
               onClick={() => setFiltersOpen(false)}
             />
-            <div className="absolute right-0 top-0 bottom-0 w-72 border-l border-slate-200 bg-slate-50 p-6 overflow-y-auto shadow-2xl">
+            <div className="absolute right-0 top-0 bottom-0 w-72 border-l border-bd bg-surface p-6 overflow-y-auto shadow-2xl">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-sm font-semibold text-slate-900">Filtros</h3>
+                <h3 className="text-sm font-semibold text-text">Filtros</h3>
                 <button
                   type="button"
                   onClick={() => setFiltersOpen(false)}
                   aria-label="Cerrar filtros"
-                  className="text-slate-500 hover:text-slate-900 transition-colors"
+                  className="text-muted hover:text-text transition-colors"
                 >
                   <svg
                     width="18"
@@ -597,7 +705,7 @@ export default function ServicesPage({
             />
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {paginated.map((service) => (
                   <ServiceCard
                     key={service.id}

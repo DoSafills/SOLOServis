@@ -19,6 +19,13 @@ const ranges = [
   { label: "1a", days: 365 },
 ];
 
+const chartColors = {
+  accent: "var(--color-prime)",
+  border: "var(--color-bd)",
+  muted: "var(--color-muted)",
+  surface: "var(--color-surface)",
+};
+
 interface Props {
   history: PricePoint[];
   offerHistory: PricePoint[];
@@ -36,9 +43,9 @@ function CustomTooltip({
 }) {
   if (active && payload && payload.length) {
     return (
-      <div className="rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 shadow-xl">
-        <p className="mb-1 text-xs text-slate-400">{formatHistoryDate(label)}</p>
-        <p className="price text-sm font-semibold text-cyan-200">{formatPrice(payload[0].value)}</p>
+      <div className="rounded-xl border border-bd bg-surface px-3 py-2 shadow-xl">
+        <p className="mb-1 text-xs text-muted">{formatHistoryDate(label)}</p>
+        <p className="price text-sm font-semibold text-prime">{formatPrice(payload[0].value)}</p>
       </div>
     );
   }
@@ -71,19 +78,19 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
   const currentPrice = activeData.length ? activeData[activeData.length - 1].price : 0;
 
   return (
-    <section className="rounded-2xl border border-slate-700/80 bg-gradient-to-br from-slate-900/95 via-slate-950/95 to-indigo-950/30 p-4 shadow-xl shadow-slate-950/20 sm:p-6">
+    <section className="rounded-2xl border border-bd bg-surface p-4 shadow-xl shadow-black/20 sm:p-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h3 className="text-base font-semibold text-white">Historial de precios</h3>
-          <p className="mt-1 text-xs text-slate-400">Evolución registrada durante el último año</p>
+          <h3 className="text-base font-semibold text-text">Historial de precios</h3>
+          <p className="mt-1 text-xs text-muted">Evolución registrada durante el último año</p>
           <div className="mt-3 flex flex-wrap gap-1.5">
             <button
               type="button"
               onClick={() => setMode("price")}
               className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                 mode === "price"
-                  ? "bg-cyan-300 text-slate-950"
-                  : "border border-slate-700 bg-slate-900/70 text-slate-300 hover:border-slate-500"
+                  ? "bg-prime text-[#181714]"
+                  : "border border-bd bg-surface-2 text-muted hover:border-prime/60"
               }`}
             >
               Precio normal
@@ -94,10 +101,10 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               disabled={!hasOfferHistory}
               className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                 mode === "offer"
-                  ? "bg-cyan-300 text-slate-950"
+                  ? "bg-prime text-[#181714]"
                   : hasOfferHistory
-                    ? "border border-slate-700 bg-slate-900/70 text-slate-300 hover:border-slate-500"
-                    : "cursor-not-allowed border border-slate-800 bg-slate-950/50 text-slate-600"
+                    ? "border border-bd bg-surface-2 text-muted hover:border-prime/60"
+                    : "cursor-not-allowed border border-bd bg-surface-2/50 text-muted/50"
               }`}
             >
               Precio oferta
@@ -114,8 +121,8 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               aria-pressed={range === r.days}
               className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
                 range === r.days
-                  ? "bg-cyan-300 text-slate-950"
-                  : "border border-slate-700 bg-slate-900/70 text-slate-300 hover:border-slate-500"
+                  ? "bg-prime text-[#181714]"
+                  : "border border-bd bg-surface-2 text-muted hover:border-prime/60"
               }`}
             >
               {r.label}
@@ -125,9 +132,9 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
       </div>
 
       {mode === "offer" && !hasOfferHistory && (
-        <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-6 text-center">
-          <p className="mb-1 text-sm font-semibold text-slate-100">No hay historial de ofertas</p>
-          <p className="mx-auto max-w-xs text-xs text-slate-400">
+        <div className="rounded-xl border border-bd bg-surface-2 p-6 text-center">
+          <p className="mb-1 text-sm font-semibold text-text">No hay historial de ofertas</p>
+          <p className="mx-auto max-w-xs text-xs text-muted">
             Este producto no ha registrado precios de oferta. Puedes agregarlo a favoritos para
             recibir una alerta cuando haya una promoción.
           </p>
@@ -135,14 +142,14 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
       )}
 
       {mode === "offer" && hasOfferHistory && currentOfferPrice && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-cyan-300/20 bg-cyan-300/5 px-4 py-2">
-          <span className="rounded-md bg-cyan-300 px-2 py-0.5 text-xs font-bold text-slate-950">
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-prime/30 bg-prime-muted px-4 py-2">
+          <span className="rounded-md bg-prime px-2 py-0.5 text-xs font-bold text-[#181714]">
             OFERTA ACTIVA
           </span>
-          <span className="price text-sm font-bold text-cyan-200">
+          <span className="price text-sm font-bold text-prime">
             {formatPrice(currentOfferPrice)}
           </span>
-          <span className="text-xs text-slate-400">precio de oferta actual</span>
+          <span className="text-xs text-muted">precio de oferta actual</span>
         </div>
       )}
 
@@ -152,24 +159,21 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
             {
               label: mode === "offer" ? "Última oferta" : "Precio actual",
               value: formatPrice(currentPrice),
-              color: "text-cyan-200",
+              color: "text-prime",
             },
             {
               label: "Mínimo registrado",
               value: formatPrice(minPrice),
-              color: "text-emerald-300",
+              color: "text-text",
             },
             {
               label: "Máximo registrado",
               value: formatPrice(maxPrice),
-              color: "text-slate-100",
+              color: "text-muted",
             },
           ].map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-xl border border-slate-700/80 bg-slate-950/55 p-3"
-            >
-              <div className="mb-1 text-xs text-slate-400">{stat.label}</div>
+            <div key={stat.label} className="rounded-xl border border-bd bg-surface-2 p-3">
+              <div className="mb-1 text-xs text-muted">{stat.label}</div>
               <div className={`price text-sm font-semibold ${stat.color}`}>{stat.value}</div>
             </div>
           ))}
@@ -177,26 +181,26 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
       )}
 
       {activeData.length > 0 && (
-        <div className="h-52 rounded-xl border border-slate-800/80 bg-slate-950/35 p-2 sm:h-60 sm:p-3">
+        <div className="h-52 rounded-xl border border-bd bg-surface-2 p-2 sm:h-60 sm:p-3">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={activeData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#67e8f9" stopOpacity={0.24} />
-                  <stop offset="95%" stopColor="#67e8f9" stopOpacity={0} />
+                  <stop offset="5%" stopColor={chartColors.accent} stopOpacity={0.24} />
+                  <stop offset="95%" stopColor={chartColors.accent} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartColors.border} vertical={false} />
               <XAxis
                 dataKey="date"
                 tickFormatter={formatHistoryDate}
-                tick={{ fontSize: 10, fill: "#94a3b8" }}
+                tick={{ fontSize: 10, fill: chartColors.muted }}
                 tickLine={false}
                 axisLine={false}
                 interval="preserveStartEnd"
               />
               <YAxis
-                tick={{ fontSize: 10, fill: "#94a3b8" }}
+                tick={{ fontSize: 10, fill: chartColors.muted }}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
@@ -206,18 +210,27 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
               <Area
                 type="monotone"
                 dataKey="price"
-                stroke="#67e8f9"
+                stroke={chartColors.accent}
                 strokeWidth={2}
                 fill="url(#priceGrad)"
-                dot={activeData.length < 24 ? { r: 3, fill: "#67e8f9", strokeWidth: 0 } : false}
-                activeDot={{ r: 4, fill: "#67e8f9", stroke: "#0f172a", strokeWidth: 2 }}
+                dot={
+                  activeData.length < 24
+                    ? { r: 3, fill: chartColors.accent, strokeWidth: 0 }
+                    : false
+                }
+                activeDot={{
+                  r: 4,
+                  fill: chartColors.accent,
+                  stroke: chartColors.surface,
+                  strokeWidth: 2,
+                }}
               />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
       {activeData.length === 0 && !(mode === "offer" && !hasOfferHistory) && (
-        <p className="rounded-xl border border-slate-700 bg-slate-950/50 px-4 py-6 text-center text-sm text-slate-400">
+        <p className="rounded-xl border border-bd bg-surface-2 px-4 py-6 text-center text-sm text-muted">
           No hay datos de precios registrados para este período.
         </p>
       )}

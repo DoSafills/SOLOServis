@@ -23,6 +23,7 @@ const (
 
 // slugPattern replica el CHECK de categories.slug.
 var slugPattern = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
+var artworkKeyPattern = regexp.MustCompile(`^[a-z0-9-]{1,80}$`)
 
 // ValidSlug indica si s cumple el formato de categories.slug.
 func ValidSlug(s string) bool {
@@ -42,6 +43,50 @@ type Handler struct {
 
 func NewHandler(repository Repository, logger *slog.Logger) *Handler {
 	return &Handler{repository: repository, logger: logger}
+}
+
+// ArtworkRepository recupera SVG por su clave estable.
+type ArtworkRepository interface {
+	GetArtwork(ctx context.Context, key string) (string, error)
+}
+
+// ArtworkHandler sirve ilustraciones almacenadas en la base de datos.
+type ArtworkHandler struct {
+	repository ArtworkRepository
+	logger     *slog.Logger
+}
+
+// NewArtworkHandler crea el handler de ilustraciones.
+func NewArtworkHandler(repository ArtworkRepository, logger *slog.Logger) *ArtworkHandler {
+	return &ArtworkHandler{repository: repository, logger: logger}
+}
+
+// GetArtwork atiende GET /categories/artworks/{key}.
+func (h *ArtworkHandler) GetArtwork(w http.ResponseWriter, r *http.Request) {
+	key := chi.URLParam(r, "key")
+	if !artworkKeyPattern.MatchString(key) {
+		httpx.WriteProblem(w, r, http.StatusBadRequest, httpx.CodeInvalidParameter,
+			"La clave de la ilustración no es válida.")
+		return
+	}
+
+	svg, err := h.repository.GetArtwork(r.Context(), key)
+	if errors.Is(err, ErrArtworkNotFound) {
+		httpx.WriteProblem(w, r, http.StatusNotFound, httpx.CodeNotFound, "La ilustración no existe.")
+		return
+	}
+	if err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte(svg)); err != nil {
+		h.logger.ErrorContext(r.Context(), "write category artwork", "artwork_key", key, "error", err)
+	}
 }
 
 // List atiende GET /categories?itemType=&limit=&offset=.

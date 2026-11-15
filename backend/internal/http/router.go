@@ -95,7 +95,7 @@ func corsMiddleware(frontendURL string) func(http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", frontendURL)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-						w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
+			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
 			if req.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return
@@ -114,7 +114,6 @@ func useStandardMiddleware(r chi.Router) *slog.Logger {
 	return logger
 }
 
-
 func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	handler := products.NewHandler(products.NewRepository(db), logger)
 	// Escrituras (TAL-70): solo admin o servicios internos con INTERNAL_API_TOKEN.
@@ -124,7 +123,7 @@ func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) 
 	// debe migrar a /categories (TAL-51) y luego se elimina.
 	r.Get("/product-categories", handler.ListCategories)
 	r.Get("/products", handler.List)
-		r.With(admin).Post("/products/duplicate-candidates", handler.DuplicateCandidates)
+	r.With(admin).Post("/products/duplicate-candidates", handler.DuplicateCandidates)
 	r.Get("/products/{publicID}", handler.GetByPublicID)
 	r.With(admin).Post("/products", handler.Create)
 	r.With(admin).Put("/products/{publicID}", handler.Update)
@@ -133,6 +132,8 @@ func registerProductRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) 
 
 	// Categorías y definiciones de atributos (TAL-71): solo lectura.
 	categoryHandler := categories.NewHandler(categories.NewRepository(db), logger)
+	artworkHandler := categories.NewArtworkHandler(categories.NewRepository(db), logger)
+	r.Get("/categories/artworks/{key}", artworkHandler.GetArtwork)
 	r.Get("/categories", categoryHandler.List)
 	r.Get("/categories/{slug}", categoryHandler.GetBySlug)
 }
@@ -163,6 +164,7 @@ func registerPricingRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) 
 func registerSearchRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	handler := search.NewHandler(search.NewRepository(db), logger)
 	r.Get("/search/products", handler.Products)
+	r.Get("/search/popular-products", handler.PopularProducts)
 	r.Get("/search/facets", handler.Facets)
 	r.Get("/search/categories", handler.Categories)
 	r.Get("/search/brands", handler.Brands)
