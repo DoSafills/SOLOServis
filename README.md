@@ -1,438 +1,178 @@
 # SOLOServis
-# Plataforma de de Productos y Servicios
 
-Plataforma web orientada a la **búsqueda, comparación y consulta de productos y servicios**, permitiendo a los usuarios encontrar diferentes alternativas y comparar información relevante entre ellas.
+Plataforma web para **buscar, comparar y consultar productos y servicios** de distintas tiendas y proveedores de Chile. Toma como referencia a SoloTodo y amplía el enfoque a servicios.
 
-El proyecto toma como referencia el concepto de plataformas como SoloTodo, pero amplía el enfoque para incorporar tanto **productos como servicios**.
+Permite:
 
----
+- Buscar y filtrar productos y servicios.
+- Comparar alternativas y sus atributos.
+- Consultar precios, su historial y las tiendas o proveedores que los ofrecen.
+- Guardar favoritos, armar un carrito y ver valoraciones.
 
-## 📌 Objetivo del proyecto
+Un scraper trae ofertas reales de las tiendas y las carga al catálogo.
 
-Desarrollar una plataforma que permita centralizar información de productos y servicios provenientes de diferentes fuentes, facilitando al usuario:
-
-* Buscar productos y servicios.
-* Filtrar resultados.
-* Comparar diferentes alternativas.
-* Consultar precios.
-* Consultar tiendas o proveedores.
-* Revisar información relevante de cada alternativa.
-* Facilitar la toma de decisiones de compra o contratación.
-
-La arquitectura estará diseñada para permitir incorporar nuevas categorías y funcionalidades a medida que evolucione el proyecto.
+> **Si usas un agente de IA en este repo**, sus instrucciones están en [`AGENTS.md`](AGENTS.md): stack real, convenciones y pendientes.
 
 ---
 
-# 🏗️ Arquitectura
+## Estado (noviembre 2026)
 
-El sistema utilizará una arquitectura separada por capas:
+El proyecto está **desplegado y funcionando** en el clúster Kubernetes de la UCT.
 
-| Área                       | Tecnología                  |
-| -------------------------- | --------------------------- |
-| Frontend                   | React                       |
-| Lenguaje Frontend          | TypeScript                  |
-| Build Tool                 | Vite                        |
-| Gestión de consultas       | TanStack Query              |
-| Backend                    | Go                          |
-| Router HTTP                | Chi                         |
-| Base de datos              | PostgreSQL                  |
-| Driver PostgreSQL          | pgx                         |
-| Generación de código SQL   | sqlc                        |
-| Caché                      | Redis                       |
-| Scraping                   | Python                      |
-| Framework de scraping      | Scrapy                      |
-| Automatización web         | Playwright                  |
-| Procesamiento de datos     | Go Workers                  |
-| Almacenamiento RAW inicial | JSONL                       |
-| Contenedores               | Docker                      |
-| Orquestación local         | Docker Compose              |
-| IA/NLP                     | Pendiente de implementación |
+| Qué | Estado |
+| --- | --- |
+| Backend: 14 APIs en Go, agrupadas en 3 procesos de dominio | Hecho |
+| Estándar de errores, validación y tests de API (TAL-78) | Hecho |
+| Frontend: catálogo, búsqueda, comparación, tiendas, servicios, favoritos y carrito | Hecho, en mejora visual |
+| PostgreSQL 18 con migraciones versionadas | Hecho |
+| Scraper v2 entregando productos de Falabella y Ripley de punta a punta | Hecho |
+| Despliegue en Kubernetes validado (29 de 29 verificaciones) | Hecho |
+| Seguimiento de precios y notificaciones | API lista; falta la pantalla en el frontend |
+| Reportes de testing, CI y tests del frontend | Pendiente |
+| Consultas con IA / NLP | Pendiente |
+
+Evidencia del último despliegue: [`docs/auditorias/TAL-110-despliegue-y-validacion.md`](docs/auditorias/TAL-110-despliegue-y-validacion.md).
+
+---
+
+## Arquitectura
 
 ```text
-┌─────────────────────────────────────┐
-│              FRONTEND               │
-│        React + TypeScript + Vite    │
-└──────────────────┬──────────────────┘
-                   │
-                   │ HTTP / REST
-                   ▼
-┌─────────────────────────────────────┐
-│               BACKEND               │
-│  GO- CHi - redis - python- Dockers│
-└──────────────────┬──────────────────┘
-                   │
-                   │ Prisma
-                   ▼
-┌─────────────────────────────────────┐
-│             DATABASE                │
-│              PostgreSQL             │
-└─────────────────────────────────────┘
+Navegador
+   │  HTTPS
+   ▼
+Ingress ──► frontend (nginx + React)        ← único componente publicado
+               │  enruta cada ruta pública a su dominio
+               ├──► comercial :8080   product, store, service, pricing, search, comparison,
+               │                      favorites, cart, review, watchlist, notification
+               └──► usuarios  :8080   auth, user
+
+scraper-api ──► ingestion :8080 ──► PostgreSQL 18 ◄── comercial, usuarios
+(Falabella, Ripley)   (token de servicio)
 ```
 
-La infraestructura de desarrollo utilizará Docker y Docker Compose.
+- **Las 14 APIs corren en 3 procesos** (`comercial`, `usuarios`, `ingestion`). Los tres usan la misma imagen; la variable `API_DOMAIN` decide qué APIs sirve cada uno.
+- **El API Gateway es el nginx del frontend:** el navegador solo conoce un origen.
+- **El scraper no toca la base:** entrega los productos a la Ingestion API, que valida y guarda.
 
 ---
 
-# 🛠️ Tecnologías
+## Tecnologías
 
-## Frontend
+### En uso
 
-### React
+| Área | Tecnología |
+| --- | --- |
+| Backend | Go 1.27, `chi` (router HTTP), `pgx` (driver PostgreSQL), `sqlc` (consultas tipadas) |
+| API | REST con JSON; errores en formato RFC 9457 (`application/problem+json`) |
+| Base de datos | PostgreSQL 18, migraciones SQL versionadas |
+| Frontend | React 19, TypeScript, Vite 8, Tailwind CSS 4, `recharts` |
+| Scraping | Python 3.12+, Scrapling, FastAPI (API de control), SQLite para el estado del scraper |
+| Contenedores | Docker y Docker Compose |
+| Orquestación | Kubernetes con Kustomize (clúster UCT) |
+| Autenticación | Sesiones con tokens opacos, contraseñas con PBKDF2-SHA256 y token de servicio entre componentes |
+| Calidad | `go vet` y `go test`; ESLint y `oxfmt` en el frontend; `pytest` y `ruff` en el scraper |
+| Gestor de paquetes | `pnpm` |
 
-Utilizado para construir la interfaz mediante componentes reutilizables.
+### Previstas, todavía sin implementar
 
-### TypeScript
+| Tecnología | Para qué |
+| --- | --- |
+| IA / NLP | Interpretar consultas en lenguaje natural (hoy solo existe la tabla `ai_query_process`) |
+| Caché (Redis) | Acelerar lecturas frecuentes del catálogo |
+| CI (GitHub Actions) | Correr tests y chequeos en cada Pull Request |
+| Tests del frontend | Hoy el frontend solo tiene formato, lint y build |
+| Documentación OpenAPI | Publicar los endpoints; hoy están descritos en `backend/README.md` |
 
-Utilizado para mantener tipado estático y mejorar la mantenibilidad del proyecto.
+### Excluidas
 
-### Vite
-
-Utilizado como herramienta de desarrollo y build del frontend debido a su rapidez y configuración sencilla.
-
-
-Instlacion :
-  Primero instalar Node.JS 
-https://nodejs.org/es
-
-  Una ves instalado correr DENTRO DE LA CARPETA FRONTED *(npm install)*,  en caso de que no responda el comando una ves instalado Node , reiniciar equipo y verificar nuevamente con el mismo comando.
-  luego ingresar *(npm run dev)* y aparecerá el link de local host en la terminal para poder abrirlo ingresar *(CTRL + clik izquierdo)*
----
-
-## Backend
-
-### Node.js
-
-Runtime utilizado para ejecutar el backend.
-
-### NestJS
-
-Framework utilizado para estructurar el backend mediante módulos, controladores y servicios.
-
-### REST
-
-La comunicación entre frontend y backend se realizará mediante una API REST.
+Por las restricciones del proyecto, **PHP y Java** no forman parte del stack.
 
 ---
 
-## Base de datos
-
-### PostgreSQL
-
-Base de datos relacional principal del sistema.
-
-Se utilizará debido a la cantidad de relaciones existentes entre entidades como:
+## Estructura del repositorio
 
 ```text
-Usuarios
-Productos
-Servicios
-Categorías
-Tiendas
-Proveedores
-Precios
-Historial de precios
-Favoritos
-```
-
-### Prisma
-
-ORM utilizado para conectar el backend con PostgreSQL y administrar el esquema y las migraciones.
-
----
-
-## Infraestructura
-
-### Docker
-
-Utilizado para mantener un entorno de desarrollo reproducible entre los integrantes del equipo.
-
-### Docker Compose
-
-Utilizado inicialmente para administrar los servicios locales, principalmente PostgreSQL.
-
-### Kubernetes
-
-La app completa (PostgreSQL, 14 APIs y frontend) se despliega con `scripts/k8s/deploy.ps1` o `scripts/k8s/deploy.sh`, en el Kubernetes de Docker Desktop (`local`) o en el clúster de la universidad (`uct`). Guía paso a paso: [`k8s/README.md`](k8s/README.md).
-
----
-
-
-## Calidad de código
-
-### ESLint
-
-Utilizado para detectar errores y mantener reglas de código consistentes.
-
-### Prettier
-
-Utilizado para mantener un formato de código uniforme entre todos 
----
-
-## CI
-
-
-## Documentación de API
-
-### Swagger / OpenAPI
-
-La API contará con documentación mediante Swagger para facilitar el trabajo entre frontend y backend.
-
-La documentación permitirá consultar:
-
-* Endpoints.
-* Parámetros.
-* Respuestas.
-* Modelos.
-* Métodos HTTP.
-
----
-
-# 📂 Estructura del proyecto
-
-La estructura inicial será:
-
-```text
-project/
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── services/
-│   │   ├── hooks/
-│   │   ├── types/
-│   │   └── assets/
-│   │
-│   ├── public/
-│   └── package.json
-│
-├── backend/
-│   ├── src/
-│   │   ├── modules/
-│   │   ├── common/
-│   │   ├── config/
-│   │   └── main.ts
-│   │
-│   ├── prisma/
-│   │   └── schema.prisma
-│   │
-│   └── package.json
-│
-├── docs/
-│
-├── docker/
-│
-├── docker-compose.yml
-├── .env.example
-├── .gitignore
-└── README.md
-```
-
-#IMPORTANTE
-DOCS : tendrá que integrar una estructura similar a foonted y backend guardando diferenciado por documentos que poseen la DOCUMENTACION nesesaria apra la comprencion del el PQ y PARA Q de la funcion a realisa y si depende o dependen otras de esta.
-#IMPORTANTE
-
-La estructura se modificara a medida que el proyecto crezca.
-
----
-
-# 🔄 Flujo de desarrollo
-
-El desarrollo seguirá el siguiente flujo:
-
-```text
-Trello
-   ↓
-Task
-   ↓
-Git Branch
-   ↓
-Development
-   ↓
-Pull Request
-   ↓
-Code Review
-   ↓
-Tests
-   ↓
-Merge
-   ↓
-DONE
-```
-
-Cada funcionalidad deberá estar asociada a una tarea de Trello.
-
----
-
-# 🌿 Estrategia Git
-
-Se utilizará una estrategia basada en ramas.
-
-```text
-main
-│
-└── develop
-     │
-     ├── feature/*
-     ├── fix/*
-     └── refactor/*
-```
-
-## `main`
-
-Contendrá versiones estables del proyecto.
-
-No se deberá desarrollar directamente sobre esta rama.
-
-## `develop`
-
-Contendrá la integración del desarrollo actual.
-
-## `feature/*`
-
-Utilizada para desarrollar nuevas funcionalidades.
-
-# 💬 Convención de commits
-
-Los commits deberán utilizar una estructura clara explicando el motivo de la implementacion.
-
-
-# 🔍 Pull Requests
-
-Toda funcionalidad deberá integrarse mediante Pull Request.
-
-Una Pull Request deberá:
-
-* Tener un título descriptivo.
-* Indicar qué problema resuelve.
-* Indicar los cambios realizados.
-* Relacionarse con una tarea de Trello.
-* Pasar los tests.
-* Pasar ESLint.
-* Ser revisada por otro integrante.
-
-## Regla de Code Review
-
-El desarrollador que implementó una funcionalidad **no deberá aprobar su propia Pull Request**.
-
-El código deberá ser revisado por al menos otros integrante.
-
----
-
-# ✅ Definition of Done
-
-Una tarea podrá considerarse terminada cuando:
-
-```text
-[ ] Funcionalidad implementada
-[ ] Código revisado
-[ ] Code Review aprobado
-[ ] Tests realizados
-[ ] Tests aprobados
-[ ] ESLint sin errores
-[ ] Build exitoso
-[ ] Criterios de aceptación cumplidos
-[ ] Pull Request integrada
-[ ] Tarjeta de Trello actualizada
+backend/            API en Go
+  cmd/all-apis/       binario único (API_DOMAIN elige el dominio)
+  cmd/<api>/          un binario por API (modo microservicios)
+  internal/           una carpeta por API, más httpx, authz y allapis
+  database/           migraciones SQL, su orden y las consultas de sqlc
+fronted/            frontend en React (la carpeta se llama "fronted")
+scraper/            scraper v2: una especificación JSON por tienda
+crawler/            crawler v1
+docker/             Dockerfiles y archivos de Compose
+k8s/                manifiestos de Kubernetes y pod de test
+scripts/            despliegue (k8s/) y entorno de pruebas local (local-test/)
+docs/               estándares, auditorías, modelo de datos y requisitos
 ```
 
 ---
 
+## Cómo ejecutar
 
-# 🔐 Variables de entorno
+### Requisitos
 
-Las configuraciones sensibles deberán mantenerse mediante variables de entorno.
+- Git
+- Docker Desktop (incluye Docker Compose)
+- Node.js (probado con la versión 24) y `pnpm`, para el frontend
+- Go 1.27, solo si vas a correr el backend sin Docker
+- Python 3.12 o superior, solo si vas a trabajar en el scraper
 
-Ejemplo:
+### 1. Backend y base de datos con Docker Compose
+
+```bash
+docker compose -f docker/compose.yml up -d --build
+```
+
+Levanta PostgreSQL (con las migraciones aplicadas), los 3 procesos de dominio y el scraper. Cada API queda en su puerto de siempre:
+
+| Puerto | API | Puerto | API |
+| --- | --- | --- | --- |
+| 8081 | product | 8088 | auth |
+| 8082 | store | 8089 | favorites |
+| 8083 | service | 8090 | cart |
+| 8084 | user | 8091 | review |
+| 8085 | pricing | 8092 | watchlist |
+| 8086 | search | 8093 | notification |
+| 8087 | comparison | 8094 | ingestion |
+
+El scraper queda en el 8095 y PostgreSQL en el 5432. Para comprobar: `http://localhost:8081/health`.
+
+El modo anterior, con un contenedor por API, sigue disponible en `docker/compose.microservicios.yml`. No levantes los dos a la vez.
+
+### 2. Frontend
+
+```bash
+cd fronted
+pnpm install
+pnpm dev
+```
+
+Abre `http://localhost:8443`. El frontend necesita saber dónde está cada API: crea `fronted/.env.local` (no se sube a git) con:
 
 ```env
-DATABASE_URL=
-API_URL=
-PORT=
+VITE_PRODUCT_API_URL=http://localhost:8081
+VITE_STORE_API_URL=http://localhost:8082
+VITE_SERVICE_API_URL=http://localhost:8083
+VITE_SEARCH_API_URL=http://localhost:8086
+VITE_COMPARISON_API_URL=http://localhost:8087
+VITE_AUTH_API_URL=http://localhost:8088
+VITE_FAVORITES_API_URL=http://localhost:8089
+VITE_CART_API_URL=http://localhost:8090
 ```
 
-El archivo:
-
-```text
-.env
-```
-
-no deberá subirse al repositorio.
-
-Se proporcionará:
-
-```text
-.env.example
-```
-
-como referencia para configurar el entorno local.
-
----
-
-# 🚀 Instalación
-
-## Requisitos
-
-Antes de comenzar se deberá contar con:
-
-* Git
-* Node.js
-* npm
-* Docker
-* Docker Compose
-
----
-
-## Clonar el repositorio (por crear)
-
-```bash
-git clone <REPOSITORY_URL>
-cd <PROJECT_NAME>
-```
-
----
-## Instalar dependencias
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-```
-
-Backend:
-
-```bash
-cd ../backend
-npm install
-```
-
----
-
-## Ejecutar backend
+### 3. Backend sin Docker (opcional)
 
 ```bash
 cd backend
-npm run start:dev
+cp .env.example .env
+go run ./cmd/all-apis
 ```
 
----
+En `.env` ajusta `DATABASE_URL` y deja `FRONTEND_URL=http://localhost:8443`, que es el origen que el backend acepta por CORS. Sin `API_DOMAIN`, el proceso sirve las 14 APIs en un solo puerto.
 
-## Ejecutar frontend
-
-En otra terminal:
-
-```bash
-cd frontend
-npm run dev
-```
-
----
-
-
-## Ejecutar en Kubernetes
-
-En tu namespace del clúster UCT, con 3 pods por dominio: comercial, usuarios e ingestion. Kubeconfig, Docker Hub, pod de test y más comandos en [`k8s/README.md`](k8s/README.md).
+### 4. Kubernetes (clúster UCT)
 
 ```powershell
 .\scripts\k8s\deploy.ps1 -Modo uct -Registry docker.io/<usuario-docker>
@@ -442,58 +182,111 @@ En tu namespace del clúster UCT, con 3 pods por dominio: comercial, usuarios e 
 ./scripts/k8s/deploy.sh --modo uct --registry docker.io/<usuario-docker>
 ```
 
----
-
-
-# 📋 Gestión del proyecto
-
-La gestión del proyecto se realizará mediante Trello.
-El creacion de funciones y seguir la estructura de carpetas debe d ser documentado
-
-
-
-# 👥 Equipo
-
-El proyecto será desarrollado por un equipo de 6 integrantes.
-
-Las responsabilidades se distribuirán durante la planificación de cada Sprint.
-
-La asignación de tareas se realizará mediante Trello.
+El script despliega por fases, verifica cada una y termina con un pod de test. Kubeconfig, Docker Hub, redeploy y solución de problemas en [`k8s/README.md`](k8s/README.md).
 
 ---
 
-# 📈 Escalabilidad (por ver)
+## Tests y calidad
 
-
-# 🚫 Tecnologías excluidas
-
-Por las restricciones del proyecto:
-
-```text
-PHP
-Java
+```bash
+cd backend && go vet ./... && go test ./...
 ```
 
-No forman parte del stack.
+```bash
+cd fronted && pnpm check
+```
+
+```bash
+cd scraper && python -m pytest -q && ruff check src tests
+```
+
+- Los tests de integración del backend necesitan `TEST_DATABASE_URL` apuntando a un PostgreSQL 18 con las migraciones aplicadas; sin esa variable se omiten.
+- `pnpm check` corre formato, lint, build y auditoría de dependencias.
+
 ---
 
-# 🎯 Estado del proyecto
+## Flujo de desarrollo
 
-Actualmente el proyecto se encuentra en fase de planificación y configuración inicial.
+```text
+Tarea en Linear (TAL-XX) → rama → desarrollo → Pull Request → revisión → tests → merge
+```
+
+### Ramas
+
+```text
+main        versiones estables; no se desarrolla directo aquí
+└── develop   integración del trabajo en curso; los PR apuntan aquí
+     ├── feature/TAL-XX-descripcion
+     ├── fix/…
+     ├── test/…
+     ├── docs/…
+     └── chore/…
+```
+
+### Commits
+
+Pequeños y con el formato `tipo(TAL-XX): descripción`, por ejemplo `fix(TAL-98): crear postgres-secret en el deploy`. Tipos: `feat`, `fix`, `test`, `docs`, `chore`, `refactor`.
+
+### Pull Requests
+
+Un PR debe:
+
+- Apuntar a `develop` y relacionarse con una tarea de Linear.
+- Tener un título descriptivo y decir qué cambia y cómo se validó.
+- Pasar los tests y los chequeos de la parte que toca.
+- Ser revisado por otro integrante: **quien implementó no aprueba su propio PR**.
+
+### Definition of Done
+
+```text
+[ ] Funcionalidad implementada y criterios de aceptación cumplidos
+[ ] Tests escritos y aprobados
+[ ] Lint y build sin errores
+[ ] Revisión aprobada por otro integrante
+[ ] Pull Request integrada en develop
+[ ] Documentación actualizada si cambió el comportamiento
+[ ] Tarea de Linear actualizada
+```
+
+Para los endpoints del backend aplica además la lista de [`docs/estandares/TAL-78-estandar-api.md`](docs/estandares/TAL-78-estandar-api.md).
+
+---
+
+## Variables de entorno y secretos
+
+- Los archivos `.env` no se suben al repositorio; `backend/.env.example` sirve de referencia.
+- En Kubernetes, la contraseña de PostgreSQL y el token de servicio viven en Secrets que crea el script de despliegue. No están en git.
+- Las credenciales de `docker/compose.yml` son de desarrollo, solo para uso local.
+
+---
+
+## Documentación
+
+| Tema | Dónde |
+| --- | --- |
+| Backend: APIs, endpoints y configuración | [`backend/README.md`](backend/README.md) |
+| Estándar de API (errores, validación, tests) | [`docs/estandares/TAL-78-estandar-api.md`](docs/estandares/TAL-78-estandar-api.md) |
+| Formato de los datos extraídos por el scraper | [`docs/estandares/formato-datos-extraidos.md`](docs/estandares/formato-datos-extraidos.md) |
+| Scraper | [`scraper/README.md`](scraper/README.md) |
+| Despliegue en Kubernetes | [`k8s/README.md`](k8s/README.md) |
+| Modelo de datos | [`docs/database/modelo-relacional.md`](docs/database/modelo-relacional.md) |
+| Auditorías y evidencia de despliegue | [`docs/auditorias/`](docs/auditorias/) |
+| Requisitos, casos de uso y arquitectura | [`docs/requirements/`](docs/requirements/), [`docs/use_case/`](docs/use_case/), [`docs/architecture/`](docs/architecture/) |
+
+Cada cambio de comportamiento se documenta junto al código: el porqué y el para qué de lo que se agrega, y de qué depende.
+
+---
+
+## Equipo y gestión
+
+Proyecto del curso Taller de Integración III (UCT), desarrollado por un equipo de 6 integrantes. Las tareas se planifican por Sprint y se gestionan en Linear.
+
+---
 
 ## Próximos objetivos
 
-```text
-1. Definir arquitectura
-2. Configurar repositorio
-3. Configurar entorno de desarrollo
-4. Configurar frontend
-5. Configurar backend
-6. Configurar PostgreSQL
-7. Configurar Docker
-8. Configurar CI
-9. Crear primera integración Frontend → Backend → Database
-10. Comenzar desarrollo de funcionalidades
-```
-
----
+1. Reportes de testing y CI en cada Pull Request.
+2. Tests del frontend.
+3. Más tiendas en el scraper y una alternativa para Mercado Libre, que hoy bloquea el scraping.
+4. Consultas con IA / NLP.
+5. Caché para las lecturas del catálogo.
