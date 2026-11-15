@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
-
 // Store es lo que el handler necesita de la base. *Repository lo implementa;
 // los tests usan un fake en memoria (estándar TAL-78 §5).
 type Store interface {
@@ -34,6 +34,20 @@ func NewHandler(repository Store, logger *slog.Logger) *Handler {
 	return &Handler{
 		repository: repository,
 		logger:     logger,
+	}
+}
+
+func (h *Handler) writeJSON(w http.ResponseWriter, r *http.Request, result any) {
+	var buffer bytes.Buffer
+
+	if err := json.NewEncoder(&buffer).Encode(result); err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(buffer.Bytes()); err != nil && h.logger != nil {
+		h.logger.Error("error writing service response", "error", err)
 	}
 }
 
@@ -59,7 +73,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	writeJSON(w, result)
+	h.writeJSON(w, r, result)
 }
 
 func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
@@ -109,9 +123,4 @@ func (h *Handler) related(ctx context.Context, serviceID int32) (
 		return nil, nil, nil, err
 	}
 	return offers, specifications, history, nil
-}
-
-func writeJSON(w http.ResponseWriter, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(value)
 }
