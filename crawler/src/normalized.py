@@ -98,6 +98,17 @@ def _error(field_name: str, code: str, message: str) -> FieldError:
     return FieldError(field=field_name, code=code, message=message)
 
 
+@dataclass(frozen=True, slots=True)
+class ItemWarning:
+    """A non-blocking reason to review an extracted item."""
+
+    code: str
+    message: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"code": self.code, "message": self.message}
+
+
 def _required(errors: list[FieldError], name: str, value: Any) -> None:
     if value is None or (isinstance(value, str) and not value.strip()):
         errors.append(_error(name, "required", f"{name} es obligatorio"))
@@ -539,6 +550,7 @@ class Provenance:
     config_id: int | None = None
     references: dict[str, str] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    warnings: list[ItemWarning] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -551,6 +563,9 @@ class Provenance:
             payload["references"] = dict(sorted(self.references.items()))
         if self.errors:
             payload["errors"] = list(self.errors)
+        if self.warnings:
+            payload["warnings"] = [warning.to_dict()
+                                   for warning in self.warnings]
         return _compact(payload)
 
 
@@ -796,10 +811,25 @@ class BundleExtractor:
             *(f"offer.{error}" for error in offer_row.errors),
             *(f"image.{error}" for error in (image_row.errors if image_row else [])),
         ]
+        warnings: list[ItemWarning] = []
 
         product = self._product(node, product_row, image_row, errors)
         offer = self._offer(offer_row)
-        external_url = self._external_url(node, base_url, offer, errors)
+        external_url = self._external_url(node, base_url, offer, warnings)
+        listing_fallback = any(
+            warning.code == "external_url_listing_fallback"
+            for warning in warnings)
+        has_product_identity = any(
+            value and value.strip()
+            for value in (product.sku, product.model)
+        ) or bool(
+            external_url and _is_http_url(external_url) and not listing_fallback)
+        if not has_product_identity:
+            warnings.append(ItemWarning(
+                code="product_identity_missing",
+                message=("No se encontró SKU, modelo ni URL de producto "
+                         "individual; el item se conserva."),
+            ))
 
         return NormalizedItem(
             product=product,
@@ -816,6 +846,7 @@ class BundleExtractor:
                 config_id=self.config_id,
                 references=dict(product_row.references),
                 errors=errors,
+                warnings=warnings,
             ),
         )
 
@@ -880,7 +911,7 @@ class BundleExtractor:
         node: Any,
         base_url: str | None,
         offer: OfferPayload,
-        errors: list[str],
+        warnings: list[ItemWarning],
     ) -> str | None:
         if offer.product_url:
             return offer.product_url
@@ -894,9 +925,11 @@ class BundleExtractor:
         # A card without a link (Falabella renders ``href=""`` and fills it with
         # JS) still has a page to point at; the record stays auditable, and the
         # weakness is reported instead of hidden.
-        errors.append(
-            "externalUrl: the card has no href and no product_url selector; "
-            "falling back to the listing page")
+        warnings.append(ItemWarning(
+            code="external_url_listing_fallback",
+            message=("La tarjeta no tiene href ni product_url; "
+                     "externalUrl apunta a la página de listado."),
+        ))
         return base_url
 
     def _timestamp(self) -> str:

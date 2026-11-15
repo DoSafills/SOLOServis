@@ -8,6 +8,7 @@ cuando Ingestion falla.
 
 import asyncio
 import json
+import logging
 import re
 
 import pytest
@@ -264,6 +265,32 @@ class TestHappyPath:
         assert lines[0]["externalId"] == "sku-2"
         assert any("offer.price" in error
                    for error in lines[0]["provenance"]["errors"])
+
+    def test_identity_warnings_are_logged_counted_and_still_sent(
+            self, env, caplog):
+        ingestion = FakeIngestion()
+        crawler = _crawler(env, {"https://site.test/": card()}, ingestion)
+
+        with caplog.at_level(logging.WARNING, logger="INGEST"):
+            summary = _run(crawler)
+
+        assert summary.items_found == 1
+        assert summary.items_sent == 1
+        assert summary.items_rejected == 0
+        assert crawler.item_warning_counts == {
+            "external_url_listing_fallback": 1,
+            "product_identity_missing": 1,
+        }
+        assert any(
+            "store=Tienda Test" in record.message
+            and "code=product_identity_missing" in record.message
+            for record in caplog.records
+        )
+        assert any(
+            "store=Tienda Test" in record.message
+            and "code=external_url_listing_fallback" in record.message
+            for record in caplog.records
+        )
 
 
 class TestFailures:

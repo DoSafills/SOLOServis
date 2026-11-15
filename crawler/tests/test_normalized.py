@@ -151,8 +151,11 @@ class TestRealCards:
     def test_falabella_card_without_href_falls_back_and_reports_it(self):
         item = extract(FALABELLA_CARD)[0]
         assert item.external_url == FALABELLA_URL
-        assert any("falling back to the listing page" in e
-                   for e in item.provenance.errors)
+        assert "external_url_listing_fallback" in {
+            warning.code for warning in item.provenance.warnings}
+        assert "product_identity_missing" in {
+            warning.code for warning in item.provenance.warnings}
+        assert item.is_valid
 
     def test_ripley_card_uses_the_relative_href_as_external_url(self):
         item = extract(RIPLEY_CARD, "ripley-cl.json", RIPLEY_URL)[0]
@@ -181,6 +184,92 @@ class TestRealCards:
             assert spec.root
             assert spec.product.table == "product"
             assert spec.offer.table == "product_offer"
+
+
+class TestProductIdentityWarnings:
+    STORES = (
+        "falabella-cl.json",
+        "ripley-cl.json",
+        "mercadolibre-cl.json",
+    )
+
+    def _extract(self, store_config, html):
+        source = load_config(store_config)["source"]
+        spec = simple_spec(
+            root=".card",
+            source=source,
+            product={"fields": {
+                "name": ".name",
+                "sku": ".sku",
+                "model": ".model",
+            }},
+            offer={"fields": {
+                "price": ".price",
+                "product_url": ".product-url",
+            }},
+        )
+        return BundleExtractor(
+            spec, run_id=7, config_id=3, clock=lambda: FIXED_NOW,
+        ).extract_all(Adaptor(html), source["base_url"])[0]
+
+    @pytest.mark.parametrize("store_config", STORES)
+    @pytest.mark.parametrize(("html", "expected_codes"), [
+        (
+            '<div class="card">'
+            '<span class="name">Product</span><span class="sku">SKU-1</span>'
+            '<span class="price">10.00</span></div>',
+            {"external_url_listing_fallback": True,
+             "product_identity_missing": False},
+        ),
+        (
+            '<div class="card">'
+            '<span class="name">Product</span><span class="model">Model-1</span>'
+            '<span class="price">10.00</span></div>',
+            {"external_url_listing_fallback": True,
+             "product_identity_missing": False},
+        ),
+        (
+            '<div class="card"><span class="name">Product</span>'
+            '<span class="product-url">https://shop.test/p/1</span>'
+            '<span class="price">10.00</span></div>',
+            {"external_url_listing_fallback": False,
+             "product_identity_missing": False},
+        ),
+        (
+            '<div class="card"><span class="name">Product</span>'
+            '<span class="price">10.00</span></div>',
+            {"external_url_listing_fallback": True,
+             "product_identity_missing": True},
+        ),
+    ])
+    def test_identity_warnings_are_non_blocking(
+            self, store_config, html, expected_codes):
+        item = self._extract(store_config, html)
+        codes = {warning.code for warning in item.provenance.warnings}
+
+        assert {
+            code: code in codes for code in expected_codes
+        } == expected_codes
+        assert item.validate() == []
+        assert item.is_valid
+
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        assert list(validator.iter_errors(item.to_dict())) == []
+
+    @pytest.mark.parametrize("store_config", STORES)
+    def test_listing_fallback_has_a_stable_reason_code(self, store_config):
+        source = load_config(store_config)["source"]
+        item = self._extract(
+            store_config,
+            '<div class="card"><span class="name">Product</span>'
+            '<span class="sku">SKU-1</span><span class="price">10.00</span></div>',
+        )
+
+        assert item.external_url == source["base_url"]
+        assert [warning.code for warning in item.provenance.warnings] == [
+            "external_url_listing_fallback"]
+        assert item.is_valid
 
 
 # ---------------------------------------------------------------------------

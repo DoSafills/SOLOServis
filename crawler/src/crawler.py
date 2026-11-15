@@ -147,6 +147,7 @@ class Crawler:
         self.items_sent = 0
         self.items_failed = 0
         self.items_rejected = 0
+        self.item_warning_counts: dict[str, int] = {}
         self._buffer: list[NormalizedItem] = []
         self._seen_items: set[str] = set()
         self._ingest_lock = asyncio.Lock()
@@ -265,6 +266,14 @@ class Crawler:
                 continue  # Falabella repite pods en el mismo listado
             self._seen_items.add(key)
             self.items_found += 1
+
+            for warning in item.provenance.warnings:
+                self.item_warning_counts[warning.code] = (
+                    self.item_warning_counts.get(warning.code, 0) + 1)
+                _ingest_log.warning(
+                    "run #%d: item warning store=%s code=%s url=%s: %s",
+                    self.run_id, self.source.name, warning.code,
+                    item.external_url, warning.message)
 
             problems = item.validate()
             if problems:
@@ -508,6 +517,14 @@ class Crawler:
             error_message = "; ".join(self.errors[:10])
 
         await self._finish_ingestion(status, error_message)
+
+        if self.item_warning_counts:
+            totals = ", ".join(
+                f"{code}={count}"
+                for code, count in sorted(self.item_warning_counts.items()))
+            _ingest_log.info(
+                "run #%d: item warning totals store=%s: %s",
+                self.run_id, self.source.name, totals)
 
         summary = CrawlSummary(
             run_id=self.run_id,
