@@ -59,7 +59,6 @@ No hay rastro en el código de: **Redis**, **Scrapy**, **Playwright** (directo),
 | Pantallas de seguimiento de precios y notificaciones | Las APIs `watchlist` y `notification` existen; el frontend no las usa |
 | CI (GitHub Actions) | No existe `.github/workflows` |
 | Tests del frontend | No hay ninguno; solo `pnpm check` |
-| Reportes de testing (TAL-168) | Propuesto, sin implementar |
 
 ---
 
@@ -81,6 +80,7 @@ docker/             Dockerfiles, compose.yml (3 dominios) y compose.microservici
 k8s/                base/, components/{dominios,consolidado,espera-postgres}, tests/
 scripts/k8s/        deploy.ps1, deploy.sh
 scripts/linear/     linear.py: CLI de Linear (necesita LINEAR_API_KEY)
+scripts/testing/    reporte.py: reporte de testing de todas las suites
 docs/               estandares/, auditorias/, database/, requirements/
 ```
 
@@ -189,10 +189,11 @@ docker compose -f docker/compose.yml config --quiet
 
 - Los tests de integración de Go necesitan `TEST_DATABASE_URL` apuntando a un PostgreSQL 18 con las migraciones aplicadas en el orden de `migration_order.txt`; sin la variable se omiten.
 - El pod de test del clúster (`k8s/tests`, fase 10 del deploy) hace 29 verificaciones.
+- **Reporte de testing (TAL-168):** `python scripts/testing/reporte.py` corre todas las suites y deja el resultado en `docs/reportes/testing/` (`--postgres-docker` suma los tests de integración). Córrelo antes de pedir un PR: `go build ./...` tiene que pasar siempre.
 
 ---
 
-## 13. Estado al 2026-11-13
+## 13. Estado al 2026-11-15
 
 Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear antes de darla por cierta.
 
@@ -204,7 +205,7 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 - Scraper v2 entregando productos reales de Falabella y Ripley de punta a punta.
 
 **Pendiente:**
-- Sprint 3, centrado en testing: TAL-168 (reportes de testing) y varios PR de pruebas abiertos.
+- Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra fallas: 2 tests del crawler en Windows (conexión SQLite sin cerrar) y `pnpm format:check` (archivos con CRLF).
 - Sin CI y sin tests en el frontend.
 - El frontend no tiene pantallas para seguimiento de precios ni notificaciones.
 - Mercado Libre bloqueado por anti-bots; evaluar su API oficial.

@@ -100,7 +100,7 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, dto.FromService(service, offers, specifications, history))
+	h.writeJSON(w, r, dto.FromService(service, offers, specifications, history))
 }
 
 // related carga las ofertas, especificaciones e historial de un servicio.
