@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -18,6 +18,7 @@ from scraper.models import money_text
 
 WHITESPACE_RE = re.compile(r"\s+")
 NUMBER_NOISE_RE = re.compile(r"[^\d,.\-+]")
+MONEY_TOKEN_RE = re.compile(r"(?<![\d.,])[+-]?\d+(?:[.,]\d+)*(?![\d.,])")
 CURRENCY_RE = re.compile(r"\b([A-Za-z]{3})(?![A-Za-z])")
 SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
@@ -120,12 +121,75 @@ def normalize_url(raw: str, base_url: str | None = None) -> str | None:
 
 
 def parse_money(raw: str) -> Decimal | None:
-    """Parse a human-formatted amount, tolerating CLP thousands separators.
+    """Parse the first well-formed monetary amount in a text value."""
+    amount, _ = _parse_money_value(raw)
+    return amount
 
-    ``"$549.990"`` and ``"549.990,00"`` both become ``549990``. A lone
-    separator followed by exactly three digits is read as a thousands group
-    (the Chilean convention); otherwise it marks decimals.
-    """
+
+def _parse_money_value(raw: str) -> tuple[Decimal | None, str | None]:
+    match = MONEY_TOKEN_RE.search(raw or "")
+    if match is None:
+        return None, f"could not read {raw!r} as money"
+
+    token = match.group()
+    sign = token[0] if token[0] in "+-" else ""
+    number = token[1:] if sign else token
+    has_dot, has_comma = "." in number, "," in number
+
+    if has_dot and has_comma:
+        decimal_separator = "." if number.rfind(".") > number.rfind(",") else ","
+        grouping_separator = "," if decimal_separator == "." else "."
+        integer_part, fraction = number.rsplit(decimal_separator, 1)
+        if len(fraction) > 2:
+            return None, f"more than two decimal places in amount {token!r}"
+        if decimal_separator in integer_part:
+            return None, f"invalid thousands grouping in amount {token!r}"
+        if grouping_separator in integer_part:
+            groups = integer_part.split(grouping_separator)
+            if not _valid_thousands_groups(groups):
+                return None, f"invalid thousands grouping in amount {token!r}"
+            integer_part = "".join(groups)
+        elif not integer_part.isdigit():
+            return None, f"invalid thousands grouping in amount {token!r}"
+        normalized = f"{sign}{integer_part}.{fraction}"
+    elif has_dot or has_comma:
+        separator = "," if has_comma else "."
+        groups = number.split(separator)
+        if len(groups) > 2:
+            if not _valid_thousands_groups(groups):
+                return None, f"invalid thousands grouping in amount {token!r}"
+            normalized = sign + "".join(groups)
+        else:
+            integer_part, fraction = groups
+            if len(fraction) == 3:
+                # CLP has no sub-unit decimals; comma + 3 digits means thousands, as in v1.
+                if not _valid_thousands_groups(groups):
+                    return None, f"invalid thousands grouping in amount {token!r}"
+                normalized = sign + "".join(groups)
+            elif len(fraction) > 2:
+                return None, f"more than two decimal places in amount {token!r}"
+            else:
+                normalized = f"{sign}{integer_part}.{fraction}"
+    else:
+        normalized = sign + number
+
+    try:
+        return Decimal(normalized), None
+    except InvalidOperation:
+        return None, f"could not read {raw!r} as money"
+
+
+def _valid_thousands_groups(groups: list[str]) -> bool:
+    return (
+        bool(groups)
+        and 1 <= len(groups[0]) <= 3
+        and groups[0].isdigit()
+        and all(len(group) == 3 and group.isdigit() for group in groups[1:])
+    )
+
+
+def _parse_number(raw: str) -> Decimal | None:
+    """Keep the existing permissive parser for non-money numeric fields."""
     text = NUMBER_NOISE_RE.sub("", raw or "")
     if not text or text in {"-", "+", ".", ","}:
         return None
@@ -214,18 +278,17 @@ def coerce(
         return collapse_ws(text), None
 
     if field_type == "money":
-        amount = parse_money(text)
+        amount, parse_error = _parse_money_value(text)
         if amount is None:
-            return None, f"could not read {text!r} as money"
+            return None, parse_error
         if amount < 0:
             return None, f"negative amount {text!r}"
         if amount >= Decimal("10000000000"):
             return None, f"amount {text!r} exceeds 10 integer digits"
-        rounded = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        return money_text(rounded), None
+        return money_text(amount), None
 
     if field_type == "integer":
-        amount = parse_money(text)
+        amount = _parse_number(text)
         if amount is None:
             return None, f"could not read {text!r} as an integer"
         if amount != amount.to_integral_value():
