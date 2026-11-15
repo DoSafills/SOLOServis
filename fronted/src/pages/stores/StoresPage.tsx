@@ -208,47 +208,45 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
                 }}
               />
 
-              <div className="relative z-10 flex w-full min-w-0 flex-1 flex-col gap-3 p-4 sm:p-5 lg:ml-[38%] lg:w-[62%] lg:justify-center lg:gap-3 lg:p-3 lg:pl-10">
-                <div className="min-w-0">
-                  <h2 className="line-clamp-2 text-lg font-bold leading-snug text-text transition-colors group-hover:text-prime sm:text-xl">
+              <div className="relative z-10 flex w-full min-w-0 flex-1 flex-col gap-4 p-4 sm:p-5 lg:ml-[38%] lg:w-[62%] lg:justify-center lg:p-4">
+                <div className="min-w-0 text-center">
+                  <h2 className="line-clamp-2 text-xl font-bold leading-snug text-text transition-colors group-hover:text-prime sm:text-2xl">
                     {store.name}
                   </h2>
                 </div>
 
-                <div className="w-fit origin-left scale-[1.1] [&_span]:text-muted">
+                <div className="flex origin-center justify-center scale-[1.1] [&_span]:text-muted">
                   <Rating value={store.rating} count={store.reviewCount} />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 border-y border-bd py-3">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                <div className="mx-auto grid w-full max-w-[17rem] grid-cols-1 gap-2 border-y border-bd py-3">
+                  <div className="min-w-0 rounded-xl bg-surface-2 px-3 py-2.5 text-center">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted">
                       Productos
                     </p>
-                    <p className="mt-1 text-sm font-bold text-prime">
+                    <p className="mt-1 text-base font-bold text-prime">
                       {store.productCount.toLocaleString("es-CL")}
                     </p>
                   </div>
 
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  <div className="min-w-0 rounded-xl bg-surface-2 px-3 py-2.5 text-center">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted">
                       Despacho
                     </p>
-                    <p className="mt-1 line-clamp-2 text-sm leading-snug font-medium text-muted-2">
+                    <p className="mt-1 line-clamp-2 text-sm leading-snug font-semibold text-text">
                       {store.dispatchTime}
                     </p>
                   </div>
                 </div>
 
-                {store.website && (
-                  <p className="truncate text-xs font-medium text-muted" title={store.website}>
-                    <span className="text-muted">Sitio: </span>
-                    <span className="font-semibold text-prime">{store.website}</span>
-                  </p>
-                )}
-
-                <span className="mt-auto flex w-full items-center justify-between rounded-xl bg-prime px-3 py-3 text-xs font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all hover:bg-prime-dark">
+                <span className="relative mt-auto flex w-full items-center justify-center rounded-xl bg-prime px-3 py-3 text-sm font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all hover:bg-prime-dark">
                   Ver tienda
-                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    className="absolute right-3 h-4 w-4"
+                  >
                     <path
                       d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
                       stroke="currentColor"

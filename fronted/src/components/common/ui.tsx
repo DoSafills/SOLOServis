@@ -311,12 +311,12 @@ export function Pagination({
         <button
           key={p}
           onClick={() => onChange(p)}
-          style={
+          aria-current={p === page ? "page" : undefined}
+          className={`flex h-9 w-9 items-center justify-center rounded-lg border text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime ${
             p === page
-              ? { background: "#0369A1", color: "#FFFFFF" }
-              : { background: "#F1F5F9", border: "1px solid #CBD5E1", color: "#64748B" }
-          }
-          className="w-9 h-9 rounded-lg text-sm font-medium transition-all hover:border-prime hover:text-prime"
+              ? "border-prime bg-prime text-[#181714]"
+              : "border-bd bg-surface-2 text-muted hover:border-prime/60 hover:bg-prime-muted hover:text-prime"
+          }`}
         >
           {p}
         </button>
