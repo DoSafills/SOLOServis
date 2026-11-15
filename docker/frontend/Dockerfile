@@ -40,7 +40,7 @@ FROM nginxinc/nginx-unprivileged:1.29-alpine
 
 # El entrypoint de nginx genera conf.d/default.conf desde la plantilla con
 # envsubst al arrancar; el filtro evita tocar variables de nginx ($host, $uri).
-# Destinos por defecto: un servicio por API, como en docker/compose.yml.
+# Destinos por defecto: un servicio por API, como en docker/compose.microservicios.yml.
 # En Kubernetes el Deployment los apunta a los pods por dominio o a backend:8080.
 ENV NGINX_ENVSUBST_FILTER="_UPSTREAM$"     PRODUCT_UPSTREAM=product-api:8081     STORE_UPSTREAM=store-api:8082     SERVICE_UPSTREAM=service-api:8083     AUTH_UPSTREAM=auth-api:8088     FAVORITES_UPSTREAM=favorites-api:8089     CART_UPSTREAM=cart-api:8090     SEARCH_UPSTREAM=search-api:8086     COMPARISON_UPSTREAM=comparison-api:8087     REVIEW_UPSTREAM=review-api:8091     WATCHLIST_UPSTREAM=watchlist-api:8092
 

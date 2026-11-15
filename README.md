@@ -538,7 +538,7 @@ Para conocer los requisitos, configuración de kubeconfig, parámetros, fases, p
 
 [`k8s/README.md`](k8s/README.md).
 
----
+### Ramas
 
 ## 9. Seguridad y configuración
 
@@ -563,7 +563,7 @@ El proyecto dispone de archivos `.env.example` como referencia de configuración
 
 No se deben publicar contraseñas, tokens, credenciales de Docker Hub ni archivos de acceso al clúster.
 
----
+### Pull Requests
 
 ## 10. Flujo de desarrollo
 

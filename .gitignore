@@ -50,3 +50,6 @@ k8s/overlays/
 *.kubeconfig
 kubeconfig*
 .neon
+# Claude Code: la configuracion local no se sube; las instrucciones del proyecto si.
+.claude/*
+!.claude/CLAUDE.md

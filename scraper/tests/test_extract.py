@@ -5,6 +5,7 @@ from __future__ import annotations
 from conftest import fixture_html
 
 from scraper.extract.engine import extract_page
+from scraper.extract.transforms import apply_regex
 from scraper.models import Source
 
 
@@ -39,9 +40,12 @@ def test_falabella_reads_template_url_and_money(spec_by_slug):
     assert first.offer.currency == "CLP"
     assert first.offer.available is True
     assert first.provenance.run_id == 7
+    # La categoría "refrigeradores" exige capacidad_litros: sale del nombre.
+    assert first.product.attributes == {"capacidad_litros": 300}
 
     second = result.items[1]
     assert second.offer.available is False
+    assert second.product.attributes == {"capacidad_litros": 500}
 
 
 def test_ripley_absolutizes_links(spec_by_slug):
@@ -91,3 +95,14 @@ def test_no_root_match_yields_nothing(spec_by_slug):
     assert result.items == []
     assert result.rejected == []
     assert result.cards == 0
+
+
+def test_apply_regex_keeps_the_capture_group():
+    litros = r"(\d{2,4})\s*(?:lts?|litros?|l)\b"
+    assert apply_regex("REFRIGERADOR FRIO DIRECTO 262 LTS LRB-270SDIW", litros) == "262"
+    assert apply_regex("Side by Side LG 664 Litros Smart Inverter", litros) == "664"
+    assert apply_regex("Refrigerador No Frost 300 L", litros) == "300"
+    # Sin grupo se devuelve la coincidencia completa; sin coincidencia, vacío.
+    assert apply_regex("modelo LRB-270", r"lrb-\d+") == "LRB-270"
+    assert apply_regex("Refrigerador sin capacidad", litros) == ""
+    assert apply_regex("no se toca", None) == "no se toca"

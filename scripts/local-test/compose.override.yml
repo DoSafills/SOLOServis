@@ -1,43 +1,10 @@
 services:
-  product-api:
+  comercial:
     environment:
       DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  store-api:
+  usuarios:
     environment:
       DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  service-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  user-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  pricing-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  search-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  comparison-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  auth-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  favorites-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  cart-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  review-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  watchlist-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  notification-api:
-    environment:
-      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"
-  ingestion-api:
+  ingestion:
     environment:
       DATABASE_URL: "postgres://postgres:postgres@postgres:5432/soloservis_localtest?sslmode=disable"

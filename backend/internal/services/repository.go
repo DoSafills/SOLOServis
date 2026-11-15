@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
-	"github.com/DoSafills/SOLOServis/backend/internal/services/dto"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -39,13 +38,4 @@ func (r *Repository) ListSpecifications(ctx context.Context, serviceID int32) ([
 
 func (r *Repository) ListPriceHistory(ctx context.Context, serviceID int32) ([]generated.ListServicePriceHistoryRow, error) {
 	return r.queries.ListServicePriceHistory(ctx, serviceID)
-}
-
-func (r *Repository) ToDetail(
-	service generated.GetServiceByPublicIDRow,
-	offers []generated.ListServiceOffersRow,
-	specifications []generated.ListServiceSpecificationsRow,
-	history []generated.ListServicePriceHistoryRow,
-) dto.ServiceDetail {
-	return dto.FromService(service, offers, specifications, history)
 }

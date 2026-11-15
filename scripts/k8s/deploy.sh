@@ -409,6 +409,33 @@ phase3() {
 
 # ---------------------------------------------------------------- FASE 4
 
+# Reutiliza postgres-secret si existe (la contrasena vive tambien dentro del
+# volumen, asi que no se cambia sola). Si no existe, lo crea con una contrasena
+# aleatoria, salvo que el PVC ya tenga datos: no coincidiria con la guardada.
+# Sin la etiqueta part-of, igual que soloservis-internal.
+# Devuelve 0 = listo, 2 = falta el Secret pero hay datos, 1 = error de kubectl.
+ensure_postgres_secret() {
+  if k get secret postgres-secret -o name >/dev/null 2>&1; then
+    cp_set "Credenciales BD" "OK (Secret postgres-secret existente)"
+    return 0
+  fi
+  if [ "$(k get pvc postgres-data-postgres-0 -o 'jsonpath={.status.phase}' 2>/dev/null)" = Bound ]; then
+    cp_set "Credenciales BD" "ERROR (falta postgres-secret y el PVC postgres-data-postgres-0 tiene datos)"
+    return 2
+  fi
+  # 48 caracteres hex: seguros dentro de DATABASE_URL sin escapar.
+  local pw
+  pw="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 48)"
+  if k create secret generic postgres-secret --from-literal=POSTGRES_USER=postgres \
+      --from-literal=POSTGRES_DB=soloservis --from-literal=POSTGRES_PASSWORD="$pw" >/dev/null 2>&1; then
+    k label secret postgres-secret app.kubernetes.io/name=postgres app.kubernetes.io/component=database >/dev/null 2>&1
+    cp_set "Credenciales BD" "OK (Secret postgres-secret creado con contrasena aleatoria)"
+    return 0
+  fi
+  cp_set "Credenciales BD" "ERROR (no se pudo crear postgres-secret)"
+  return 1
+}
+
 phase4() {
   cp_reset
   local err
@@ -424,7 +451,15 @@ phase4() {
       cp_set "Token interno" "OK (Secret soloservis-internal creado)"
     else cp_set "Token interno" ERROR; fi
   fi
-  step "Aplicando Secret, Services y StatefulSet de PostgreSQL"
+  # Credenciales de PostgreSQL, fuera de git (TAL-98). Va antes del StatefulSet,
+  # que las lee. La contrasena nunca se imprime.
+  ensure_postgres_secret
+  case "$?" in
+    0) ;;
+    2) stop_phase 4 "el PVC de PostgreSQL ya tiene datos y falta postgres-secret: recrealo con la contrasena anterior (k8s/README.md) o borra el PVC si no necesitas los datos" ;;
+    *) stop_phase 4 "kubectl create secret postgres-secret fallo" ;;
+  esac
+  step "Aplicando Services y StatefulSet de PostgreSQL"
   apply_selector app.kubernetes.io/component=database || stop_phase 4 "kubectl apply fallo"
   step "Esperando rollout de postgres (max 5 min)"
   k rollout status statefulset/postgres --timeout=300s 2>&1 | show

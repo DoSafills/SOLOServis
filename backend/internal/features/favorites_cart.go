@@ -1,11 +1,11 @@
 package features
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -22,41 +22,43 @@ func (h *Handler) ListFavorites(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) AddFavorite(w http.ResponseWriter, r *http.Request) {
 	var input favoriteInput
-	if !decode(r, &input) {
-		badRequest(w, r, "invalid request body")
+	if !decode(w, r, &input) {
 		return
 	}
-	input.UserID = sessionUserID(r)
-	userID, err := h.service.UserID(r.Context(), input.UserID)
-	productID, productErr := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
-	if err != nil || productErr != nil {
-		h.dbError(w, r, errors.Join(err, productErr), http.StatusNotFound, "user or product not found")
+	userID, err := h.service.UserID(r.Context(), sessionUserID(r))
+	if err != nil {
+		h.dbError(w, r, err, http.StatusNotFound, "Usuario no encontrado.")
 		return
 	}
 	productKey := chi.URLParam(r, "productId")
-	if len(productKey) == 36 {
+	productID, err := h.service.ProductID(r.Context(), productKey)
+	if err != nil {
+		h.dbError(w, r, err, http.StatusNotFound, "Producto no encontrado.")
+		return
+	}
+	if looksLikeUUID(productKey) {
 		if err := verifyProductService(r.Context(), productKey); err != nil {
-			writeError(w, r, http.StatusServiceUnavailable, "product service is unavailable")
+			h.remoteError(w, r, err, "Product API no está disponible.")
 			return
 		}
 	}
 	_, err = h.db.Exec(r.Context(), `INSERT INTO product_user_interest (user_id,product_id,is_favorite)
 		VALUES ($1,$2,TRUE) ON CONFLICT (user_id,product_id) DO UPDATE SET is_favorite=TRUE,updated_at=NOW()`, userID, productID)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not save favorite")
+		h.dbError(w, r, err, http.StatusInternalServerError, "No se pudo guardar el favorito.")
 		return
 	}
-	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{"productId": chi.URLParam(r, "productId"), "favorite": true})
+	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{"productId": productKey, "favorite": true})
 }
 
 func (h *Handler) GetFavorite(w http.ResponseWriter, r *http.Request) {
 	userID := sessionUserID(r)
 	productID, err := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
 	if err != nil {
-		badRequest(w, r, "valid userId and productId are required")
+		h.dbError(w, r, err, http.StatusNotFound, "Producto no encontrado.")
 		return
 	}
-	h.one(w, r, `SELECT jsonb_build_object('productId',p.public_id,'favorite',i.is_favorite)
+	h.one(w, r, "El producto no está en favoritos.", `SELECT jsonb_build_object('productId',p.public_id,'favorite',i.is_favorite)
 		FROM product p LEFT JOIN product_user_interest i ON i.product_id=p.id AND i.user_id=$2
 		WHERE p.id=$1 AND COALESCE(i.is_favorite,FALSE)`, productID, userID)
 }
@@ -65,12 +67,12 @@ func (h *Handler) DeleteFavorite(w http.ResponseWriter, r *http.Request) {
 	userID := sessionUserID(r)
 	productID, err := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
 	if err != nil {
-		badRequest(w, r, "valid userId and productId are required")
+		h.dbError(w, r, err, http.StatusNotFound, "Producto no encontrado.")
 		return
 	}
 	result, err := h.db.Exec(r.Context(), `UPDATE product_user_interest SET is_favorite=FALSE,updated_at=NOW() WHERE user_id=$1 AND product_id=$2 AND is_favorite`, userID, productID)
 	if err != nil || result.RowsAffected() == 0 {
-		h.dbError(w, r, err, http.StatusNotFound, "favorite not found")
+		h.dbError(w, r, err, http.StatusNotFound, "Favorito no encontrado.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -108,22 +110,24 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	var input cartInput
-	if !decode(r, &input) || input.Quantity <= 0 {
-		badRequest(w, r, "userId, a cart item and a positive quantity are required")
+	if !decode(w, r, &input) {
 		return
 	}
 	productItem := input.ProductID != "" && input.OfferID > 0 &&
 		input.ServiceID == "" && input.ServiceOfferID == 0
 	serviceItem := input.ServiceID != "" && input.ServiceOfferID > 0 &&
 		input.ProductID == "" && input.OfferID == 0
-	if !productItem && !serviceItem {
-		badRequest(w, r, "provide either productId and offerId or serviceId and serviceOfferId")
+
+	var v httpx.Validator
+	v.Check(input.Quantity > 0, "quantity", "min", "quantity debe ser mayor que 0")
+	v.Check(productItem || serviceItem, "productId", "one_of",
+		"Indica productId y offerId, o serviceId y serviceOfferId")
+	if !valid(w, r, &v) {
 		return
 	}
-	input.UserID = sessionUserID(r)
-	userID, err := h.service.UserID(r.Context(), input.UserID)
+	userID, err := h.service.UserID(r.Context(), sessionUserID(r))
 	if err != nil {
-		h.dbError(w, r, err, http.StatusNotFound, "user not found")
+		h.dbError(w, r, err, http.StatusNotFound, "Usuario no encontrado.")
 		return
 	}
 	if serviceItem {
@@ -132,7 +136,7 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := h.db.Begin(r.Context())
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not start cart update")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -143,42 +147,49 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	err = tx.QueryRow(r.Context(), `SELECT p.id,p.public_id::text,o.price,o.shipping_cost,o.available
 		FROM product_offer o JOIN product p ON p.id=o.product_id WHERE o.id=$1`, input.OfferID).
 		Scan(&productID, &productPublicID, &price, &shipping, &available)
-	if err != nil || !available {
-		h.dbError(w, r, err, http.StatusNotFound, "available offer not found")
+	if err != nil {
+		h.referenceError(w, r, err, "offerId")
+		return
+	}
+	if !available {
+		writeError(w, r, http.StatusConflict, "La oferta no está disponible.")
+		return
+	}
+	requestedID, err := h.service.ProductID(r.Context(), input.ProductID)
+	if err != nil {
+		h.referenceError(w, r, err, "productId")
+		return
+	}
+	if requestedID != productID {
+		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: "offerId", Code: "mismatch",
+			Message: "offerId no es una oferta de productId"}})
 		return
 	}
 	if err := verifyProductService(r.Context(), productPublicID); err != nil {
-		writeError(w, r, http.StatusServiceUnavailable, "product service is unavailable")
+		h.remoteError(w, r, err, "Product API no está disponible.")
 		return
 	}
 	var priceOffer struct {
 		ProductID string `json:"productId"`
 	}
 	if err := remoteJSON(r.Context(), "PRICING_API_URL", "http://localhost:8085", http.MethodGet, "/offers/"+strconv.Itoa(int(input.OfferID)), nil, &priceOffer); err != nil {
-		writeError(w, r, http.StatusServiceUnavailable, "pricing service is unavailable")
+		h.remoteError(w, r, err, "Pricing API no está disponible.")
 		return
 	}
 	if priceOffer.ProductID != productPublicID {
-		writeError(w, r, http.StatusConflict, "pricing service returned a different product for this offer")
+		writeError(w, r, http.StatusConflict, "Pricing API devolvió otro producto para esta oferta.")
 		return
-	}
-	if input.ProductID != "" {
-		requestedID, resolveErr := h.service.ProductID(r.Context(), input.ProductID)
-		if resolveErr != nil || requestedID != productID {
-			badRequest(w, r, "offer does not belong to productId")
-			return
-		}
 	}
 	_, err = tx.Exec(r.Context(), `INSERT INTO cart_item (user_id,product_id,offer_id,quantity,saved_price,saved_shipping_cost)
 		VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id,offer_id) DO UPDATE SET
 		quantity=cart_item.quantity+EXCLUDED.quantity,saved_price=EXCLUDED.saved_price,
 		saved_shipping_cost=EXCLUDED.saved_shipping_cost,updated_at=NOW()`, userID, productID, input.OfferID, input.Quantity, price, shipping)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusBadRequest, "could not add offer to cart")
+		h.dbError(w, r, err, http.StatusInternalServerError, "No se pudo agregar la oferta al carrito.")
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		h.dbError(w, r, err, http.StatusBadRequest, "could not add offer to cart")
+		h.dbError(w, r, err, http.StatusInternalServerError, "No se pudo agregar la oferta al carrito.")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{"userId": userID, "productId": productPublicID, "offerId": input.OfferID, "quantity": input.Quantity, "savedPrice": price, "savedShippingCost": shipping})
@@ -187,7 +198,7 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) addServiceCartItem(w http.ResponseWriter, r *http.Request, input cartInput, userID int32) {
 	serviceID, err := h.service.ServiceID(r.Context(), input.ServiceID)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusNotFound, "service not found")
+		h.referenceError(w, r, err, "serviceId")
 		return
 	}
 
@@ -200,11 +211,12 @@ func (h *Handler) addServiceCartItem(w http.ResponseWriter, r *http.Request, inp
 		WHERE so.id=$1 AND so.available AND p.active`, input.ServiceOfferID).
 		Scan(&publicID, &offerServiceID, &price)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusNotFound, "available service offer not found")
+		h.referenceError(w, r, err, "serviceOfferId")
 		return
 	}
 	if offerServiceID != serviceID {
-		badRequest(w, r, "offer does not belong to serviceId")
+		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: "serviceOfferId", Code: "mismatch",
+			Message: "serviceOfferId no es una oferta de serviceId"}})
 		return
 	}
 
@@ -214,7 +226,7 @@ func (h *Handler) addServiceCartItem(w http.ResponseWriter, r *http.Request, inp
 		ON CONFLICT (user_id,service_offer_id) WHERE service_offer_id IS NOT NULL DO NOTHING`,
 		userID, input.ServiceOfferID, input.Quantity, price)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not add service to cart")
+		h.dbError(w, r, err, http.StatusInternalServerError, "No se pudo agregar el servicio al carrito.")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{
@@ -225,15 +237,22 @@ func (h *Handler) addServiceCartItem(w http.ResponseWriter, r *http.Request, inp
 
 func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
-	var input cartInput
-	if !ok || !decode(r, &input) || input.Quantity <= 0 {
-		badRequest(w, r, "valid userId and positive quantity are required")
+	if !ok {
+		badRequest(w, r, "El id del ítem del carrito no es válido.")
 		return
 	}
-	input.UserID = sessionUserID(r)
-	result, err := h.db.Exec(r.Context(), `UPDATE cart_item SET quantity=$3,updated_at=NOW() WHERE id=$1 AND user_id=$2`, id, input.UserID, input.Quantity)
+	var input cartInput
+	if !decode(w, r, &input) {
+		return
+	}
+	var v httpx.Validator
+	v.Check(input.Quantity > 0, "quantity", "min", "quantity debe ser mayor que 0")
+	if !valid(w, r, &v) {
+		return
+	}
+	result, err := h.db.Exec(r.Context(), `UPDATE cart_item SET quantity=$3,updated_at=NOW() WHERE id=$1 AND user_id=$2`, id, sessionUserID(r), input.Quantity)
 	if err != nil || result.RowsAffected() == 0 {
-		h.dbError(w, r, err, http.StatusNotFound, "cart item not found")
+		h.dbError(w, r, err, http.StatusNotFound, "Ítem del carrito no encontrado.")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "quantity": input.Quantity})
@@ -241,14 +260,13 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteCartItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
-	userID := sessionUserID(r)
 	if !ok {
-		badRequest(w, r, "valid id and userId are required")
+		badRequest(w, r, "El id del ítem del carrito no es válido.")
 		return
 	}
-	result, err := h.db.Exec(r.Context(), `DELETE FROM cart_item WHERE id=$1 AND user_id=$2`, id, userID)
+	result, err := h.db.Exec(r.Context(), `DELETE FROM cart_item WHERE id=$1 AND user_id=$2`, id, sessionUserID(r))
 	if err != nil || result.RowsAffected() == 0 {
-		h.dbError(w, r, err, http.StatusNotFound, "cart item not found")
+		h.dbError(w, r, err, http.StatusNotFound, "Ítem del carrito no encontrado.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -258,7 +276,7 @@ func (h *Handler) ClearCart(w http.ResponseWriter, r *http.Request) {
 	userID := sessionUserID(r)
 	_, err := h.db.Exec(r.Context(), `DELETE FROM cart_item WHERE user_id=$1`, userID)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not clear cart")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -268,7 +286,7 @@ func (h *Handler) CartCount(w http.ResponseWriter, r *http.Request) {
 	userID := sessionUserID(r)
 	var count int32
 	if err := h.db.QueryRow(r.Context(), `SELECT COALESCE(SUM(quantity),0)::int FROM cart_item WHERE user_id=$1`, userID).Scan(&count); err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not count cart items")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]int32{"count": count})

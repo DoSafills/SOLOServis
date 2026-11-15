@@ -171,7 +171,12 @@ def create_app(settings: Settings, manager: RunManager | None = None) -> FastAPI
         specs = current_manager(request).specs
         if not specs:
             raise HTTPException(status_code=503, detail="no store specs loaded")
-        return ReadyResponse(status="ready", database=f"ok ({count} runs)", stores=len(specs))
+        return ReadyResponse(
+            status="ready",
+            database=f"ok ({count} runs)",
+            stores=len(specs),
+            ingestion=settings.ingestion_status,
+        )
 
     @app.get(
         "/stores",

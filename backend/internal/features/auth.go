@@ -23,6 +23,9 @@ const (
 	maxEmailLength     = 254
 )
 
+// minPasswordLength es el largo mínimo de contraseña al registrarse.
+const minPasswordLength = 10
+
 type authInput struct {
 	Name         string `json:"name"`
 	Email        string `json:"email"`
@@ -37,21 +40,29 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Name = strings.TrimSpace(input.Name)
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
-	if input.Name == "" || len(input.Name) > maxNameLength || !validEmail(input.Email) ||
-		len(input.Password) < 10 || len(input.Password) > maxPasswordBytes {
-		badRequest(w, r, "name (1-150 characters), valid email and password (10-1024 bytes) are required")
+
+	var v httpx.Validator
+	v.Required("name", input.Name)
+	v.MaxLength("name", input.Name, maxNameLength)
+	v.Check(validEmail(input.Email), "email", "format", "email debe ser un correo válido")
+	v.Check(len(input.Password) >= minPasswordLength, "password", "min",
+		fmt.Sprintf("password debe tener al menos %d caracteres", minPasswordLength))
+	v.Check(len(input.Password) <= maxPasswordBytes, "password", "max_length",
+		fmt.Sprintf("password no puede superar %d bytes", maxPasswordBytes))
+	if !valid(w, r, &v) {
 		return
 	}
+
 	hash, err := passwordHash(input.Password)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "could not secure password")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	var userID int32
 	err = h.db.QueryRow(r.Context(), `INSERT INTO user_account(name,email,password_hash) VALUES ($1,$2,$3) RETURNING id`,
 		input.Name, input.Email, hash).Scan(&userID)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusConflict, "email is already registered")
+		h.dbError(w, r, err, http.StatusConflict, "El email ya está registrado.")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusCreated)
@@ -63,16 +74,28 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
-	if !validEmail(input.Email) || input.Password == "" || len(input.Password) > maxPasswordBytes {
-		badRequest(w, r, "valid email and password (1-1024 bytes) are required")
+
+	var v httpx.Validator
+	v.Required("email", input.Email)
+	if input.Email != "" {
+		v.Check(validEmail(input.Email), "email", "format", "email debe ser un correo válido")
+	}
+	v.Required("password", input.Password)
+	v.Check(len(input.Password) <= maxPasswordBytes, "password", "max_length",
+		fmt.Sprintf("password no puede superar %d bytes", maxPasswordBytes))
+	if !valid(w, r, &v) {
 		return
 	}
 	var userID int32
 	var hash string
 	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE email=$1 AND active`,
 		input.Email).Scan(&userID, &hash)
-	if err != nil || !checkPassword(hash, input.Password) {
-		h.dbError(w, r, err, http.StatusUnauthorized, "invalid credentials")
+	if err != nil {
+		h.dbError(w, r, err, http.StatusUnauthorized, "Credenciales inválidas.")
+		return
+	}
+	if !checkPassword(hash, input.Password) {
+		writeError(w, r, http.StatusUnauthorized, "Credenciales inválidas.")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusOK)
@@ -82,17 +105,17 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 	var name, email string
 	if err := h.db.QueryRow(r.Context(), `SELECT name,email FROM user_account WHERE id=$1 AND active`,
 		userID).Scan(&name, &email); err != nil {
-		writeError(w, r, http.StatusNotFound, "user not found")
+		h.dbError(w, r, err, http.StatusNotFound, "Usuario no encontrado.")
 		return
 	}
 	access, err := newToken()
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not create session")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	refresh, err := newToken()
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not create session")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	refreshExpiry := time.Now().Add(30 * 24 * time.Hour)
@@ -103,7 +126,7 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 		(user_id,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at)
 		VALUES ($1,$2,$3,NOW()+INTERVAL '15 minutes',NOW()+INTERVAL '30 days')`, userID, tokenHash(access), tokenHash(refresh))
 	if err != nil {
-		h.dbError(w, r, err, http.StatusInternalServerError, "could not save session")
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	apiutil.WriteJSON(w, status, map[string]any{"userId": userID, "accessToken": access, "refreshToken": refresh,
@@ -116,20 +139,23 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	if !decodeAuth(w, r, &input) {
 		return
 	}
-	if strings.TrimSpace(input.RefreshToken) == "" {
-		badRequest(w, r, "refreshToken is required")
+	var v httpx.Validator
+	v.Required("refreshToken", input.RefreshToken)
+	if !valid(w, r, &v) {
 		return
 	}
 	var userID int32
 	err := h.db.QueryRow(r.Context(), `DELETE FROM user_session WHERE refresh_token_hash=$1 AND refresh_expires_at>NOW()
 		RETURNING user_id`, tokenHash(input.RefreshToken)).Scan(&userID)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusUnauthorized, "invalid or expired refresh token")
+		h.dbError(w, r, err, http.StatusUnauthorized, "El refresh token no es válido o venció.")
 		return
 	}
 	h.issueTokens(w, r, userID, http.StatusOK)
 }
 
+// Logout cierra la sesión del bearer token o, si no viene, la del
+// refreshToken del body. Sin ninguno de los dos no hay nada que cerrar: 204.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	token := bearerToken(r)
 	if token == "" && r.Body != nil && r.ContentLength != 0 {
@@ -141,13 +167,15 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 	if token != "" {
 		if _, err := h.db.Exec(r.Context(), `DELETE FROM user_session WHERE access_token_hash=$1 OR refresh_token_hash=$1`, tokenHash(token)); err != nil {
-			h.dbError(w, r, err, http.StatusInternalServerError, "could not close session")
+			httpx.WriteInternal(w, r, h.logger, err)
 			return
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// decodeAuth es decode con un límite de body menor (16 KiB): los endpoints de
+// auth son públicos y no necesitan más.
 func decodeAuth(w http.ResponseWriter, r *http.Request, input *authInput) bool {
 	if err := httpx.DecodeJSON(w, r, input, maxAuthBodyBytes); err != nil {
 		httpx.WriteDecodeError(w, r, err)
@@ -167,13 +195,13 @@ func validEmail(value string) bool {
 func (h *Handler) ValidateToken(w http.ResponseWriter, r *http.Request) {
 	token := bearerToken(r)
 	if token == "" {
-		writeError(w, r, http.StatusUnauthorized, "bearer token is required")
+		writeError(w, r, http.StatusUnauthorized, "Falta el bearer token.")
 		return
 	}
 	var userID int32
 	err := h.db.QueryRow(r.Context(), `SELECT user_id FROM user_session WHERE access_token_hash=$1 AND access_expires_at>NOW()`, tokenHash(token)).Scan(&userID)
 	if err != nil {
-		h.dbError(w, r, err, http.StatusUnauthorized, "invalid or expired access token")
+		h.dbError(w, r, err, http.StatusUnauthorized, "El access token no es válido o venció.")
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"valid": true, "userId": userID})

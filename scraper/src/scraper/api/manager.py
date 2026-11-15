@@ -34,6 +34,7 @@ from scraper.errors import (
     TaskError,
     TaskNotFound,
 )
+from scraper.ingestion import IngestionClient
 from scraper.models import (
     RUN_STATUS_FAILED,
     RUN_STATUS_PENDING,
@@ -103,6 +104,11 @@ class RunManager:
         self._completed: deque[int] = deque(
             maxlen=max(50, settings.task_history_limit)
         )
+        if not settings.ingestion_enabled:
+            _log.warning(
+                "ingestion disabled (%s): runs will only land in SQLite and the catalog",
+                settings.ingestion_disabled_reason,
+            )
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -588,6 +594,9 @@ class RunManager:
                         config=job.config,
                         run_id=job.run_id,
                         stop_event=job.stop_event,
+                        # None si falta INGESTION_API_URL o el token: la corrida
+                        # queda solo en SQLite y el catálogo.
+                        ingestion=IngestionClient.from_settings(self.settings),
                         task_id=job.task_id,
                     )
                 except asyncio.CancelledError:

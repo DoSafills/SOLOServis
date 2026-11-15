@@ -21,7 +21,9 @@ spec:
       labels:
         app.kubernetes.io/name: scraper-api
         app.kubernetes.io/component: scraper
-    spec:
+        spec:
+      # Sin service links: el Service scraper-api inyectaría
+      # SCRAPER_API_PORT=tcp://<ip>:8095 y pisaría el puerto del ConfigMap.
       enableServiceLinks: false
       automountServiceAccountToken: false
       securityContext:
