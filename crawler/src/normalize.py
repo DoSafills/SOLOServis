@@ -36,6 +36,7 @@ Four fidelity rules drive the design:
 import json
 import re
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -557,7 +558,7 @@ class Normalizer:
         source.row_factory = sqlite3.Row
         try:
             self._create_target()
-            with sqlite3.connect(self.target_path) as target:
+            with closing(sqlite3.connect(self.target_path)) as target:
                 target.execute("PRAGMA foreign_keys = OFF")
                 target.row_factory = sqlite3.Row
                 self._copy_sources(target, source)
@@ -611,8 +612,9 @@ class Normalizer:
         if self.rebuild:
             Path(self.target_path).unlink(missing_ok=True)
         Path(self.target_path).parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.target_path) as conn:
+        with closing(sqlite3.connect(self.target_path)) as conn:
             conn.executescript(target_ddl())
+            conn.commit()
 
     # -- operational tables -------------------------------------------------
 
