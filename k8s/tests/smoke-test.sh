@@ -12,6 +12,7 @@
 set -u
 
 FRONTEND=http://frontend:80
+SCRAPER=http://scraper-api:8095
 TOKEN=${INTERNAL_API_TOKEN:-}
 pass=0
 fail=0
@@ -53,6 +54,23 @@ if [ "$TOPOLOGIA" = dominios ]; then
   check "ingestion /health" 200 "$INGESTION/health" '"service":"ingestion","database":"connected"'
 else
   check "backend /health" 200 "$COMERCIAL/health" '"service":"all-apis","database":"connected"'
+fi
+
+# El scraper es opcional: si no está desplegado, se omite en vez de fallar.
+echo "== Scraper (API de control, puerto 8095)"
+if [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$SCRAPER/health")" = "000" ]; then
+  echo "OMITIDA: scraper-api no está desplegado"
+else
+  check "scraper /health" 200 "$SCRAPER/health" '"status":"ok"'
+  check "scraper /ready" 200 "$SCRAPER/ready" '"status":"ready"'
+  check "scraper /stores sin token" 401 "$SCRAPER/stores"
+  check "scraper /runs sin token" 401 "$SCRAPER/runs"
+  if [ -n "$TOKEN" ]; then
+    check "scraper /stores con token" 200 "$SCRAPER/stores" '"stores"' "$TOKEN"
+    check "scraper /runs con token" 200 "$SCRAPER/runs" '"runs"' "$TOKEN"
+  else
+    echo "OMITIDA: el Secret soloservis-internal no existe"
+  fi
 fi
 
 # Un producto real para las lecturas que necesitan id.
