@@ -32,7 +32,15 @@ SUPPORTED_SPEC_VERSIONS = frozenset({"1.0", "1.1"})
 FIELD_TYPES = frozenset({"string", "money", "integer", "boolean", "url", "slug"})
 MODES = frozenset({"text", "attr", "html", "list"})
 TRANSFORMS = frozenset(
-    {"trim", "collapse_ws", "lower", "upper", "slugify", "absolute_url"}
+    {
+        "trim",
+        "collapse_ws",
+        "strip_promo_edges",
+        "lower",
+        "upper",
+        "slugify",
+        "absolute_url",
+    }
 )
 PAGINATION_MODES = frozenset({"none", "next-link", "url-template"})
 DEDUPE_KEYS = frozenset({"externalId", "externalUrl"})

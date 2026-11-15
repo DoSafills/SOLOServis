@@ -113,6 +113,41 @@ def test_string_coercion_normalizes_unicode_and_whitespace():
     assert value == "Café No Frost"
 
 
+@pytest.mark.parametrize("store", ("falabella-cl", "ripley-cl", "mercadolibre-cl"))
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    (
+        ("OFERTA: Refrigerador No Frost 300 L", "Refrigerador No Frost 300 L"),
+        ("(Nuevo) Refrigerador No Frost 300 L", "Refrigerador No Frost 300 L"),
+        ("NUEVO Refrigerador No Frost 300 L", "Refrigerador No Frost 300 L"),
+        ("Refrigerador No Frost 300 L - ENVÍO GRATIS", "Refrigerador No Frost 300 L"),
+        ("Refrigerador Nuevo Frost 300 L", "Refrigerador Nuevo Frost 300 L"),
+        ("Nuevo Refrigerador No Frost 300 L", "Nuevo Refrigerador No Frost 300 L"),
+    ),
+)
+def test_promotional_terms_are_removed_only_from_explicit_edges(
+    spec_by_slug, store, title, expected
+):
+    spec = spec_by_slug[store]
+    html = fixture_html(store).replace("Refrigerador No Frost 300 L", title, 1)
+
+    result = _extract(spec, html)
+
+    assert not result.rejected
+    assert result.items[0].product.name == expected
+
+
+@pytest.mark.parametrize("store", ("falabella-cl", "ripley-cl", "mercadolibre-cl"))
+@pytest.mark.parametrize("brand", ("LG", "lg", "L.G."))
+def test_brand_text_is_preserved_for_backend_resolution(spec_by_slug, store, brand):
+    spec = spec_by_slug[store]
+    html = fixture_html(store).replace("Samsung", brand, 1)
+
+    result = _extract(spec, html)
+
+    assert result.items[0].product.brand == brand
+
+
 def test_last_units_boolean_aliases_are_available():
     assert coerce("Últimas unidades", "boolean")[0] is True
     assert coerce("ultimas unidades", "boolean")[0] is True

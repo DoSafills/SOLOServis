@@ -64,6 +64,22 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	notifier := &fakeNotifier{}
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	runs := NewRepository(pool)
+	brandID, err := runs.EnsureBrand(ctx, "LG")
+	must(err, "buscar marca LG")
+	for _, variant := range []string{"lg", "L.G."} {
+		variantID, err := runs.EnsureBrand(ctx, variant)
+		must(err, "buscar variante de marca "+variant)
+		if variantID != brandID {
+			t.Fatalf("EnsureBrand(%q) = %d, quiero el id compartido %d", variant, variantID, brandID)
+		}
+	}
+	var storedBrandName string
+	must(pool.QueryRow(ctx, `SELECT name FROM brand WHERE id = $1`, brandID).Scan(&storedBrandName),
+		"leer nombre original de LG")
+	if storedBrandName != "LG" {
+		t.Fatalf("EnsureBrand reescribió el nombre de marca: %q", storedBrandName)
+	}
+
 	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), notifier, logger), logger)
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)

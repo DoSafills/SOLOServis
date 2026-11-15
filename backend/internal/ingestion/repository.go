@@ -205,11 +205,14 @@ func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string) 
 	return p, err == nil, err
 }
 
-// EnsureBrand devuelve la marca con ese nombre (sin distinguir mayúsculas)
-// o la crea.
+// EnsureBrand devuelve la marca con la misma clave normalizada o la crea.
 func (r *Repository) EnsureBrand(ctx context.Context, name string) (int32, error) {
 	var id int32
-	err := r.db.QueryRow(ctx, `SELECT id FROM brand WHERE lower(name) = lower($1) ORDER BY id LIMIT 1`, name).Scan(&id)
+	err := r.db.QueryRow(ctx, `
+		SELECT id FROM brand
+		WHERE lower(trim(regexp_replace(replace(name, '.', ''), '[[:space:]]+', ' ', 'g'))) =
+		      lower(trim(regexp_replace(replace($1, '.', ''), '[[:space:]]+', ' ', 'g')))
+		ORDER BY id LIMIT 1`, name).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = r.db.QueryRow(ctx, `
 			INSERT INTO brand (name) VALUES ($1)
