@@ -88,7 +88,7 @@ export async function request<T>(
   retryWithRefresh = true,
 ): Promise<T> {
   const session = getStoredAuthSession();
-  const apiName = getApiName(baseUrl);
+  const apiName = getApiName(baseUrl, path);
   const response = await fetchWithServiceError(
     `${baseUrl}${path}`,
     {
@@ -158,15 +158,31 @@ export async function request<T>(
   return (await response.json()) as T;
 }
 
-function getApiName(baseUrl: string): string {
-  if (baseUrl === API_URLS.products) return "Product API";
-  if (baseUrl === API_URLS.stores) return "Store API";
-  if (baseUrl === API_URLS.services) return "Services API";
-  if (baseUrl === API_URLS.auth) return "Auth API";
-  if (baseUrl === API_URLS.favorites) return "Favorites API";
-  if (baseUrl === API_URLS.cart) return "Cart API";
-  if (baseUrl === API_URLS.comparison) return "Comparison API";
-  if (baseUrl === API_URLS.search) return "Search API";
+function getApiName(baseUrl: string, path: string): string {
+  if (path === "/auth" || path.startsWith("/auth/")) return "Auth API";
+  if (
+    path === "/products" ||
+    path.startsWith("/products/") ||
+    path === "/categories" ||
+    path.startsWith("/categories/") ||
+    path === "/product-categories"
+  ) {
+    return "Product API";
+  }
+  if (path === "/stores" || path.startsWith("/stores/")) return "Store API";
+  if (path === "/services" || path.startsWith("/services/")) return "Services API";
+  if (path === "/favorites" || path.startsWith("/favorites/")) return "Favorites API";
+  if (path === "/cart" || path.startsWith("/cart/")) return "Cart API";
+  if (path === "/comparisons" || path.startsWith("/comparisons/")) return "Comparison API";
+  if (path === "/search" || path.startsWith("/search/")) return "Search API";
+  if (baseUrl && baseUrl === API_URLS.products) return "Product API";
+  if (baseUrl && baseUrl === API_URLS.stores) return "Store API";
+  if (baseUrl && baseUrl === API_URLS.services) return "Services API";
+  if (baseUrl && baseUrl === API_URLS.auth) return "Auth API";
+  if (baseUrl && baseUrl === API_URLS.favorites) return "Favorites API";
+  if (baseUrl && baseUrl === API_URLS.cart) return "Cart API";
+  if (baseUrl && baseUrl === API_URLS.comparison) return "Comparison API";
+  if (baseUrl && baseUrl === API_URLS.search) return "Search API";
   return "API";
 }
 

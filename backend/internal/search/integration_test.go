@@ -176,6 +176,44 @@ func TestSearchIntegration_Texto(t *testing.T) {
 	}
 }
 
+func TestPopularProductsIntegration_SearchFrequency(t *testing.T) {
+	f := newSearchFixture(t)
+	ctx := context.Background()
+	articoQuery := "artico " + f.tag + " irrelevante"
+	polarQuery := "polar " + f.tag + " irrelevante"
+	t.Cleanup(func() {
+		if _, err := f.repo.db.Exec(ctx,
+			`DELETE FROM search_query WHERE raw_query = ANY($1::text[])`, []string{articoQuery, polarQuery}); err != nil {
+			t.Errorf("limpieza del historial: %v", err)
+		}
+	})
+	for _, entry := range []struct {
+		query string
+		count int
+		kind  string
+	}{
+		{articoQuery, 2, "product"},
+		{polarQuery, 4, "product"},
+		{articoQuery, 1, "service"},
+	} {
+		for i := 0; i < entry.count; i++ {
+			if _, err := f.repo.db.Exec(ctx,
+				`INSERT INTO search_query (raw_query, search_type) VALUES ($1, $2)`,
+				entry.query, entry.kind); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	results, err := f.repo.PopularProducts(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(names(results, f.tag)); got != "[Polar Ártico Glaciar]" {
+		t.Fatalf("productos populares = %s, se esperaba que la frecuencia ordenara [Polar Ártico Glaciar]", got)
+	}
+}
+
 func TestSearchIntegration_FiltrosYOrden(t *testing.T) {
 	f := newSearchFixture(t)
 	min := "310000"
