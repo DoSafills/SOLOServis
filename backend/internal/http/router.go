@@ -163,6 +163,7 @@ func registerPricingRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) 
 func registerSearchRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	handler := search.NewHandler(search.NewRepository(db), logger)
 	r.Get("/search/products", handler.Products)
+	r.Get("/search/popular-products", handler.PopularProducts)
 	r.Get("/search/facets", handler.Facets)
 	r.Get("/search/categories", handler.Categories)
 	r.Get("/search/brands", handler.Brands)

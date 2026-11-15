@@ -6,7 +6,7 @@ interface Props {
 
 export default function Footer({ navigate }: Props) {
   return (
-    <footer style={{ background: "#0A0A0A", borderTop: "1px solid #2A2A2A" }} className="mt-16">
+    <footer style={{ background: "#111315", borderTop: "1px solid #343B40" }} className="mt-16">
       <div className="max-w-7xl mx-auto px-4 py-12">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
           {/* Brand */}
@@ -19,11 +19,11 @@ export default function Footer({ navigate }: Props) {
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                   <path
                     d="M2 3h12M2 8h8M2 13h10"
-                    stroke="#0A0A0A"
+                    stroke="#181714"
                     strokeWidth="2.5"
                     strokeLinecap="round"
                   />
-                  <circle cx="13" cy="13" r="2" fill="#0A0A0A" />
+                  <circle cx="13" cy="13" r="2" fill="#181714" />
                 </svg>
               </div>
               <span className="font-bold text-lg tracking-tight text-text">
@@ -96,7 +96,7 @@ export default function Footer({ navigate }: Props) {
         </div>
 
         <div
-          style={{ borderTop: "1px solid #2A2A2A" }}
+          style={{ borderTop: "1px solid #343B40" }}
           className="pt-6 flex flex-col sm:flex-row justify-between items-center gap-3"
         >
           <p className="text-xs text-muted">© 2025 SoloServis. Todos los derechos reservados.</p>

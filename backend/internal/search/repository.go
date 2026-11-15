@@ -213,6 +213,86 @@ func (r *Repository) SearchProducts(ctx context.Context, q Query) ([]ProductResu
 	return results, total, attrRows.Err()
 }
 
+const popularProductsSQL = `
+WITH popular_queries AS (
+    SELECT translate(lower(regexp_replace(btrim(raw_query), '\s+', ' ', 'g')),
+                     'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc') AS normalized_query,
+           count(*)::bigint AS searches
+    FROM search_query
+    WHERE COALESCE(search_type, 'product') = 'product'
+      AND btrim(raw_query) <> ''
+    GROUP BY 1
+),
+product_text AS (
+    SELECT p.id,
+           translate(lower(concat_ws(' ', p.name, p.model, p.sku, b.name)),
+                     'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc') AS normalized_text
+    FROM product p
+    LEFT JOIN brand b ON b.id = p.brand_id
+    WHERE p.active
+),
+popular_query_terms AS (
+    SELECT pq.normalized_query, pq.searches, term.word
+    FROM popular_queries pq
+    CROSS JOIN LATERAL regexp_split_to_table(pq.normalized_query, '\s+') AS term(word)
+    WHERE term.word <> '' AND char_length(term.word) > 1
+),
+matched_queries AS (
+    SELECT pt.id, pqt.normalized_query, pqt.searches, count(DISTINCT pqt.word) AS matched_words
+    FROM product_text pt
+    JOIN popular_query_terms pqt ON strpos(pt.normalized_text, pqt.word) > 0
+    GROUP BY pt.id, pqt.normalized_query, pqt.searches
+),
+scores AS (
+    SELECT id, sum(searches * matched_words)::bigint AS relevance_score
+    FROM matched_queries
+    GROUP BY id
+)
+SELECT p.public_id::text, p.name, COALESCE(b.name, ''), COALESCE(p.model, ''), pc.name,
+       cat.slug,
+       (SELECT image_url FROM product_image i WHERE i.product_id = p.id AND i.active
+         ORDER BY i.sort_order, i.id LIMIT 1),
+       best.price::text, best.offers, scores.relevance_score
+FROM scores
+JOIN product p ON p.id = scores.id
+LEFT JOIN brand b ON b.id = p.brand_id
+JOIN product_category pc ON pc.id = p.category_id
+LEFT JOIN categories cat ON cat.id = p.category_ref
+LEFT JOIN LATERAL (
+    SELECT MIN(o.price + CASE WHEN o.shipping_free THEN 0 ELSE COALESCE(o.shipping_cost, 0) END) AS price,
+           count(*) AS offers
+    FROM product_offer o
+    JOIN store s ON s.id = o.store_id AND s.active
+    WHERE o.product_id = p.id AND o.available
+) best ON TRUE
+ORDER BY scores.relevance_score DESC, best.offers DESC, p.created_at DESC, p.id
+LIMIT $1`
+
+// PopularProducts ordena los productos activos según la frecuencia histórica
+// de términos de búsquedas de producto que coinciden con su nombre, modelo, SKU o marca.
+func (r *Repository) PopularProducts(ctx context.Context, limit int) ([]ProductResult, error) {
+	rows, err := r.db.Query(ctx, popularProductsSQL, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := make([]ProductResult, 0, limit)
+	for rows.Next() {
+		result := ProductResult{Attributes: map[string]json.RawMessage{}}
+		var searchCount int64
+		if err := rows.Scan(&result.ID, &result.Name, &result.Brand, &result.Model, &result.Category,
+			&result.CategorySlug, &result.ImageURL, &result.BestPrice, &result.OfferCount, &searchCount); err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 func searchOrder(q Query) (string, bool) {
 	if q.SortAttributeKey == "" {
 		order, ok := orderBySQL[q.Sort]

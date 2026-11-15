@@ -2,7 +2,7 @@
 # los 3 procesos de dominio y el scraper. Es la misma topología "dominios" de
 # Kubernetes (k8s/components/dominios).
 #
-#   docker compose -f docker/compose.yml up -d --build
+#   docker compose --env-file .env -f docker/compose.yml up -d --build
 #
 # Los 3 procesos usan UNA imagen (docker/all-apis/Dockerfile, cmd/all-apis) y
 # solo cambia API_DOMAIN:
@@ -35,7 +35,7 @@ x-dominio: &dominio
 
 x-dominio-env: &dominio-env
   PORT: "8080"
-  DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
+  DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/soloservis}
   FRONTEND_URL: http://localhost:8443
   # Credencial de DESARROLLO, solo para Compose local.
   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-solo-para-compose-local}

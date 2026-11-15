@@ -32,7 +32,7 @@ export type Page =
   | {
       id: "favorites";
     }
-  | { id: "user" }
+  | { id: "user"; section?: "profile" | "favorites" | "history" }
   | { id: "cart" };
 
 export interface StoreOffer {

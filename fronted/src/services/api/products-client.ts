@@ -3,17 +3,7 @@ import { API_URLS, getJson } from "./config";
 import type { ApiProduct } from "./products";
 
 export interface ApiProductDetail extends ApiProduct {
-  images: Array<{ url: string; altText: string }>;
-  offers: Array<{
-    storeId: number;
-    storeName: string;
-    price: string;
-    shippingCost: string;
-    shippingFree: boolean;
-    available: boolean;
-    productUrl: string;
-  }>;
-  specifications: ApiProductSpecification[];
+  specifications?: ApiProductSpecification[];
 }
 
 export interface ApiProductSpecification {
@@ -37,8 +27,8 @@ function buildSpecs(
 }
 
 export function toProduct(product: ApiProduct | ApiProductDetail): Product {
-  const detail = "images" in product ? product : undefined;
-  const images = detail?.images.map((image) => image.url) ?? [];
+  const detail = "specifications" in product ? product : undefined;
+  const images = (product.images ?? []).map((image) => image.url);
   return {
     id: product.id,
     name: product.name,
@@ -52,16 +42,16 @@ export function toProduct(product: ApiProduct | ApiProductDetail): Product {
     description: product.description,
     rating: product.rating,
     reviewCount: product.reviewCount,
-    specs: buildSpecs(product.model, detail?.specifications ?? []),
-    offers:
-      detail?.offers.map((offer) => ({
+    specs: product.specs ?? buildSpecs(product.model, detail?.specifications ?? []),
+    offers: (product.offers ?? []).map((offer) => ({
+        offerId: offer.offerId,
         storeId: String(offer.storeId),
         storeName: offer.storeName,
         price: Number(offer.price) || 0,
         available: offer.available,
         shipping: offer.shippingFree ? 0 : Number(offer.shippingCost) || null,
         url: offer.productUrl,
-      })) ?? [],
+      })),
     priceHistory: [],
     offerPriceHistory: [],
     tags: [],

@@ -13,7 +13,6 @@ import ServicesPage from "./pages/services/ServicesPage";
 import ServiceDetailPage from "./pages/services/ServiceDetailPage";
 import ServiceComparisonPage from "./pages/services/ServiceComparisonPage";
 import StoresPage from "./pages/stores/StoresPage";
-import FavoritesPage from "./pages/user/FavoritesPage";
 import UserPage from "./pages/user/UserPage";
 import CartPage from "./pages/user/CartPage";
 import { areProductCategoriesCompatible } from "./pages/products/productComparisonUtils";
@@ -29,6 +28,7 @@ import {
   getFavoriteProductIds,
   getFavoriteServiceIds,
   getSearchHistory,
+  hasStoredAuthSession,
   loginAccount,
   logoutAccount,
   registerAccount,
@@ -43,6 +43,7 @@ import type { AuthSession, AuthUser, SearchHistoryEntry } from "./services/api/p
 const SERVICE_COMPARISON_KEY = "soloservice.service-comparison";
 const PRODUCT_COMPARISON_PRODUCTS_KEY = "soloservice.product-comparison-products";
 const GUEST_CART_KEY = "soloservice.guest-cart";
+const SEARCH_HISTORY_SAVE_ERROR_PREFIX = "No se pudo guardar la búsqueda en el historial:";
 
 interface StoredProductCartEntry {
   type: "product";
@@ -194,6 +195,14 @@ export default function App() {
   const userId = user?.userId ?? null;
   const activeUserId = useRef<number | null>(null);
 
+  const clearExpiredAuthState = () => {
+    activeUserId.current = null;
+    setUser(null);
+    setFavorites(new Set());
+    setSearchHistory([]);
+    setCart([]);
+  };
+
   useEffect(() => {
     let cancelled = false;
     localStorage.removeItem("soloservice.guest-key");
@@ -254,6 +263,10 @@ export default function App() {
       };
     }
 
+    if (!hasStoredAuthSession(userId)) {
+      return;
+    }
+
     const loadAccountData = async () => {
       const [productFavorites, serviceFavorites, cartResult, historyResult] =
         await Promise.allSettled([
@@ -264,6 +277,11 @@ export default function App() {
         ]);
 
       if (cancelled) return;
+      if (!hasStoredAuthSession(userId)) {
+        clearExpiredAuthState();
+        return;
+      }
+
       const failed: string[] = [];
       const loadedFavorites = new Set<string>();
       if (productFavorites.status === "fulfilled") {
@@ -351,11 +369,16 @@ export default function App() {
 
   const navigate = (next: Page) => {
     setPage(next);
-    if (
-      userId &&
-      (next.id === "search-products" || next.id === "search-services") &&
-      next.query.trim()
-    ) {
+    const isSearchNavigation = next.id === "search-products" || next.id === "search-services";
+    if (isSearchNavigation && (!userId || !hasStoredAuthSession(userId))) {
+      if (userId) clearExpiredAuthState();
+      setPersistenceError((current) =>
+        current?.startsWith(SEARCH_HISTORY_SAVE_ERROR_PREFIX) ? null : current,
+      );
+      return;
+    }
+
+    if (isSearchNavigation && userId && next.query.trim()) {
       const type = next.id === "search-services" ? "service" : "product";
       void addSearchHistory(userId, next.query.trim(), type)
         .then(() => getSearchHistory(userId))
@@ -364,8 +387,13 @@ export default function App() {
         })
         .catch((error: unknown) => {
           if (activeUserId.current === userId) {
+            if (!hasStoredAuthSession(userId)) {
+              clearExpiredAuthState();
+              setPersistenceError(null);
+              return;
+            }
             setPersistenceError(
-              `No se pudo guardar la búsqueda en el historial: ${error instanceof Error ? error.message : "error desconocido"}`,
+              `${SEARCH_HISTORY_SAVE_ERROR_PREFIX} ${error instanceof Error ? error.message : "error desconocido"}`,
             );
           }
         });
@@ -406,7 +434,11 @@ export default function App() {
     localStorage.removeItem("soloservice.service-favorites");
     activeUserId.current = session.userId;
     setUser(session);
-    setPage({ id: "user" });
+    setPage(
+      page.id === "favorites" || (page.id === "user" && page.section === "favorites")
+        ? { id: "user", section: "favorites" }
+        : { id: "user" },
+    );
     if (!cartSyncFailed) setPersistenceError(null);
   };
 
@@ -617,7 +649,8 @@ export default function App() {
   }, [page]);
 
   const toggleFavorite = async (id: string, kind: "product" | "service" = "product") => {
-    if (!userId) {
+    if (!userId || !hasStoredAuthSession(userId)) {
+      if (userId) clearExpiredAuthState();
       setPersistenceError("Inicia sesión o crea una cuenta para guardar tus favoritos.");
       setPage({ id: "user" });
       return;
@@ -635,6 +668,12 @@ export default function App() {
       });
       setPersistenceError(null);
     } catch (error) {
+      if (!hasStoredAuthSession(userId)) {
+        clearExpiredAuthState();
+        setPersistenceError("Inicia sesión o crea una cuenta para guardar tus favoritos.");
+        setPage({ id: "user" });
+        return;
+      }
       setPersistenceError(
         `No se pudo actualizar el favorito: ${error instanceof Error ? error.message : "error desconocido"}`,
       );
@@ -763,11 +802,16 @@ export default function App() {
     onToggleCompare: toggleCompare,
     onToggleProductCompare: toggleProductCompare,
   };
+  const homeProps = {
+    ...sharedProps,
+    authenticated: Boolean(user),
+    searchHistory,
+  };
 
   const renderPage = () => {
     switch (page.id) {
       case "home":
-        return <HomePage {...sharedProps} />;
+        return <HomePage {...homeProps} />;
       case "product-categories":
         return <ProductCategoriesPage navigate={navigate} />;
       case "service-categories":
@@ -858,9 +902,10 @@ export default function App() {
           <StoresPage
             navigate={navigate}
             favorites={favorites}
-            compareList={compareList}
+            productCompareList={productCompareList}
+            cartProductIds={cartProductIds}
             onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
+            onToggleProductCompare={toggleProductCompare}
             onAddToCart={addToCart}
           />
         );
@@ -870,28 +915,40 @@ export default function App() {
             navigate={navigate}
             storeId={page.storeId}
             favorites={favorites}
-            compareList={compareList}
+            productCompareList={productCompareList}
+            cartProductIds={cartProductIds}
             onToggleFavorite={toggleFavorite}
-            onToggleCompare={toggleCompare}
+            onToggleProductCompare={toggleProductCompare}
             onAddToCart={addToCart}
           />
         );
       case "favorites":
         return (
-          <FavoritesPage
+          <UserPage
             navigate={navigate}
+            section="favorites"
+            user={user}
+            favoritesCount={favorites.size}
             favorites={favorites}
             authenticated={Boolean(user)}
+            history={searchHistory}
             onToggleFavorite={toggleFavorite}
+            onLogin={handleLogin}
+            onRegister={handleRegister}
+            onLogout={handleLogout}
           />
         );
       case "user":
         return (
           <UserPage
             navigate={navigate}
+            section={page.section}
             user={user}
             favoritesCount={favorites.size}
+            favorites={favorites}
+            authenticated={Boolean(user)}
             history={searchHistory}
+            onToggleFavorite={toggleFavorite}
             onLogin={handleLogin}
             onRegister={handleRegister}
             onLogout={handleLogout}
@@ -907,7 +964,7 @@ export default function App() {
           />
         );
       default:
-        return <HomePage {...sharedProps} />;
+        return <HomePage {...homeProps} />;
     }
   };
 
