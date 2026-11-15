@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -22,6 +23,20 @@ func NewHandler(repository *Repository, logger *slog.Logger) *Handler {
 	return &Handler{
 		repository: repository,
 		logger:     logger,
+	}
+}
+
+func (h *Handler) writeJSON(w http.ResponseWriter, r *http.Request, result any) {
+	var buffer bytes.Buffer
+
+	if err := json.NewEncoder(&buffer).Encode(result); err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(buffer.Bytes()); err != nil && h.logger != nil {
+		h.logger.Error("error writing service response", "error", err)
 	}
 }
 
@@ -59,8 +74,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(result)
+	h.writeJSON(w, r, result)
 }
 
 func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +122,5 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 		history,
 	)
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(result)
+	h.writeJSON(w, r, result)
 }
