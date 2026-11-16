@@ -171,11 +171,7 @@ export default function ServicesPage({
   );
   const [filtersByMicrocategory, setFiltersByMicrocategory] = useSessionStorageState<
     Record<string, ServiceFilterState>
-  >(
-    `${sessionKey}:filters`,
-    () => ({}),
-    serviceFiltersSessionCodec,
-  );
+  >(`${sessionKey}:filters`, () => ({}), serviceFiltersSessionCodec);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useSessionStorageState(
     `${sessionKey}:page`,
