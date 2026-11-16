@@ -29,6 +29,7 @@
       "product.name": {
         "selector": ".pod-details .copy2.primary",
         "type": "string",
+        "transform": "strip_promo_edges",
         "required": true
       },
       "product.brand": {

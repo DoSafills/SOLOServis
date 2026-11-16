@@ -4,6 +4,29 @@ Léelo completo antes de modificar el proyecto. Vale para cualquier agente (Clau
 
 **Fuente de verdad:** el código. Si este archivo o un README lo contradicen, gana el código: avisa y corrige el documento en el mismo cambio.
 
+## Arnés de agentes
+
+Este archivo es el mapa. El detalle operativo de cada área vive en skills, con disparador, comandos verificados y definición de término:
+
+| Skill | Cuándo se usa |
+| --- | --- |
+| `backend-api` | Endpoints, handlers, repositorios y tests de Go |
+| `scraper-spec` | Scraper, tiendas nuevas, extracción e ingesta |
+| `frontend-ui` | React, Vite y Tailwind en `fronted/` |
+| `database-migrations` | Esquema, `migration_order.txt` y sqlc |
+| `k8s-deploy` | Despliegue, manifiestos y pod de test |
+| `linear-workflow` | Estados, comentarios y enlaces de tareas TAL |
+| `quality-gate` | Qué correr antes de un commit o PR, y fallas conocidas |
+
+El contenido canónico está en `.opencode/skills/`; `.claude/skills/` es su espejo porque cada agente lee de su propio directorio. Si editas uno, sincroniza el otro:
+
+```bash
+./scripts/check-skills.sh --sync     # .opencode -> .claude
+./scripts/check-skills.sh            # falla si divergieron
+```
+
+No repitas en un skill lo que ya dice este archivo: aquí va **qué** se hace y por qué; en el skill, **cómo** se hace en ese directorio.
+
 ---
 
 ## 1. Reglas que no se rompen
@@ -206,7 +229,7 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 
 **Pendiente:**
 - Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra fallas: 2 tests del crawler en Windows (conexión SQLite sin cerrar) y `pnpm format:check` (archivos con CRLF).
-- Sin CI y sin tests en el frontend.
+- CI en `.github/workflows/ci.yml` (TAL-235): backend, scraper, frontend, skills y compose. El frontend sigue sin tests.
 - El frontend no tiene pantallas para seguimiento de precios ni notificaciones.
 - Mercado Libre bloqueado por anti-bots; evaluar su API oficial.
 - Que ingestion resuelva la tienda por nombre en vez de por ID.

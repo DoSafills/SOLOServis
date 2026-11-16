@@ -59,6 +59,12 @@ func ValidateAttributes(defs []Attribute, input map[string]json.RawMessage) ([]V
 			}
 			continue
 		}
+		if isMissingAttribute(raw) {
+			if def.Required {
+				v.Add(field, "required", field+" es obligatorio")
+			}
+			continue
+		}
 
 		text, ok := normalizeValue(&v, field, def, raw)
 		if !ok {
@@ -202,6 +208,19 @@ func parseString(raw json.RawMessage) (string, bool) {
 
 func isJSONNull(raw json.RawMessage) bool {
 	return string(bytes.TrimSpace(raw)) == "null"
+}
+
+func isMissingAttribute(raw json.RawMessage) bool {
+	s, ok := parseString(raw)
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(strings.Join(strings.Fields(s), " ")) {
+	case "n/a", "na", "-", "no aplica":
+		return true
+	default:
+		return false
+	}
 }
 
 func formatNumber(f float64) string {

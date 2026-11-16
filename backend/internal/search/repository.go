@@ -88,7 +88,7 @@ matched AS (
 
 // Ordenes permitidos: el handler solo acepta estas claves.
 var orderBySQL = map[string]string{
-	"name":       "p.name ASC, p.id ASC",
+	"name":       `translate(lower(p.name), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc') COLLATE "C" ASC, p.id ASC`,
 	"price_asc":  "m.best_price ASC NULLS LAST, p.id ASC",
 	"price_desc": "m.best_price DESC NULLS LAST, p.id ASC",
 	"brand_asc":  "b.name ASC NULLS LAST, p.id ASC",
