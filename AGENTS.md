@@ -138,7 +138,7 @@ Norma completa: `docs/estandares/TAL-78-estandar-api.md`. Lo esencial:
 ## 8. Base de datos
 
 - Las migraciones están en `backend/database/migrations/` y **el orden lo da `migration_order.txt`**, no el nombre del archivo (hay prefijos repetidos como `005_` y `016_`). Una migración nueva se agrega al final de ese archivo.
-- Sin `BEGIN`/`COMMIT` propios: el Job las aplica en una transacción y registra su checksum en `schema_migrations`. Editar una aplicada rompe el checksum.
+- El runner (`k8s/base/migrations/migrate.sh`) **no** envuelve cada archivo en una transacción: una migración que deba aplicarse completa o nada lleva su propio `BEGIN`/`COMMIT` o un solo bloque `DO`. El runner registra el checksum en `schema_migrations`; editar una aplicada rompe el checksum.
 - No dependas de IDs autogenerados fijos: los de `store` cambian según el entorno.
 - Si cambias una consulta de `database/queries/`, regenera con `sqlc`.
 

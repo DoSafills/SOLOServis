@@ -579,6 +579,14 @@ Este procedimiento:
 
 Una migración nueva debe incorporarse tanto al directorio de migraciones como al manifiesto. El runner rechaza cualquier `.sql` que no figure en `migration_order.txt`.
 
+El mismo runner admite una base remota (por ejemplo Neon) mediante `DATABASE_URL`. En PowerShell, configura `NEON_DATABASE_URL` desde tu gestor de secretos y ejecuta desde la raíz del repositorio:
+
+```powershell
+$env:DATABASE_URL = $env:NEON_DATABASE_URL
+if (-not $env:DATABASE_URL) { throw "NEON_DATABASE_URL no está configurada." }
+docker compose -f docker/compose.yml run --rm --no-deps -e DATABASE_URL postgres bash /docker-entrypoint-initdb.d/001_migrations.sh
+```
+
 ## 10.2 Reglas para crear migraciones
 
 - No modificar migraciones que ya fueron aplicadas.
@@ -591,11 +599,11 @@ Una migración nueva debe incorporarse tanto al directorio de migraciones como a
 
 **Importante:** una base antigua sin registro de migraciones requiere establecer un baseline verificado antes de utilizar el runner. No debe asumirse que su esquema coincide con todas las migraciones existentes.
 
-## 10.3 Aplicación en Docker Compose
+## 10.3 Aplicación manual y bases remotas
 
-Docker aplica el runner automáticamente al inicializar un volumen PostgreSQL vacío. Para un volumen existente con `schema_migrations`, ejecuta el runner para aplicar las versiones pendientes. Una base antigua con esquema pero sin registro se rechaza intencionalmente: primero requiere establecer un baseline verificado; el runner no asume que migraciones o seeds se hayan aplicado.
+Docker aplica el runner automáticamente al inicializar un volumen PostgreSQL vacío. Para un volumen existente con `schema_migrations`, se ejecuta el runner para aplicar las versiones pendientes. Una base antigua con esquema pero sin registro se rechaza intencionalmente: primero requiere establecer un baseline verificado; el runner no asume que migraciones o seeds se hayan aplicado.
 
-Aplicación manual de migraciones puntuales (PowerShell, desde la raíz del repositorio):
+Para aplicar manualmente migraciones puntuales sobre el contenedor local (por ejemplo, las de categorías de TAL-71), desde la raíz del repositorio en PowerShell:
 
 ```powershell
 docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/007_service_cart.sql
@@ -839,6 +847,7 @@ Las APIs distribuyen sus rutas mediante prefijos.
 | API | Prefijo |
 |---|---|
 | Product | `/products`, `/product-categories`, `/categories` |
+| Product (ilustraciones) | `GET /categories/artworks/{key}`: SVG de la categoría, desde la tabla `category_artworks` (migración `018_category_artworks.sql`) |
 | Store | `/stores` |
 | Service | `/services` |
 | User | `/users` |
@@ -924,6 +933,20 @@ docker compose -f docker/compose.yml down
 ```
 
 No utilizar `down -v` cuando se necesite conservar los datos persistidos.
+
+## 16.4 Modo anterior (un contenedor por API)
+
+`docker/compose.yml` levanta la arquitectura consolidada (TAL-109), con una sola imagen (`docker/all-apis/Dockerfile`, que compila `cmd/all-apis`) para los tres dominios. `API_DOMAIN` decide qué APIs registra cada proceso.
+
+| Servicio | `API_DOMAIN` | Puertos en la máquina local |
+|---|---|---|
+| `comercial` | `comercial` | 8081, 8082, 8083, 8085, 8086, 8087, 8089, 8090, 8091, 8092 y 8093 |
+| `usuarios` | `usuarios` | 8084 y 8088 |
+| `ingestion` | `ingestion` | 8094 |
+
+- Dentro de un dominio las llamadas entre APIs van a `127.0.0.1:8080` (lo configura el binario). La única llamada entre dominios es de `ingestion` a notification: `NOTIFICATION_API_URL=http://comercial:8080`.
+- El modo anterior, con un contenedor por API, se levanta con `docker compose -f docker/compose.microservicios.yml up -d --build` y usa los 14 `docker/<api>/Dockerfile`.
+- No levantar los dos modos a la vez: comparten puertos y el contenedor de PostgreSQL.
 
 ---
 
