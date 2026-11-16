@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 
 import pytest
-
 from conftest import fixture_html
 
 from scraper.extract.engine import extract_page
