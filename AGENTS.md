@@ -229,7 +229,7 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 
 **Pendiente:**
 - Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra fallas: 2 tests del crawler en Windows (conexión SQLite sin cerrar) y `pnpm format:check` (archivos con CRLF).
-- Sin CI y sin tests en el frontend.
+- CI en `.github/workflows/ci.yml` (TAL-235): backend, scraper, frontend, skills y compose. El frontend sigue sin tests.
 - El frontend no tiene pantallas para seguimiento de precios ni notificaciones.
 - Mercado Libre bloqueado por anti-bots; evaluar su API oficial.
 - Que ingestion resuelva la tienda por nombre en vez de por ID.
