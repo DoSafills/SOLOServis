@@ -31,6 +31,19 @@ type fakeRepository struct {
 	gotSlug   string
 }
 
+type fakeArtworkRepository struct {
+	svg   string
+	err   error
+	key   string
+	calls int
+}
+
+func (f *fakeArtworkRepository) GetArtwork(_ context.Context, key string) (string, error) {
+	f.calls++
+	f.key = key
+	return f.svg, f.err
+}
+
 func (f *fakeRepository) List(_ context.Context, params ListParams) ([]CategorySummary, int64, error) {
 	f.listCalls++
 	f.gotParams = params
@@ -61,6 +74,17 @@ func serve(t *testing.T, repo Repository, target string) (*httptest.ResponseReco
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 	return rec, logs.String()
+}
+
+func serveArtwork(t *testing.T, repo ArtworkRepository, target string) *httptest.ResponseRecorder {
+	t.Helper()
+	h := NewArtworkHandler(repo, slog.Default())
+	r := chi.NewRouter()
+	r.Get("/categories/artworks/{key}", h.GetArtwork)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+	return rec
 }
 
 func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) httpx.Problem {
@@ -139,6 +163,43 @@ func TestList_SinResultadosDevuelveArregloVacio(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"items":[]`) {
 		t.Fatalf("items debe ser [] y no null: %s", rec.Body.String())
 	}
+}
+
+func TestGetArtwork_CasoFeliz(t *testing.T) {
+	repo := &fakeArtworkRepository{svg: `<svg xmlns="http://www.w3.org/2000/svg"></svg>`}
+
+	rec := serveArtwork(t, repo, "/categories/artworks/air-fryer")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, quiero 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/svg+xml; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := rec.Body.String(); got != repo.svg {
+		t.Fatalf("body = %q, quiero %q", got, repo.svg)
+	}
+	if repo.key != "air-fryer" || repo.calls != 1 {
+		t.Fatalf("clave = %q, consultas = %d", repo.key, repo.calls)
+	}
+}
+
+func TestGetArtwork_NoEncontradoYClaveInvalida(t *testing.T) {
+	t.Run("no encontrado", func(t *testing.T) {
+		repo := &fakeArtworkRepository{err: ErrArtworkNotFound}
+		rec := serveArtwork(t, repo, "/categories/artworks/unknown")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, quiero 404", rec.Code)
+		}
+	})
+
+	t.Run("clave invalida", func(t *testing.T) {
+		repo := &fakeArtworkRepository{}
+		rec := serveArtwork(t, repo, "/categories/artworks/Bad_Key")
+		if rec.Code != http.StatusBadRequest || repo.calls != 0 {
+			t.Fatalf("status = %d, consultas = %d; quiero 400 y ninguna consulta", rec.Code, repo.calls)
+		}
+	})
 }
 
 func TestList_ParametrosInvalidos(t *testing.T) {

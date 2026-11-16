@@ -70,12 +70,20 @@ class TestTransforms:
         ("$  1.349.990", Decimal("1349990")),
         ("1.234.567", Decimal("1234567")),
         ("1.234.567,89", Decimal("1234567.89")),
+        ("Desde $1.299.990", Decimal("1299990")),
+        ("1.299.990 por 12 cuotas", Decimal("1299990")),
     ])
     def test_to_number(self, raw, expected):
         assert to_number(raw, Column("x", "NUMERIC(12,2)"), None) == expected
 
     def test_to_number_rejects_nonsense(self):
         assert to_number("consultar", Column("x", "NUMERIC(12,2)"), None) is None
+
+    def test_price_scale_rejects_more_than_two_decimals(self):
+        column = Column("price", "NUMERIC(12,2)", transform="price")
+        value, errors = column.coerce("1.299.990,555")
+        assert value is None
+        assert any("exceeds NUMERIC(12,2) scale" in error for error in errors)
 
     def test_to_integer_rejects_fractions(self):
         with pytest.raises(ValueError):

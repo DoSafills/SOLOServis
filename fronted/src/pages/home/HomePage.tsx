@@ -3,13 +3,17 @@ import type { FormEvent } from "react";
 import { UI_TEXT } from "../../constants/uiText";
 import type { Page, Product, Service, StoreOffer } from "../../types";
 import { PRODUCT_TYPES, SERVICE_CATEGORY_ICONS } from "../../constants/productCatalog";
-import type { SearchHistoryEntry } from "../../services/api/personalization";
+import {
+  formatSearchHistoryQuery,
+  type SearchHistoryEntry,
+} from "../../services/api/personalization";
 
 import { getProducts, getServices } from "../../services/api/api";
 import { getPopularProducts, type SearchProductResult } from "../../services/api/search";
 import ProductCard from "../../components/products/ProductCard";
 import ServiceCard from "../../components/services/ServiceCard";
-import CategoryIcon from "../../components/common/CategoryIcon";
+import CategoryIcon, { type CategoryIconName } from "../../components/common/CategoryIcon";
+import { ProductSkeletonGrid, ServiceSkeletonGrid, Skeleton } from "../../components/common/ui";
 
 const productCategories = PRODUCT_TYPES;
 
@@ -24,22 +28,57 @@ const serviceCategories = [
   { name: UI_TEXT.categories.education, icon: SERVICE_CATEGORY_ICONS.education, color: "#D1A85A" },
 ];
 
-const featuredCategories = [
-  ...productCategories.map((category) => ({
-    ...category,
-    kind: "product" as const,
-  })),
-  ...serviceCategories.map((category) => ({ ...category, kind: "service" as const })),
-];
-
 const POPULAR_PRODUCTS_AUTOPLAY_MS = 7000;
 const MAX_RECENT_SEARCHES = 5;
 const MAX_RECENT_SEARCH_LABEL_LENGTH = 24;
+
+function CategoryLinks({
+  title,
+  categories,
+}: {
+  title: string;
+  categories: { name: string; icon: CategoryIconName; onClick: () => void }[];
+}) {
+  return (
+    <div className="mb-5 text-center">
+      <h3 className="mb-3 text-sm font-semibold text-muted">{title}</h3>
+      <div className="flex flex-wrap justify-center gap-2">
+        {categories.map((category) => (
+          <button
+            key={category.name}
+            onClick={category.onClick}
+            style={{
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-bd)",
+              boxShadow: "0 10px 25px rgba(0, 0, 0, 0.2)",
+            }}
+            className="group inline-flex items-center gap-2 rounded-full px-3 py-2 transition-all duration-200 hover:-translate-y-0.5 hover:border-prime"
+          >
+            <span
+              className="flex h-7 w-7 items-center justify-center rounded-full"
+              style={{
+                background: "rgba(209, 168, 90, 0.12)",
+                color: "#D1A85A",
+                boxShadow: "inset 0 0 0 1px rgba(209, 168, 90, 0.35)",
+              }}
+            >
+              <CategoryIcon name={category.icon} className="h-4 w-4" />
+            </span>
+            <span className="text-[11px] font-semibold text-text group-hover:text-prime">
+              {category.name}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   navigate: (page: Page) => void;
   authenticated: boolean;
   searchHistory: SearchHistoryEntry[];
+  accountDataLoading: boolean;
   favorites: Set<string>;
   compareList: Set<string>;
   productCompareList: Set<string>;
@@ -56,6 +95,7 @@ export default function HomePage({
   navigate,
   authenticated,
   searchHistory,
+  accountDataLoading,
   favorites,
   compareList,
   productCompareList,
@@ -202,8 +242,8 @@ export default function HomePage({
       <section
         style={{
           background:
-            "radial-gradient(circle at top, rgba(209, 168, 90, 0.12), transparent 32%), linear-gradient(135deg, #111315 0%, #191D20 55%, #111315 100%)",
-          borderBottom: "1px solid #343B40",
+            "radial-gradient(circle at top, rgba(209, 168, 90, 0.12), transparent 32%), linear-gradient(135deg, var(--color-bg) 0%, var(--color-surface) 55%, var(--color-bg) 100%)",
+          borderBottom: "1px solid var(--color-bd)",
         }}
         className="relative overflow-hidden py-20 px-4"
       >
@@ -248,8 +288,8 @@ export default function HomePage({
                 aria-invalid={Boolean(searchError)}
                 aria-describedby={searchError ? "home-search-error" : undefined}
                 style={{
-                  background: "#191D20",
-                  border: "1px solid #343B40",
+                  background: "var(--color-surface)",
+                  border: "1px solid var(--color-bd)",
                 }}
                 className="w-full pl-11 pr-4 py-3.5 rounded-2xl text-sm text-text placeholder:text-muted focus:outline-none focus:border-prime transition-colors duration-200 shadow-[0_12px_30px_rgba(0,0,0,0.25)]"
               />
@@ -257,7 +297,7 @@ export default function HomePage({
             <button
               type="submit"
               style={{
-                background: "#D1A85A",
+                background: "var(--color-action)",
                 color: "#181714",
                 boxShadow: "0 12px 30px rgba(209, 168, 90, 0.2)",
               }}
@@ -272,22 +312,35 @@ export default function HomePage({
             </p>
           )}
 
-          {recentSearches.length > 0 && (
+          {authenticated && accountDataLoading && (
+            <div
+              role="status"
+              aria-label="Cargando búsquedas recientes"
+              className="mt-5 flex flex-wrap items-center justify-center gap-2"
+            >
+              <Skeleton className="h-3 w-36" />
+              {[0, 1, 2].map((item) => (
+                <Skeleton key={item} className="h-7 w-24 rounded-full" />
+              ))}
+            </div>
+          )}
+          {!accountDataLoading && recentSearches.length > 0 && (
             <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
               <span className="w-full text-center text-xs text-muted">Tus búsquedas recientes</span>
               {recentSearches.map((entry) => {
                 const recentQuery = entry.query.trim();
+                const formattedQuery = formatSearchHistoryQuery(recentQuery);
                 const label =
-                  recentQuery.length > MAX_RECENT_SEARCH_LABEL_LENGTH
-                    ? `${recentQuery.slice(0, MAX_RECENT_SEARCH_LABEL_LENGTH - 1).trimEnd()}…`
-                    : recentQuery;
+                  formattedQuery.length > MAX_RECENT_SEARCH_LABEL_LENGTH
+                    ? `${formattedQuery.slice(0, MAX_RECENT_SEARCH_LABEL_LENGTH - 1).trimEnd()}…`
+                    : formattedQuery;
 
                 return (
                   <button
                     key={entry.id}
                     type="button"
-                    title={recentQuery}
-                    aria-label={`Buscar ${entry.type === "service" ? "servicios" : "productos"}: ${recentQuery}`}
+                    title={formattedQuery}
+                    aria-label={`Buscar ${entry.type === "service" ? "servicios" : "productos"}: ${formattedQuery}`}
                     onClick={() =>
                       navigate({
                         id: entry.type === "service" ? "search-services" : "search-products",
@@ -295,9 +348,9 @@ export default function HomePage({
                       })
                     }
                     style={{
-                      background: "#191D20",
-                      border: "1px solid #343B40",
-                      color: "#F1F2EF",
+                      background: "var(--color-surface)",
+                      border: "1px solid var(--color-bd)",
+                      color: "var(--color-text)",
                     }}
                     className="px-3 py-1.5 rounded-full text-xs hover:border-prime hover:text-prime transition-all"
                   >
@@ -313,8 +366,8 @@ export default function HomePage({
       <section
         aria-labelledby="popular-products-title"
         style={{
-          background: "#111315",
-          borderBottom: "1px solid #343B40",
+          background: "var(--color-bg)",
+          borderBottom: "1px solid var(--color-bd)",
         }}
         className="px-4 py-8"
       >
@@ -329,9 +382,13 @@ export default function HomePage({
           </div>
 
           {popularProductsLoading && (
-            <p className="py-4 text-sm text-muted" role="status">
-              Cargando productos más buscados...
-            </p>
+            <div
+              role="status"
+              aria-label="Cargando productos destacados"
+              className="mx-auto max-w-6xl"
+            >
+              <Skeleton className="h-[90vw] max-h-[360px] w-full rounded-[2rem] sm:h-[320px] lg:h-[360px]" />
+            </div>
           )}
           {popularProductsError && (
             <div
@@ -373,7 +430,7 @@ export default function HomePage({
                 role="group"
                 aria-roledescription="diapositiva"
                 aria-label={`Producto ${popularProductIndex + 1} de ${popularProducts.length}: ${activePopularProduct.name}`}
-                className="relative isolate aspect-[4/5] w-full overflow-hidden rounded-[2rem] border border-bd bg-surface shadow-2xl shadow-black/30 ring-1 ring-white/5 sm:aspect-[16/9] sm:min-h-[340px] lg:min-h-[400px]"
+                className="relative isolate h-[90vw] max-h-[360px] w-full overflow-hidden rounded-[2rem] border border-bd bg-surface shadow-2xl shadow-black/30 ring-1 ring-white/5 sm:h-[320px] lg:h-[360px]"
               >
                 <div aria-hidden="true" className="absolute inset-0 bg-surface-2">
                   <span className="absolute inset-0 flex items-center justify-center text-5xl">
@@ -386,7 +443,7 @@ export default function HomePage({
                       alt=""
                       loading="lazy"
                       onError={() => setFailedPopularImageId(activePopularProduct.id)}
-                      className="absolute inset-0 h-full w-full object-cover object-center md:w-[72%]"
+                      className="absolute inset-0 h-full w-full object-cover object-center md:w-[88%]"
                     />
                   ) : null}
                   <div className="absolute inset-0 bg-gradient-to-tr from-slate-950/20 via-transparent to-slate-950/10" />
@@ -395,27 +452,29 @@ export default function HomePage({
                   aria-hidden="true"
                   className="absolute inset-x-0 bottom-0 h-[60%] md:hidden"
                   style={{
-                    background: "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
+                    background:
+                      "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
                     clipPath: "polygon(0 14%, 100% 0, 100% 100%, 0 100%)",
                   }}
                 />
                 <div
                   aria-hidden="true"
-                  className="absolute inset-y-0 right-0 hidden w-[60%] md:block"
+                  className="absolute inset-y-0 right-0 hidden w-[48%] md:block"
                   style={{
-                    background: "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
-                    clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
+                    background:
+                      "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
+                    clipPath: "polygon(14% 0, 100% 0, 100% 100%, 0 100%)",
                   }}
                 />
-                <div className="absolute inset-x-14 bottom-8 z-10 flex flex-col items-center gap-3 text-center sm:inset-x-16 md:inset-x-auto md:right-16 md:top-1/2 md:bottom-auto md:w-[36%] md:-translate-y-1/2 md:items-start md:text-left lg:right-20">
-                  <span className="inline-flex items-center gap-2 rounded-full border border-prime/40 bg-prime-muted px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-prime backdrop-blur-sm">
+                <div className="absolute inset-x-10 bottom-4 z-10 flex flex-col items-center gap-1.5 text-center sm:inset-x-12 md:inset-x-auto md:right-10 md:top-1/2 md:bottom-auto md:w-[30%] md:-translate-y-1/2 md:items-start md:text-left">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-prime/40 bg-prime-muted px-2 py-0.5 text-[8px] font-bold uppercase tracking-[0.16em] text-prime backdrop-blur-sm">
                     <span className="h-1.5 w-1.5 rounded-full bg-prime shadow-[0_0_10px_rgba(209,168,90,0.6)]" />
                     Más buscado
                   </span>
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-prime">
+                  <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-prime">
                     {activePopularProduct.brand} · {activePopularProduct.category}
                   </p>
-                  <h3 className="line-clamp-3 text-xl font-bold leading-tight text-white sm:text-2xl md:text-3xl">
+                  <h3 className="line-clamp-2 text-sm font-bold leading-tight text-text sm:text-base md:text-base">
                     {activePopularProduct.name}
                   </h3>
                   <button
@@ -423,7 +482,7 @@ export default function HomePage({
                     onClick={() =>
                       navigate({ id: "product-detail", productId: activePopularProduct.id })
                     }
-                    className="mt-2 inline-flex items-center gap-2 rounded-xl bg-prime px-6 py-3 text-sm font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+                    className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-prime px-4 py-2 text-xs font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
                   >
                     Ver producto
                     <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
@@ -443,7 +502,7 @@ export default function HomePage({
                       type="button"
                       aria-label="Ver producto anterior"
                       onClick={() => changePopularProduct(-1)}
-                      className="absolute left-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-bd bg-surface/90 text-text shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-prime hover:bg-prime hover:text-[#181714] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:left-5 sm:h-12 sm:w-12"
+                      className="absolute left-2 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-bd bg-surface/90 text-sm text-text shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-prime hover:bg-prime hover:text-[#181714] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:left-3 sm:h-9 sm:w-9"
                     >
                       <span aria-hidden="true" className="text-xl leading-none">
                         ←
@@ -453,7 +512,7 @@ export default function HomePage({
                       type="button"
                       aria-label="Ver siguiente producto"
                       onClick={() => changePopularProduct(1)}
-                      className="absolute right-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-bd bg-surface/90 text-text shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-prime hover:bg-prime hover:text-[#181714] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:right-5 sm:h-12 sm:w-12"
+                      className="absolute right-2 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-bd bg-surface/90 text-sm text-text shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-prime hover:bg-prime hover:text-[#181714] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:right-3 sm:h-9 sm:w-9"
                     >
                       <span aria-hidden="true" className="text-xl leading-none">
                         →
@@ -497,39 +556,6 @@ export default function HomePage({
       </section>
 
       <div className="max-w-7xl mx-auto px-4">
-        <div className="flex flex-wrap justify-center gap-2 pt-8 pb-6">
-          {featuredCategories.map((cat) => (
-            <button
-              key={`${cat.kind}-${cat.name}`}
-              onClick={() =>
-                cat.kind === "service"
-                  ? navigate({ id: "search-services", query: cat.name })
-                  : navigate({ id: "search-products", query: "", productGroup: cat.id })
-              }
-              style={{
-                background: "#191D20",
-                border: "1px solid #343B40",
-                boxShadow: "0 10px 25px rgba(0, 0, 0, 0.2)",
-              }}
-              className="group inline-flex items-center gap-2 rounded-full px-3 py-2 transition-all duration-200 hover:-translate-y-0.5 hover:border-prime"
-            >
-              <span
-                className="flex h-7 w-7 items-center justify-center rounded-full"
-                style={{
-                  background: "rgba(209, 168, 90, 0.12)",
-                  color: "#D1A85A",
-                  boxShadow: "inset 0 0 0 1px rgba(209, 168, 90, 0.35)",
-                }}
-              >
-                <CategoryIcon name={cat.icon} className="h-4 w-4" />
-              </span>
-              <span className="text-[11px] font-semibold text-text group-hover:text-prime">
-                {cat.name}
-              </span>
-            </button>
-          ))}
-        </div>
-
         {/* Featured products */}
         <section className="pb-12">
           <div className="flex items-center justify-between mb-6">
@@ -544,6 +570,15 @@ export default function HomePage({
               Ver todos →
             </button>
           </div>
+          <CategoryLinks
+            title="Categorías de productos"
+            categories={productCategories.map((category) => ({
+              name: category.name,
+              icon: category.icon,
+              onClick: () =>
+                navigate({ id: "search-products", query: "", productGroup: category.id }),
+            }))}
+          />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {productsError && (
               <div
@@ -565,9 +600,9 @@ export default function HomePage({
               </div>
             )}
             {productsLoading && (
-              <p className="col-span-full py-4 text-sm text-muted" role="status">
-                Cargando productos...
-              </p>
+              <div className="col-span-full">
+                <ProductSkeletonGrid count={2} />
+              </div>
             )}
             {!productsLoading && !productsError && featuredProducts.length === 0 && (
               <p className="col-span-full py-4 text-sm text-muted">
@@ -604,6 +639,14 @@ export default function HomePage({
               Ver todos →
             </button>
           </div>
+          <CategoryLinks
+            title="Categorías de servicios"
+            categories={serviceCategories.map((category) => ({
+              name: category.name,
+              icon: category.icon,
+              onClick: () => navigate({ id: "search-services", query: category.name }),
+            }))}
+          />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {servicesError && (
               <div
@@ -625,9 +668,9 @@ export default function HomePage({
               </div>
             )}
             {servicesLoading && (
-              <p className="col-span-full py-4 text-sm text-muted" role="status">
-                Cargando servicios...
-              </p>
+              <div className="col-span-full">
+                <ServiceSkeletonGrid count={2} />
+              </div>
             )}
             {!servicesLoading && !servicesError && featuredServices.length === 0 && (
               <p className="col-span-full py-4 text-sm text-muted">

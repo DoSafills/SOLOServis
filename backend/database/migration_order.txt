@@ -22,3 +22,5 @@
 016_product_user_interest_owners.sql
 016_fk_indexes.sql
 017_nm_uniqueness.sql
+018_category_artworks.sql
+021_dedupe_scraped_products.sql

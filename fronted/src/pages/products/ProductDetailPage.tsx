@@ -5,7 +5,13 @@ import {
   getProductReviews,
   type ApiProductReview,
 } from "../../services/api/products";
-import { Badge, Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
+import {
+  Breadcrumb,
+  FavoriteButton,
+  Rating,
+  Skeleton,
+  SkeletonGrid,
+} from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 import PriceOfferComparison from "./PriceOfferComparison";
 import {
@@ -174,8 +180,23 @@ export default function ProductDetailPage({
 
   if (loading)
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <p className="text-muted">Cargando producto...</p>
+      <div role="status" aria-label="Cargando producto" className="mx-auto max-w-7xl px-4 py-8">
+        <Skeleton className="mb-6 h-4 w-44" />
+        <div className="grid gap-8 lg:grid-cols-2">
+          <Skeleton className="min-h-80 rounded-2xl sm:min-h-[28rem]" />
+          <div className="space-y-4">
+            <Skeleton className="h-8 w-4/5" />
+            <Skeleton className="h-5 w-2/5" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-10 w-1/2" />
+            <Skeleton className="h-14 w-full rounded-xl" />
+          </div>
+        </div>
+        <Skeleton className="mt-10 h-48 w-full rounded-2xl" />
+        <div className="mt-8 rounded-2xl border border-bd bg-surface p-6">
+          <Skeleton className="mb-5 h-6 w-56" />
+          <SkeletonGrid count={2} />
+        </div>
       </div>
     );
 
@@ -251,8 +272,8 @@ export default function ProductDetailPage({
         <div>
           <div
             style={{
-              background: "linear-gradient(135deg, #343B40, #191D20)",
-              border: "1px solid #343B40",
+              background: "linear-gradient(135deg, var(--color-surface-3), var(--color-surface))",
+              border: "1px solid var(--color-bd)",
               boxShadow: "0 18px 40px rgba(0, 0, 0, 0.25)",
             }}
             className="rounded-2xl overflow-hidden h-[420px] md:h-[520px] mb-3"
@@ -277,7 +298,7 @@ export default function ProductDetailPage({
                 aria-label={`Ver imagen ${i + 1} de ${product.name}`}
                 aria-pressed={i === selectedImage}
                 style={{
-                  border: `2px solid ${i === selectedImage ? "#D1A85A" : "#343B40"}`,
+                  border: `2px solid ${i === selectedImage ? "#D1A85A" : "var(--color-bd)"}`,
                   boxShadow: i === selectedImage ? "0 0 0 2px rgba(209,168,90,0.12)" : "none",
                 }}
                 className="w-16 h-16 rounded-xl overflow-hidden transition-all shrink-0 bg-surface"
@@ -308,8 +329,8 @@ export default function ProductDetailPage({
 
           <div
             style={{
-              background: "linear-gradient(180deg, #22282C, #191D20)",
-              border: "1px solid #343B40",
+              background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+              border: "1px solid var(--color-bd)",
               boxShadow: "0 14px 30px rgba(0, 0, 0, 0.2)",
             }}
             className="rounded-xl p-4"
@@ -341,8 +362,8 @@ export default function ProductDetailPage({
 
       <section
         style={{
-          background: "linear-gradient(180deg, #22282C, #191D20)",
-          border: "1px solid #343B40",
+          background: "linear-gradient(180deg, var(--color-surface-2), var(--color-surface))",
+          border: "1px solid var(--color-bd)",
         }}
         className="rounded-xl p-5 sm:p-6 mb-6"
       >
@@ -393,7 +414,7 @@ export default function ProductDetailPage({
 
       {/* Reviews */}
       <section
-        style={{ background: "#191D20", border: "1px solid #343B40" }}
+        style={{ background: "var(--color-surface)", border: "1px solid var(--color-bd)" }}
         className="rounded-2xl p-6 mt-6"
       >
         <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
@@ -401,9 +422,7 @@ export default function ProductDetailPage({
           <Rating value={product.rating} count={product.reviewCount} />
         </div>
         {reviewsLoading ? (
-          <p role="status" className="text-sm text-muted">
-            Cargando reseñas desde Product API...
-          </p>
+          <SkeletonGrid count={2} />
         ) : currentReviewsError ? (
           <div
             className="mb-4 rounded-xl border border-rose-300/20 bg-rose-950/30 p-3 text-sm text-rose-200"
@@ -425,13 +444,12 @@ export default function ProductDetailPage({
             {reviews.map((review, i) => (
               <article
                 key={`${review.author}-${review.createdAt}-${i}`}
-                style={{ background: "#22282C" }}
+                style={{ background: "var(--color-surface-2)" }}
                 className="rounded-xl p-4"
               >
                 <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
                   <div className="flex items-center gap-2">
                     <Rating value={review.rating} />
-                    {review.authorVerified && <Badge variant="available">Usuario verificado</Badge>}
                   </div>
                   <span className="text-xs text-muted">
                     {review.author}

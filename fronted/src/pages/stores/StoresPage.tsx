@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Page, Product, Store, StoreDetail, StoreOffer, StoreProduct } from "../../types";
 import { getStores, getStoreById } from "../../services/api/api";
-import { Badge, Breadcrumb, EmptyState, Rating } from "../../components/common/ui";
+import {
+  Breadcrumb,
+  EmptyState,
+  ProductSkeletonGrid,
+  Rating,
+  Skeleton,
+  SkeletonGrid,
+} from "../../components/common/ui";
 import ProductCard from "../../components/products/ProductCard";
+import { stringSessionCodec, useSessionStorageState } from "../../hooks/useSessionStorageState";
 
 interface Props {
   navigate: (page: Page) => void;
@@ -18,28 +26,43 @@ interface Props {
 function StoreLogo({
   name,
   logo,
+  website,
   className,
   imageFit = "contain",
   fallbackClassName = "text-sm",
 }: {
   name: string;
   logo: string;
+  website: string;
   className: string;
   imageFit?: "contain" | "cover";
   fallbackClassName?: string;
 }) {
-  const [imageFailed, setImageFailed] = useState(false);
+  const websiteOrigin = website.match(/^https?:\/\/[^/]+/i)?.[0] ?? "";
+  const sourceKey = JSON.stringify([logo, website]);
+  const [failedImage, setFailedImage] = useState<{ sourceKey: string; index: number } | null>(null);
+  const logoSources = [
+    ...(logo && !/(?:example\.com|placehold\.co)/i.test(logo) ? [logo] : []),
+    ...(websiteOrigin
+      ? [
+          `${websiteOrigin}/favicon.ico`,
+          `https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(websiteOrigin)}&sz=128`,
+        ]
+      : []),
+  ];
+  const imageIndex = failedImage?.sourceKey === sourceKey ? failedImage.index : 0;
+  const imageSource = logoSources[imageIndex];
 
   return (
     <div
       className={`flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-bd bg-surface-2 ${className}`}
     >
-      {logo && !imageFailed ? (
+      {imageSource ? (
         <img
-          src={logo}
+          src={imageSource}
           alt={`${name} logo`}
           className={`h-full w-full ${imageFit === "cover" ? "object-cover" : "object-contain p-1.5"}`}
-          onError={() => setImageFailed(true)}
+          onError={() => setFailedImage({ sourceKey, index: imageIndex + 1 })}
         />
       ) : (
         <span className={`px-2 font-bold text-prime ${fallbackClassName}`}>
@@ -54,7 +77,11 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useSessionStorageState(
+    "soloservice.stores-search",
+    () => "",
+    stringSessionCodec,
+  );
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
@@ -126,9 +153,7 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
       </header>
 
       {loading ? (
-        <div className="text-center py-20">
-          <p className="text-muted">Cargando tiendas...</p>
-        </div>
+        <SkeletonGrid count={6} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" />
       ) : error ? (
         <div className="rounded-2xl border border-bd bg-surface p-8 text-center" role="alert">
           <p className="text-sm text-warn">{error}</p>
@@ -151,81 +176,77 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
           action={query ? { label: "Limpiar búsqueda", onClick: () => setQuery("") } : undefined}
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredStores.map((store) => (
             <button
               key={store.id}
               onClick={() => navigate({ id: "store-detail", storeId: store.id })}
-              className="group relative isolate flex min-h-[24rem] flex-col overflow-hidden rounded-[1.75rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:min-h-[22rem]"
+              className="group relative isolate flex min-h-[24rem] flex-col overflow-hidden rounded-[1.75rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime lg:min-h-[22rem]"
             >
-              <div className="absolute inset-y-0 left-0 w-[58%] bg-slate-950/60">
+              <div className="theme-media-panel relative h-40 w-full shrink-0 bg-slate-950/60 sm:h-44 lg:absolute lg:inset-y-0 lg:left-0 lg:h-full lg:w-[58%]">
                 <StoreLogo
                   name={store.name}
                   logo={store.logo}
+                  website={store.website}
                   imageFit="cover"
                   className="h-full w-full rounded-none border-0 bg-transparent"
                   fallbackClassName="text-5xl"
                 />
                 <div
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-slate-950/25 lg:bg-gradient-to-r"
                 />
               </div>
 
               <div
                 aria-hidden="true"
-                className="absolute inset-y-0 right-0 w-[66%]"
+                className="absolute inset-y-0 right-0 hidden w-[66%] lg:block"
                 style={{
-                  background: "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
+                  background:
+                    "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
                   clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
                 }}
               />
 
-              <div className="relative z-10 ml-[38%] flex w-[62%] min-w-0 flex-1 flex-col justify-center gap-2 p-3 pl-8 sm:gap-2.5 sm:pl-10">
-                <div className="min-w-0">
-                  <h2 className="line-clamp-2 text-base font-bold leading-snug text-text transition-colors group-hover:text-prime">
+              <div className="relative z-10 flex w-full min-w-0 flex-1 flex-col gap-4 p-4 sm:p-5 lg:ml-[38%] lg:w-[62%] lg:justify-center lg:p-4">
+                <div className="min-w-0 text-center">
+                  <h2 className="line-clamp-2 text-xl font-bold leading-snug text-text transition-colors group-hover:text-prime sm:text-2xl">
                     {store.name}
                   </h2>
-                  <div className="mt-1">
-                    <Badge variant={store.reputation === "Excelente" ? "best" : "available"}>
-                      {store.reputation}
-                    </Badge>
-                  </div>
                 </div>
 
-                <div className="[&_span]:text-muted">
+                <div className="flex origin-center justify-center scale-[1.1] [&_span]:text-muted">
                   <Rating value={store.rating} count={store.reviewCount} />
                 </div>
 
-                <div className="space-y-2 border-t border-bd pt-2">
-                  <div className="flex items-center justify-between gap-2 text-[10px]">
-                    <span className="shrink-0 text-muted">Productos</span>
-                    <span className="font-semibold text-prime">
+                <div className="mx-auto grid w-full max-w-[17rem] grid-cols-1 gap-2 border-y border-bd py-3">
+                  <div className="min-w-0 rounded-xl bg-surface-2 px-3 py-2.5 text-center">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                      Productos
+                    </p>
+                    <p className="mt-1 text-base font-bold text-prime">
                       {store.productCount.toLocaleString("es-CL")}
-                    </span>
+                    </p>
                   </div>
 
-                  <div className="flex items-start justify-between gap-2 text-[10px]">
-                    <span className="shrink-0 text-muted">Despacho</span>
-                    <span className="line-clamp-2 text-right font-medium text-muted-2">
+                  <div className="min-w-0 rounded-xl bg-surface-2 px-3 py-2.5 text-center">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                      Despacho
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-sm leading-snug font-semibold text-text">
                       {store.dispatchTime}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 text-[10px]">
-                    <span className="shrink-0 text-muted">Sitio</span>
-                    <span
-                      className="max-w-[70%] truncate text-right font-semibold text-prime"
-                      title={store.website}
-                    >
-                      {store.website}
-                    </span>
+                    </p>
                   </div>
                 </div>
 
-                <span className="mt-auto flex w-full items-center justify-between rounded-xl bg-prime px-2 py-2.5 text-[11px] font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all hover:bg-prime-dark">
+                <span className="relative mt-auto flex w-full items-center justify-center rounded-xl bg-prime px-3 py-3 text-sm font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all hover:bg-prime-dark">
                   Ver tienda
-                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    className="absolute right-3 h-4 w-4"
+                  >
                     <path
                       d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
                       stroke="currentColor"
@@ -304,6 +325,7 @@ function StoreProductCard({
   return (
     <ProductCard
       product={mappedProduct}
+      compact
       navigate={navigate}
       isFavorite={favorites.has(product.id)}
       isComparing={productCompareList.has(product.id)}
@@ -328,7 +350,11 @@ function StoreDetail({
   const [store, setStore] = useState<StoreDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [productSearch, setProductSearch] = useState("");
+  const [productSearch, setProductSearch] = useSessionStorageState(
+    `soloservice.store-products-search:${storeId}`,
+    () => "",
+    stringSessionCodec,
+  );
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
@@ -375,7 +401,22 @@ function StoreDetail({
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:py-12">
-        <p className="py-8 text-center text-sm text-muted">Cargando tienda...</p>
+        <Skeleton className="mb-6 h-4 w-44" />
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+          <Skeleton className="min-h-72 rounded-2xl" />
+          <div className="space-y-4">
+            <Skeleton className="h-9 w-2/3" />
+            <Skeleton className="h-5 w-1/3" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-12 w-40 rounded-lg" />
+          </div>
+        </div>
+        <Skeleton className="mt-10 h-7 w-48" />
+        <ProductSkeletonGrid
+          count={4}
+          compact
+          className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2"
+        />
       </div>
     );
   }
@@ -418,11 +459,12 @@ function StoreDetail({
       />
 
       <div className="mb-8 flex flex-col overflow-hidden rounded-[1.5rem] border border-bd bg-surface shadow-lg shadow-black/20 md:flex-row">
-        <div className="flex h-40 w-full shrink-0 items-center justify-center overflow-hidden border-b border-bd bg-surface-2 md:h-auto md:min-h-[220px] md:w-64 md:border-b-0 md:border-r">
+        <div className="flex aspect-[1.9] w-full shrink-0 items-center justify-center overflow-hidden border-b border-bd bg-surface-2 md:aspect-auto md:min-h-[220px] md:w-[35%] md:max-w-[28rem] md:border-b-0 md:border-r">
           <StoreLogo
             name={store.name}
             logo={store.logo}
-            imageFit="cover"
+            website={store.website}
+            imageFit="contain"
             className="h-full w-full rounded-none border-0 bg-transparent"
             fallbackClassName="text-5xl"
           />
@@ -512,7 +554,7 @@ function StoreDetail({
           }
         />
       ) : (
-        <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {filteredProducts.map((product) => (
             <StoreProductCard
               key={product.offerId}
