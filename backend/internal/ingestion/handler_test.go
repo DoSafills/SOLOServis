@@ -90,7 +90,8 @@ func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string, stor
 	if p, ok := f.existing[brand+"|"+model]; ok && brand != "" && model != "" {
 		return p, true, nil
 	}
-	p, ok := f.existing[fmt.Sprintf("%d|%s", storeID, productURL)]
+	path, _, _ := strings.Cut(productURL, "?")
+	p, ok := f.existing[fmt.Sprintf("%d|%s", storeID, path)]
 	return p, ok && productURL != "", nil
 }
 func (f *fakeRuns) EnsureBrand(_ context.Context, name string) (int32, error) {
@@ -376,10 +377,11 @@ func TestAddItems_ProductoExistenteSoloRegistraLaOferta(t *testing.T) {
 // la tienda + la URL de la oferta, así que repetir un ítem no duplica el producto.
 func TestAddItems_SinSkuNiModeloSeReconocePorTiendaYURL(t *testing.T) {
 	e := newEnv()
-	e.runs.existing["2|https://tienda.test/p/refri-1"] = ExistingProduct{ID: 12, PublicID: "existente-url", Active: true}
+	e.runs.existing["2|https://tienda.test/p/refri-1"] = ExistingProduct{ID: 12, PublicID: "existente-url", Active: true,
+		OfferURL: "https://tienda.test/p/refri-1?pos=4"}
 
 	result := batch(t, e, `{"product":{"name":"Refri Midea 174L","brand":"Midea","categorySlug":"refrigeradores",
-		"attributes":{"capacidad_litros":174}},"offer":{"price":199990,"productUrl":" https://tienda.test/p/refri-1 "}},
+		"attributes":{"capacidad_litros":174}},"offer":{"price":199990,"productUrl":" https://tienda.test/p/refri-1?pos=9 "}},
 		{"product":{"name":"Refri Midea 515L","brand":"Midea","categorySlug":"refrigeradores",
 		"attributes":{"capacidad_litros":515}},"offer":{"price":599990,"productUrl":"https://tienda.test/p/refri-2"}},
 		{"product":{"name":"Refri sin URL","brand":"Midea","categorySlug":"refrigeradores",
@@ -391,8 +393,11 @@ func TestAddItems_SinSkuNiModeloSeReconocePorTiendaYURL(t *testing.T) {
 	if result.Results[1].Status != ItemCreated || result.Results[2].Status != ItemCreated || len(e.catalog.created) != 2 {
 		t.Fatalf("otra URL o un ítem sin URL crean un producto nuevo: %+v", result)
 	}
-	if e.offers.written[0].ProductID != 12 {
-		t.Fatalf("la oferta debe quedar en el producto existente: %+v", e.offers.written[0])
+	if w := e.offers.written[0]; w.ProductID != 12 || *w.ProductURL != "https://tienda.test/p/refri-1?pos=4" {
+		t.Fatalf("debe actualizar la oferta existente (su URL guardada), no crear otra: %+v", w)
+	}
+	if *e.offers.written[1].ProductURL != "https://tienda.test/p/refri-2" {
+		t.Fatalf("un producto nuevo conserva la URL que envió el scraper: %+v", e.offers.written[1])
 	}
 }
 

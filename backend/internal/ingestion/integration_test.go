@@ -176,14 +176,15 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	}
 
 	// 3b. TAL-169: un ítem sin SKU ni modelo, como los del scraper. Repetirlo
-	// con la misma URL (aunque cambie el fragmento) no duplica el producto.
+	// con la misma URL (aunque cambien los parámetros de seguimiento o el
+	// fragmento) no duplica el producto ni la oferta.
 	sinIdentidad := func(price int, productURL string) map[string]any {
 		return map[string]any{"product": map[string]any{"name": "Sin identidad " + tag, "brand": brand,
 			"categorySlug": "refrigeradores", "attributes": map[string]any{"capacidad_litros": 262}},
 			"offer": map[string]any{"price": price, "productUrl": productURL}}
 	}
-	first := items(run.ID, sinIdentidad(199990, "https://tienda.example.test/p/sin-identidad"))
-	again := items(run.ID, sinIdentidad(189990, "https://tienda.example.test/p/sin-identidad#opiniones"))
+	first := items(run.ID, sinIdentidad(199990, "https://tienda.example.test/p/sin-identidad?pos=4&catPos=4"))
+	again := items(run.ID, sinIdentidad(189990, "https://tienda.example.test/p/sin-identidad?pos=25&catPos=25#opiniones"))
 	if first.Results[0].Status != ItemCreated || again.Results[0].Status != ItemUpdated ||
 		again.Results[0].ProductID != first.Results[0].ProductID {
 		t.Fatalf("misma tienda + URL: primero %+v, repetido %+v", first.Results[0], again.Results[0])
@@ -193,6 +194,13 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		LEFT JOIN product_offer o ON o.product_id = p.id WHERE p.name = $1`, "Sin identidad "+tag).Scan(&copies, &offerCount), "copias")
 	if copies != 1 || offerCount != 1 {
 		t.Fatalf("productos = %d, ofertas = %d; quiero 1 y 1", copies, offerCount)
+	}
+	var priceNow string
+	var priceRows int
+	must(pool.QueryRow(ctx, `SELECT o.price::text, (SELECT count(*) FROM product_price_history h WHERE h.product_offer_id = o.id)
+		FROM product_offer o JOIN product p ON p.id = o.product_id WHERE p.name = $1`, "Sin identidad "+tag).Scan(&priceNow, &priceRows), "oferta")
+	if priceNow != "189990.00" || priceRows != 2 {
+		t.Fatalf("precio = %s, historial = %d; quiero 189990.00 y 2 registros en la misma oferta", priceNow, priceRows)
 	}
 
 	// 4. Contadores, auditoría y cierre.

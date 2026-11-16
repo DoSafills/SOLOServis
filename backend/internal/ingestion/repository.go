@@ -181,7 +181,10 @@ func (r *Repository) SaveScraped(ctx context.Context, runID int32, externalID, e
 // encuentra (o no hay SKU), por marca + modelo sin distinguir mayúsculas. Así
 // un SKU propio de la tienda no duplica un producto que ya existe con otro SKU.
 // Si tampoco coincide, usa la identidad que el scraper siempre envía: una
-// oferta de la misma tienda con la misma URL (TAL-169). Prefiere los activos.
+// oferta de la misma tienda con la misma URL (TAL-169). La URL se compara sin
+// parámetros ni fragmento, porque las tiendas agregan parámetros de
+// seguimiento que cambian en cada corrida (Ripley: pos, catPos, ps).
+// Prefiere los activos.
 func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error) {
 	var p ExistingProduct
 	if sku != "" {
@@ -210,14 +213,16 @@ func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string, 
 	if productURL == "" {
 		return ExistingProduct{}, false, nil
 	}
-	// Misma normalización que el índice único de product_offer (migración 009).
-	// Una URL que no se puede normalizar da NULL y no coincide con nada.
+	// Misma normalización que el índice único de product_offer (migración 009),
+	// cortada en el "?". Una URL que no se puede normalizar da NULL y no
+	// coincide con nada. Se devuelve la URL guardada para reutilizar esa oferta.
 	err := r.db.QueryRow(ctx, `
-		SELECT p.id, p.public_id::text, p.active
+		SELECT p.id, p.public_id::text, p.active, o.product_url
 		FROM product_offer o JOIN product p ON p.id = o.product_id
 		WHERE o.store_id = $1
-		  AND normalize_product_offer_url(o.product_url) = normalize_product_offer_url($2)
-		ORDER BY p.active DESC, p.id LIMIT 1`, storeID, productURL).Scan(&p.ID, &p.PublicID, &p.Active)
+		  AND split_part(normalize_product_offer_url(o.product_url), '?', 1) =
+		      split_part(normalize_product_offer_url($2), '?', 1)
+		ORDER BY p.active DESC, p.id, o.id LIMIT 1`, storeID, productURL).Scan(&p.ID, &p.PublicID, &p.Active, &p.OfferURL)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ExistingProduct{}, false, nil
 	}

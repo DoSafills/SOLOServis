@@ -128,4 +128,7 @@ type ExistingProduct struct {
 	ID       int32
 	PublicID string
 	Active   bool
+	// OfferURL es la URL guardada de la oferta que identificó al producto,
+	// cuando se encontró por tienda + URL. Vacía en los otros casos.
+	OfferURL string
 }

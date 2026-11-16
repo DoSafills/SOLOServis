@@ -132,6 +132,11 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, index
 	}
 
 	offer.ProductID = productID
+	if found && existing.OfferURL != "" {
+		// Se actualiza la oferta que ya existe, aunque la tienda haya cambiado
+		// los parámetros de la URL: una sola oferta y un solo historial de precios.
+		offer.ProductURL = &existing.OfferURL
+	}
 	offerID, _, previous, err := p.offers.UpsertOffer(ctx, offer)
 	if err != nil {
 		return internal("upsert_offer", err)
