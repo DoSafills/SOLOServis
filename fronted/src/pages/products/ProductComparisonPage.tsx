@@ -35,7 +35,7 @@ const getAvailableOffers = (
   currencyCompatible: boolean,
 ): ComparedOffer[] => {
   const offers = product.offers.filter((offer) => offer.available);
-  if (!currencyCompatible) return offers.map((offer) => ({ offer }));
+  if (!currencyCompatible) return offers.slice(0, 1).map((offer) => ({ offer }));
 
   return offers
     .sort((first, second) => {
@@ -44,6 +44,7 @@ const getAvailableOffers = (
       if (firstIsValid && secondIsValid) return first.price! - second.price!;
       return Number(secondIsValid) - Number(firstIsValid);
     })
+    .slice(0, 1)
     .map((offer) => ({ offer }));
 };
 
@@ -530,7 +531,13 @@ export default function ProductComparisonPage({
                     {result.length > 0 ? (
                       result.map(({ offer }) => (
                         <div key={offer.storeId} className="mb-1 rounded-lg px-2 py-2 last:mb-0">
-                          <div className="text-base font-bold text-text">
+                          <div
+                            className={`font-bold text-text ${
+                              offer.price === lowestProductPrice
+                                ? "text-xl sm:text-2xl"
+                                : "text-base"
+                            }`}
+                          >
                             {!validOffers.has(offer)
                               ? "Precio no disponible"
                               : offerComparison.currencyCompatible
