@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
+import { formatExactUpdateDate, relativeUpdate } from "../../services/utils/productUtils";
 import {
   getProductById,
   getProductReviews,
@@ -325,6 +326,12 @@ export default function ProductDetailPage({
             <div className="mt-3">
               <Rating value={product.rating} count={product.reviewCount} />
             </div>
+            <p
+              className="mt-2 text-xs text-muted"
+              title={formatExactUpdateDate(product.updatedAt) ?? "Actualización desconocida"}
+            >
+              Producto actualizado: {relativeUpdate(product.updatedAt)}
+            </p>
           </div>
 
           <div

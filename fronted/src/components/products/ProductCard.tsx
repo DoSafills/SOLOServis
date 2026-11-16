@@ -1,7 +1,12 @@
 import { useRef, useState } from "react";
 import type { Product, Page, StoreOffer } from "../../types";
 import { Rating, FavoriteButton } from "../common/ui";
-import { formatPrice, getMinOffer } from "../../services/utils/productUtils";
+import {
+  formatExactUpdateDate,
+  formatPrice,
+  formatPriceUpdate,
+  getMinOffer,
+} from "../../services/utils/productUtils";
 
 interface Props {
   product: Product;
@@ -138,6 +143,14 @@ export default function ProductCard({
             </div>
           ) : (
             <div className="text-[9px] font-semibold text-muted">No disponible</div>
+          )}
+          {bestOffer && (
+            <span
+              className="mt-0.5 block text-[8px] text-muted"
+              title={formatExactUpdateDate(bestOffer.lastUpdated) ?? "Actualización desconocida"}
+            >
+              {formatPriceUpdate(bestOffer.lastUpdated)}
+            </span>
           )}
         </div>
 

@@ -57,6 +57,7 @@ export interface ApiProduct {
   categoryId: number;
   category: string;
   subcategory: string;
+  updatedAt?: string | null;
   description: string;
   rating: number;
   reviewCount: number;
@@ -131,6 +132,7 @@ export const toProduct = (product: ApiProduct): Product => {
     categoryId: product.categoryId,
     category: product.category,
     subcategory: product.subcategory ?? "",
+    updatedAt: product.updatedAt ?? undefined,
     image: images[0] ?? "",
     images,
     description: product.description,

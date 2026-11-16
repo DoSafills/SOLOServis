@@ -11,6 +11,46 @@ export const formatPrice = (price: number | null | undefined): string =>
     ? "Precio no disponible"
     : clpFormatter.format(price);
 
+export const STALE_PRICE_DAYS = 7;
+
+const getPastTimestamp = (value: string | null | undefined): number | undefined => {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp <= Date.now() ? timestamp : undefined;
+};
+
+export const relativeUpdate = (value: string | null | undefined): string => {
+  const timestamp = getPastTimestamp(value);
+  if (timestamp === undefined) return "Actualización desconocida";
+
+  const elapsedSeconds = Math.round((Date.now() - timestamp) / 1000);
+  if (elapsedSeconds < 60) return "Actualizado hace menos de un minuto";
+
+  const units: [Intl.RelativeTimeFormatUnit, number][] = [
+    ["year", 31_536_000],
+    ["month", 2_592_000],
+    ["day", 86_400],
+    ["hour", 3_600],
+    ["minute", 60],
+  ];
+  const [unit, secondsPerUnit] = units.find(([, seconds]) => elapsedSeconds >= seconds)!;
+  const count = Math.round(elapsedSeconds / secondsPerUnit);
+  return `Actualizado ${new Intl.RelativeTimeFormat("es", { numeric: "auto" }).format(-count, unit)}`;
+};
+
+export const isStalePrice = (value: string | null | undefined): boolean => {
+  const timestamp = getPastTimestamp(value);
+  return timestamp !== undefined && Date.now() - timestamp > STALE_PRICE_DAYS * 24 * 60 * 60 * 1000;
+};
+
+export const formatPriceUpdate = (value: string | null | undefined): string =>
+  isStalePrice(value) ? "Desactualizado" : relativeUpdate(value);
+
+export const formatExactUpdateDate = (value: string | null | undefined): string | undefined => {
+  const timestamp = getPastTimestamp(value);
+  return timestamp === undefined ? undefined : new Date(timestamp).toLocaleString("es-CL");
+};
+
 export interface OfferComparisonValidation {
   validPriceOffers: StoreOffer[];
   availableOffers: StoreOffer[];
