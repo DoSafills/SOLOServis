@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -44,7 +45,7 @@ type fakeRuns struct {
 	storeID            int32
 	targetErr, openErr error
 	finishErr, getErr  error
-	existing           map[string]ExistingProduct // por sku o "marca|modelo"
+	existing           map[string]ExistingProduct // por sku, "marca|modelo" o "tienda|url"
 	findErr            error
 
 	opened   []any
@@ -79,15 +80,19 @@ func (f *fakeRuns) SaveScraped(_ context.Context, _ int32, externalID, _ *string
 	f.saved = append(f.saved, id)
 	return nil
 }
-func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string) (ExistingProduct, bool, error) {
+func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error) {
 	if f.findErr != nil {
 		return ExistingProduct{}, false, f.findErr
 	}
 	if p, ok := f.existing[sku]; ok && sku != "" {
 		return p, true, nil
 	}
-	p, ok := f.existing[brand+"|"+model]
-	return p, ok && brand != "" && model != "", nil
+	if p, ok := f.existing[brand+"|"+model]; ok && brand != "" && model != "" {
+		return p, true, nil
+	}
+	path, _, _ := strings.Cut(productURL, "?")
+	p, ok := f.existing[fmt.Sprintf("%d|%s", storeID, path)]
+	return p, ok && productURL != "", nil
 }
 func (f *fakeRuns) EnsureBrand(_ context.Context, name string) (int32, error) {
 	f.brands = append(f.brands, name)
@@ -365,6 +370,34 @@ func TestAddItems_ProductoExistenteSoloRegistraLaOferta(t *testing.T) {
 	}
 	if len(e.notifier.sent) != 3 || e.notifier.sent[0].Data["oldPrice"] != "100.00" {
 		t.Fatalf("la bajada de precio debe avisar como en Pricing: %+v", e.notifier.sent)
+	}
+}
+
+// TAL-169: el scraper no envía SKU ni modelo. La identidad que siempre trae es
+// la tienda + la URL de la oferta, así que repetir un ítem no duplica el producto.
+func TestAddItems_SinSkuNiModeloSeReconocePorTiendaYURL(t *testing.T) {
+	e := newEnv()
+	e.runs.existing["2|https://tienda.test/p/refri-1"] = ExistingProduct{ID: 12, PublicID: "existente-url", Active: true,
+		OfferURL: "https://tienda.test/p/refri-1?pos=4"}
+
+	result := batch(t, e, `{"product":{"name":"Refri Midea 174L","brand":"Midea","categorySlug":"refrigeradores",
+		"attributes":{"capacidad_litros":174}},"offer":{"price":199990,"productUrl":" https://tienda.test/p/refri-1?pos=9 "}},
+		{"product":{"name":"Refri Midea 515L","brand":"Midea","categorySlug":"refrigeradores",
+		"attributes":{"capacidad_litros":515}},"offer":{"price":599990,"productUrl":"https://tienda.test/p/refri-2"}},
+		{"product":{"name":"Refri sin URL","brand":"Midea","categorySlug":"refrigeradores",
+		"attributes":{"capacidad_litros":300}},"offer":{"price":299990}}`)
+
+	if result.Processed != 3 || result.Results[0].Status != ItemUpdated || result.Results[0].ProductID != "existente-url" {
+		t.Fatalf("la misma tienda + URL debe reutilizar el producto: %+v", result)
+	}
+	if result.Results[1].Status != ItemCreated || result.Results[2].Status != ItemCreated || len(e.catalog.created) != 2 {
+		t.Fatalf("otra URL o un ítem sin URL crean un producto nuevo: %+v", result)
+	}
+	if w := e.offers.written[0]; w.ProductID != 12 || *w.ProductURL != "https://tienda.test/p/refri-1?pos=4" {
+		t.Fatalf("debe actualizar la oferta existente (su URL guardada), no crear otra: %+v", w)
+	}
+	if *e.offers.written[1].ProductURL != "https://tienda.test/p/refri-2" {
+		t.Fatalf("un producto nuevo conserva la URL que envió el scraper: %+v", e.offers.written[1])
 	}
 }
 
