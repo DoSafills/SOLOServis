@@ -4,6 +4,7 @@ import {
   formatPrice,
   getBillingPeriodName,
   getBillingPeriodText,
+  validateOfferComparison,
 } from "../../services/utils/productUtils";
 
 interface Props {
@@ -56,11 +57,18 @@ export default function CartPage({ cart, loading, navigate, onUpdateQuantity, on
         }
         return stores;
       }, new Map<string, { name: string; items: CartItem[] }>()),
-  ).map(([id, store]) => ({
-    id,
-    ...store,
-    total: store.items.reduce((sum, item) => sum + item.offer.price * item.quantity, 0),
-  }));
+  ).map(([id, store]) => {
+    const validation = validateOfferComparison(store.items.map((item) => item.offer));
+    const hasValidPrices =
+      validation.currencyCompatible && validation.validPriceOffers.length === store.items.length;
+    return {
+      id,
+      ...store,
+      total: hasValidPrices
+        ? store.items.reduce((sum, item) => sum + item.offer.price! * item.quantity, 0)
+        : null,
+    };
+  });
   const serviceSummaries = Array.from(
     cart
       .filter((item): item is ServiceCartItem => item.type === "service")
@@ -80,9 +88,15 @@ export default function CartPage({ cart, loading, navigate, onUpdateQuantity, on
 
   const getDiscountPercent = (
     listPrice: number | null | undefined,
-    price: number,
+    price: number | null,
   ): number | null => {
-    if (listPrice === null || listPrice === undefined || listPrice <= price || listPrice <= 0) {
+    if (
+      price === null ||
+      listPrice === null ||
+      listPrice === undefined ||
+      listPrice <= price ||
+      listPrice <= 0
+    ) {
       return null;
     }
     return Math.round(((listPrice - price) / listPrice) * 100);
@@ -272,8 +286,12 @@ export default function CartPage({ cart, loading, navigate, onUpdateQuantity, on
             }
 
             const { product, offer, quantity, cartItemId } = item;
-            const price = offer.price;
-            const totalItem = price * quantity;
+            const offerValidation = validateOfferComparison([offer]);
+            const price =
+              offerValidation.validPriceOffers.includes(offer) && offerValidation.currencyCompatible
+                ? offer.price
+                : null;
+            const totalItem = price === null ? null : price * quantity;
             const offerUrl = getSafeOfferUrl(offer.url);
 
             return (
@@ -392,7 +410,12 @@ export default function CartPage({ cart, loading, navigate, onUpdateQuantity, on
                 </h3>
                 <ul className="space-y-3 p-4">
                   {store.items.map(({ product, offer, quantity }) => {
-                    const discountPercent = getDiscountPercent(offer.listPrice, offer.price);
+                    const validation = validateOfferComparison([offer]);
+                    const price =
+                      validation.validPriceOffers.includes(offer) && validation.currencyCompatible
+                        ? offer.price
+                        : null;
+                    const discountPercent = getDiscountPercent(offer.listPrice, price);
                     return (
                       <li
                         key={product.id}
@@ -414,7 +437,7 @@ export default function CartPage({ cart, loading, navigate, onUpdateQuantity, on
                             </>
                           )}
                           <span className="text-base font-extrabold text-prime">
-                            {formatPrice(offer.price)}
+                            {formatPrice(price)}
                           </span>
                         </div>
                       </li>

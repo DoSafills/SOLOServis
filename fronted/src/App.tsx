@@ -46,6 +46,7 @@ import {
   pushPage,
   replacePage,
 } from "./services/pageRouting";
+import { validateOfferComparison } from "./services/utils/productUtils";
 
 const SERVICE_COMPARISON_KEY = "soloservice.service-comparison";
 const PRODUCT_COMPARISON_PRODUCTS_KEY = "soloservice.product-comparison-products";
@@ -542,6 +543,16 @@ export default function App() {
   };
 
   const addToCart = async (product: Product, offer: StoreOffer) => {
+    const validation = validateOfferComparison([offer]);
+    if (
+      !offer.available ||
+      !validation.validPriceOffers.includes(offer) ||
+      !validation.currencyCompatible
+    ) {
+      setPersistenceError("No se puede agregar una oferta sin precio válido y moneda compatible.");
+      return false;
+    }
+
     if (offer.offerId <= 0) {
       setPersistenceError(
         "Esta oferta no tiene un identificador válido para guardarla en la cesta.",

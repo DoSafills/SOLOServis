@@ -11,7 +11,7 @@ interface ApiOffer {
   offerId: number;
   storeId: string;
   storeName: string;
-  price: string;
+  price: string | number | null;
   listPrice: string | number | null;
   currency: string;
   shippingCost: string | number | null;
@@ -69,16 +69,20 @@ export interface ApiProduct {
   offerPriceHistory?: ApiPricePoint[];
 }
 
-export const parseAmount = (value: string | number | null | undefined, fallback = 0): number => {
-  const amount = Number(value ?? fallback);
-  return Number.isFinite(amount) ? amount : fallback;
+export const parseAmount = (value: string | number | null | undefined): number | null => {
+  if (value === null || value === undefined || (typeof value === "string" && !value.trim())) {
+    return null;
+  }
+
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
 };
 
 const toPricePoints = (points: ApiPricePoint[] | undefined): PricePoint[] =>
-  (points ?? []).map((point) => ({
-    date: point.date,
-    price: parseAmount(point.price),
-  }));
+  (points ?? []).flatMap((point) => {
+    const price = parseAmount(point.price);
+    return price === null ? [] : [{ date: point.date, price }];
+  });
 
 export const toProduct = (product: ApiProduct): Product => {
   const images = (product.images ?? []).map((image) => image.url).filter(Boolean);
@@ -97,6 +101,7 @@ export const toProduct = (product: ApiProduct): Product => {
       storeName: offer.storeName,
       price: parseAmount(offer.price),
       listPrice,
+      currency: offer.currency,
       available: offer.available,
       shipping: offer.shippingFree ? 0 : shipping,
       shippingFree: offer.shippingFree,
