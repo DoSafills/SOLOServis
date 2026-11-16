@@ -1,577 +1,871 @@
-# SoloServis — Backend
+# SOLOServis — Backend
 
-Backend de la plataforma **SoloServis**, encargado de exponer la API HTTP, acceder a PostgreSQL y entregar los datos de productos al frontend.
+Backend de **SOLOServis**, encargado de administrar la lógica de negocio, procesar solicitudes HTTP, gestionar la información de la plataforma y comunicarse con PostgreSQL.
 
-Actualmente el backend está implementado en **Go**, utilizando **Chi** como router, **pgx/v5** para PostgreSQL y **sqlc** para generar el código de acceso a datos a partir de consultas SQL.
+Está desarrollado en **Go**, utilizando Chi para el enrutamiento HTTP, pgx para la conexión con PostgreSQL y sqlc para generar código Go a partir de consultas SQL.
+
+El backend está organizado en 14 APIs, agrupadas en tres dominios funcionales: Comercial, Usuarios e Ingestion. Esta separación permite mantener responsabilidades independientes y facilita el despliegue mediante diferentes topologías.
 
 ---
 
-## 1. Arquitectura
+# 1. Objetivo y responsabilidades
 
-La comunicación principal del sistema sigue este flujo:
+El backend tiene como objetivo centralizar la lógica de negocio y proporcionar los servicios necesarios para el funcionamiento de SOLOServis.
+
+Sus principales responsabilidades son:
+
+- Gestionar productos y sus características.
+- Administrar tiendas y proveedores.
+- Consultar precios, ofertas e historial de precios.
+- Gestionar categorías y atributos dinámicos.
+- Procesar búsquedas y comparaciones.
+- Administrar usuarios, sesiones y autenticación.
+- Gestionar favoritos, carrito y listas de seguimiento.
+- Administrar reseñas y notificaciones.
+- Recibir información proveniente del scraper.
+- Validar y persistir información en PostgreSQL.
+- Comunicar diferentes APIs cuando una funcionalidad depende de otros servicios.
+
+El backend actúa como intermediario entre el frontend, la base de datos y los procesos externos de integración de información.
+
+---
+
+# 2. Arquitectura general
+
+El backend utiliza una arquitectura organizada por dominios y responsabilidades.
+
+Las solicitudes llegan mediante HTTP, son procesadas por la API correspondiente y, cuando es necesario, se realizan consultas a PostgreSQL o solicitudes a otros servicios internos.
+
+## 2.1 Diagrama de arquitectura
 
 ```text
-┌──────────────────────┐
-│      Frontend        │
-│   React + TypeScript │
-└──────────┬───────────┘
-           │
-           │ HTTP / JSON
-           ▼
-┌──────────────────────┐
-│      Go API          │
-│       + Chi          │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│       Handler        │
-│ recibe la petición   │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│     Repository       │
-│ acceso a los datos   │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│        sqlc          │
-│ código generado      │
-│ desde SQL             │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│       pgx/v5         │
-│ driver PostgreSQL    │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│     PostgreSQL       │
-│       soloservis     │
-└──────────────────────┘
+                      FRONTEND
+                 React + TypeScript
+                         |
+                         | HTTP / JSON
+                         v
+                 NGINX / INGRESS
+                         |
+                         v
+              +----------------------+
+              |      BACKEND         |
+              |                      |
+              |    14 APIs Go        |
+              +----------+-----------+
+                         |
+          +--------------+--------------+
+          |              |              |
+          v              v              v
+    +-----------+  +-----------+  +-----------+
+    | COMERCIAL |  | USUARIOS  |  | INGESTION |
+    |           |  |           |  |           |
+    | 11 APIs   |  | 2 APIs    |  | 1 API     |
+    +-----+-----+  +-----+-----+  +-----+-----+
+          |              |              |
+          +--------------+--------------+
+                         |
+                         v
+                  +-------------+
+                  | PostgreSQL  |
+                  | soloservis  |
+                  +-------------+
+                         ^
+                         |
+                    Ingestion API
+                         ^
+                         |
+                   +-----------+
+                   |  SCRAPER  |
+                   |  Python   |
+                   +-----------+
 ```
 
-### Flujo de una petición
+El diagrama representa las relaciones principales. Los servicios de backend utilizan una instancia compartida de PostgreSQL y el scraper entrega información mediante Ingestion API.
 
-Por ejemplo, cuando el frontend solicita:
+## 2.2 Flujo de una solicitud
 
-```http
-GET /products
-```
-
-ocurre lo siguiente:
+Ejemplo: consulta de productos.
 
 ```text
 Frontend
-   │
-   │ GET /products
-   ▼
-Chi Router
-   │
-   ▼
-Product Handler
-   │
-   ▼
-Product Repository
-   │
-   ▼
-sqlc → ListProducts()
-   │
-   ▼
-pgx/v5
-   │
-   ▼
-PostgreSQL
-   │
-   ▼
-datos SQL
-   │
-   ▼
-Repository
-   │
-   ▼
+   |
+   | GET /products
+   v
+NGINX
+   |
+   v
+Product API
+   |
+   v
 Handler
-   │
-   ▼
+   |
+   v
+Repository
+   |
+   v
+sqlc / pgx
+   |
+   v
+PostgreSQL
+   |
+   v
+Resultado de consulta
+   |
+   v
 DTO
-   │
-   ▼
-JSON
-   │
-   ▼
+   |
+   v
+JSON Response
+   |
+   v
 Frontend
 ```
 
-El frontend **no se conecta directamente a PostgreSQL**.
+El frontend nunca debe conectarse directamente a PostgreSQL.
 
-Toda comunicación con la base de datos pasa por el backend.
-
----
-
-# 2. Tecnologías
-
-| Tecnología | Función                           |
-| ---------- | --------------------------------- |
-| Go         | Lenguaje del backend              |
-| Chi        | Router HTTP                       |
-| PostgreSQL | Base de datos                     |
-| pgx/v5     | Conexión y driver PostgreSQL      |
-| sqlc       | Generación de código Go desde SQL |
-| godotenv   | Carga de variables desde `.env`   |
-| Docker     | Ejecución de PostgreSQL           |
+Toda operación de consulta o modificación de información debe pasar por los servicios correspondientes.
 
 ---
 
-# 3. Estructura del backend
+# 3. Tecnologías utilizadas
+
+| Tecnología | Función |
+|---|---|
+| Go | Lenguaje principal del backend. |
+| Chi | Router HTTP para administrar rutas y middleware. |
+| PostgreSQL | Base de datos relacional. |
+| pgx/v5 | Driver y administración de conexiones PostgreSQL. |
+| pgxpool | Pool de conexiones a la base de datos. |
+| sqlc | Generación de código Go a partir de consultas SQL. |
+| godotenv | Carga de variables de entorno desde `.env`. |
+| Docker | Contenedorización de servicios. |
+| Docker Compose | Ejecución local de los servicios. |
+| Kubernetes | Orquestación de servicios en el clúster UCT. |
+
+---
+
+# 4. Estructura del proyecto
+
+La estructura actual se organiza de la siguiente manera:
 
 ```text
 backend/
 │
-├── .env
+├── cmd/
+│   ├── all-apis/
+│   ├── auth-api/
+│   ├── cart-api/
+│   ├── comparison-api/
+│   ├── favorites-api/
+│   ├── ingestion-api/
+│   ├── notification-api/
+│   ├── pricing-api/
+│   ├── product-api/
+│   ├── review-api/
+│   ├── search-api/
+│   ├── service-api/
+│   ├── store-api/
+│   ├── user-api/
+│   └── watchlist-api/
+│
+├── internal/
+│   ├── allapis/
+│   ├── apiclient/
+│   ├── apiutil/
+│   ├── auth/
+│   ├── authz/
+│   ├── cart/
+│   ├── categories/
+│   ├── comparison/
+│   ├── config/
+│   ├── database/
+│   │   └── generated/
+│   ├── favorites/
+│   ├── features/
+│   ├── http/
+│   ├── httpx/
+│   ├── ingestion/
+│   ├── integration/
+│   ├── notifications/
+│   ├── pricing/
+│   ├── products/
+│   ├── reviews/
+│   ├── runner/
+│   ├── search/
+│   ├── server/
+│   ├── services/
+│   ├── stores/
+│   └── watchlist/
+│
+├── database/
+│   ├── migrations/
+│   ├── queries/
+│   ├── migration_order.txt
+│   └── Readme.md
+│
 ├── .env.example
-├── .gitignore
 ├── go.mod
 ├── go.sum
 ├── sqlc.yaml
-│
-├── cmd/
-│   └── server/
-│       └── main.go
-│
-├── database/
-│   ├── Readme.md
-│   │
-│   ├── migrations/
-│   │   ├── 001_schema.sql
-│   │   ├── 002_views.sql
-│   │   └── 003_seed.sql
-│   │
-│   └── queries/
-│       └── products.sql
-│
-└── internal/
-    │
-    ├── config/
-    │   └── config.go
-    │
-    ├── database/
-    │   ├── postgres.go
-    │   │
-    │   └── generated/
-    │       ├── db.go
-    │       ├── models.go
-    │       └── products.sql.go
-    │
-    ├── http/
-    │   └── router.go
-    │
-    └── products/
-        ├── handler.go
-        ├── repository.go
-        │
-        └── dto/
-            ├── offer.go
-            ├── product.go
-            └── product_detail.go
+└── README.md
 ```
+
+### Responsabilidades de las carpetas principales
+
+| Directorio | Responsabilidad |
+|---|---|
+| `cmd/` | Puntos de entrada de las aplicaciones y APIs. |
+| `internal/allapis/` | Registro, distribución y agrupación de las APIs. |
+| `internal/config/` | Lectura y administración de configuración. |
+| `internal/database/` | Conexión con PostgreSQL y código generado. |
+| `internal/http/` | Routers y registro de rutas HTTP. |
+| `internal/httpx/` | Utilidades HTTP, validación, errores y middleware. |
+| `internal/auth/` | Funcionalidades de autenticación. |
+| `internal/authz/` | Autorización y validación de sesiones. |
+| `internal/apiclient/` | Comunicación HTTP entre APIs. |
+| `internal/features/` | Funcionalidades compartidas y módulos de dominio. |
+| `database/migrations/` | Versiones de cambios del esquema de PostgreSQL. |
+| `database/queries/` | Consultas SQL utilizadas por sqlc. |
+
+**Importante:** las funcionalidades no necesariamente tienen un único paquete por API. Algunos módulos se encuentran agrupados en `internal/features` o comparten implementaciones y utilidades.
+
+Antes de crear una carpeta nueva, se debe revisar si la funcionalidad ya pertenece a un módulo existente.
 
 ---
 
-# 4. Puntos de entrada (`cmd/`)
+# 5. APIs y dominios funcionales
 
-Hay un binario por API (`cmd/product-api`, `cmd/auth-api`, ...) y uno que sirve varias en un solo proceso, `cmd/all-apis`: el que corre en Kubernetes, uno por dominio (`API_DOMAIN=comercial|usuarios|ingestion`), o las 14 si `API_DOMAIN` está vacía.
+El backend cuenta con 14 APIs.
 
-Todos arrancan igual, con `runner.Run`:
+Para facilitar su administración, se agrupan en tres dominios.
 
-1. Cargar la configuración (`PORT`, `DATABASE_URL`, `FRONTEND_URL`).
-2. Crear el pool de conexiones PostgreSQL.
-3. Comprobar la conexión (si falla, el proceso termina).
-4. Crear el router de la API o del dominio.
-5. Iniciar el servidor HTTP.
+## 5.1 Dominio Comercial
 
-Flujo:
+Contiene las funcionalidades relacionadas con el catálogo, precios y operaciones comerciales.
 
-```text
-main.go
-   │
-   └── runner.Run(nombre, router)
-          │
-          ├── config.Load()
-          ├── database.NewPostgresPool()
-          ├── database.Ping()
-          ├── router(db, frontendURL)
-          └── ListenAndServe()
-```
+| API | Responsabilidad | Ruta principal |
+|---|---|---|
+| Product API | Productos, detalles, características y categorías. | `/products` |
+| Store API | Tiendas y sus ofertas. | `/stores` |
+| Service API | Servicios y proveedores. | `/services` |
+| Pricing API | Precios, ofertas e historial de precios. | `/offers` |
+| Search API | Búsqueda, filtros y facetas. | `/search` |
+| Comparison API | Comparación de productos y servicios. | `/comparisons` |
+| Favorites API | Favoritos de usuarios. | `/favorites` |
+| Cart API | Administración del carrito. | `/cart` |
+| Review API | Reseñas de productos, tiendas y servicios. | `/reviews` |
+| Watchlist API | Seguimiento de productos y precios objetivo. | `/watchlist` |
+| Notification API | Administración de notificaciones. | `/notifications` |
 
-El servidor actualmente utiliza:
+## 5.2 Dominio Usuarios
 
-```text
-http://localhost:8080
-```
+Contiene las funcionalidades relacionadas con las cuentas y sesiones.
+
+| API | Responsabilidad | Ruta principal |
+|---|---|---|
+| Auth API | Registro, login, refresh, logout y validación de sesiones. | `/auth` |
+| User API | Información y perfil de usuarios. | `/users` |
+
+## 5.3 Dominio Ingestion
+
+Responsable de recibir y procesar información externa.
+
+| API | Responsabilidad | Ruta principal |
+|---|---|---|
+| Ingestion API | Recepción, validación y persistencia de información del scraper. | `/ingestion` |
+
+La API de Ingestion permite integrar información obtenida externamente sin que el scraper tenga acceso directo a PostgreSQL.
 
 ---
 
-# 5. Configuración
+# 6. Ejecución y distribución de las APIs
 
-La configuración se encuentra en:
+El proyecto utiliza un punto de entrada principal:
+
+```text
+cmd/all-apis/main.go
+```
+
+Este ejecutable permite iniciar las 14 APIs o solamente las correspondientes a un dominio, utilizando la variable de entorno `API_DOMAIN`.
+
+## 6.1 Topología por dominios
+
+Es la topología utilizada por Docker Compose y Kubernetes.
+
+```text
+API_DOMAIN=comercial
+API_DOMAIN=usuarios
+API_DOMAIN=ingestion
+```
+
+Cada dominio se ejecuta como un proceso independiente, utilizando la misma imagen y el mismo binario.
+
+| Proceso | APIs |
+|---|---:|
+| comercial | 11 |
+| usuarios | 2 |
+| ingestion | 1 |
+| Total | 14 |
+
+Cada proceso escucha internamente en el puerto `8080`.
+
+## 6.2 Topología consolidada
+
+Cuando la variable `API_DOMAIN` está vacía, el proceso registra las 14 APIs.
+
+```text
+API_DOMAIN=""
+```
+
+Esta alternativa permite ejecutar todas las APIs dentro de un único proceso.
+
+Es útil para desarrollo, pruebas y entornos donde se dispone de recursos limitados.
+
+## 6.3 Funcionamiento del router consolidado
+
+El archivo:
+
+```text
+internal/allapis/router.go
+```
+
+asigna cada prefijo de ruta a su API correspondiente.
+
+Por ejemplo:
+
+```text
+/products      -> Product API
+/stores        -> Store API
+/services      -> Service API
+/offers        -> Pricing API
+/search        -> Search API
+/comparisons   -> Comparison API
+/auth          -> Auth API
+/cart          -> Cart API
+/favorites     -> Favorites API
+/reviews       -> Review API
+/watchlist     -> Watchlist API
+/notifications -> Notification API
+/ingestion     -> Ingestion API
+/users         -> User API
+```
+
+Las rutas de una API no incluida en un determinado dominio responden con `404`.
+
+El contrato HTTP de los servicios se mantiene independientemente de la topología utilizada.
+
+---
+
+# 7. Comunicación entre APIs
+
+Algunas funcionalidades necesitan consultar información de otros servicios.
+
+Para mantener esta comunicación se utiliza:
+
+```text
+internal/apiclient/
+```
+
+Este cliente centraliza las solicitudes HTTP y la transferencia de información JSON.
+
+## 7.1 Dependencias actuales
+
+| API que realiza la solicitud | API requerida | Motivo |
+|---|---|---|
+| Favorites | Product | Consultar información de productos. |
+| Cart | Product | Validar productos asociados. |
+| Cart | Pricing | Consultar ofertas y precios. |
+| Review | Product | Validar productos. |
+| Review | Store | Validar tiendas. |
+| Review | Service | Validar servicios. |
+| Watchlist | Pricing | Consultar información de precios. |
+| Pricing | Notification | Generar notificaciones. |
+| Ingestion | Notification | Notificar cambios de precios. |
+
+Estas dependencias deben actualizarse cuando se agreguen nuevas llamadas entre APIs.
+
+## 7.2 Configuración de las conexiones
+
+Las URLs se resuelven mediante variables de entorno.
+
+| Variable | Servicio |
+|---|---|
+| `PRODUCT_API_URL` | Product API. |
+| `STORE_API_URL` | Store API. |
+| `SERVICE_API_URL` | Service API. |
+| `PRICING_API_URL` | Pricing API. |
+| `NOTIFICATION_API_URL` | Notification API. |
+| `GATEWAY_URL` | URL general de respaldo. |
+
+El orden de resolución es:
+
+```text
+1. URL específica de la API.
+          |
+          v
+2. GATEWAY_URL.
+          |
+          v
+3. URL local predeterminada.
+```
+
+Cuando dos APIs se encuentran dentro del mismo proceso, `all-apis` configura automáticamente la comunicación hacia ese proceso.
+
+Cuando una API necesita acceder a otro dominio, debe contar con la URL específica o con `GATEWAY_URL`.
+
+Por ejemplo, Ingestion necesita acceder a Notification mediante:
+
+```env
+NOTIFICATION_API_URL=http://comercial:8080
+```
+
+en el entorno de Docker Compose.
+
+---
+
+# 8. Configuración del backend
+
+La configuración se administra principalmente mediante:
 
 ```text
 internal/config/config.go
 ```
 
-Se utilizan variables de entorno.
+Las variables pueden obtenerse del entorno de ejecución o del archivo `.env`.
 
-Las llamadas HTTP entre APIs usan un cliente común. Cada `*_API_URL` específica
-tiene prioridad; si no está definida, se usa `GATEWAY_URL` y, finalmente, el
-default local del servicio.
+## 8.1 Variables de entorno
 
-## `.env`
+| Variable | Función |
+|---|---|
+| `PORT` | Puerto de ejecución HTTP. |
+| `DATABASE_URL` | Cadena de conexión a PostgreSQL. |
+| `FRONTEND_URL` | Origen autorizado para CORS. |
+| `API_DOMAIN` | Dominio que ejecutará el proceso. |
+| `GATEWAY_URL` | URL común para llamadas entre APIs. |
+| `PRODUCT_API_URL` | Dirección interna de Product API. |
+| `STORE_API_URL` | Dirección interna de Store API. |
+| `SERVICE_API_URL` | Dirección interna de Service API. |
+| `PRICING_API_URL` | Dirección interna de Pricing API. |
+| `NOTIFICATION_API_URL` | Dirección interna de Notification API. |
+| `INTERNAL_API_TOKEN` | Token para operaciones internas autorizadas. |
+| `LOG_LEVEL` | Nivel de registro de eventos. |
 
-El archivo `.env` es local y **no debe subirse al repositorio** si contiene credenciales reales.
+## 8.2 Archivo `.env`
 
-Ejemplo:
-
-```env
-PORT=8080
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/soloservis
-```
-
-También existe:
+Crear el archivo a partir de:
 
 ```text
 .env.example
 ```
 
-Este archivo sirve como referencia para crear el `.env`.
+Ejemplo para desarrollo local:
+
+```env
+PORT=8080
+FRONTEND_URL=http://localhost:5173
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/soloservis
+
+API_DOMAIN=
+GATEWAY_URL=
+INTERNAL_API_TOKEN=
+LOG_LEVEL=
+```
+
+La URL de ejemplo de PostgreSQL debe coincidir con las credenciales y el puerto del entorno local.
+
+El archivo `.env` no debe subirse al repositorio cuando contenga credenciales reales.
 
 ---
 
-# 6. PostgreSQL
+# 9. Base de datos PostgreSQL
 
 PostgreSQL es la base de datos principal del backend.
 
-Actualmente se ejecuta mediante Docker.
+Su responsabilidad es almacenar la información persistente utilizada por las APIs.
 
-El contenedor utilizado durante desarrollo es:
-
-```text
-soloservis_postgres
-```
-
-El puerto de PostgreSQL es:
+Entre sus principales entidades se encuentran:
 
 ```text
-5432
+Usuarios
+Sesiones
+Productos
+Categorías
+Atributos
+Marcas
+Tiendas
+Servicios
+Ofertas
+Precios
+Historial de precios
+Favoritos
+Carritos
+Reseñas
+Comparaciones
+Notificaciones
+Datos de integración
 ```
 
-La aplicación Go se conecta mediante:
+## 9.1 Conexión
 
-```text
-DATABASE_URL
-```
-
-Ejemplo:
-
-```text
-postgres://postgres:postgres@localhost:5432/soloservis
-```
-
----
-
-# 7. Inicialización de la base de datos
-
-Las estructuras de la base de datos están en:
-
-```text
-database/migrations/
-```
-
-Actualmente:
-
-```text
-001_schema.sql
-002_views.sql
-003_seed.sql
-004_platform_apis.sql
-005_demo_catalog.sql
-006_demo_catalog_services.sql
-006_refrigeradores.sql
-007_Computacion.sql
-007_service_cart.sql
-008_normalize_prices_to_clp.sql
-008_Telefonia.sql
-012_categories.sql
-013_categories_seed.sql
-```
-
-## `001_schema.sql`
-
-Contiene la estructura principal de la base de datos.
-
-Entre las entidades utilizadas por el módulo de productos se encuentran:
-
-```text
-brand
-product_category
-product
-product_image
-product_category_specification
-product_specification_value
-store
-product_offer
-product_price_history
-product_review
-```
-
-## `002_views.sql`
-
-Contiene vistas derivadas de la información almacenada.
-
-Actualmente existe:
-
-```text
-product_rating_summary
-```
-
-Esta vista calcula:
-
-```text
-promedio de rating
-cantidad de reviews
-```
-
-a partir de `product_review`.
-
-El rating no se mantiene como un valor duplicado dentro de `product`.
-
-## `003_seed.sql`
-
-Contiene datos iniciales para desarrollo.
-
-Actualmente existen productos de prueba como:
-
-```text
-Refrigerador Samsung No Frost
-Refrigerador LG Side by Side
-```
-
-También existen tiendas, ofertas, imágenes y reviews utilizadas para comprobar el flujo completo.
-
-## `005_demo_catalog.sql`
-
-Agrega de forma repetible 22 productos de 8 categorias y 5 tiendas adicionales, con marcas, especificaciones, imagenes de placeholder, ofertas en varias tiendas e historial de precios. Incluye stock agotado, envio pagado/gratis y productos nuevos, usados o reacondicionados para probar busqueda, filtros, comparaciones, detalle de tiendas y precios. Docker lo ejecuta automaticamente en una base nueva. Para una base ya inicializada, ejecutar desde la raiz del repositorio:
-
-```powershell
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/005_demo_catalog.sql
-```
-
----
-
-# 8. Conexión con PostgreSQL
-
-La conexión se encuentra en:
+La conexión se administra desde:
 
 ```text
 internal/database/postgres.go
 ```
 
-La función principal es:
+Se utiliza:
 
 ```go
-NewPostgresPool(databaseURL string)
-```
-
-Esta crea un:
-
-```text
 pgxpool.Pool
 ```
 
-El pool permite reutilizar conexiones a PostgreSQL en lugar de crear una conexión nueva para cada petición.
+para administrar un conjunto reutilizable de conexiones.
 
-La configuración actual establece límites para el pool:
+Configuración actual del pool:
 
-```text
-MaxConns       = 10
-MinConns       = 2
-MaxConnLifetime = 1 hora
-MaxConnIdleTime = 30 minutos
-```
+| Parámetro | Valor |
+|---|---:|
+| Máximo de conexiones | 10 |
+| Mínimo de conexiones | 2 |
+| Duración máxima | 1 hora |
+| Tiempo máximo inactivo | 30 minutos |
+| Timeout de conexión | 5 segundos |
+| Statement timeout | 30 segundos |
 
-Antes de iniciar el servidor se ejecuta un `Ping` a PostgreSQL.
+Al iniciar el backend se verifica la conexión mediante `Ping`.
 
-Si PostgreSQL no está disponible, el backend termina indicando el error.
+Si PostgreSQL no está disponible, el proceso no continúa su ejecución.
 
 ---
 
-# 9. Router HTTP
+# 10. Migraciones de base de datos
 
-El router se encuentra en:
+Las migraciones SQL se encuentran en:
 
 ```text
-internal/http/router.go
+database/migrations/
 ```
 
-Actualmente existen las siguientes rutas:
+El orden oficial de aplicación se mantiene en:
+
+```text
+database/migration_order.txt
+```
+
+Este archivo define explícitamente qué migraciones deben ejecutarse y en qué orden.
+
+No se debe depender del orden alfabético ni del número de prefijo para determinar la secuencia.
+
+## 10.1 Funcionamiento
+
+El proyecto utiliza un runner de migraciones ubicado en:
+
+```text
+k8s/base/migrations/migrate.sh
+```
+
+Este procedimiento:
+
+1. Lee el manifiesto `migration_order.txt`.
+2. Verifica que los archivos estén disponibles.
+3. Comprueba las migraciones ya aplicadas.
+4. Ejecuta solamente las migraciones pendientes.
+5. Registra los nombres y checksums en `schema_migrations`.
+6. Evita aplicar nuevamente migraciones previamente registradas.
+
+Una migración nueva debe incorporarse tanto al directorio de migraciones como al manifiesto.
+
+## 10.2 Reglas para crear migraciones
+
+- No modificar migraciones que ya fueron aplicadas.
+- No reutilizar el nombre de una migración existente.
+- Mantener un orden explícito.
+- Registrar cada archivo nuevo en `migration_order.txt`.
+- Verificar las relaciones, restricciones y tipos de datos.
+- Comprobar compatibilidad con los datos existentes.
+- Probar la migración sobre una base de datos limpia.
+
+**Importante:** una base antigua sin registro de migraciones requiere establecer un baseline verificado antes de utilizar el runner. No debe asumirse que su esquema coincide con todas las migraciones existentes.
+
+## 10.3 Aplicación manual y bases remotas
+
+Docker aplica el runner automáticamente al inicializar un volumen PostgreSQL vacío. Para un volumen existente con `schema_migrations`, se ejecuta el runner para aplicar las versiones pendientes. Una base antigua con esquema pero sin registro se rechaza intencionalmente: primero requiere establecer un baseline verificado; el runner no asume que migraciones o seeds se hayan aplicado.
+
+Para aplicar manualmente migraciones puntuales sobre el contenedor local (por ejemplo, las de categorías de TAL-71), desde la raíz del repositorio en PowerShell:
+
+```powershell
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/007_service_cart.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/008_normalize_prices_to_clp.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/012_categories.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/013_categories_seed.sql
+docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/018_category_artworks.sql
+```
+
+El mismo runner admite una base remota como Neon mediante `DATABASE_URL`. En PowerShell, configura `NEON_DATABASE_URL` desde tu gestor de secretos y ejecuta desde la raíz del repositorio:
+
+```powershell
+$env:DATABASE_URL = $env:NEON_DATABASE_URL
+if (-not $env:DATABASE_URL) { throw "NEON_DATABASE_URL no está configurada." }
+docker compose -f docker/compose.yml run --rm --no-deps -e DATABASE_URL postgres bash /docker-entrypoint-initdb.d/001_migrations.sh
+```
+
+Documentación complementaria:
+
+```text
+database/Readme.md
+```
+
+---
+
+# 11. Acceso a datos y sqlc
+
+El backend utiliza `sqlc` para generar código Go a partir de consultas SQL.
+
+Configuración:
+
+```text
+sqlc.yaml
+```
+
+Consultas:
+
+```text
+database/queries/
+```
+
+Archivos generados:
+
+```text
+internal/database/generated/
+```
+
+Actualmente existen consultas relacionadas con:
+
+```text
+products.sql
+services.sql
+stores.sql
+```
+
+## 11.1 Flujo de generación
+
+```text
+Consultas SQL
+      |
+      v
+   sqlc.yaml
+      |
+      v
+  sqlc generate
+      |
+      v
+Código Go generado
+      |
+      v
+internal/database/generated/
+      |
+      v
+Repositories
+```
+
+Para regenerar el código después de modificar las consultas:
+
+```bash
+cd backend
+sqlc generate
+```
+
+Los archivos generados no deben modificarse manualmente.
+
+---
+
+# 12. Contrato HTTP y validaciones
+
+Las APIs deben mantener contratos consistentes para facilitar la integración con el frontend y otros servicios.
+
+El backend utiliza utilidades compartidas en:
+
+```text
+internal/httpx/
+```
+
+Entre sus responsabilidades se encuentran:
+
+- Decodificación de JSON.
+- Validación de parámetros.
+- Validación de cuerpos HTTP.
+- Construcción de respuestas de error.
+- Registro de solicitudes.
+- Recuperación ante errores de ejecución.
+
+## 12.1 Middleware
+
+Las APIs utilizan middleware compartido para:
+
+1. Generar o propagar un identificador de solicitud (`request_id`).
+2. Registrar información de acceso.
+3. Recuperarse de errores de ejecución.
+4. Configurar CORS.
+
+## 12.2 Formato de errores
+
+Se utiliza el estándar de errores basado en:
+
+```text
+application/problem+json
+```
+
+Ejemplo:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Los parámetros de la consulta no son válidos.",
+  "instance": "/products",
+  "code": "invalid_parameter",
+  "request_id": "example-123",
+  "errors": [
+    {
+      "field": "limit",
+      "code": "max",
+      "message": "El límite solicitado supera el máximo permitido."
+    }
+  ]
+}
+```
+
+Los errores deben permitir identificar el problema sin exponer detalles internos de PostgreSQL u otras dependencias.
+
+Documentación normativa:
+
+```text
+docs/estandares/TAL-78-estandar-api.md
+```
+
+---
+
+# 13. Autenticación y autorización
+
+El sistema utiliza Auth API para administrar la autenticación y las sesiones.
+
+Las operaciones de usuario deben identificar al usuario a través de su sesión validada.
+
+Paquetes principales:
+
+```text
+internal/auth/
+internal/authz/
+```
+
+## 13.1 Responsabilidades
+
+| Componente | Responsabilidad |
+|---|---|
+| Auth API | Registro, login, refresh y logout. |
+| Authz | Validación de sesiones y permisos. |
+| User API | Información asociada a los usuarios. |
+| INTERNAL_API_TOKEN | Autorización de operaciones internas. |
+
+## 13.2 Reglas de seguridad
+
+- No confiar en el `userId` enviado por el frontend como mecanismo de autorización.
+- El usuario de una operación debe obtenerse desde la sesión validada.
+- Las operaciones protegidas requieren la autorización correspondiente.
+- Las escrituras administrativas deben validar privilegios.
+- Las operaciones internas deben utilizar el token correspondiente.
+- Los errores no deben revelar credenciales ni información sensible.
+
+Por ejemplo, enviar un `userId` diferente en una solicitud no debe permitir acceder a la información de otro usuario.
+
+---
+
+# 14. Integración con Ingestion y Scraper
+
+El backend recibe información externa mediante Ingestion API.
+
+El scraper no debe conectarse directamente a PostgreSQL.
+
+El flujo de integración es:
+
+```text
+Scraper
+   |
+   | HTTP / JSON
+   v
+Ingestion API
+   |
+   v
+Validación de información
+   |
+   v
+Procesamiento
+   |
+   +------> Product
+   |
+   +------> Pricing
+   |
+   +------> Notification
+   |
+   v
+PostgreSQL
+```
+
+La API de Ingestion administra ejecuciones de integración y procesa los productos y ofertas recibidos.
+
+Las operaciones internas están protegidas por autorización administrativa o `INTERNAL_API_TOKEN`, según corresponda.
+
+Documentación relacionada:
+
+```text
+scraper/README.md
+```
+
+---
+
+# 15. Endpoints y servicios
+
+Las APIs distribuyen sus rutas mediante prefijos.
+
+| API | Prefijo |
+|---|---|
+| Product | `/products`, `/product-categories`, `/categories` |
+| Store | `/stores` |
+| Service | `/services` |
+| User | `/users` |
+| Pricing | `/offers` |
+| Search | `/search` |
+| Comparison | `/comparisons` |
+| Ingestion | `/ingestion` |
+| Auth | `/auth` |
+| Cart | `/cart` |
+| Favorites | `/favorites` |
+| Notification | `/notifications` |
+| Review | `/reviews` |
+| Watchlist | `/watchlist` |
+
+Cada API dispone de:
 
 ```http
 GET /health
-GET /products
-GET /products/{publicID}
-GET /stores
-GET /stores/{id}
-GET /services
-GET /services/{publicID}
 ```
 
-Las tiendas se consultan por id numérico. Los servicios se consultan por UUID
-público y aceptan el filtro opcional `?category=`. El detalle de un servicio
-incluye sus ofertas y proveedores.
+para verificar el estado del servicio y su conexión con PostgreSQL.
 
----
+No todas las rutas tienen exposición pública. Algunas operaciones están reservadas para comunicación interna o requieren autenticación.
 
-# 10. Endpoint `/health`
-
-Permite comprobar que:
-
-1. El servidor Go está funcionando.
-2. El backend puede comunicarse con PostgreSQL.
-
-Petición:
-
-```http
-GET http://localhost:8080/health
-```
-
-Respuesta exitosa:
-
-```json
-{
-  "status": "ok",
-  "service": "soloservis-api",
-  "database": "connected"
-}
-```
-
-Si PostgreSQL no responde:
-
-```json
-{
-  "status": "error",
-  "service": "soloservis-api",
-  "database": "unavailable"
-}
-```
-
----
-
-# 11. Endpoint `/products`
-
-> Contrato vigente desde TAL-70 (atributos, autorización, paginación y errores): ver sección 12.2.
-
-Petición:
-
-```http
-GET http://localhost:8080/products
-```
-
-Esta ruta devuelve el listado de productos activos.
-
-El flujo es:
-
-```text
-GET /products
-      ↓
-ProductHandler.List()
-      ↓
-Repository.List()
-      ↓
-sqlc.ListProducts()
-      ↓
-PostgreSQL
-```
-
-El resultado se transforma a un DTO antes de enviarse al frontend.
-
-Ejemplo:
-
-```json
-[
-  {
-    "id": "b87a37e7-905a-494f-9930-2d0278cffcd5",
-    "name": "Refrigerador Samsung No Frost",
-    "brand": "Samsung",
-    "model": "RT38K",
-    "category": "Refrigeradores",
-    "description": "Refrigerador no frost de 380 litros",
-    "rating": 4.5,
-    "reviewCount": 2
-  }
-]
-```
-
----
-
-# 12. Endpoint `/products/{publicID}`
-
-> Contrato vigente desde TAL-70 (atributos, autorización, paginación y errores): ver sección 12.2.
-
-Permite obtener el detalle completo de un producto.
-
-Ejemplo:
-
-```http
-GET /products/b87a37e7-905a-494f-9930-2d0278cffcd5
-```
-
-El identificador público utilizado por la API es un UUID.
-
-El flujo es:
-
-```text
-GET /products/{publicID}
-          ↓
-ProductHandler.GetByPublicID()
-          ↓
-validación UUID
-          ↓
-Repository.GetDetailByPublicID()
-          ↓
-sqlc
-          ↓
-PostgreSQL
-```
-
-Después se obtienen adicionalmente:
-
-```text
-imagenes
-ofertas
-tiendas
-precios
-stock
-envío
-```
-
-y se construye el DTO final.
-
----
-
-# 12.1. Endpoints `/categories` (TAL-71)
+## 15.1 Endpoints `/categories` (TAL-71)
 
 Categorías unificadas de productos y servicios con sus **definiciones de atributos dinámicos**. Son la base de la validación de atributos (TAL-72), los filtros (TAL-75, `filterable`) y la comparación (TAL-76, `comparable`).
 
 - Servicio: **Product API** (`cmd/product-api`, puerto 8081). Código en `internal/categories`.
 - Solo lectura: `POST`/`PUT`/`PATCH`/`DELETE` responden `405`. No hay endpoints de escritura (requerirían autenticación).
 - Errores con el estándar TAL-78 (`application/problem+json`, ver `docs/estandares/TAL-78-estandar-api.md`).
-- Incluye el validador de atributos (TAL-72) que usan los endpoints de escritura de productos y servicios (ver más abajo).
+- Incluye el validador de atributos (TAL-72) que usan los endpoints de escritura de productos y servicios.
 - Solo se exponen categorías con `active = TRUE`.
 
-## Esquema (migraciones `012_categories.sql`, `013_categories_seed.sql` y `018_category_artworks.sql`)
+### Esquema (migraciones `012_categories.sql`, `013_categories_seed.sql` y `018_category_artworks.sql`)
 
 Se numeran 012 y 013 porque 009–011 son de TAL-67/68. Están registradas al final de `backend/database/migration_order.txt`: el runner rechaza cualquier `.sql` que no figure en ese manifiesto.
 
@@ -585,11 +879,11 @@ Las tablas antiguas (`product_category`, `service_category` y sus `*_specificati
 
 Seeds: `refrigeradores`, `notebooks`, `televisores` (producto) e `internet-fibra-optica` (servicio), con atributos de los cinco `data_type`.
 
-## `GET /categories/artworks/{key}`
+### `GET /categories/artworks/{key}`
 
 Devuelve la ilustración SVG guardada en `category_artworks` con `Content-Type: image/svg+xml`. Las ilustraciones se cargan mediante la migración `018_category_artworks.sql`.
 
-## `GET /categories`
+### `GET /categories`
 
 | Parámetro | Tipo | Defecto | Regla |
 | --- | --- | --- | --- |
@@ -629,7 +923,7 @@ GET /categories?limit=2
 
 Sin resultados (por ejemplo, `offset` mayor que `total`), `items` es `[]`.
 
-## `GET /categories/{slug}`
+### `GET /categories/{slug}`
 
 El `slug` se valida contra `^[a-z0-9-]{1,64}$` **antes** de consultar la base. Los atributos vienen ordenados por `displayOrder`. Las restricciones que no aplican al `dataType` van como `null` (el contrato siempre trae todas las claves). El detalle usa 2 consultas fijas.
 
@@ -653,7 +947,7 @@ GET /categories/internet-fibra-optica
 }
 ```
 
-## Errores
+### Errores de `/categories`
 
 | Caso | Status | `code` | `errors[]` |
 | --- | --- | --- | --- |
@@ -736,7 +1030,7 @@ Con la base de datos caída:
 }
 ```
 
-## Validación de atributos (TAL-72)
+### Validación de atributos (TAL-72)
 
 `categories.ValidateAttributes(defs, input)` (`internal/categories/validate.go`) valida los atributos de un producto o servicio contra las definiciones de su categoría **antes de guardarlo**. Es una función pura: no consulta la base (recibe las definiciones que ya devolvió `GetBySlug`), así que la reutilizan Product API (TAL-70) e Ingestion API (TAL-77).
 
@@ -801,11 +1095,11 @@ if len(fieldErrors) > 0 {
 }
 ```
 
-## Exposición por nginx
+### Exposición por nginx
 
 En Kubernetes, el nginx del frontend (`docker/frontend/default.conf.template`) publica `/categories` y `/product-categories` solo para GET, junto con `/products`. Ver `k8s/README.md`.
 
-## Tests
+### Tests de `/categories`
 
 - Unitarios, sin BD (`internal/categories/handler_test.go`, `internal/http/router_test.go`): `cd backend && go test ./...`.
 - Integración: migraciones sobre base limpia, seeds, CHECK y repositorio (`internal/categories/repository_integration_test.go`). Se omiten si no existe `TEST_DATABASE_URL`:
@@ -820,10 +1114,9 @@ cd backend && TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/sol
 
 ---
 
+## 15.2 Productos con categoría y atributos dinámicos (TAL-70)
 
-# 12.2. Productos con categoría y atributos dinámicos (TAL-70)
-
-Desde TAL-70, Product API crea, consulta, edita y lista productos usando la categoría del modelo nuevo (`categories`, TAL-71) y sus atributos validados por TAL-72. Las secciones 11 y 12 describen la forma básica; esta sección es el contrato vigente.
+Desde TAL-70, Product API crea, consulta, edita y lista productos usando la categoría del modelo nuevo (`categories`, TAL-71) y sus atributos validados por TAL-72. Esta sección es el contrato vigente de `/products`.
 
 | Método | Ruta | Autorización | Éxito |
 | --- | --- | --- | --- |
@@ -835,7 +1128,7 @@ Desde TAL-70, Product API crea, consulta, edita y lista productos usando la cate
 | GET | `/products/{publicID}/reviews` | pública | 200 |
 | GET | `/product-categories` | pública | 200 (árbol de `product_category`; transitorio hasta TAL-51) |
 
-## Modelo de datos (`014_product_attributes.sql`)
+### Modelo de datos (`014_product_attributes.sql`)
 
 - `product.category_ref` → `categories(id)` (`ON DELETE RESTRICT`). Se cargó desde `categories.legacy_product_category_id`. `product.category_id` (`product_category`) **no cambia**: lo siguen usando Search, Comparison y el frontend.
 - `product_attribute_value (product_id, category_id, attribute_id, value, value_numeric)`, PK `(product_id, attribute_id)`:
@@ -844,7 +1137,7 @@ Desde TAL-70, Product API crea, consulta, edita y lista productos usando la cate
   - **FK compuestas**: `(product_id, category_id) → product(id, category_ref)` y `(attribute_id, category_id) → category_attributes(id, category_id)`. La base de datos impide guardar un atributo de otra categoría, cambiar la categoría de un producto sin reemplazar sus valores y borrar un atributo que tenga valores (`RESTRICT`).
 - Los productos existentes conservan sus especificaciones antiguas en `specs`; `attributes` se llena al crear o editar con este contrato.
 
-## Autorización de escrituras (`internal/authz`)
+### Autorización de escrituras (`internal/authz`)
 
 `POST`, `PUT` y `DELETE` exigen `Authorization: Bearer <token>`:
 
@@ -858,7 +1151,7 @@ Desde TAL-70, Product API crea, consulta, edita y lista productos usando la cate
 
 Nginx sigue bloqueando desde internet todo lo que no sea GET (`limit_except GET`).
 
-## Body de `POST /products` y `PUT /products/{publicID}`
+### Body de `POST /products` y `PUT /products/{publicID}`
 
 ```json
 {
@@ -886,13 +1179,13 @@ Nginx sigue bloqueando desde internet todo lo que no sea GET (`limit_except GET`
 | `model` / `sku` / `description` | opcionales; máximo 150 / 100 / 5000 caracteres. `sku` es único. |
 | `brandId` | opcional, mayor que 0 y existente |
 | `imageUrl` | **obligatorio en POST**, URL http(s). En PUT no se acepta (las imágenes no se editan con PUT). |
-| `attributes` | se valida con `categories.ValidateAttributes` (sección 12.1): tipos sin conversión implícita, obligatorios, rangos, largos, enum y keys desconocidas. |
+| `attributes` | se valida con `categories.ValidateAttributes` (sección 15.1): tipos sin conversión implícita, obligatorios, rangos, largos, enum y keys desconocidas. |
 
 **PUT reemplaza el producto completo**: un campo opcional omitido queda vacío y los atributos se reemplazan por los enviados.
 
 Orden de validación (TAL-78 §3): id de ruta (400) → decodificación (400/413/415) → reglas de campos (422) → categoría (422) → atributos (422) → base de datos (404/409/422/500). Todo se guarda en **una transacción**: producto, imagen y atributos.
 
-## Respuestas
+### Respuestas
 
 `POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (`null` si la categoría antigua no tiene equivalente) y `attributes` con valores tipados. Respuesta real del `PUT` con el body de arriba:
 
@@ -938,7 +1231,7 @@ PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
 
 El total sin paginar va en el header `X-Total-Count`. El listado usa 6 consultas fijas (conteo, página, imágenes, ofertas, specs y atributos), sin N+1. Un producto dado de baja no aparece en el listado y su detalle responde 404.
 
-## Errores
+### Errores de `/products`
 
 ```json
 {
@@ -991,15 +1284,14 @@ GET /products?category=Refri_Geradores&limit=500
 }
 ```
 
-## Tests
+### Tests de `/products`
 
 - Unitarios sin BD: `internal/products/handler_test.go`, `internal/authz/authz_test.go`, `internal/http/router_test.go`.
 - Integración con `TEST_DATABASE_URL`: `internal/products/catalog_integration_test.go` (ciclo de vida, filtros, paginación y FK compuestas) e `internal/http/router_integration_test.go` (router real con sesiones admin/cliente y token de servicio).
 
 ---
 
-
-# 12.3. Store API: tiendas y ofertas por producto (TAL-73)
+## 15.3 Store API: tiendas y ofertas por producto (TAL-73)
 
 Store API (`cmd/store-api`, puerto 8082, código en `internal/stores`) es **solo lectura**. Nginx ya enruta `/stores` (solo GET), así que los endpoints nuevos quedan expuestos sin cambios de infraestructura.
 
@@ -1012,7 +1304,7 @@ Store API (`cmd/store-api`, puerto 8082, código en `internal/stores`) es **solo
 
 Límite con Pricing API (TAL-74): Store API **lee** ofertas agrupadas por tienda; Pricing **registra** precios y su historial.
 
-## Parámetros
+### Parámetros
 
 | Parámetro | Regla |
 | --- | --- |
@@ -1022,7 +1314,7 @@ Límite con Pricing API (TAL-74): Store API **lee** ofertas agrupadas por tienda
 | `offset` | ≥ 0, por defecto 0 |
 | `{id}` | entero positivo |
 
-## Reglas
+### Reglas
 
 - Solo se consideran **tiendas activas** y **productos activos**.
 - `GET /stores/offers` ordena **disponibles primero, luego por precio ascendente** y nombre de tienda: lo que necesita el comparador.
@@ -1032,7 +1324,7 @@ Límite con Pricing API (TAL-74): Store API **lee** ofertas agrupadas por tienda
 - `reviewCount` sale de `store_review` (antes siempre valía 0). `rating` sigue siendo el valor guardado en `store.rating`.
 - Montos como string, igual que en Product API. `lastUpdated` en RFC 3339 (UTC).
 
-## Ejemplos (respuestas reales)
+### Ejemplos (respuestas reales)
 
 ```http
 GET /stores/offers?product=14159cb1-e5d2-4fa7-88c7-a70f29d233f5&limit=2
@@ -1136,7 +1428,7 @@ En `/stores/{id}/offers` no se repite `store`: es la tienda de la ruta.
 ]
 ```
 
-## Errores
+### Errores de `/stores`
 
 | Caso | Status | `code` / `errors[]` |
 | --- | --- | --- |
@@ -1168,15 +1460,14 @@ GET /stores/offers?product=abc&available=si
 }
 ```
 
-## Tests
+### Tests de `/stores`
 
 - Unitarios sin BD: `internal/stores/handler_test.go` e `internal/http/router_test.go` (rutas registradas, solo lectura).
 - Integración con `TEST_DATABASE_URL`: `internal/stores/repository_integration_test.go` (orden y filtros de ofertas, tiendas y productos inactivos, contadores coherentes entre listado y detalle, `reviewCount` real).
 
 ---
 
-
-# 12.4. Pricing API: precio actual e historial (TAL-74)
+## 15.4 Pricing API: precio actual e historial (TAL-74)
 
 Pricing API (`cmd/pricing-api`, puerto 8085) tiene ahora su propio paquete, `internal/pricing`, con el estándar TAL-78 (antes vivía en `internal/features` con `apiutil`). Usa `apphttp.NewPricingRouter`: RequestID → AccessLog → Recover → CORS.
 
@@ -1192,14 +1483,14 @@ Pricing API (`cmd/pricing-api`, puerto 8085) tiene ahora su propio paquete, `int
 
 `{productId}` acepta el UUID público o el id numérico (como antes). Límite con Store API (TAL-73): Store **lee** ofertas por tienda; Pricing **registra** precios y su historial.
 
-## Cómo se registra el precio actual
+### Cómo se registra el precio actual
 
 - `POST /offers` hace **upsert** sobre el índice único de TAL-63/64 (producto + tienda + URL normalizada): el scraper/Ingestion puede reenviar la misma oferta y solo se actualiza.
 - El **historial lo escribe el trigger** `record_product_offer_price_history` (migración 010) en el alta y cuando cambia el precio. Reenviar el mismo precio no agrega historial.
 - Si el precio baja, se avisa a los usuarios cuyo precio objetivo quedó cruzado (`product_user_interest`) mediante Notification API (`NOTIFICATION_API_URL`). Un fallo del aviso queda en el log y no afecta la respuesta.
 - La moneda la normaliza el trigger de la migración 008 (hoy todo se guarda como CLP).
 
-## Body de `POST /offers` / `PUT /offers/{id}`
+### Body de `POST /offers` / `PUT /offers/{id}`
 
 ```json
 {
@@ -1233,7 +1524,7 @@ Pricing API (`cmd/pricing-api`, puerto 8085) tiene ahora su propio paquete, `int
 
 Los montos aceptan número JSON o string numérico y **no pasan por `float64`**: viajan como texto decimal a `NUMERIC(12,2)`. En las respuestas van como string con 2 decimales.
 
-## Respuestas (reales)
+### Respuestas (reales)
 
 `POST /offers` con un precio nuevo para una oferta existente → **200**:
 
@@ -1280,7 +1571,7 @@ Los montos aceptan número JSON o string numérico y **no pasan por `float64`**:
 
 Parámetros del historial: `from`/`to` en `YYYY-MM-DD` (inclusivas, `to` ≥ `from`), `limit` 1–500 (por defecto 100), `offset` ≥ 0.
 
-## Errores
+### Errores de `/offers`
 
 | Caso | Status | `code` / `errors[]` |
 | --- | --- | --- |
@@ -1312,26 +1603,25 @@ Parámetros del historial: `from`/`to` en `YYYY-MM-DD` (inclusivas, `to` ≥ `fr
 }
 ```
 
-## Consumidores
+### Consumidores
 
 Los nombres de los campos se mantienen. Cart lee `productId` de `GET /offers/{id}`; Comparison y Watchlist reenvían `GET /offers/product/{productId}` sin interpretarlo; Ingestion usa `POST /offers` y reenvía `INTERNAL_API_TOKEN` (configurado para `pricing-api` e `ingestion-api` en `docker/compose.yml`).
 
-## Tests
+### Tests de `/offers`
 
 - Unitarios sin BD: `internal/pricing/handler_test.go`, `internal/http/router_test.go`.
 - Integración con `TEST_DATABASE_URL`: `internal/pricing/integration_test.go` (upsert, historial por trigger, PUT sin apagar ofertas, mejor precio, filtros, avisos de bajada). Reemplaza a los tests de caracterización de Pricing de `internal/features`, actualizados al comportamiento corregido.
 
-## Pendiente (fuera de TAL-74)
+### Pendiente (fuera de TAL-74)
 
 - Pricing se despliega en k8s (como `pricing-api` en local o dentro de `backend` en UCT), pero no se publica en nginx: solo la usan las otras APIs por la red interna.
 - `is_promotional` siempre es `false`: el trigger de la 010 no lo calcula.
 
 ---
 
+## 15.5 Search API: texto, categoría y atributos filtrables (TAL-75)
 
-# 12.5. Search API: texto, categoría y atributos filtrables (TAL-75)
-
-Search API (`cmd/search-api`, puerto 8086) tiene ahora la búsqueda pública en su propio paquete, `internal/search`, con el estándar TAL-78 (`apphttp.NewSearchRouter`). El historial y las búsquedas guardadas (`/search/history`, `/search/saved`, requieren sesión) siguen en `internal/features` y se montan en el mismo router: es lo único que usa hoy el frontend. También cumplen el estándar TAL-78 (ver §12.8).
+Search API (`cmd/search-api`, puerto 8086) tiene ahora la búsqueda pública en su propio paquete, `internal/search`, con el estándar TAL-78 (`apphttp.NewSearchRouter`). El historial y las búsquedas guardadas (`/search/history`, `/search/saved`, requieren sesión) siguen en `internal/features` y se montan en el mismo router: es lo único que usa hoy el frontend. También cumplen el estándar TAL-78 (ver §15.8).
 
 Ya no descarga `GET /products` de Product API: consulta la base directamente.
 
@@ -1342,7 +1632,7 @@ Ya no descarga `GET /products` de Product API: consulta la base directamente.
 | GET | `/search/categories?q=&itemType=` | categorías del modelo nuevo (`categories`) |
 | GET | `/search/brands?q=` | marcas activas |
 
-## Parámetros de `/search/products` (y de `/search/facets`, sin `sort`/`limit`/`offset`)
+### Parámetros de `/search/products` (y de `/search/facets`, sin `sort`/`limit`/`offset`)
 
 | Parámetro | Regla |
 | --- | --- |
@@ -1360,7 +1650,7 @@ Los filtros `attr.*` exigen `category` con slug (los atributos son de la categor
 
 La consulta es una sola sentencia estática y parametrizada: palabras, marcas y filtros de atributos viajan como arreglos (`unnest`), sin concatenar entrada del usuario. Una búsqueda usa 3 consultas fijas (conteo, página, atributos); las facetas, 4.
 
-## Ejemplos (respuestas reales)
+### Ejemplos (respuestas reales)
 
 ```http
 GET /search/products?q=refrigerador&category=refrigeradores&attr.capacidad_litros.min=500&attr.no_frost=true&sort=price_asc&limit=2
@@ -1431,7 +1721,7 @@ GET /search/categories?q=OPTICA
 [{ "slug": "internet-fibra-optica", "name": "Internet Fibra Óptica", "itemType": "service" }]
 ```
 
-## Errores
+### Errores de `/search`
 
 | Caso | Status | `code` / `errors[]` |
 | --- | --- | --- |
@@ -1459,21 +1749,20 @@ GET /search/categories?q=OPTICA
 }
 ```
 
-## Índices
+### Índices
 
 No se agregó un índice trigram: con el catálogo actual (38 productos) PostgreSQL recorre la tabla de todos modos, el texto combina columnas de `product` y `brand` (un índice sobre `product` no lo cubriría) y `pg_trgm`/`unaccent` exigen extensiones con privilegios en k8s. Revisar cuando el catálogo crezca (miles de productos): columna generada normalizada en `product` + índice GIN trigram.
 
-## Tests
+### Tests de `/search`
 
 - Unitarios sin BD: `internal/search/handler_test.go`, `internal/http/router_test.go`.
 - Integración con `TEST_DATABASE_URL`: `internal/search/integration_test.go` (texto sin tildes y con comodines literales, marca, precio total, disponibilidad, filtros por atributo, orden, paginación, facetas, categorías y marcas).
 
 ---
 
+## 15.6 Comparison API: alternativas de una misma categoría (TAL-76)
 
-# 12.6. Comparison API: alternativas de una misma categoría (TAL-76)
-
-Comparison API (`cmd/comparison-api`, puerto 8087) tiene la comparación de **productos** en su propio paquete, `internal/comparison`, con el estándar TAL-78 (`apphttp.NewComparisonRouter`). Las comparaciones de **servicios** (`/comparisons/services`) siguen en `internal/features` y se montan en el mismo router; también cumplen el estándar TAL-78 (ver §12.8).
+Comparison API (`cmd/comparison-api`, puerto 8087) tiene la comparación de **productos** en su propio paquete, `internal/comparison`, con el estándar TAL-78 (`apphttp.NewComparisonRouter`). Las comparaciones de **servicios** (`/comparisons/services`) siguen en `internal/features` y se montan en el mismo router; también cumplen el estándar TAL-78 (ver §15.8).
 
 Ya no llama a Product API ni a Pricing API: el mejor precio se calcula en SQL con el mismo criterio que Pricing y Search (precio + envío, ofertas disponibles en tiendas activas).
 
@@ -1489,20 +1778,20 @@ Ya no llama a Product API ni a Pricing API: el mejor precio se calcula en SQL co
 | POST | `/comparisons/products/{id}/items` | sesión (dueño) | agregar `{"productId": "..."}` → 201 con la comparación |
 | DELETE | `/comparisons/products/{id}/items/{productId}` | sesión (dueño) | 204 |
 
-## Propiedad (corrige S3 de TAL-69)
+### Propiedad (corrige S3 de TAL-69)
 
 - El usuario sale del **token de sesión** de Auth API (`Authorization: Bearer <token>`, `authz.RequireSession`), nunca del body: enviar `userId` responde 400 `unknown_field`.
 - Las consultas filtran por `user_id`: una comparación de otro usuario responde **404**, igual que una inexistente, para no revelar que existe.
 - Sin token o con un token vencido: 401 `unauthorized`.
 
-## Reglas
+### Reglas
 
 - Todos los productos deben ser de la **misma categoría** (`product.category_id`; equivale a la misma `category_ref`, porque el enlace con la categoría anterior es único).
 - Entre 2 y 5 productos en `/compare`; entre 1 y 5 en una comparación guardada. Sin repetidos.
 - Solo productos activos; un producto dado de baja deja de aparecer en las comparaciones guardadas.
 - El nombre es opcional al crear (por defecto "Comparación de productos"), máximo 150 caracteres.
 
-## La matriz
+### La matriz
 
 - `products`: columnas en el orden pedido, con `bestPrice` (precio total), `bestStore` y `offerCount`.
 - `attributes`: atributos **`comparable`** de la categoría (TAL-71), en `displayOrder`, con valores tipados alineados con `products` (`null` si el producto no lo tiene).
@@ -1566,7 +1855,7 @@ Location: /comparisons/products/6
 ]
 ```
 
-## Errores
+### Errores de `/comparisons`
 
 | Caso | Status | `code` / `errors[]` |
 | --- | --- | --- |
@@ -1598,23 +1887,22 @@ Location: /comparisons/products/6
 }
 ```
 
-## Compatibilidad
+### Compatibilidad
 
 El contrato cambió respecto del anterior (sin `userId` en el body, respuestas con matriz, errores del estándar). No hay consumidores: el frontend define las llamadas en `personalization.ts` pero no las usa (la comparación se arma en el cliente con `product.specs`); conectarlo corresponde a TAL-56.
 
-## Tests
+### Tests de `/comparisons`
 
 - Unitarios sin BD: `internal/comparison/handler_test.go` (con `authz.RequireSession` real y sesiones falsas), `internal/authz/authz_test.go`, `internal/http/router_test.go`.
 - Integración con `TEST_DATABASE_URL`: `internal/comparison/integration_test.go` (matriz, compatibles, límites, propiedad entre usuarios) e `internal/http/router_integration_test.go` (sesiones reales: otro usuario recibe 404).
 
-## Pendiente
+### Pendiente
 
 - Las comparaciones de servicios (`/comparisons/services`) siguen sin propiedad por usuario (mismo S3); quedan en `features`.
 
 ---
 
-
-# 12.7. Ingestion API: datos normalizados del scraper (TAL-77)
+## 15.7 Ingestion API: datos normalizados del scraper (TAL-77)
 
 Ingestion API (`cmd/ingestion-api`, puerto 8094) tiene su propio paquete, `internal/ingestion`, con el estándar TAL-78 (`apphttp.NewIngestionRouter`). Recibe del scraper productos y ofertas **ya normalizados**, los incorpora con las mismas reglas que Product API (TAL-70/72) y Pricing API (TAL-74), y registra cada ejecución.
 
@@ -1631,9 +1919,9 @@ Ingestion API (`cmd/ingestion-api`, puerto 8094) tiene su propio paquete, `inter
 | GET | `/ingestion/runs?limit=&offset=` | ejecuciones, la más reciente primero + `X-Total-Count` |
 | GET | `/ingestion/runs/{id}` | ejecución con sus contadores |
 
-## Contrato para el scraper (TAL-79 / TAL-90)
+### Contrato para el scraper (TAL-79 / TAL-90)
 
-### 1. Abrir una ejecución
+#### 1. Abrir una ejecución
 
 ```http
 POST /ingestion/runs
@@ -1652,7 +1940,7 @@ Authorization: Bearer <INTERNAL_API_TOKEN>
   "recordsFound": 0, "recordsProcessed": 0, "recordsFailed": 0, "errorMessage": null }
 ```
 
-### 2. Enviar lotes (1 a 100 ítems)
+#### 2. Enviar lotes (1 a 100 ítems)
 
 ```http
 POST /ingestion/runs/7/items
@@ -1679,7 +1967,7 @@ POST /ingestion/runs/7/items
 | `product.description` / `imageUrl` | opcionales (≤ 5000 / URL http(s)) |
 | `offer` | mismas reglas que `POST /offers` de Pricing (TAL-74): `price` obligatorio, montos con 2 decimales, `condition`, `stock`, `productUrl`… |
 
-### Cómo se procesa cada ítem
+#### Cómo se procesa cada ítem
 
 1. Se valida; los errores salen con el campo prefijado (`product.…`, `offer.…`).
 2. **Producto existente:** se busca por `sku`; si no hay o no coincide, por **marca + modelo** (sin distinguir mayúsculas). Así el SKU propio de una tienda no duplica un producto ya catalogado. Si existe, **no se modifica** (el catálogo lo cura el admin): solo se registra la oferta. Si está dado de baja, el ítem falla.
@@ -1711,7 +1999,7 @@ Respuesta real (`200`):
 
 `status`: `created` (producto nuevo + oferta), `updated` (producto existente, oferta registrada) o `failed`. En el ejemplo, el primer ítem trae un SKU propio de Ripley, pero el producto ya existía (Midea `MDRT489`): se asoció a ese producto en vez de duplicarlo.
 
-### 3. Cerrar la ejecución
+#### 3. Cerrar la ejecución
 
 ```http
 POST /ingestion/runs/7/finish
@@ -1727,7 +2015,7 @@ POST /ingestion/runs/7/finish
 
 `status`: `success` o `failed` (con `errorMessage` opcional, ≤ 2000). Una ejecución cerrada no acepta más ítems ni se cierra dos veces (409).
 
-## Errores
+### Errores de `/ingestion`
 
 | Caso | Status | `code` / `errors[]` |
 | --- | --- | --- |
@@ -1751,22 +2039,22 @@ POST /ingestion/runs/7/finish
 }
 ```
 
-## Configuración
+### Configuración de Ingestion
 
 `docker/compose.yml` (`ingestion`): `DATABASE_URL`, `INTERNAL_API_TOKEN` y `NOTIFICATION_API_URL` (`http://comercial:8080`). Ya no usa `PRODUCT_API_URL`, `STORE_API_URL` ni `PRICING_API_URL`.
 
-## Tests
+### Tests de `/ingestion`
 
 - Unitarios sin BD: `internal/ingestion/handler_test.go` (lotes mixtos, deduplicación, errores por ítem sin filtrar detalles, avisos), `internal/http/router_test.go` (rutas y 401).
 - Integración con `TEST_DATABASE_URL`: `internal/ingestion/integration_test.go` (flujo completo con los repositorios reales: producto nuevo con marca nueva, deduplicación contra el seed, bajada de precio con historial y aviso, contadores, `scraped_data`, cierre y reapertura). Reemplaza a los tests de caracterización de la Ingestion anterior en `internal/features`.
 
-## Pendiente
+### Pendiente
 
 - Adaptar el scraper (PR #25) a este contrato: hoy guarda en SQLite local; corresponde a TAL-86/88.
 
 ---
 
-# 12.8. Service API y APIs de `internal/features` (estándar TAL-78)
+## 15.8 Service API y APIs de `internal/features` (estándar TAL-78)
 
 Service API (`internal/services`, puerto 8083) y las APIs que siguen en `internal/features` cumplen el estándar de `docs/estandares/TAL-78-estandar-api.md`: Auth (8088), Favorites (8089), Cart (8090), Review, Watchlist, Notification, el historial y las búsquedas guardadas de Search (`/search/history`, `/search/saved`) y las comparaciones de servicios de Comparison (`/comparisons/services`).
 
@@ -1777,7 +2065,7 @@ Service API (`internal/services`, puerto 8083) y las APIs que siguen en `interna
 - **Mensajes** (`detail`) en español; el frontend los muestra tal cual.
 - **Tests:** los handlers dependen de la interfaz `features.DB` (`*pgxpool.Pool` la implementa) y Service API de `services.Store`; los tests usan bases falsas, sin PostgreSQL.
 
-## Errores
+### Errores
 
 | Caso | Status | `code` / `errors[]` |
 | --- | --- | --- |
@@ -1803,7 +2091,7 @@ Service API (`internal/services`, puerto 8083) y las APIs que siguen en `interna
 | Product/Pricing/Store/Service API sin respuesta | 503 | `service_unavailable` |
 | Error de base de datos | 500 (503 si la base no responde) | `internal_error` / `service_unavailable` |
 
-## Tests
+### Tests de `features` y `services`
 
 - `internal/features/*_test.go`: una tabla por API con los casos mínimos de TAL-78 §5 por endpoint (feliz, entrada inválida 400/422, inexistente y error interno que no expone el detalle y queda en el log con su `request_id`), sobre una base falsa (`fakeDB`), sesiones falsas y un servidor `httptest` en lugar de las otras APIs. `TestDBError_MapeaSegunTAL78` cubre el mapeo de errores de BD.
 - `internal/services/handler_test.go`: listado y detalle (feliz, UUID inválido, inexistente, error interno en cada consulta).
@@ -1811,697 +2099,444 @@ Service API (`internal/services`, puerto 8083) y las APIs que siguen en `interna
 
 ---
 
+# 16. Ejecución local
 
-# 13. Handlers
+La forma recomendada de ejecutar el backend completo es mediante Docker Compose.
 
-Los handlers se encuentran en:
+Desde la raíz del repositorio:
 
-```text
-internal/products/handler.go
-```
-
-El handler es responsable de la capa HTTP.
-
-Sus responsabilidades son:
-
-* recibir la petición;
-* obtener parámetros;
-* validar datos básicos;
-* llamar al repository;
-* transformar los resultados a DTO;
-* devolver JSON;
-* devolver códigos HTTP apropiados.
-
-El handler **no debe contener consultas SQL**.
-
----
-
-# 14. Repository
-
-El repository está en:
-
-```text
-internal/products/repository.go
-```
-
-Su responsabilidad es comunicarse con la capa generada por sqlc.
-
-Actualmente proporciona operaciones como:
-
-```text
-List()
-GetByPublicID()
-GetDetailByPublicID()
-ListOffers()
-ListImages()
-```
-
-El repository tampoco contiene SQL directamente.
-
-Las consultas se encuentran en:
-
-```text
-database/queries/products.sql
-```
-
----
-
-# 15. sqlc
-
-El proyecto utiliza `sqlc`.
-
-Configuración:
-
-```text
-sqlc.yaml
-```
-
-Las consultas escritas manualmente se encuentran en:
-
-```text
-database/queries/
-```
-
-Actualmente:
-
-```text
-database/queries/products.sql
-```
-
-sqlc analiza las consultas SQL y genera código Go.
-
-Los archivos generados se encuentran en:
-
-```text
-internal/database/generated/
-```
-
-Principalmente:
-
-```text
-db.go
-models.go
-products.sql.go
-```
-
-### Importante
-
-Los archivos dentro de:
-
-```text
-internal/database/generated/
-```
-
-son archivos generados.
-
-No se deben modificar manualmente.
-
-Si se modifica una consulta SQL, se debe volver a ejecutar sqlc.
-
----
-
-# 16. Consultas de productos
-
-`database/queries/products.sql` contiene actualmente operaciones como:
-
-```text
-GetProductByID
-GetProductByPublicID
-GetProductDetailByPublicID
-ListProducts
-ListProductOffers
-ListProductImages
-CreateProduct
-UpdateProduct
-DeactivateProduct
-```
-
-Esto permite separar:
-
-```text
-SQL
-↓
-sqlc
-↓
-Go
-```
-
-en lugar de escribir SQL directamente dentro de los handlers.
-
----
-
-# 17. DTOs
-
-Los DTO se encuentran en:
-
-```text
-internal/products/dto/
-```
-
-Actualmente:
-
-```text
-product.go
-product_detail.go
-offer.go
-```
-
-Los DTO sirven como contrato entre el backend y el frontend.
-
-Esto evita exponer directamente los modelos internos generados por sqlc.
-
-Por ejemplo, el modelo de PostgreSQL puede contener tipos específicos de `pgtype`, mientras que el JSON público utiliza tipos simples:
-
-```json
-{
-  "id": "...",
-  "name": "...",
-  "rating": 4.5
-}
-```
-
----
-
-# 18. CORS
-
-El frontend y backend funcionan actualmente en puertos diferentes.
-
-Frontend:
-
-```text
-http://localhost:8443
-```
-
-Backend:
-
-```text
-http://localhost:8080
-```
-
-Por esta razón el backend configura CORS.
-
-Actualmente permite:
-
-```text
-Origin:
-http://localhost:8443
-```
-
-y los métodos:
-
-```text
-GET
-OPTIONS
-```
-
-Esto permite que el navegador pueda realizar peticiones desde el frontend hacia la API.
-
----
-
-# 19. ¿Qué debe estar encendido?
-
-Para trabajar con el sistema completo durante desarrollo se necesitan tres componentes:
-
-```text
-┌────────────────────┐
-│ PostgreSQL / Docker│
-│       :5432        │
-└─────────┬──────────┘
-          │
-          ▼
-┌────────────────────┐
-│      Go API        │
-│       :8080        │
-└─────────┬──────────┘
-          │
-          ▼
-┌────────────────────┐
-│      Frontend      │
-│       :8443        │
-└────────────────────┘
-```
-
-### 1. PostgreSQL
-
-Debe estar ejecutándose en Docker.
-
-Comprobar:
-
-```powershell
-docker ps
-```
-
-Debe aparecer el contenedor de PostgreSQL.
-
-### 2. Backend
-
-Desde:
-
-```text
-SoloServise/backend
-```
-
-ejecutar:
-
-```powershell
-go run ./cmd/all-apis
-```
-
-Debe aparecer:
-
-```text
-All APIs escuchando en :8080
-```
-
-### 3. Frontend
-
-Desde:
-
-```text
-SoloServise/fronted
-```
-
-ejecutar:
-
-```powershell
-pnpm dev
-```
-
-El frontend utiliza la URL configurada en:
-
-```text
-fronted/.env
-```
-
-Actualmente:
-
-```env
-VITE_API_URL=http://localhost:8080
-```
-
----
-
-# 20. Comprobación rápida
-
-Una vez iniciado PostgreSQL y el backend:
-
-### Health
-
-```powershell
-Invoke-RestMethod http://localhost:8080/health
-```
-
-Debe mostrar:
-
-```text
-status service        database
------- -------        --------
-ok     soloservi...   connected
-```
-
-### Productos
-
-```powershell
-Invoke-RestMethod http://localhost:8080/products
-```
-
-Debe devolver los productos almacenados en PostgreSQL.
-
-### Producto individual
-
-Utilizar el UUID devuelto por `/products`:
-
-```powershell
-Invoke-RestMethod "http://localhost:8080/products/{UUID}"
-```
-
-Debe devolver el detalle del producto.
-
----
-
-# 21. Regenerar código de sqlc
-
-Cuando se modifique:
-
-```text
-database/queries/
-```
-
-o el esquema utilizado por sqlc, se debe regenerar el código.
-
-Desde `backend`:
-
-```powershell
-sqlc generate
-```
-
-Esto actualiza:
-
-```text
-internal/database/generated/
-```
-
-Después se recomienda comprobar:
-
-```powershell
-go build ./...
-```
-
----
-
-# 22. Comprobación del backend
-
-Antes de considerar una modificación terminada:
-
-```powershell
-gofmt -w .
-go build ./...
-```
-
-Si existen pruebas:
-
-```powershell
-go test ./...
-```
-
-La compilación debe terminar sin errores.
-
----
-
-# 23. Separación de responsabilidades
-
-La arquitectura actual busca mantener responsabilidades separadas.
-
-### `main.go`
-
-Arranque de la aplicación.
-
-### `config`
-
-Configuración y variables de entorno.
-
-### `database`
-
-Conexión con PostgreSQL.
-
-### `http`
-
-Rutas HTTP y middleware.
-
-### `products/handler.go`
-
-Recibe y responde peticiones HTTP.
-
-### `products/repository.go`
-
-Acceso a datos mediante sqlc.
-
-### `products/dto/`
-
-Define la representación pública de los datos.
-
-### `database/queries/`
-
-SQL escrito manualmente.
-
-### `database/generated/`
-
-Código generado automáticamente por sqlc.
-
----
-
-# 24. Lo que NO hace actualmente el backend
-
-El backend actual es una primera implementación funcional.
-
-Todavía no están implementados todos los módulos de SoloServis.
-
-Entre las funcionalidades pendientes se encuentran, entre otras:
-
-```text
-usuarios
-autenticación
-favoritos
-comparaciones persistentes
-servicios
-proveedores
-búsqueda avanzada
-filtros avanzados
-historial de precios expuesto completamente por API
-reviews mediante API
-administración
-scraping
-workers
-caché Redis
-IA para interpretación de búsquedas
-```
-
-Estas funcionalidades se incorporarán progresivamente.
-
----
-
-# 25. Estado actual de la integración Frontend ↔ Backend
-
-Actualmente existe un flujo funcional para productos:
-
-```text
-PostgreSQL
-    ↓
-Go
-    ↓
-Chi
-    ↓
-Product Handler
-    ↓
-Repository
-    ↓
-sqlc
-    ↓
-JSON
-    ↓
-Frontend React
-```
-
-El frontend actualmente consume datos reales de PostgreSQL para el listado de productos.
-
-La migración desde `mockData` todavía es parcial.
-
-### Actualmente conectado
-
-```text
-Home
- └── productos reales
-
-Productos / búsqueda
- └── productos reales
-```
-
-### Todavía pendiente
-
-```text
-ProductDetailPage
- └── migrar desde mockData
-
-Ofertas en ProductCard
- └── conectar con API
-
-Imágenes en ProductCard
- └── conectar con API
-
-Historial de precios
- └── conectar con API
-
-Servicios
- └── todavía utiliza datos mock
-```
-
-Por lo tanto, **no se debe eliminar `mockData` todavía**.
-
-Se eliminará progresivamente a medida que cada módulo tenga su correspondiente endpoint y consumo desde el frontend.
-
----
-
-# 26. Regla importante para futuras modificaciones
-
-Cuando se agregue una nueva funcionalidad al backend, mantener el flujo:
-
-```text
-SQL
- ↓
-sqlc
- ↓
-Repository
- ↓
-Handler
- ↓
-DTO
- ↓
-JSON
-```
-
-Evitar:
-
-```text
-Handler
- ↓
-SQL directo
-```
-
-y evitar:
-
-```text
-Frontend
- ↓
-PostgreSQL
-```
-
-El frontend siempre debe comunicarse con PostgreSQL **a través de la API**.
-
----
-
-# 27. Flujo completo de desarrollo
-
----
-
-# 28. Microservicios de la plataforma
-
-El backend ejecuta APIs independientes en el mismo módulo Go y comparte PostgreSQL. Cada comando de `cmd/` usa un router de dominio bajo `internal/` y el runner común para cargar configuración, comprobar la base e iniciar HTTP.
-
-| Servicio | Puerto | Rutas principales |
-| --- | ---: | --- |
-| Product API | 8081 | `/products` |
-| Store API | 8082 | `/stores` |
-| Service API | 8083 | `/services` |
-| User API | 8084 | `/users/{id}` |
-| Pricing API | 8085 | `/offers`, `/offers/product/{productId}`, historial |
-| Search API | 8086 | productos, categorías, marcas, historial y búsquedas guardadas |
-| Comparison API | 8087 | comparaciones e items de productos y servicios; productos compatibles |
-| Auth API | 8088 | registro, login, refresh, logout y validación |
-| Favorites API | 8089 | favoritos de productos y servicios |
-| Cart API | 8090 | carrito asociado a una oferta de tienda |
-| Review API | 8091 | reseñas de producto, tienda y servicio |
-| Watchlist API | 8092 | productos y precio objetivo |
-| Notification API | 8093 | notificaciones y estado de lectura |
-| Ingestion API | 8094 | productos, ofertas y ejecuciones de sync |
-
-La navegación, el carrito local y las comparaciones no requieren iniciar sesión. La autenticación se realiza mediante Auth API (registro, inicio, renovación y cierre de sesión); favoritos, historial de búsqueda, búsquedas guardadas y carrito sincronizado requieren una sesión válida. El frontend conserva la sesión en `localStorage` y renueva el token de acceso al vencerlo. Favorites, Cart y Search APIs validan el token y usan el usuario de la sesión, sin aceptar que el cliente elija otro `userId`.
-
-Las nuevas tablas se definen en `database/migrations/004_platform_apis.sql`. Docker ejecuta las migraciones automáticamente al inicializar un volumen PostgreSQL nuevo. La compatibilidad del carrito con ofertas de servicios se agrega en `database/migrations/007_service_cart.sql`. La migración `008_normalize_prices_to_clp.sql` etiqueta los precios existentes como CLP sin cambiar sus importes (conversión temporal 1:1) y deja triggers para normalizar la moneda de nuevas ofertas. Los valores que originalmente estaban en USD/EUR son referenciales y no representan una conversión real a pesos chilenos. Las categorías unificadas y sus definiciones de atributos (TAL-71) se crean en `012_categories.sql` y se cargan en `013_categories_seed.sql` (ver sección 12.1).
-
-Para un volumen existente que ya tiene aplicadas las migraciones anteriores, aplica las migraciones pendientes una vez desde el root del proyecto:
-
-```powershell
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/007_service_cart.sql
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/008_normalize_prices_to_clp.sql
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/012_categories.sql
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/013_categories_seed.sql
-docker compose -f docker/compose.yml exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d soloservis -f /docker-entrypoint-initdb.d/018_category_artworks.sql
-```
-
-Las integraciones entre servicios usan las URLs internas definidas en `docker/compose.yml`: Search, Comparison, Favorites y Cart consultan Product API; Comparison y Cart consultan Pricing API; Review valida producto/tienda/servicio; Watchlist consulta Pricing; Pricing genera notificaciones mediante Notification API; e Ingestion delega en Product, Store y Pricing APIs. User API solo expone el perfil asociado al token de sesión autenticado.
-
-Para compilar y ejecutar todo el stack:
-
-```powershell
-cd backend
-gofmt -w .
-go build ./cmd/...
-go test ./...
-cd ..
+```bash
 docker compose -f docker/compose.yml up -d --build
 ```
 
-`docker/compose.yml` levanta la arquitectura consolidada (TAL-109): PostgreSQL, el scraper y **3 procesos de dominio**, igual que la topología `dominios` de Kubernetes.
+Este comando inicia:
 
-| Servicio | `API_DOMAIN` | APIs que sirve | Puertos en tu máquina |
-|---|---|---|---|
-| `comercial` | `comercial` | product, store, service, pricing, search, comparison, favorites, cart, review, watchlist y notification | 8081, 8082, 8083, 8085, 8086, 8087, 8089, 8090, 8091, 8092 y 8093 |
-| `usuarios` | `usuarios` | user y auth | 8084 y 8088 |
-| `ingestion` | `ingestion` | ingestion | 8094 |
+- PostgreSQL.
+- Dominio Comercial.
+- Dominio Usuarios.
+- Dominio Ingestion.
+- Scraper.
 
-- **Una sola imagen para los tres:** `docker/all-apis/Dockerfile` compila `cmd/all-apis`, y `API_DOMAIN` decide qué APIs registra el proceso. No hay un Dockerfile por dominio porque el binario es el mismo; mantener tres copias solo agregaría diferencias accidentales entre ellas.
-- **Los puertos de siempre siguen funcionando:** cada proceso escucha en 8080 dentro de la red de Compose, y hacia tu máquina se publican los puertos históricos de cada API apuntando al proceso de su dominio. El frontend y los `.env` existentes no cambian.
-- **Llamadas entre APIs:** dentro de un dominio van a `127.0.0.1:8080` (lo configura el binario). La única entre dominios es de `ingestion` a notification: `NOTIFICATION_API_URL=http://comercial:8080`.
-- **Modo anterior (un contenedor por API):** `docker compose -f docker/compose.microservicios.yml up -d --build`. Usa los 14 `docker/<api>/Dockerfile`. No levantar los dos a la vez: comparten puertos y el contenedor de PostgreSQL.
+El frontend se ejecuta independientemente desde `fronted/`.
 
-Cada proceso expone `GET /health`, que informa el dominio y el estado de PostgreSQL.
+## 16.1 Comprobar los servicios
 
-Para una modificación de datos de productos:
-
-```text
-1. Modificar esquema si es necesario
-        ↓
-2. Modificar database/queries/*.sql
-        ↓
-3. Ejecutar sqlc generate
-        ↓
-4. Adaptar Repository
-        ↓
-5. Adaptar Handler
-        ↓
-6. Crear/adaptar DTO
-        ↓
-7. Exponer endpoint
-        ↓
-8. Consumir endpoint desde Frontend
-        ↓
-9. Probar API
-        ↓
-10. Probar interfaz
-        ↓
-11. go build ./...
-        ↓
-12. git commit
+```bash
+docker compose -f docker/compose.yml ps
 ```
+
+## 16.2 Consultar logs
+
+```bash
+docker compose -f docker/compose.yml logs -f
+```
+
+Consultar solamente Comercial:
+
+```bash
+docker compose -f docker/compose.yml logs -f comercial
+```
+
+Consultar solamente Usuarios:
+
+```bash
+docker compose -f docker/compose.yml logs -f usuarios
+```
+
+Consultar solamente Ingestion:
+
+```bash
+docker compose -f docker/compose.yml logs -f ingestion
+```
+
+## 16.3 Detener los servicios
+
+```bash
+docker compose -f docker/compose.yml down
+```
+
+No utilizar `down -v` cuando se necesite conservar los datos persistidos.
+
+## 16.4 Modo anterior (un contenedor por API)
+
+`docker/compose.yml` levanta la arquitectura consolidada (TAL-109), con una sola imagen (`docker/all-apis/Dockerfile`, que compila `cmd/all-apis`) para los tres dominios. `API_DOMAIN` decide qué APIs registra cada proceso.
+
+| Servicio | `API_DOMAIN` | Puertos en la máquina local |
+|---|---|---|
+| `comercial` | `comercial` | 8081, 8082, 8083, 8085, 8086, 8087, 8089, 8090, 8091, 8092 y 8093 |
+| `usuarios` | `usuarios` | 8084 y 8088 |
+| `ingestion` | `ingestion` | 8094 |
+
+- Dentro de un dominio las llamadas entre APIs van a `127.0.0.1:8080` (lo configura el binario). La única llamada entre dominios es de `ingestion` a notification: `NOTIFICATION_API_URL=http://comercial:8080`.
+- El modo anterior, con un contenedor por API, se levanta con `docker compose -f docker/compose.microservicios.yml up -d --build` y usa los 14 `docker/<api>/Dockerfile`.
+- No levantar los dos modos a la vez: comparten puertos y el contenedor de PostgreSQL.
 
 ---
 
-# 28. Puertos utilizados
+# 17. Ejecución directa con Go
 
-| Componente | Puerto |
-| ---------- | -----: |
-| PostgreSQL | `5432` |
-| Go API     | `8080` |
-| Frontend   | `8443` |
+También es posible ejecutar el backend directamente sin construir sus imágenes Docker.
 
----
+Para ello, PostgreSQL debe estar funcionando y debe existir una configuración válida.
 
-# 29. Resumen
+Desde la raíz del proyecto:
 
-El backend de SoloServis funciona actualmente como una API REST escrita en Go.
-
-La aplicación recibe peticiones HTTP desde el frontend, procesa las solicitudes mediante Chi, obtiene los datos utilizando repositories y sqlc, consulta PostgreSQL mediante pgx/v5 y devuelve respuestas JSON.
-
-La separación principal es:
-
-```text
-Frontend
-   ↓
-HTTP
-   ↓
-Chi
-   ↓
-Handler
-   ↓
-Repository
-   ↓
-sqlc
-   ↓
-pgx/v5
-   ↓
-PostgreSQL
+```bash
+docker compose -f docker/compose.yml up -d postgres
 ```
 
-Esta estructura permite que cada capa tenga una responsabilidad concreta y facilita la expansión futura del sistema hacia servicios, usuarios, scraping, historial de precios, favoritos, comparaciones y otras funcionalidades.
+Después, ingresar al directorio:
 
-Docker Compose y Kubernetes ejecutan `k8s/base/migrations/migrate.sh` con el orden explícito de `backend/database/migration_order.txt`. El runner valida que el manifiesto incluya todos los archivos SQL, registra cada basename y checksum en `schema_migrations`, y no vuelve a aplicar versiones ya registradas. El manifiesto conserva los nombres y contenidos existentes; los prefijos pueden repetirse, pero el orden ya no depende del locale.
+```bash
+cd backend
+```
 
-Docker aplica el runner automáticamente al inicializar un volumen PostgreSQL vacío. Para un volumen existente con `schema_migrations`, ejecuta el runner para aplicar versiones pendientes. Una base antigua con esquema pero sin registro se rechaza intencionalmente: primero requiere establecer un baseline verificado; el runner no asume que migraciones o seeds se hayan aplicado.
+Configurar `.env` con la conexión correspondiente a PostgreSQL local.
 
-El mismo runner admite una base remota como Neon mediante `DATABASE_URL`. En PowerShell, configura `NEON_DATABASE_URL` desde tu gestor de secretos y ejecuta desde la raíz del repositorio:
+Ejecutar todas las APIs:
+
+```bash
+go run ./cmd/all-apis
+```
+
+Por defecto:
+
+```text
+PORT=8080
+API_DOMAIN=""
+```
+
+Esto inicia las 14 APIs dentro de un único proceso.
+
+## 17.1 Ejecutar un dominio específico
+
+PowerShell:
 
 ```powershell
-$env:DATABASE_URL = $env:NEON_DATABASE_URL
-if (-not $env:DATABASE_URL) { throw "NEON_DATABASE_URL no está configurada." }
-docker compose -f docker/compose.yml run --rm --no-deps -e DATABASE_URL postgres bash /docker-entrypoint-initdb.d/001_migrations.sh
+$env:API_DOMAIN="comercial"
+$env:PORT="8080"
+go run ./cmd/all-apis
 ```
+
+Bash:
+
+```bash
+API_DOMAIN=comercial PORT=8080 go run ./cmd/all-apis
+```
+
+Los valores disponibles para `API_DOMAIN` son:
+
+```text
+comercial
+usuarios
+ingestion
+```
+
+Cuando se ejecutan dominios por separado, se deben configurar las URLs de las APIs que se encuentren en otros procesos.
+
+Para ejecutar el sistema completo, Docker Compose es la alternativa recomendada.
+
+---
+
+# 18. Puertos utilizados
+
+En la topología de Docker Compose, los procesos escuchan en `8080` dentro de la red interna y se publican los siguientes puertos históricos hacia el equipo local:
+
+| Componente | Puerto local |
+|---|---:|
+| PostgreSQL | 5432 |
+| Product API | 8081 |
+| Store API | 8082 |
+| Service API | 8083 |
+| User API | 8084 |
+| Pricing API | 8085 |
+| Search API | 8086 |
+| Comparison API | 8087 |
+| Auth API | 8088 |
+| Favorites API | 8089 |
+| Cart API | 8090 |
+| Review API | 8091 |
+| Watchlist API | 8092 |
+| Notification API | 8093 |
+| Ingestion API | 8094 |
+
+El scraper utiliza el puerto `8095`.
+
+---
+
+# 19. Pruebas y validación
+
+Las modificaciones del backend deben validarse antes de integrarse a `develop`.
+
+## 19.1 Compilación
+
+Desde `backend/`:
+
+```bash
+go build ./...
+```
+
+Permite verificar que los paquetes del backend compilen correctamente.
+
+## 19.2 Pruebas unitarias
+
+```bash
+go test ./...
+```
+
+Ejecuta las pruebas automatizadas disponibles.
+
+## 19.3 Pruebas de integración
+
+Algunas pruebas requieren una instancia PostgreSQL independiente y una base preparada con todas las migraciones.
+
+Para estas pruebas se utiliza:
+
+```env
+TEST_DATABASE_URL=
+```
+
+Ejemplo en Bash:
+
+```bash
+TEST_DATABASE_URL="postgres://usuario:password@localhost:5432/soloservis_test" go test ./...
+```
+
+En PowerShell:
+
+```powershell
+$env:TEST_DATABASE_URL="postgres://usuario:password@localhost:5432/soloservis_test"
+go test ./...
+```
+
+Las pruebas que necesitan PostgreSQL se omiten cuando `TEST_DATABASE_URL` no está definida.
+
+Se debe utilizar una base de pruebas aislada, nunca la base de datos de producción.
+
+## 19.4 Prueba de endpoints
+
+Ejemplo:
+
+```bash
+curl http://localhost:8081/health
+```
+
+Consultar productos:
+
+```bash
+curl http://localhost:8081/products
+```
+
+Consultar tiendas:
+
+```bash
+curl http://localhost:8082/stores
+```
+
+Consultar servicios:
+
+```bash
+curl http://localhost:8083/services
+```
+
+---
+
+# 20. Integración con Kubernetes
+
+El backend puede desplegarse mediante dos topologías:
+
+| Topología | Distribución |
+|---|---|
+| `dominios` | Tres Deployments de backend: comercial, usuarios e ingestion. |
+| `consolidado` | Un Deployment de backend que ejecuta las 14 APIs. |
+
+Los scripts de despliegue construyen y publican las imágenes, configuran los servicios y ejecutan las migraciones.
+
+Las verificaciones de despliegue incluyen:
+
+- Estado de los Pods.
+- Conexión con PostgreSQL.
+- Ejecución de migraciones.
+- Disponibilidad de los endpoints.
+- Comunicación entre dominios.
+- Persistencia de datos.
+- Pruebas de integración mediante el pod de test.
+
+Documentación completa:
+
+```text
+k8s/README.md
+```
+
+---
+
+# 21. Convenciones para desarrollar nuevas funcionalidades
+
+Toda funcionalidad nueva debe respetar la separación de responsabilidades del backend.
+
+Antes de comenzar una implementación, se debe determinar:
+
+1. A qué API pertenece.
+2. Qué problema resuelve.
+3. Qué datos necesita.
+4. Qué dependencias tiene.
+5. Qué entradas recibirá.
+6. Qué respuestas debe entregar.
+7. Qué validaciones necesita.
+8. Qué pruebas deben realizarse.
+9. Qué documentación debe actualizarse.
+
+## 21.1 Separación de responsabilidades
+
+| Componente | Responsabilidad |
+|---|---|
+| Router | Registrar las rutas y middlewares. |
+| Handler | Procesar solicitudes HTTP y respuestas. |
+| Repository | Consultar y modificar datos. |
+| DTO | Definir estructuras de entrada y salida. |
+| Database | Administrar conexiones y acceso a PostgreSQL. |
+| API Client | Realizar solicitudes hacia otros servicios. |
+| Authz | Controlar permisos y sesiones. |
+| Validator | Validar datos recibidos. |
+
+No se deben incorporar consultas SQL directamente dentro de los handlers cuando corresponde utilizar la capa de persistencia.
+
+Tampoco se deben omitir las validaciones para resolver rápidamente una integración.
+
+## 21.2 Incorporación de una nueva funcionalidad
+
+Flujo recomendado:
+
+```text
+Definición del requerimiento
+          |
+          v
+Identificación de API
+          |
+          v
+Análisis de dependencias
+          |
+          v
+Diseño de contrato HTTP
+          |
+          v
+Diseño de persistencia
+          |
+          v
+Implementación
+          |
+          v
+Validaciones
+          |
+          v
+Pruebas unitarias
+          |
+          v
+Pruebas de integración
+          |
+          v
+Documentación
+          |
+          v
+Pull Request
+```
+
+## 21.3 Reglas de implementación
+
+- Mantener la compatibilidad de los contratos existentes.
+- Validar todos los parámetros recibidos.
+- Evitar confiar en datos sensibles enviados por el cliente.
+- No duplicar lógica que ya existe en otro módulo.
+- Utilizar consultas parametrizadas.
+- Evitar exponer errores internos de la base de datos.
+- Manejar correctamente los errores de dependencias externas.
+- Registrar errores relevantes con su `request_id`.
+- Crear pruebas para los casos exitosos y fallidos.
+- Actualizar la documentación de la funcionalidad.
+
+---
+
+# 22. Documentación técnica
+
+La documentación debe permitir que cualquier integrante del equipo comprenda el funcionamiento de las APIs, sin depender exclusivamente del conocimiento del desarrollador que las implementó.
+
+Cada funcionalidad importante debe documentar:
+
+| Elemento | Descripción |
+|---|---|
+| Propósito | Por qué existe la funcionalidad. |
+| Objetivo | Qué problema resuelve. |
+| Funcionamiento | Cómo se ejecuta internamente. |
+| Entradas | Parámetros, headers y cuerpos recibidos. |
+| Salidas | Respuestas y estructuras JSON. |
+| Validaciones | Condiciones y restricciones. |
+| Dependencias | APIs, tablas o servicios involucrados. |
+| Errores | Casos de error y códigos HTTP. |
+| Pruebas | Cómo comprobar su funcionamiento. |
+
+La documentación debe mantenerse organizada y separada por funcionalidad.
+
+Los documentos generales del backend deben permanecer en:
+
+```text
+backend/README.md
+```
+
+La documentación detallada de cada módulo debe centralizarse en:
+
+```text
+docs/
+```
+
+Los estándares de API deben mantenerse en:
+
+```text
+docs/estandares/
+```
+
+---
+
+# 23. Definition of Done
+
+Una modificación del backend podrá considerarse terminada cuando cumpla los siguientes criterios:
+
+```text
+[ ] Requerimiento comprendido.
+[ ] API responsable identificada.
+[ ] Dependencias identificadas.
+[ ] Entradas y salidas definidas.
+[ ] Validaciones implementadas.
+[ ] Persistencia correctamente implementada.
+[ ] Manejo de errores implementado.
+[ ] Pruebas unitarias realizadas.
+[ ] Pruebas de integración realizadas cuando corresponda.
+[ ] Compilación exitosa.
+[ ] Código revisado.
+[ ] Documentación actualizada.
+[ ] Pull Request revisada.
+[ ] Integración aprobada.
+```
+
+---
+
+# 24. Estado del backend
+
+El backend cuenta con una arquitectura de 14 APIs agrupadas por dominios funcionales, integración con PostgreSQL y mecanismos de ejecución tanto mediante Docker Compose como Kubernetes.
+
+El desarrollo continúa mediante mejoras en:
+
+- Validación de entradas y salidas.
+- Robustecimiento de las operaciones de persistencia.
+- Comunicación entre APIs.
+- Integración con Scraper e Ingestion.
+- Manejo de errores y consistencia de respuestas.
+- Pruebas de integración.
+- Optimización de consultas y rendimiento.
+- Seguridad y control de sesiones.
+- Mantenibilidad y documentación técnica.
+
+Las nuevas funcionalidades deben incorporarse respetando la arquitectura existente y manteniendo actualizada la documentación correspondiente.
+
+---
+
+**SOLOServis — Backend**
