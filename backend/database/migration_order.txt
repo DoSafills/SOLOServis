@@ -24,6 +24,7 @@
 017_nm_uniqueness.sql
 018_category_artworks.sql
 019_reconcile_refrigeradores_category.sql
+020_reconcile_notebooks_category.sql
 # TAL-174: la limpieza de duplicados existía pero faltaba aquí, así que el
 # runner nunca la aplicaba. Debe ir al final: usa normalize_product_offer_url
 # de 009 y la tabla product_offer ya consolidada.

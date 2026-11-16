@@ -211,7 +211,7 @@ func validateItem(item Item) (ItemProduct, pricing.OfferWrite, []httpx.FieldErro
 	p.Name = strings.TrimSpace(p.Name)
 	p.Brand = strings.TrimSpace(p.Brand)
 	p.Model = strings.TrimSpace(p.Model)
-	p.CategorySlug = strings.TrimSpace(p.CategorySlug)
+	p.CategorySlug = categories.CanonicalCategorySlug(p.CategorySlug)
 	p.Description = strings.TrimSpace(p.Description)
 	p.ImageURL = strings.TrimSpace(p.ImageURL)
 
@@ -223,7 +223,9 @@ func validateItem(item Item) (ItemProduct, pricing.OfferWrite, []httpx.FieldErro
 	v.MaxLength("product.sku", p.SKU, products.MaxSKULength)
 	v.MaxLength("product.description", p.Description, products.MaxDescriptionLength)
 	v.MaxLength("product.brand", p.Brand, MaxBrandName)
-	v.Check(p.CategorySlug == "" || categories.ValidSlug(p.CategorySlug), "product.categorySlug", "format",
+	v.Check(p.CategorySlug == "" || (categories.ValidSlug(p.CategorySlug) &&
+		!strings.HasPrefix(p.CategorySlug, "-") && !strings.HasSuffix(p.CategorySlug, "-") &&
+		!strings.Contains(p.CategorySlug, "--")), "product.categorySlug", "format",
 		"product.categorySlug debe tener entre 1 y 64 caracteres: minúsculas, dígitos o guiones")
 	v.Check(p.ImageURL == "" || isHTTPURL(p.ImageURL), "product.imageUrl", "format",
 		"product.imageUrl debe ser una URL http(s) válida")
