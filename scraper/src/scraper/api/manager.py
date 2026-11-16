@@ -211,9 +211,9 @@ class RunManager:
             state.trigger = job.trigger
         return state
 
-    async def list_runs(self, limit: int = 50) -> list[RunState]:
+    async def list_runs(self, limit: int = 50, status: str | None = None) -> list[RunState]:
         records = await asyncio.to_thread(
-            repo.list_runs, self.settings.db_path, limit=limit
+            repo.list_runs, self.settings.db_path, status=status, limit=limit
         )
         states: list[RunState] = []
         for record in records:
@@ -495,6 +495,8 @@ class RunManager:
                 "itemsRejected": record.items_rejected,
             },
             errors=errors,
+            ingestion_run_id=record.ingestion_run_id,
+            ingestion_error=record.ingestion_error,
         )
 
     async def _create_job_locked(
