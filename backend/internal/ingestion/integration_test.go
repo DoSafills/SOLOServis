@@ -45,7 +45,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	t.Cleanup(func() {
 		ctx := context.Background()
 		_, _ = pool.Exec(ctx, `DELETE FROM data_source WHERE name = $1`, source)
-		_, _ = pool.Exec(ctx, `DELETE FROM product WHERE sku LIKE $1`, tag+"%")
+		_, _ = pool.Exec(ctx, `DELETE FROM product WHERE sku LIKE $1 OR name LIKE $2`, tag+"%", "%"+tag)
 		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = ANY($1)`, []int32{storeID, otherStoreID})
 		_, _ = pool.Exec(ctx, `DELETE FROM brand WHERE name = $1`, brand)
 		_, _ = pool.Exec(ctx, `DELETE FROM user_account WHERE id = $1`, userID)
@@ -175,16 +175,36 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		t.Fatalf("historial = %v (una sola oferta: misma URL)", history)
 	}
 
+	// 3b. TAL-169: un ítem sin SKU ni modelo, como los del scraper. Repetirlo
+	// con la misma URL (aunque cambie el fragmento) no duplica el producto.
+	sinIdentidad := func(price int, productURL string) map[string]any {
+		return map[string]any{"product": map[string]any{"name": "Sin identidad " + tag, "brand": brand,
+			"categorySlug": "refrigeradores", "attributes": map[string]any{"capacidad_litros": 262}},
+			"offer": map[string]any{"price": price, "productUrl": productURL}}
+	}
+	first := items(run.ID, sinIdentidad(199990, "https://tienda.example.test/p/sin-identidad"))
+	again := items(run.ID, sinIdentidad(189990, "https://tienda.example.test/p/sin-identidad#opiniones"))
+	if first.Results[0].Status != ItemCreated || again.Results[0].Status != ItemUpdated ||
+		again.Results[0].ProductID != first.Results[0].ProductID {
+		t.Fatalf("misma tienda + URL: primero %+v, repetido %+v", first.Results[0], again.Results[0])
+	}
+	var copies, offerCount int
+	must(pool.QueryRow(ctx, `SELECT count(DISTINCT p.id), count(o.id) FROM product p
+		LEFT JOIN product_offer o ON o.product_id = p.id WHERE p.name = $1`, "Sin identidad "+tag).Scan(&copies, &offerCount), "copias")
+	if copies != 1 || offerCount != 1 {
+		t.Fatalf("productos = %d, ofertas = %d; quiero 1 y 1", copies, offerCount)
+	}
+
 	// 4. Contadores, auditoría y cierre.
 	rec = do(http.MethodGet, fmt.Sprintf("/ingestion/runs/%d", run.ID), nil)
 	_ = json.Unmarshal(rec.Body.Bytes(), &run)
-	if run.RecordsFound != 5 || run.RecordsProcessed != 3 || run.RecordsFailed != 2 {
+	if run.RecordsFound != 7 || run.RecordsProcessed != 5 || run.RecordsFailed != 2 {
 		t.Fatalf("contadores = %d/%d/%d", run.RecordsFound, run.RecordsProcessed, run.RecordsFailed)
 	}
 	var scraped int
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM scraped_data WHERE scrape_run_id = $1`, run.ID).Scan(&scraped), "scraped_data")
-	if scraped != 5 {
-		t.Fatalf("scraped_data = %d, quiero 5", scraped)
+	if scraped != 7 {
+		t.Fatalf("scraped_data = %d, quiero 7", scraped)
 	}
 
 	if rec := do(http.MethodPost, fmt.Sprintf("/ingestion/runs/%d/finish", run.ID), map[string]any{"status": "success"}); rec.Code != http.StatusOK ||

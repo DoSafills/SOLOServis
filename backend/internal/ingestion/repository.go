@@ -178,8 +178,9 @@ func (r *Repository) SaveScraped(ctx context.Context, runID int32, externalID, e
 // FindProduct busca un producto ya catalogado: primero por SKU y, si no lo
 // encuentra (o no hay SKU), por marca + modelo sin distinguir mayúsculas. Así
 // un SKU propio de la tienda no duplica un producto que ya existe con otro SKU.
-// Prefiere los activos.
-func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string) (ExistingProduct, bool, error) {
+// Si tampoco coincide, usa la identidad que el scraper siempre envía: una
+// oferta de la misma tienda con la misma URL (TAL-169). Prefiere los activos.
+func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error) {
 	var p ExistingProduct
 	if sku != "" {
 		err := r.db.QueryRow(ctx, `SELECT id, public_id::text, active FROM product WHERE sku = $1`, sku).
@@ -191,14 +192,30 @@ func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string) 
 			return ExistingProduct{}, false, err
 		}
 	}
-	if brand == "" || model == "" {
+	if brand != "" && model != "" {
+		err := r.db.QueryRow(ctx, `
+			SELECT p.id, p.public_id::text, p.active
+			FROM product p JOIN brand b ON b.id = p.brand_id
+			WHERE lower(b.name) = lower($1) AND lower(p.model) = lower($2)
+			ORDER BY p.active DESC, p.id LIMIT 1`, brand, model).Scan(&p.ID, &p.PublicID, &p.Active)
+		if err == nil {
+			return p, true, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return ExistingProduct{}, false, err
+		}
+	}
+	if productURL == "" {
 		return ExistingProduct{}, false, nil
 	}
+	// Misma normalización que el índice único de product_offer (migración 009).
+	// Una URL que no se puede normalizar da NULL y no coincide con nada.
 	err := r.db.QueryRow(ctx, `
 		SELECT p.id, p.public_id::text, p.active
-		FROM product p JOIN brand b ON b.id = p.brand_id
-		WHERE lower(b.name) = lower($1) AND lower(p.model) = lower($2)
-		ORDER BY p.active DESC, p.id LIMIT 1`, brand, model).Scan(&p.ID, &p.PublicID, &p.Active)
+		FROM product_offer o JOIN product p ON p.id = o.product_id
+		WHERE o.store_id = $1
+		  AND normalize_product_offer_url(o.product_url) = normalize_product_offer_url($2)
+		ORDER BY p.active DESC, p.id LIMIT 1`, storeID, productURL).Scan(&p.ID, &p.PublicID, &p.Active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ExistingProduct{}, false, nil
 	}
