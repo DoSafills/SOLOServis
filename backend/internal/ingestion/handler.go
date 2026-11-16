@@ -21,6 +21,8 @@ type Handler struct {
 	logger    *slog.Logger
 }
 
+// NewHandler arma el handler HTTP de ingestion con el almacén de ejecuciones,
+// el procesador de ítems y el logger.
 func NewHandler(runs RunStore, processor *Processor, logger *slog.Logger) *Handler {
 	return &Handler{runs: runs, processor: processor, logger: logger}
 }
@@ -194,6 +196,7 @@ func (h *Handler) ListRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, runs)
 }
 
+// writeRun responde 200 con la ejecución indicada, leída de la base.
 func (h *Handler) writeRun(w http.ResponseWriter, r *http.Request, id int32) {
 	run, err := h.runs.GetRun(r.Context(), id)
 	if err != nil {
@@ -203,6 +206,8 @@ func (h *Handler) writeRun(w http.ResponseWriter, r *http.Request, id int32) {
 	writeJSON(w, http.StatusOK, run)
 }
 
+// writeRunError traduce un error de ejecución a su respuesta problem+json:
+// 404 si no existe, 409 si está cerrada o sin tienda, 500 en el resto.
 func (h *Handler) writeRunError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, ErrRunNotFound):
@@ -217,6 +222,8 @@ func (h *Handler) writeRunError(w http.ResponseWriter, r *http.Request, err erro
 	}
 }
 
+// parseRunID lee el id de la ejecución desde la ruta. Si no es un entero
+// positivo responde 400 y devuelve false.
 func parseRunID(w http.ResponseWriter, r *http.Request) (int32, bool) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 32)
 	if err != nil || id <= 0 {
@@ -227,6 +234,7 @@ func parseRunID(w http.ResponseWriter, r *http.Request) (int32, bool) {
 	return int32(id), true
 }
 
+// writeJSON escribe body como JSON con el código de estado indicado.
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
