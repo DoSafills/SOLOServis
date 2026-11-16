@@ -4,3 +4,5 @@
 # Plantillas que se copian a imágenes Linux.
 docker/frontend/*.template text eol=lf
 docker/frontend/proxy.conf text eol=lf
+# Frontend: siempre LF. oxfmt --check falla si Windows deja los archivos en CRLF.
+fronted/** text=auto eol=lf
