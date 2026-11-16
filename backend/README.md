@@ -1085,6 +1085,20 @@ docker compose -f docker/compose.yml down
 
 No utilizar `down -v` cuando se necesite conservar los datos persistidos.
 
+## 16.4 Modo anterior (un contenedor por API)
+
+`docker/compose.yml` levanta la arquitectura consolidada (TAL-109), con una sola imagen (`docker/all-apis/Dockerfile`, que compila `cmd/all-apis`) para los tres dominios. `API_DOMAIN` decide qué APIs registra cada proceso.
+
+| Servicio | `API_DOMAIN` | Puertos en la máquina local |
+|---|---|---|
+| `comercial` | `comercial` | 8081, 8082, 8083, 8085, 8086, 8087, 8089, 8090, 8091, 8092 y 8093 |
+| `usuarios` | `usuarios` | 8084 y 8088 |
+| `ingestion` | `ingestion` | 8094 |
+
+- Dentro de un dominio las llamadas entre APIs van a `127.0.0.1:8080` (lo configura el binario). La única llamada entre dominios es de `ingestion` a notification: `NOTIFICATION_API_URL=http://comercial:8080`.
+- El modo anterior, con un contenedor por API, se levanta con `docker compose -f docker/compose.microservicios.yml up -d --build` y usa los 14 `docker/<api>/Dockerfile`.
+- No levantar los dos modos a la vez: comparten puertos y el contenedor de PostgreSQL.
+
 ---
 
 # 17. Ejecución directa con Go
