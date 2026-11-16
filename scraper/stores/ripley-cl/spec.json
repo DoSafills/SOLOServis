@@ -27,6 +27,7 @@
       "product.name": {
         "selector": ".product-item--name",
         "type": "string",
+        "transform": "strip_promo_edges",
         "required": true
       },
       "product.brand": {

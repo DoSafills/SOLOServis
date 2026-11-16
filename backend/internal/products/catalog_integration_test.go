@@ -152,13 +152,29 @@ func TestCatalogIntegration_ResolveCategory(t *testing.T) {
 		t.Fatalf("categoría antigua sin equivalente = %+v (%v)", lavado, err)
 	}
 
-	var refrigeracionID int32
-	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Refrigeracion'`).Scan(&refrigeracionID); err != nil {
+	var refrigeradoresID int32
+	if err := pool.QueryRow(ctx, `
+		SELECT child.id
+		FROM product_category child
+		JOIN product_category parent ON parent.id = child.parent_category_id
+		WHERE child.name = 'Refrigeradores' AND parent.name = 'Electrodomésticos'
+		ORDER BY child.id LIMIT 1`).Scan(&refrigeradoresID); err != nil {
 		t.Fatal(err)
 	}
-	fridge, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: refrigeracionID})
+	fridge, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: refrigeradoresID})
 	if err != nil || fridge.Slug == nil || *fridge.Slug != "refrigeradores" || len(fridge.Attributes) != 5 {
 		t.Fatalf("categoría antigua enlazada = %+v (%v)", fridge, err)
+	}
+	if fridge.LegacyID == nil || *fridge.LegacyID != refrigeradoresID {
+		t.Fatalf("categoría unificada usa legacy id %v, quiero %d", fridge.LegacyID, refrigeradoresID)
+	}
+
+	var oldRefrigeracionID int32
+	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Refrigeracion'`).Scan(&oldRefrigeracionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: oldRefrigeracionID}); !errors.Is(err, ErrCategoryNotFound) {
+		t.Fatalf("categoría legacy retirada = %v, quiero ErrCategoryNotFound", err)
 	}
 
 	service, err := repo.ResolveCategory(ctx, CategoryRef{Slug: "internet-fibra-optica"})
@@ -170,6 +186,71 @@ func TestCatalogIntegration_ResolveCategory(t *testing.T) {
 		if _, err := repo.ResolveCategory(ctx, ref); !errors.Is(err, ErrCategoryNotFound) {
 			t.Fatalf("ResolveCategory(%+v) = %v, quiero ErrCategoryNotFound", ref, err)
 		}
+	}
+}
+
+func TestCatalogIntegration_RefrigeradoresConsolidadosEnElectrodomesticos(t *testing.T) {
+	pool := repositoryTestPool(t)
+	ctx := context.Background()
+
+	var applianceID, refrigeratorID, oldRefrigerationID, unifiedID int32
+	if err := pool.QueryRow(ctx, `
+		SELECT parent.id, child.id
+		FROM product_category parent
+		JOIN product_category child ON child.parent_category_id = parent.id
+		WHERE parent.name = 'Electrodomésticos' AND child.name = 'Refrigeradores'
+		ORDER BY parent.id, child.id LIMIT 1`).Scan(&applianceID, &refrigeratorID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Refrigeracion'`).Scan(&oldRefrigerationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT id FROM categories WHERE slug = 'refrigeradores'`).Scan(&unifiedID); err != nil {
+		t.Fatal(err)
+	}
+
+	var parentID pgtype.Int4
+	var sourceActive bool
+	if err := pool.QueryRow(ctx, `SELECT parent_category_id FROM product_category WHERE id = $1`, refrigeratorID).Scan(&parentID); err != nil {
+		t.Fatal(err)
+	}
+	if !parentID.Valid || parentID.Int32 != applianceID {
+		t.Fatalf("padre de Refrigeradores = %v, quiero %d", parentID, applianceID)
+	}
+	if err := pool.QueryRow(ctx, `SELECT active FROM product_category WHERE id = $1`, oldRefrigerationID).Scan(&sourceActive); err != nil {
+		t.Fatal(err)
+	}
+	if sourceActive {
+		t.Fatal("Refrigeracion debe quedar inactiva")
+	}
+
+	var misplaced, wrongUnifiedRef, oldSpecValues int64
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM product WHERE category_id = $1`, oldRefrigerationID).Scan(&misplaced); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM product
+		WHERE category_id = $1 AND category_ref IS DISTINCT FROM $2`, refrigeratorID, unifiedID).Scan(&wrongUnifiedRef); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM product_specification_value value
+		JOIN product_category_specification spec ON spec.id = value.specification_id
+		WHERE spec.category_id = $1`, oldRefrigerationID).Scan(&oldSpecValues); err != nil {
+		t.Fatal(err)
+	}
+	if misplaced != 0 || wrongUnifiedRef != 0 || oldSpecValues != 0 {
+		t.Fatalf("productos fuera de Refrigeradores = %d, referencias unificadas incorrectas = %d, valores de especificación antiguos = %d",
+			misplaced, wrongUnifiedRef, oldSpecValues)
+	}
+
+	var linkedLegacyID int32
+	if err := pool.QueryRow(ctx, `SELECT legacy_product_category_id FROM categories WHERE id = $1`, unifiedID).Scan(&linkedLegacyID); err != nil {
+		t.Fatal(err)
+	}
+	if linkedLegacyID != refrigeratorID {
+		t.Fatalf("legacy_product_category_id = %d, quiero %d", linkedLegacyID, refrigeratorID)
 	}
 }
 

@@ -31,6 +31,7 @@
       "product.name": {
         "selector": "a.poly-component__title",
         "type": "string",
+        "transform": "strip_promo_edges",
         "required": true
       },
       "product.brand": {
