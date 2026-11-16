@@ -571,7 +571,7 @@ Categorías unificadas de productos y servicios con sus **definiciones de atribu
 - Incluye el validador de atributos (TAL-72) que usan los endpoints de escritura de productos y servicios (ver más abajo).
 - Solo se exponen categorías con `active = TRUE`.
 
-## Esquema (migraciones `012_categories.sql`, `013_categories_seed.sql` y `018_category_artworks.sql`)
+## Esquema (migraciones `012_categories.sql`, `013_categories_seed.sql`, `018_category_artworks.sql` y `019_reconcile_refrigeradores_category.sql`)
 
 Se numeran 012 y 013 porque 009–011 son de TAL-67/68. Están registradas al final de `backend/database/migration_order.txt`: el runner rechaza cualquier `.sql` que no figure en ese manifiesto.
 
@@ -581,7 +581,7 @@ Se numeran 012 y 013 porque 009–011 son de TAL-67/68. Están registradas al fi
 | `category_attributes` | `key`, `label`, `data_type`, `unit`, `required`, `comparable`, `filterable`, `min_value`, `max_value`, `max_length`, `allowed_values`, `display_order` | FK a `categories` `ON DELETE CASCADE`; UNIQUE `(category_id, key)`; CHECK `key ^[a-z][a-z0-9_]{0,63}$`; `data_type` ∈ `string`, `integer`, `decimal`, `boolean`, `enum`; `allowed_values` solo y obligatorio en `enum`; `min`/`max` solo numéricos (enteros en `integer`, `min <= max`); `max_length` solo `string` (1–255); `unit` solo numéricos |
 | `category_artworks` | `artwork_key`, `svg_content`, `updated_at` | Clave primaria; contiene los SVG estáticos de las categorías |
 
-Las tablas antiguas (`product_category`, `service_category` y sus `*_specification`) **no se modificaron**. Las columnas `legacy_*` enlazan cada categoría nueva con su equivalente antigua para migrar productos y servicios en TAL-70/72.
+Las tablas antiguas (`product_category`, `service_category` y sus `*_specification`) se mantienen. La migración 019 vincula `refrigeradores` con la subcategoría `Refrigeradores` bajo `Electrodomésticos`, mueve allí los productos y sus valores de especificación, y deja inactiva la raíz antigua `Refrigeracion`.
 
 Seeds: `refrigeradores`, `notebooks`, `televisores` (producto) e `internet-fibra-optica` (servicio), con atributos de los cinco `data_type`.
 
@@ -906,9 +906,8 @@ PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
   "name": "Refrigerador LG 350L No Frost",
   "brand": "LG",
   "model": "GT35",
-  "categoryId": 5,
-  "category": "Refrigeracion",
-  "subcategory": "",
+  "categoryId": 2,
+  "category": "Refrigeradores",
   "description": "Refrigerador no frost de 350 litros",
   "rating": 0,
   "reviewCount": 0,
@@ -1374,7 +1373,7 @@ X-Total-Count: 2
     "name": "Refrigerador Midea Side by Side No Frost 555 L",
     "brand": "Midea",
     "model": "MDRS710FGE50IN",
-    "category": "Refrigeracion",
+    "category": "Refrigeradores",
     "categorySlug": "refrigeradores",
     "imageUrl": "https://rimage.ripley.cl/home.ripley/Attachment/WOP/1/2000406824253/full_image-2000406824253",
     "bestPrice": "332991.00",
@@ -1386,7 +1385,8 @@ X-Total-Count: 2
     "name": "Refrigerador LG French Door 530 L",
     "brand": "LG",
     "model": "GM53",
-    "category": "Refrigeracion",
+    "category": "Electrodomésticos",
+    "subcategory": "Refrigeradores",
     "categorySlug": "refrigeradores",
     "imageUrl": "https://placehold.co/640x640?text=DEMO-LG-FRIDGE-530",
     "bestPrice": "899990.00",
