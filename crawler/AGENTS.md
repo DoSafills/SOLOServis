@@ -1,5 +1,12 @@
 # AGENTS.md
 
+> **Estado: legado.** El crawler v1 (`crawler/`) ya no se despliega: ni
+> `docker/compose*.yml` ni `k8s/base/` lo referencian. El sistema en producción
+> es el scraper v2 en `scraper/`, con specs por tienda. Este documento describe
+> el diseño original y se conserva como referencia histórica; **no lo uses como
+> guía para trabajo nuevo**. Para el scraper, lee `scraper/README.md` y el skill
+> `scraper-spec`.
+
 ## Project Overview
 
 This project is an asynchronous web crawling and scraping system written in Python.
