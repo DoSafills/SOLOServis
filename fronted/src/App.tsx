@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AnyCartItem, CartItem, Page, Product, Service, StoreOffer } from "./types";
 import Header from "./components/common/Header";
 import Footer from "./components/common/Footer";
@@ -21,6 +21,7 @@ import ComparisonDock from "./components/products/ComparisonDock";
 import ServiceComparisonDock from "./components/services/ServiceComparisonDock";
 import { getProductById, getServiceById } from "./services/api/api";
 import {
+  AUTH_SESSION_EXPIRED_EVENT,
   addCartItem,
   addServiceCartItem,
   addSearchHistory,
@@ -248,13 +249,20 @@ export default function App() {
     localStorage.setItem(PRODUCTS_PER_PAGE_KEY, String(productsPerPage));
   }, [productsPerPage]);
 
-  const clearExpiredAuthState = () => {
+  const clearExpiredAuthState = useCallback(() => {
     activeUserId.current = null;
     setUser(null);
     setFavorites(new Set());
     setSearchHistory([]);
     setCart([]);
-  };
+    setCartLoading(false);
+    setAccountDataLoading(false);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, clearExpiredAuthState);
+    return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, clearExpiredAuthState);
+  }, [clearExpiredAuthState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -379,7 +387,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [clearExpiredAuthState, userId]);
 
   useEffect(() => {
     localStorage.setItem(SERVICE_COMPARISON_KEY, JSON.stringify([...compareList]));
@@ -534,10 +542,7 @@ export default function App() {
         `No se pudo cerrar la sesión en el servidor: ${error instanceof Error ? error.message : "error desconocido"}`,
       );
     } finally {
-      setUser(null);
-      setFavorites(new Set());
-      setSearchHistory([]);
-      setCart([]);
+      clearExpiredAuthState();
       navigate({ id: "home" });
     }
   };
