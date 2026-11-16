@@ -262,6 +262,7 @@ func TestSearchRouter_RutasRegistradas(t *testing.T) {
 		"GET /search/popular-products",
 		"GET /search/presets",
 		"GET /search/presets/{slug}",
+		"GET /search/alternatives",
 		"GET /search/facets",
 		"GET /search/categories",
 		"GET /search/brands",
