@@ -82,6 +82,11 @@ def cmd_stores(args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     settings = _settings(args)
+    if not settings.ingestion_enabled:
+        _log.warning(
+            "ingestion disabled (%s): the run will only land in SQLite and the catalog",
+            settings.ingestion_disabled_reason,
+        )
     settings.ensure_dirs()
     repo.init_db(settings.db_path)
     repo.recover_orphan_runs(settings.db_path)
@@ -128,6 +133,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
     settings.ensure_dirs()
     if not settings.api_token:
         _log.warning("SCRAPER_API_TOKEN is empty: /runs will answer 503 until it is set")
+    if not settings.ingestion_enabled:
+        _log.warning(
+            "ingestion disabled (%s): runs will not reach the Ingestion API",
+            settings.ingestion_disabled_reason,
+        )
     app = create_app(settings)
     uvicorn.run(app, host=settings.api_host, port=settings.api_port, log_level="info")
     return 0

@@ -271,7 +271,7 @@ El script guarda el registry, el tag y la StorageClass elegida en `k8s/overlays/
 
 ## 5. Pod de test
 
-Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **No escribe nada en la base:** solo hace lecturas, y los dos POST van sin token y se rechazan antes de tocarla. Detecta solo la topología (dominios o consolidado). Son 29 verificaciones en `dominios`.
+Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **No escribe nada en la base:** solo hace lecturas, y los dos POST van sin token y se rechazan antes de tocarla. Detecta solo la topología (dominios o consolidado). Son 29 verificaciones de las APIs en `dominios`, más hasta 6 del scraper cuando `scraper-api` está desplegado.
 
 | Verificación | Qué espera |
 |---|---|
@@ -281,6 +281,9 @@ Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/
 | Ruta interna con `INTERNAL_API_TOKEN`: `GET /ingestion/runs` | 200 |
 | Aislamiento: `comercial` no sirve `/auth` ni `/ingestion`; `usuarios` e `ingestion` no sirven `/products` | 404 |
 | nginx del frontend: `/` → app, `/products` → comercial, `/auth` → usuarios | 200, 200, 401 |
+| Scraper: `/health`, `/ready` | 200 y `"status"` esperado |
+| Scraper sin token: `/stores`, `/runs` | 401 |
+| Scraper con `INTERNAL_API_TOKEN`: `/stores`, `/runs` | 200 |
 
 Lo corre la Fase 10 del deploy. Para correrlo solo:
 

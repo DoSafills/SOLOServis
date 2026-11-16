@@ -105,3 +105,15 @@ def test_regex_needs_a_value_read_from_the_page():
     raw["item"]["fields"]["product.categorySlug"]["regex"] = "refri"
     with pytest.raises(SpecError, match="regex"):
         parse_spec(raw, "inline")
+
+
+def test_store_ids_are_unique_and_pinned(specs):
+    # Ingestion maps offers by store id, so a duplicate or a silent change
+    # would put products in the wrong store.
+    mapping = {spec.slug: spec.store_id for spec in specs}
+    assert mapping == {
+        "falabella-cl": 1,
+        "ripley-cl": 4,
+        "mercadolibre-cl": 6,
+    }
+    assert len(set(mapping.values())) == len(mapping)
