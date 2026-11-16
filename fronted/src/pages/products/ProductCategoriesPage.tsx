@@ -3,7 +3,9 @@ import type { Page, Product } from "../../types";
 import { getAllProducts } from "../../services/api/api";
 import { getCategories, type ApiProductCategory } from "../../services/api/products";
 import { Breadcrumb } from "../../components/common/ui";
+import { Skeleton, SkeletonGrid } from "../../components/common/ui";
 import CategoryIcon from "../../components/common/CategoryIcon";
+import CategoryArtwork from "../../components/common/CategoryArtwork";
 import {
   CATEGORY_SECTION_ICONS,
   getProductCategoryGroup,
@@ -14,17 +16,6 @@ import {
 interface Props {
   navigate: (page: Page) => void;
 }
-
-const fallbackCategoryImages = [
-  "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=320&q=80",
-  "https://images.unsplash.com/photo-1583394838336-acd977736f90?auto=format&fit=crop&w=320&q=80",
-];
 
 const categorySections = [
   {
@@ -48,6 +39,9 @@ const categorySections = [
 ] as const;
 
 type CategorySectionId = (typeof categorySections)[number]["id"];
+
+const normalizeCategoryName = (name: string) =>
+  name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase();
 
 export default function ProductCategoriesPage({ navigate }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
@@ -137,7 +131,6 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         ),
     );
 
-    const usedImages = new Set<string>();
     const makeCard = (
       name: string,
       items: Product[],
@@ -145,16 +138,10 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       categoryId: number,
       query = "",
     ) => {
-      const productImages = items.flatMap((product) => [product.image, ...product.images]);
-      const image = productImages.find((url) => url && !usedImages.has(url));
-      const fallbackImage = fallbackCategoryImages.find((url) => !usedImages.has(url));
-      const uniqueImage = image ?? fallbackImage ?? fallbackCategoryImages[0];
-      usedImages.add(uniqueImage);
       return {
         name,
         rootName: root.name,
         count: items.length,
-        image: uniqueImage,
         categoryId,
         query,
         sectionId: getProductCategoryGroup(root.name),
@@ -171,6 +158,9 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         if (matchingProducts.length === 0 || childHasProducts) return [];
         return [makeCard(category.name, matchingProducts, rootCategoryFor(category), category.id)];
       });
+    const categoryCardKeys = new Set(
+      categoryCards.map((category) => `${category.sectionId}:${normalizeCategoryName(category.name)}`),
+    );
 
     const directProductsBySubtype = new Map<string, Product[]>();
     for (const product of products) {
@@ -192,7 +182,9 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       const root = categoriesById.get(Number(rootId));
       if (!root) return [];
       const subtype = subtypeParts.join(":");
-      return [makeCard(subtype, items, root, root.id, getProductSubtypeSearchQuery(subtype))];
+      const card = makeCard(subtype, items, root, root.id, getProductSubtypeSearchQuery(subtype));
+      const cardKey = `${card.sectionId}:${normalizeCategoryName(card.name)}`;
+      return categoryCardKeys.has(cardKey) ? [] : [card];
     });
     const displayCards = [...categoryCards, ...inferredCards].sort((first, second) =>
       first.name.localeCompare(second.name, "es"),
@@ -265,7 +257,18 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       </section>
 
       {loading ? (
-        <p className="py-8 text-center text-sm text-muted">Cargando categorías...</p>
+        <div role="status" aria-label="Cargando categorías" className="space-y-4">
+          {[0, 1, 2].map((section) => (
+            <div key={section} className="rounded-xl border border-bd bg-surface p-4">
+              <Skeleton className="mb-3 h-12 w-full" />
+              <Skeleton className="mb-4 h-8 w-36" />
+              <SkeletonGrid
+                count={3}
+                className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3"
+              />
+            </div>
+          ))}
+        </div>
       ) : error ? (
         <div className="py-8 text-center">
           <p className="mb-4 text-sm text-warn">{error}</p>
@@ -394,13 +397,8 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                                 }}
                                 className="group relative flex min-h-40 min-w-0 cursor-pointer overflow-hidden rounded-[1.5rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
                               >
-                                <div className="absolute inset-y-0 left-0 w-[58%] bg-slate-950/60">
-                                  <img
-                                    src={category.image}
-                                    alt=""
-                                    loading="lazy"
-                                    className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]"
-                                  />
+                                <div className="theme-media-panel absolute inset-y-0 left-0 w-[58%]">
+                                  <CategoryArtwork name={category.name} type="product" />
                                   <span
                                     aria-hidden="true"
                                     className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
@@ -411,7 +409,7 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                                   className="absolute inset-y-0 right-0 w-[66%]"
                                   style={{
                                     background:
-                                      "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
+                                      "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
                                     clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
                                   }}
                                 />

@@ -30,6 +30,10 @@ export interface SearchHistoryEntry {
   createdAt: string;
 }
 
+export function formatSearchHistoryQuery(query: string): string {
+  return query.replace(/(^|\s)\p{L}/gu, (initial) => initial.toLocaleUpperCase("es"));
+}
+
 export interface ApiFieldError {
   field: string;
   code: string;

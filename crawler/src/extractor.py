@@ -123,8 +123,8 @@ class Column:
             rounded = value.quantize(quantum, rounding=ROUND_HALF_UP)
             if rounded != value:
                 errors.append(
-                    f"{self.name}: {value} rounded to {rounded} to fit "
-                    f"{self.sql_type}")
+                    f"{self.name}: {value} exceeds {self.sql_type} scale")
+                return None, errors
             value = rounded
         precision = self.precision
         if precision is not None and abs(value) >= Decimal(10) ** (precision - (scale or 0)):
@@ -300,7 +300,18 @@ def to_number(raw: str, column: Column, base_url: str | None) -> Decimal | None:
     separator is followed by exactly three digits it is read as a thousands
     group (the Chilean convention), otherwise as a decimal point.
     """
-    text = _NOISE_RE.sub("", raw)
+    text = None
+    for idx, ch in enumerate(raw or ""):
+        if ch.isdigit() or (ch in "+-" and idx + 1 < len(raw) and raw[idx + 1].isdigit()):
+            text = ""
+            for next_ch in raw[idx:]:
+                if next_ch.isdigit() or next_ch in ",.":
+                    text += next_ch
+                elif next_ch in "+-" and not text:
+                    text += next_ch
+                else:
+                    break
+            break
     if not text or text in {"-", "+", ".", ","}:
         return None
 

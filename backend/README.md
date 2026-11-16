@@ -575,6 +575,14 @@ Este procedimiento:
 
 Una migración nueva debe incorporarse tanto al directorio de migraciones como al manifiesto.
 
+El mismo runner admite una base remota (por ejemplo Neon) mediante `DATABASE_URL`. En PowerShell, configura `NEON_DATABASE_URL` desde tu gestor de secretos y ejecuta desde la raíz del repositorio:
+
+```powershell
+$env:DATABASE_URL = $env:NEON_DATABASE_URL
+if (-not $env:DATABASE_URL) { throw "NEON_DATABASE_URL no está configurada." }
+docker compose -f docker/compose.yml run --rm --no-deps -e DATABASE_URL postgres bash /docker-entrypoint-initdb.d/001_migrations.sh
+```
+
 ## 10.2 Reglas para crear migraciones
 
 - No modificar migraciones que ya fueron aplicadas.
@@ -809,6 +817,7 @@ Las APIs distribuyen sus rutas mediante prefijos.
 | API | Prefijo |
 |---|---|
 | Product | `/products`, `/product-categories`, `/categories` |
+| Product (ilustraciones) | `GET /categories/artworks/{key}`: SVG de la categoría, desde la tabla `category_artworks` (migración `018_category_artworks.sql`) |
 | Store | `/stores` |
 | Service | `/services` |
 | User | `/users` |

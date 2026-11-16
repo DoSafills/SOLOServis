@@ -1,8 +1,12 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import type { Page } from "../../types";
-import type { AuthUser, SearchHistoryEntry } from "../../services/api/personalization";
-import { Breadcrumb } from "../../components/common/ui";
+import {
+  formatSearchHistoryQuery,
+  type AuthUser,
+  type SearchHistoryEntry,
+} from "../../services/api/personalization";
+import { Breadcrumb, Skeleton } from "../../components/common/ui";
 import FavoritesPage from "./FavoritesPage";
 
 interface Props {
@@ -13,6 +17,7 @@ interface Props {
   favorites: Set<string>;
   authenticated: boolean;
   history: SearchHistoryEntry[];
+  accountDataLoading: boolean;
   onToggleFavorite: (id: string, kind?: "product" | "service") => void;
   onLogin: (email: string, password: string) => Promise<void>;
   onRegister: (name: string, email: string, password: string) => Promise<void>;
@@ -29,6 +34,7 @@ export default function UserPage({
   favorites,
   authenticated,
   history,
+  accountDataLoading,
   onToggleFavorite,
   onLogin,
   onRegister,
@@ -253,6 +259,7 @@ export default function UserPage({
               navigate={navigate}
               favorites={favorites}
               authenticated={authenticated}
+              accountDataLoading={accountDataLoading}
               onToggleFavorite={onToggleFavorite}
               embedded
             />
@@ -285,7 +292,13 @@ export default function UserPage({
               {activeTab === "history" && (
                 <>
                   <h2 className="text-xl font-black text-text">Historial de búsquedas</h2>
-                  {history.length === 0 ? (
+                  {accountDataLoading ? (
+                    <div role="status" aria-label="Cargando historial" className="mt-4 space-y-2">
+                      {[0, 1, 2].map((item) => (
+                        <Skeleton key={item} className="h-16 w-full rounded-xl" />
+                      ))}
+                    </div>
+                  ) : history.length === 0 ? (
                     <p className="mt-3 text-sm text-muted">
                       Tus búsquedas aparecerán aquí cuando explores productos o servicios con tu
                       sesión iniciada.
@@ -298,7 +311,9 @@ export default function UserPage({
                           className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-bd bg-surface-2 px-4 py-3"
                         >
                           <div>
-                            <div className="text-sm font-semibold text-text">{entry.query}</div>
+                            <div className="text-sm font-semibold text-text">
+                              {formatSearchHistoryQuery(entry.query)}
+                            </div>
                             <div className="mt-1 text-xs text-muted">
                               {entry.type === "service" ? "Servicios" : "Productos"} ·{" "}
                               {new Date(entry.createdAt).toLocaleString()}

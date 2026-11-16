@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServices } from "../../services/api/api";
-import { Breadcrumb } from "../../components/common/ui";
+import { Breadcrumb, Skeleton, SkeletonGrid } from "../../components/common/ui";
 import CategoryIcon from "../../components/common/CategoryIcon";
+import CategoryArtwork from "../../components/common/CategoryArtwork";
 import { getServiceCategoryIcon } from "../../constants/productCatalog";
 
 interface Props {
@@ -68,7 +69,6 @@ export default function ServiceCategoriesPage({ navigate }: Props) {
             .map(([category, categoryServices]) => ({
               name: category,
               count: categoryServices.length,
-              image: categoryServices.find((service) => service.image)?.image ?? "",
             })),
         };
       });
@@ -123,7 +123,18 @@ export default function ServiceCategoriesPage({ navigate }: Props) {
       </section>
 
       {loading ? (
-        <p className="py-8 text-center text-sm text-muted">Cargando categorías...</p>
+        <div role="status" aria-label="Cargando categorías" className="space-y-4">
+          {[0, 1, 2].map((section) => (
+            <div key={section} className="rounded-xl border border-bd bg-surface p-4">
+              <Skeleton className="mb-3 h-12 w-full" />
+              <Skeleton className="mb-4 h-8 w-36" />
+              <SkeletonGrid
+                count={3}
+                className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3"
+              />
+            </div>
+          ))}
+        </div>
       ) : error ? (
         <div className="py-8 text-center">
           <p className="mb-4 text-sm text-warn">{error}</p>
@@ -243,22 +254,8 @@ export default function ServiceCategoriesPage({ navigate }: Props) {
                               }}
                               className="group relative flex min-h-40 min-w-0 cursor-pointer overflow-hidden rounded-[1.5rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
                             >
-                              <div className="absolute inset-y-0 left-0 w-[58%] bg-surface-2">
-                                {category.image ? (
-                                  <img
-                                    src={category.image}
-                                    alt=""
-                                    loading="lazy"
-                                    className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]"
-                                  />
-                                ) : (
-                                  <span className="flex h-full w-full items-center justify-center text-prime">
-                                    <CategoryIcon
-                                      name={getServiceCategoryIcon(category.name)}
-                                      className="h-8 w-8"
-                                    />
-                                  </span>
-                                )}
+                              <div className="absolute inset-y-0 left-0 w-[58%]">
+                                <CategoryArtwork name={category.name} type="service" />
                                 <span
                                   aria-hidden="true"
                                   className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
@@ -269,7 +266,7 @@ export default function ServiceCategoriesPage({ navigate }: Props) {
                                 className="absolute inset-y-0 right-0 w-[66%]"
                                 style={{
                                   background:
-                                    "linear-gradient(135deg, #343B40 0%, #22282C 42%, #191D20 100%)",
+                                    "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
                                   clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
                                 }}
                               />

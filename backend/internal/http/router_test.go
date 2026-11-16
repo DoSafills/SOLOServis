@@ -160,6 +160,7 @@ func TestProductRouter_CategoriasSoloLectura(t *testing.T) {
 func TestProductRouter_RutasRegistradas(t *testing.T) {
 	want := []string{
 		"GET /categories",
+		"GET /categories/artworks/{key}",
 		"GET /categories/{slug}",
 		"GET /health",
 		"GET /product-categories",
