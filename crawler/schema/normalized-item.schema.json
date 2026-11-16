@@ -181,6 +181,23 @@
         "errors": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "enum": [
+                  "product_identity_missing",
+                  "external_url_listing_fallback"
+                ]
+              },
+              "message": { "type": "string" }
+            }
+          }
         }
       }
     }
