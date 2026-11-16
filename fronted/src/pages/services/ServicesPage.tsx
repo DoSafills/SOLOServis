@@ -169,7 +169,9 @@ export default function ServicesPage({
     () => ({ all: "all" }),
     stringRecordSessionCodec,
   );
-  const [filtersByMicrocategory, setFiltersByMicrocategory] = useSessionStorageState(
+  const [filtersByMicrocategory, setFiltersByMicrocategory] = useSessionStorageState<
+    Record<string, ServiceFilterState>
+  >(
     `${sessionKey}:filters`,
     () => ({}),
     serviceFiltersSessionCodec,
