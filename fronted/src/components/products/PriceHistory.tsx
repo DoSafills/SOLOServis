@@ -9,7 +9,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import type { PricePoint } from "../../types";
-import { formatPrice } from "../../services/utils/productUtils";
+import { detectPriceAnomalies, formatPrice } from "../../services/utils/productUtils";
 
 const ranges = [
   { label: "7d", days: 7 },
@@ -70,6 +70,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
   const activeData = (mode === "price" ? history : offerHistory)
     .filter((point) => new Date(point.date) >= cutoff)
     .sort((first, second) => Date.parse(first.date) - Date.parse(second.date));
+  const { hasAbruptHistoryDrop } = detectPriceAnomalies([], activeData);
 
   const hasOfferHistory = offerHistory.length > 0;
   const prices = activeData.map((d) => d.price);
@@ -130,6 +131,15 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
           ))}
         </div>
       </div>
+
+      {hasAbruptHistoryDrop && (
+        <p
+          className="mb-4 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-200"
+          title="El precio más reciente cayó a la mitad o menos respecto al registro anterior."
+        >
+          Precio inusual
+        </p>
+      )}
 
       {mode === "offer" && !hasOfferHistory && (
         <div className="rounded-xl border border-bd bg-surface-2 p-6 text-center">

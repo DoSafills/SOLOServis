@@ -4,6 +4,7 @@ import {
   formatExactUpdateDate,
   formatPrice,
   formatPriceUpdate,
+  detectPriceAnomalies,
   validateOfferComparison,
   type OfferComparisonValidation,
 } from "../../services/utils/productUtils";
@@ -90,6 +91,7 @@ interface SelectedOffersTableProps {
   offers: StoreOffer[];
   bestOffers: StoreOffer[];
   validation: OfferComparisonValidation;
+  anomalousOfferIds: ReadonlySet<number>;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
   onRemoveOffer: (storeId: string) => void;
 }
@@ -99,6 +101,7 @@ function SelectedOffersTable({
   offers,
   bestOffers,
   validation,
+  anomalousOfferIds,
   onAddToCart,
   onRemoveOffer,
 }: SelectedOffersTableProps) {
@@ -165,6 +168,14 @@ function SelectedOffersTable({
                       <span className="text-sm font-bold text-slate-100">
                         {formatPrice(offer.price)}
                       </span>
+                      {anomalousOfferIds.has(offer.offerId) && (
+                        <span
+                          className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                          title="Menos de la mitad de la mediana de otras ofertas"
+                        >
+                          Precio inusual
+                        </span>
+                      )}
                       <span className="block text-xs text-slate-400">
                         Normal <span className="line-through">{formatPrice(offer.listPrice!)}</span>
                       </span>
@@ -175,6 +186,14 @@ function SelectedOffersTable({
                       <span className="text-sm font-bold text-slate-100">
                         {formatPrice(offer.price)}
                       </span>
+                      {anomalousOfferIds.has(offer.offerId) && (
+                        <span
+                          className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                          title="Menos de la mitad de la mediana de otras ofertas"
+                        >
+                          Precio inusual
+                        </span>
+                      )}
                     </>
                   )}
                 </td>
@@ -420,6 +439,7 @@ export default function PriceOfferComparison({
     }
   };
   const offers = product.offers;
+  const anomalousOfferIds = detectPriceAnomalies(offers, []).anomalousOfferIds;
   const selectedOffers = offers.filter((offer) => selectedStoreIds.includes(offer.storeId));
   const offerComparison = validateOfferComparison(offers);
   const selectedComparison = validateOfferComparison(selectedOffers);
@@ -503,6 +523,7 @@ export default function PriceOfferComparison({
               offers={selectedOffers}
               bestOffers={selectedBestOffers}
               validation={selectedComparison}
+              anomalousOfferIds={anomalousOfferIds}
               onAddToCart={onAddToCart}
               onRemoveOffer={(storeId) =>
                 setSelectedStoreIds((current) => current.filter((id) => id !== storeId))
@@ -587,6 +608,16 @@ export default function PriceOfferComparison({
                           ? formatPrice(offer.price)
                           : "No comparable"}
                       </dd>
+                      {anomalousOfferIds.has(offer.offerId) && (
+                        <dd>
+                          <span
+                            className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                            title="Menos de la mitad de la mediana de otras ofertas"
+                          >
+                            Precio inusual
+                          </span>
+                        </dd>
+                      )}
                       {discounted && (
                         <dd className="text-xs text-slate-400">
                           Normal{" "}
@@ -880,6 +911,14 @@ export default function PriceOfferComparison({
                               <span className="price text-sm font-bold text-text">
                                 {formatPrice(offer.price)}
                               </span>
+                              {anomalousOfferIds.has(offer.offerId) && (
+                                <span
+                                  className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                                  title="Menos de la mitad de la mediana de otras ofertas"
+                                >
+                                  Precio inusual
+                                </span>
+                              )}
                               <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400">
                                 <span>Normal</span>
                                 <span className="line-through">
@@ -895,6 +934,14 @@ export default function PriceOfferComparison({
                               <span className="price text-sm font-semibold text-text">
                                 {formatPrice(offer.price)}
                               </span>
+                              {anomalousOfferIds.has(offer.offerId) && (
+                                <span
+                                  className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                                  title="Menos de la mitad de la mediana de otras ofertas"
+                                >
+                                  Precio inusual
+                                </span>
+                              )}
                             </div>
                           )}
                         </td>

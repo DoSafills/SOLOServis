@@ -5,6 +5,7 @@ import {
   formatExactUpdateDate,
   formatPrice,
   formatPriceUpdate,
+  detectPriceAnomalies,
   getMinOffer,
 } from "../../services/utils/productUtils";
 
@@ -34,6 +35,8 @@ export default function ProductCard({
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
   const bestOffer = getMinOffer(product);
+  const anomalousOfferIds = detectPriceAnomalies(product.offers, []).anomalousOfferIds;
+  const bestOfferIsAnomalous = bestOffer !== undefined && anomalousOfferIds.has(bestOffer.offerId);
   const isInCart = cartProductIds.has(product.id);
   const discountPercent =
     bestOffer?.price !== null &&
@@ -127,6 +130,14 @@ export default function ProductCard({
               <span className="text-xs font-bold tracking-tight text-prime sm:text-sm">
                 {formatPrice(bestOffer.price)}
               </span>
+              {bestOfferIsAnomalous && (
+                <span
+                  className="rounded-full border border-amber-300/50 bg-amber-400/15 px-1.5 py-0.5 text-[8px] font-semibold text-amber-200 sm:text-[9px]"
+                  title="Menos de la mitad de la mediana de otras ofertas"
+                >
+                  Precio inusual
+                </span>
+              )}
               {discountPercent !== null && (
                 <span
                   className={`rounded-full border px-1.5 py-0.5 text-[8px] font-bold shadow-sm sm:text-[9px] ${

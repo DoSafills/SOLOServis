@@ -1,4 +1,4 @@
-import type { Product, StoreOffer } from "../../types";
+import type { PricePoint, Product, StoreOffer } from "../../types";
 
 const clpFormatter = new Intl.NumberFormat("es-CL", {
   style: "currency",
@@ -81,6 +81,50 @@ export const validateOfferComparison = (
     hasMixedCurrencies,
     canCompare: availableOffers.length >= 2 && currencyCompatible,
   };
+};
+
+export const ANOMALY_MIN_OFFERS = 3;
+export const ANOMALY_LOW_RATIO = 0.5;
+export const ANOMALY_MIN_HISTORY_POINTS = 3;
+export const ANOMALY_HISTORY_DROP_RATIO = 0.5;
+
+export const detectPriceAnomalies = (
+  offers: readonly StoreOffer[],
+  history: readonly PricePoint[],
+): { anomalousOfferIds: ReadonlySet<number>; hasAbruptHistoryDrop: boolean } => {
+  const validation = validateOfferComparison(offers);
+  const anomalousOfferIds = new Set<number>();
+
+  if (validation.currencyCompatible && validation.availableOffers.length >= ANOMALY_MIN_OFFERS) {
+    for (const offer of validation.availableOffers) {
+      const peerPrices = validation.availableOffers
+        .filter((peer) => peer !== offer)
+        .flatMap((peer) => (peer.price === null ? [] : [peer.price]))
+        .sort((first, second) => first - second);
+      const middle = Math.floor(peerPrices.length / 2);
+      const median =
+        peerPrices.length % 2 === 0
+          ? (peerPrices[middle - 1] + peerPrices[middle]) / 2
+          : peerPrices[middle];
+
+      if (offer.price !== null && offer.price < median * ANOMALY_LOW_RATIO) {
+        anomalousOfferIds.add(offer.offerId);
+      }
+    }
+  }
+
+  const validHistory = history
+    .filter(
+      (point) =>
+        Number.isFinite(point.price) && point.price > 0 && Number.isFinite(Date.parse(point.date)),
+    )
+    .sort((first, second) => Date.parse(first.date) - Date.parse(second.date));
+  const hasAbruptHistoryDrop =
+    validHistory.length >= ANOMALY_MIN_HISTORY_POINTS &&
+    validHistory[validHistory.length - 1].price <=
+      validHistory[validHistory.length - 2].price * ANOMALY_HISTORY_DROP_RATIO;
+
+  return { anomalousOfferIds, hasAbruptHistoryDrop };
 };
 
 export const getBillingPeriodText = (period: string | null | undefined): string => {
