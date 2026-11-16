@@ -54,6 +54,8 @@ type Processor struct {
 	logger   *slog.Logger
 }
 
+// NewProcessor arma el procesador de ítems con sus dependencias: ejecuciones,
+// catálogo de productos, ofertas, notificaciones y logger.
 func NewProcessor(runs RunStore, catalog Catalog, offers Offers, notifier pricing.Notifier, logger *slog.Logger) *Processor {
 	return &Processor{runs: runs, catalog: catalog, offers: offers, notifier: notifier, logger: logger}
 }
@@ -78,6 +80,9 @@ func (p *Processor) Process(ctx context.Context, runID, storeID int32, items []I
 	return result
 }
 
+// processItem procesa un ítem del lote: lo valida, busca si el producto ya
+// existe (o lo crea), registra la oferta y avisa si el precio bajó. Nunca
+// detiene el lote: un ítem con problemas vuelve como fallido con sus errores.
 func (p *Processor) processItem(ctx context.Context, runID, storeID int32, index int, item Item) ItemResult {
 	result := ItemResult{Index: index, ExternalID: strings.TrimSpace(item.ExternalID)}
 	fail := func(errs ...httpx.FieldError) ItemResult {
@@ -225,6 +230,8 @@ func validateItem(item Item) (ItemProduct, pricing.OfferWrite, []httpx.FieldErro
 	return p, offer, errs
 }
 
+// prefixErrors antepone prefix al campo y al mensaje de cada error, para que
+// apunten a la ruta completa dentro del ítem.
 func prefixErrors(prefix string, errs []httpx.FieldError) []httpx.FieldError {
 	out := make([]httpx.FieldError, 0, len(errs))
 	for _, e := range errs {
@@ -254,6 +261,7 @@ func (p *Processor) save(ctx context.Context, runID int32, item Item) {
 	}
 }
 
+// isHTTPURL indica si value es una URL http o https válida.
 func isHTTPURL(value string) bool {
 	parsed, err := url.ParseRequestURI(value)
 	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""

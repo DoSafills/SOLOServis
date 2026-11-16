@@ -16,6 +16,7 @@ type Repository struct {
 	db *pgxpool.Pool
 }
 
+// NewRepository crea el repositorio de ingestion sobre el pool de PostgreSQL.
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
 }
@@ -92,6 +93,7 @@ FROM scrape_run r
 JOIN scraper_config sc ON sc.id = r.scraper_config_id
 JOIN data_source ds ON ds.id = sc.data_source_id`
 
+// scanRun convierte una fila de la consulta de ejecuciones en un Run.
 func scanRun(row pgx.Row) (Run, error) {
 	var run Run
 	err := row.Scan(&run.ID, &run.Source, &run.SourceURL, &run.StoreID, &run.ScraperType, &run.Status,
