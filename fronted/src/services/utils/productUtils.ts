@@ -83,6 +83,22 @@ export const validateOfferComparison = (
   };
 };
 
+export const normalizePriceHistory = (points: readonly PricePoint[]): PricePoint[] => {
+  const now = Date.now();
+
+  return points
+    .filter((point) => {
+      const timestamp = Date.parse(point.date);
+      return (
+        Number.isFinite(point.price) &&
+        point.price > 0 &&
+        Number.isFinite(timestamp) &&
+        timestamp <= now
+      );
+    })
+    .sort((first, second) => Date.parse(first.date) - Date.parse(second.date));
+};
+
 export const ANOMALY_MIN_OFFERS = 3;
 export const ANOMALY_LOW_RATIO = 0.5;
 export const ANOMALY_MIN_HISTORY_POINTS = 3;
@@ -113,12 +129,7 @@ export const detectPriceAnomalies = (
     }
   }
 
-  const validHistory = history
-    .filter(
-      (point) =>
-        Number.isFinite(point.price) && point.price > 0 && Number.isFinite(Date.parse(point.date)),
-    )
-    .sort((first, second) => Date.parse(first.date) - Date.parse(second.date));
+  const validHistory = normalizePriceHistory(history);
   const hasAbruptHistoryDrop =
     validHistory.length >= ANOMALY_MIN_HISTORY_POINTS &&
     validHistory[validHistory.length - 1].price <=
