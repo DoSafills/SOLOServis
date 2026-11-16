@@ -57,6 +57,7 @@ class ReadyResponse(BaseModel):
     status: str
     database: str
     stores: int
+    ingestion: str = "unknown"
 
 
 # ---------------------------------------------------------------------------

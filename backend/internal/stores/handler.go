@@ -1,6 +1,7 @@
 package stores
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,7 +42,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if stores == nil {
 		stores = []dto.Store{}
 	}
-	writeList(w, stores, total)
+
+	h.writeList(w, r, stores, total)
 }
 
 // GetByID atiende GET /stores/{id}: tienda con productos disponibles y sucursales.
@@ -60,7 +62,8 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
-	writeJSON(w, detail)
+
+	h.writeJSON(w, r, detail)
 }
 
 // ListProductOffers atiende GET /stores/offers?product={publicID}&available=:
@@ -75,6 +78,7 @@ func (h *Handler) ListProductOffers(w http.ResponseWriter, r *http.Request) {
 	} else if err := productID.Scan(query.Get("product")); err != nil {
 		v.Add("product", "format", "product debe ser un UUID")
 	}
+
 	filter := parseOfferFilter(&v, query)
 	if !v.Valid() {
 		writeInvalidQuery(w, r, v)
@@ -90,7 +94,8 @@ func (h *Handler) ListProductOffers(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
-	writeOffers(w, offers, total)
+
+	h.writeOffers(w, r, offers, total)
 }
 
 // ListStoreOffers atiende GET /stores/{id}/offers?available=&limit=&offset=.
@@ -99,6 +104,7 @@ func (h *Handler) ListStoreOffers(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
 	var v httpx.Validator
 	filter := parseOfferFilter(&v, r.URL.Query())
 	if !v.Valid() {
@@ -115,7 +121,8 @@ func (h *Handler) ListStoreOffers(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
-	writeOffers(w, offers, total)
+
+	h.writeOffers(w, r, offers, total)
 }
 
 func parseStoreID(w http.ResponseWriter, r *http.Request) (int32, bool) {
@@ -126,13 +133,14 @@ func parseStoreID(w http.ResponseWriter, r *http.Request) (int32, bool) {
 			httpx.FieldError{Field: "id", Code: "format", Message: "id debe ser un entero positivo"})
 		return 0, false
 	}
+
 	return int32(id), true
 }
 
-// parseOfferFilter valida primero el filtro y luego la paginación, para que
-// los errores salgan en ese orden.
+// parseOfferFilter valida primero el filtro y luego la paginación.
 func parseOfferFilter(v *httpx.Validator, query url.Values) OfferFilter {
 	var filter OfferFilter
+
 	if query.Has("available") {
 		switch query.Get("available") {
 		case "true", "false":
@@ -142,6 +150,7 @@ func parseOfferFilter(v *httpx.Validator, query url.Values) OfferFilter {
 			v.Add("available", "one_of", "available debe ser true o false")
 		}
 	}
+
 	filter.Page = parsePage(v, query)
 	return filter
 }
@@ -187,20 +196,35 @@ func writeNotFound(w http.ResponseWriter, r *http.Request, detail string) {
 	httpx.WriteProblem(w, r, http.StatusNotFound, httpx.CodeNotFound, detail)
 }
 
-func writeOffers(w http.ResponseWriter, offers []dto.Offer, total int64) {
+func (h *Handler) writeOffers(w http.ResponseWriter, r *http.Request, offers []dto.Offer, total int64) {
 	if offers == nil {
 		offers = []dto.Offer{}
 	}
-	writeList(w, offers, total)
+
+	h.writeList(w, r, offers, total)
 }
 
-func writeList(w http.ResponseWriter, body any, total int64) {
+func (h *Handler) writeList(w http.ResponseWriter, r *http.Request, body any, total int64) {
 	w.Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
-	writeJSON(w, body)
+	h.writeJSON(w, r, body)
 }
 
-func writeJSON(w http.ResponseWriter, body any) {
+func (h *Handler) writeJSON(w http.ResponseWriter, r *http.Request, body any) {
+	var buffer bytes.Buffer
+
+	if err := json.NewEncoder(&buffer).Encode(body); err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(body)
+
+	if _, err := w.Write(buffer.Bytes()); err != nil && h.logger != nil {
+		h.logger.Error("error writing store response",
+			"error", err,
+			"method", r.Method,
+			"path", r.URL.Path,
+		)
+	}
 }
