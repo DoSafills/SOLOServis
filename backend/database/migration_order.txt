@@ -31,3 +31,5 @@
 # runner nunca la aplicaba. Debe ir al final: usa normalize_product_offer_url
 # de 009 y la tabla product_offer ya consolidada.
 021_dedupe_scraped_products.sql
+# Repara las tildes que deploy.ps1 dañó (UTF-8 leído como cp850) en los textos del seed.
+022_fix_seed_encoding_cp850.sql
