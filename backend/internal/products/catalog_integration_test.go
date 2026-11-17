@@ -389,3 +389,77 @@ func TestCatalogIntegration_BaseDeDatosProtegeLosAtributos(t *testing.T) {
 		t.Fatalf("GetDetail inexistente = %v", err)
 	}
 }
+
+// TAL-238: cada punto del historial en el detalle del producto indica de qué
+// oferta y tienda es, en qué moneda y a qué hora exacta se registró, además de
+// los campos originales date y price.
+func TestCatalogIntegration_HistorialConOfertaMonedaYHora(t *testing.T) {
+	pool := repositoryTestPool(t)
+	repo := NewRepository(pool)
+	ctx := context.Background()
+
+	fridge, values := resolveAndValidate(t, repo, "refrigeradores",
+		`{"capacidad_litros": 350, "eficiencia_energetica": "A+", "no_frost": true}`)
+	publicID, err := repo.Create(ctx, ProductWrite{
+		LegacyCategoryID: *fridge.LegacyID, CategoryRef: fridge.ID,
+		Name: "Refrigerador TAL-238", SKU: uniqueSKU("tal238"), Attributes: values,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var storeID int32
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO store (name, website_url) VALUES ($1, 'https://tal238.example.test')
+		RETURNING id`, uniqueSKU("Tienda TAL-238")).Scan(&storeID); err != nil {
+		t.Fatalf("crear tienda: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE public_id = $1`, publicID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM store WHERE id = $1`, storeID)
+	})
+
+	// El trigger de la migración 010 registra un punto al crear la oferta y
+	// otro al cambiar el precio.
+	var offerID int32
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO product_offer (product_id, store_id, price, currency, product_url)
+		SELECT id, $2, 199990, 'CLP', 'https://tal238.example.test/p/1' FROM product WHERE public_id = $1
+		RETURNING id`, publicID, storeID).Scan(&offerID); err != nil {
+		t.Fatalf("crear oferta: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE product_offer SET price = 189990 WHERE id = $1`, offerID); err != nil {
+		t.Fatalf("cambiar precio: %v", err)
+	}
+
+	detail, err := repo.GetDetail(ctx, publicID)
+	if err != nil {
+		t.Fatalf("GetDetail: %v", err)
+	}
+	if len(detail.PriceHistory) != 2 {
+		t.Fatalf("historial = %+v, quiero 2 puntos", detail.PriceHistory)
+	}
+	for i, wantPrice := range []string{"199990.00", "189990.00"} {
+		point := detail.PriceHistory[i]
+		recordedAt, err := time.Parse(time.RFC3339Nano, point.RecordedAt)
+		if err != nil {
+			t.Fatalf("recordedAt %q no es RFC 3339: %v", point.RecordedAt, err)
+		}
+		if point.Price != wantPrice || point.OfferID != offerID || point.StoreID != storeID ||
+			point.Currency != "CLP" || point.Date != recordedAt.Format("2006-01-02") {
+			t.Fatalf("punto %d = %+v", i, point)
+		}
+	}
+
+	// La forma JSON conserva date y price y agrega los cuatro campos nuevos.
+	encoded, _ := json.Marshal(detail.PriceHistory[0])
+	var keys map[string]json.RawMessage
+	_ = json.Unmarshal(encoded, &keys)
+	for _, key := range []string{"date", "price", "offerId", "storeId", "currency", "recordedAt"} {
+		if _, ok := keys[key]; !ok {
+			t.Fatalf("falta %q en %s", key, encoded)
+		}
+	}
+	if len(keys) != 6 {
+		t.Fatalf("campos inesperados en %s", encoded)
+	}
+}

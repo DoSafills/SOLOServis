@@ -184,6 +184,12 @@ func TestPricingIntegration_RegistroDePrecioActualEHistorial(t *testing.T) {
 		points[0].Price != "234.56" || points[1].Price != "99.90" {
 		t.Fatalf("historial API = %d %s %s", hrec.Code, hrec.Header().Get("X-Total-Count"), hrec.Body.String())
 	}
+	// TAL-238: cada punto trae la moneda de la oferta y la hora del registro.
+	for _, p := range points {
+		if _, err := time.Parse(time.RFC3339Nano, p.RecordedAt); err != nil || p.Currency != "CLP" {
+			t.Fatalf("punto sin moneda u hora válidas: %+v", p)
+		}
+	}
 	// Filtro por fecha futura: vacío, total 0.
 	req = httptest.NewRequest(http.MethodGet, "/offers/"+strconv.Itoa(int(created.ID))+"/price-history?from=2999-01-01", nil)
 	hrec = httptest.NewRecorder()
@@ -268,6 +274,10 @@ func TestPricingIntegration_MejorPrecioYOfertasDelProducto(t *testing.T) {
 	stores := map[string]bool{}
 	for _, p := range points {
 		stores[p.StoreName] = true
+		// TAL-238: oferta, moneda y hora en cada punto.
+		if _, err := time.Parse(time.RFC3339Nano, p.RecordedAt); err != nil || p.Currency != "CLP" || p.OfferID == 0 {
+			t.Fatalf("punto incompleto: %+v", p)
+		}
 	}
 	if hrec.Header().Get("X-Total-Count") != "3" || len(points) != 3 || len(stores) != 2 {
 		t.Fatalf("historial del producto = %s %s", hrec.Header().Get("X-Total-Count"), hrec.Body.String())

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
@@ -299,7 +300,7 @@ func (r *Repository) GetDetail(ctx context.Context, publicID pgtype.UUID) (dto.P
 		return dto.ProductDetail{}, err
 	}
 	for _, point := range history {
-		pricePoint := dto.PricePoint{}
+		pricePoint := dto.PricePoint{OfferID: point.OfferID, StoreID: point.StoreID, Currency: point.Currency}
 		if point.Price.Valid {
 			if value, err := point.Price.MarshalJSON(); err == nil {
 				pricePoint.Price = string(value)
@@ -307,6 +308,7 @@ func (r *Repository) GetDetail(ctx context.Context, publicID pgtype.UUID) (dto.P
 		}
 		if point.RecordedAt.Valid {
 			pricePoint.Date = point.RecordedAt.Time.Format("2006-01-02")
+			pricePoint.RecordedAt = point.RecordedAt.Time.UTC().Format(time.RFC3339Nano)
 		}
 		result.PriceHistory = append(result.PriceHistory, pricePoint)
 		if point.IsPromotional {

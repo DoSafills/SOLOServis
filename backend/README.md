@@ -1704,6 +1704,12 @@ PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
 }
 ```
 
+Cada punto de `priceHistory` y `offerPriceHistory` conserva `date` y `price`, y desde TAL-238 indica de qué oferta y tienda es, la moneda de la oferta y la hora del registro (UTC, RFC 3339):
+
+```json
+{ "date": "2026-11-16", "price": "189990.00", "offerId": 69, "storeId": 4, "currency": "CLP", "recordedAt": "2026-11-16T06:00:12.345Z" }
+```
+
 `GET /products` mantiene el **cuerpo como arreglo** (lo consumen Search API y el frontend) con los mismos campos por producto, más `categorySlug` y `attributes`:
 
 | Parámetro | Regla |
@@ -2037,18 +2043,20 @@ Los montos aceptan número JSON o string numérico y **no pasan por `float64`**:
 
 ```json
 [
-  { "id": 173, "price": "329990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:13.846796Z" },
-  { "id": 172, "price": "349990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:04.554457Z" }
+  { "id": 173, "price": "329990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:13.846796Z", "currency": "CLP" },
+  { "id": 172, "price": "349990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:04.554457Z", "currency": "CLP" }
 ]
 ```
+
+`currency` es la moneda de la oferta (TAL-238): el historial no guarda una propia por registro.
 
 `GET /offers/product/{productId}/price-history?limit=3` (`X-Total-Count: 5`) agrega la oferta y la tienda de cada punto:
 
 ```json
 [
-  { "id": 173, "price": "329990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:13.846796Z", "offerId": 125, "storeId": 2, "storeName": "Paris" },
-  { "id": 172, "price": "349990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:04.554457Z", "offerId": 125, "storeId": 2, "storeName": "Paris" },
-  { "id": 108, "price": "379990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:11:55.34416Z", "offerId": 66, "storeId": 7, "storeName": "Lider" }
+  { "id": 173, "price": "329990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:13.846796Z", "currency": "CLP", "offerId": 125, "storeId": 2, "storeName": "Paris" },
+  { "id": 172, "price": "349990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:04.554457Z", "currency": "CLP", "offerId": 125, "storeId": 2, "storeName": "Paris" },
+  { "id": 108, "price": "379990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:11:55.34416Z", "currency": "CLP", "offerId": 66, "storeId": 7, "storeName": "Lider" }
 ]
 ```
 

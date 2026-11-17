@@ -229,8 +229,9 @@ func (r *Repository) OfferHistory(ctx context.Context, offerID int32, f HistoryF
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT h.id, h.price::text, h.is_promotional, h.recorded_at
+		SELECT h.id, h.price::text, h.is_promotional, h.recorded_at, o.currency
 		FROM product_price_history h
+		JOIN product_offer o ON o.id = h.product_offer_id
 		WHERE h.product_offer_id = $1`+historyDateFilterSQL+`
 		ORDER BY h.recorded_at DESC, h.id DESC
 		LIMIT $4 OFFSET $5`, offerID, f.From, f.To, f.Limit, f.Offset)
@@ -243,7 +244,7 @@ func (r *Repository) OfferHistory(ctx context.Context, offerID int32, f HistoryF
 	for rows.Next() {
 		var p PricePoint
 		var recordedAt time.Time
-		if err := rows.Scan(&p.ID, &p.Price, &p.IsPromotional, &recordedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Price, &p.IsPromotional, &recordedAt, &p.Currency); err != nil {
 			return nil, 0, err
 		}
 		p.RecordedAt = recordedAt.UTC().Format(time.RFC3339Nano)
@@ -268,7 +269,7 @@ func (r *Repository) ProductHistory(ctx context.Context, productID int32, f Hist
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT h.id, h.price::text, h.is_promotional, h.recorded_at, o.id, s.id, s.name`+from+historyDateFilterSQL+`
+		SELECT h.id, h.price::text, h.is_promotional, h.recorded_at, o.currency, o.id, s.id, s.name`+from+historyDateFilterSQL+`
 		ORDER BY h.recorded_at DESC, h.id DESC
 		LIMIT $4 OFFSET $5`, productID, f.From, f.To, f.Limit, f.Offset)
 	if err != nil {
@@ -280,7 +281,7 @@ func (r *Repository) ProductHistory(ctx context.Context, productID int32, f Hist
 	for rows.Next() {
 		var p ProductPricePoint
 		var recordedAt time.Time
-		if err := rows.Scan(&p.ID, &p.Price, &p.IsPromotional, &recordedAt, &p.OfferID, &p.StoreID, &p.StoreName); err != nil {
+		if err := rows.Scan(&p.ID, &p.Price, &p.IsPromotional, &recordedAt, &p.Currency, &p.OfferID, &p.StoreID, &p.StoreName); err != nil {
 			return nil, 0, err
 		}
 		p.RecordedAt = recordedAt.UTC().Format(time.RFC3339Nano)
