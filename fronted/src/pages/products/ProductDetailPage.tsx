@@ -146,7 +146,7 @@ export default function ProductDetailPage({
           setProductState({ requestKey: currentRequestKey, value: null });
           setProductError({
             requestKey: currentRequestKey,
-            message: error instanceof Error ? error.message : "Product API no disponible.",
+            message: error instanceof Error ? error.message : "No pudimos cargar el producto.",
           });
         }
       })
@@ -167,8 +167,7 @@ export default function ProductDetailPage({
         if (!cancelled) {
           setReviewsError({
             requestKey: currentRequestKey,
-            message:
-              error instanceof Error ? error.message : "Product API no disponible para reseñas.",
+            message: error instanceof Error ? error.message : "No pudimos cargar las reseñas.",
           });
         }
       });
@@ -206,18 +205,18 @@ export default function ProductDetailPage({
         {currentProductError ? (
           <>
             <p role="alert" className="text-warn">
-              {currentProductError}
+              No pudimos cargar este producto. Inténtalo nuevamente.
             </p>
             <button
               type="button"
               onClick={() => setLoadAttempt((attempt) => attempt + 1)}
               className="mt-4 rounded-xl border border-prime px-4 py-2 text-sm font-semibold text-prime"
             >
-              Reintentar Product API
+              Volver a intentar
             </button>
           </>
         ) : (
-          <p className="text-muted">Product API no encontró este producto.</p>
+          <p className="text-muted">No encontramos este producto.</p>
         )}
       </div>
     );
@@ -428,7 +427,7 @@ export default function ProductDetailPage({
             className="mb-4 rounded-xl border border-rose-300/20 bg-rose-950/30 p-3 text-sm text-rose-200"
             role="alert"
           >
-            {currentReviewsError}
+            No pudimos cargar las reseñas. Inténtalo nuevamente.
             <button
               type="button"
               onClick={() => setLoadAttempt((attempt) => attempt + 1)}

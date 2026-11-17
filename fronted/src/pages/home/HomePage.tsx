@@ -147,7 +147,9 @@ export default function HomePage({
       })
       .catch((error: unknown) => {
         if (active)
-          setProductsError(error instanceof Error ? error.message : "Product API no disponible.");
+          setProductsError(
+            error instanceof Error ? error.message : "No pudimos cargar los productos destacados.",
+          );
       })
       .finally(() => {
         if (active) setProductsLoadedAttempt(productsAttempt);
@@ -165,7 +167,9 @@ export default function HomePage({
       })
       .catch((error: unknown) => {
         if (active)
-          setServicesError(error instanceof Error ? error.message : "Services API no disponible.");
+          setServicesError(
+            error instanceof Error ? error.message : "No pudimos cargar los servicios destacados.",
+          );
       })
       .finally(() => {
         if (active) setServicesLoadedAttempt(servicesAttempt);
@@ -585,7 +589,7 @@ export default function HomePage({
                 className="col-span-full rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200"
                 role="alert"
               >
-                Product API: {productsError}
+                No pudimos cargar los productos destacados. Inténtalo nuevamente.
                 <button
                   type="button"
                   onClick={() => {
@@ -606,7 +610,7 @@ export default function HomePage({
             )}
             {!productsLoading && !productsError && featuredProducts.length === 0 && (
               <p className="col-span-full py-4 text-sm text-muted">
-                Product API no devolvió productos destacados.
+                No hay productos destacados disponibles en este momento.
               </p>
             )}
             {featuredProducts.map((p) => (
@@ -653,7 +657,7 @@ export default function HomePage({
                 className="col-span-full rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200"
                 role="alert"
               >
-                Services API: {servicesError}
+                No pudimos cargar los servicios populares. Inténtalo nuevamente.
                 <button
                   type="button"
                   onClick={() => {
@@ -674,7 +678,7 @@ export default function HomePage({
             )}
             {!servicesLoading && !servicesError && featuredServices.length === 0 && (
               <p className="col-span-full py-4 text-sm text-muted">
-                Services API no devolvió servicios populares.
+                No hay servicios populares disponibles en este momento.
               </p>
             )}
             {featuredServices.map((s) => (

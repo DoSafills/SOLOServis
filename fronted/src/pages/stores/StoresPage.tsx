@@ -156,13 +156,13 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
         <SkeletonGrid count={6} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" />
       ) : error ? (
         <div className="rounded-2xl border border-bd bg-surface p-8 text-center" role="alert">
-          <p className="text-sm text-warn">{error}</p>
+          <p className="text-sm text-warn">No pudimos cargar las tiendas. Inténtalo nuevamente.</p>
           <button
             type="button"
             onClick={() => setReload((attempt) => attempt + 1)}
             className="mt-4 rounded-lg border border-prime/40 bg-prime-muted px-4 py-2 text-sm font-semibold text-prime transition hover:border-prime hover:bg-prime/20"
           >
-            Reintentar carga de Store API
+            Volver a intentar
           </button>
         </div>
       ) : filteredStores.length === 0 ? (
@@ -170,7 +170,7 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
           title={stores.length === 0 ? "No hay tiendas disponibles" : "No encontramos tiendas"}
           description={
             stores.length === 0
-              ? "La Store API no devolvió tiendas para mostrar."
+              ? "No hay tiendas disponibles en este momento."
               : `No hay tiendas que coincidan con "${query}".`
           }
           action={query ? { label: "Limpiar búsqueda", onClick: () => setQuery("") } : undefined}
@@ -426,14 +426,14 @@ function StoreDetail({
       <div className="mx-auto max-w-7xl px-4 py-8 sm:py-12">
         <div className="rounded-2xl border border-bd bg-surface p-8 text-center">
           <p role="alert" className="text-sm text-warn">
-            {error}
+            No pudimos cargar la tienda. Inténtalo nuevamente.
           </p>
           <button
             type="button"
             onClick={() => setReload((attempt) => attempt + 1)}
             className="mt-4 rounded-lg border border-prime/40 bg-prime-muted px-4 py-2 text-sm font-semibold text-prime transition hover:border-prime hover:bg-prime/20"
           >
-            Reintentar carga de Store API
+            Volver a intentar
           </button>
         </div>
       </div>

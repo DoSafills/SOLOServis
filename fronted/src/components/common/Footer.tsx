@@ -102,7 +102,9 @@ export default function Footer({ navigate }: Props) {
           style={{ borderTop: "1px solid var(--color-bd)" }}
           className="pt-6 flex flex-col sm:flex-row justify-between items-center gap-3"
         >
-          <p className="text-xs text-muted">© 2025 SoloServis. Todos los derechos reservados.</p>
+          <p className="text-xs text-muted">
+            © {new Date().getFullYear()} SoloServis. Todos los derechos reservados.
+          </p>
           <p className="text-xs text-muted text-center sm:text-right">
             Los precios pueden variar dependiendo de la tienda o proveedor.
           </p>

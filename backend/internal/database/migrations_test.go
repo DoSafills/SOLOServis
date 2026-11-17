@@ -69,11 +69,10 @@ func TestMigrationOrderListsEveryFileOnce(t *testing.T) {
 }
 
 func TestDedupeCleanupRunsAfterTheSchemaItNeeds(t *testing.T) {
-	// La limpieza usa normalize_product_offer_url (009) y product_offer ya
-	// consolidada (018). Debe ir después de ambas, sin exigir ser la última:
-	// migraciones futuras pueden agregarse detrás.
-	index := make(map[string]int)
-	for i, name := range readMigrationOrder(t) {
+	// La limpieza debe correr al final, tras las migraciones de las que depende.
+	entries := readMigrationOrder(t)
+	index := make(map[string]int, len(entries))
+	for i, name := range entries {
 		index[name] = i
 	}
 
@@ -82,9 +81,15 @@ func TestDedupeCleanupRunsAfterTheSchemaItNeeds(t *testing.T) {
 	if !ok {
 		t.Fatalf("%s no está en migration_order.txt", dedupe)
 	}
+	if pos != len(entries)-1 {
+		t.Errorf("%s debe permanecer al final de migration_order.txt", dedupe)
+	}
 	for _, dependency := range []string{
+		"004_platform_apis.sql",
 		"009_product_offer_identity_and_timestamps.sql",
-		"018_category_artworks.sql",
+		"010_product_price_history_on_price_change.sql",
+		"011_catalog_history_uniqueness_and_indexes.sql",
+		"014_product_attributes.sql",
 	} {
 		depPos, ok := index[dependency]
 		if !ok {
