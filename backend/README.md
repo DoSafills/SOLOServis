@@ -1076,15 +1076,17 @@ TEST_DATABASE_URL=
 Ejemplo en Bash:
 
 ```bash
-TEST_DATABASE_URL="postgres://usuario:password@localhost:5432/soloservis_test" go test ./...
+TEST_DATABASE_URL="postgres://usuario:password@localhost:5432/soloservis_test" go test -p 1 ./...
 ```
 
 En PowerShell:
 
 ```powershell
 $env:TEST_DATABASE_URL="postgres://usuario:password@localhost:5432/soloservis_test"
-go test ./...
+go test -p 1 ./...
 ```
+
+`-p 1` corre los paquetes en secuencia. Es necesario con base de datos: todos los paquetes comparten la misma base y en paralelo se pisan los datos, lo que produce fallas intermitentes que no son reales.
 
 Las pruebas que necesitan PostgreSQL se omiten cuando `TEST_DATABASE_URL` no está definida.
 
