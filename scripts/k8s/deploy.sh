@@ -247,12 +247,34 @@ write_overlay() {
   mv "$OVERLAY_DIR/kustomization.yaml.tmp" "$OVERLAY_DIR/kustomization.yaml"
   save_state
 }
+# Texto mal codificado: lo que deja UTF-8 leido con otra pagina de codigos.
+#   cp850: U+251C/U+252C (E2 94 9C / E2 94 AC), salvo seguido de U+2500 (E2 94 80),
+#     que es un diagrama de carpetas.
+#   Latin-1 / Windows-1252: U+00C2/U+00C3 (C3 82 / C3 83) + U+0080-U+00BF (C2 80-BF).
+#   U+FFFD (EF BF BD): el byte ya se perdio.
+bad_encoding_lines() {
+  LC_ALL=C grep -n -E \
+    -e $'\xe2\x94[\x9c\xac]([^\xe2]|$|\xe2[^\x94]|\xe2\x94[^\x80])' \
+    -e $'\xc3[\x82\x83]\xc2[\x80-\xbf]' \
+    -e $'\xef\xbf\xbd' "$1"
+}
 build_rendered() {
   if [ -z "$REGISTRY" ]; then echo "falta --registry"; return 1; fi
   write_overlay
-  local out
+  local out bad
   if ! out="$(kubectl kustomize "$OVERLAY_DIR" 2>&1)"; then echo "$out"; return 1; fi
   printf '%s\n' "$out" > "$RENDERED"
+  # Se revisa lo que se va a aplicar, antes de aplicarlo. El detalle va a
+  # stderr: stdout es el motivo que recibe stop_phase.
+  bad="$(bad_encoding_lines "$RENDERED")"
+  if [ -n "$bad" ]; then
+    {
+      echo "${C_RED}  Texto mal codificado (UTF-8 leido con otra pagina de codigos):${C_OFF}"
+      printf '%s\n' "$bad" | head -5 | LC_ALL=C cut -c1-160 | sed 's/^/    linea /'
+    } >&2
+    echo "texto mal codificado en $(printf '%s\n' "$bad" | wc -l | tr -d ' ') lineas del render (ver arriba); no se aplico nada"
+    return 1
+  fi
 }
 apply_selector() { k apply -f "$RENDERED" -l "$1" 2>&1 | show; return "${PIPESTATUS[0]}"; }
 
