@@ -301,13 +301,15 @@ function SelectedOffersTable({
               scope="row"
               className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
             >
-              Actualización
+              Última verificación
             </th>
             {offers.map((offer) => (
               <td
                 key={offer.storeId}
                 className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-400"
-                title={formatExactUpdateDate(offer.lastUpdated) ?? "Actualización desconocida"}
+                title={
+                  formatExactUpdateDate(offer.lastUpdated) ?? "Fecha de actualización no disponible"
+                }
               >
                 {formatPriceUpdate(offer.lastUpdated)}
               </td>
@@ -674,11 +676,12 @@ export default function PriceOfferComparison({
                       <dd className="text-sm text-slate-100">{conditionLabel(offer.condition)}</dd>
                     </div>
                     <div>
-                      <dt className="text-xs text-slate-400">Última actualización</dt>
+                      <dt className="text-xs text-slate-400">Última verificación</dt>
                       <dd
                         className="text-sm text-slate-100"
                         title={
-                          formatExactUpdateDate(offer.lastUpdated) ?? "Actualización desconocida"
+                          formatExactUpdateDate(offer.lastUpdated) ??
+                          "Fecha de actualización no disponible"
                         }
                       >
                         {formatPriceUpdate(offer.lastUpdated)}
@@ -855,7 +858,7 @@ export default function PriceOfferComparison({
                       Disponibilidad
                     </th>
                     <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
-                      Actualización
+                      Última verificación
                     </th>
                     <th className="py-3 pl-3 text-xs font-semibold uppercase text-slate-300">
                       Comprar
@@ -973,7 +976,8 @@ export default function PriceOfferComparison({
                         <td
                           className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap"
                           title={
-                            formatExactUpdateDate(offer.lastUpdated) ?? "Actualización desconocida"
+                            formatExactUpdateDate(offer.lastUpdated) ??
+                            "Fecha de actualización no disponible"
                           }
                         >
                           {formatPriceUpdate(offer.lastUpdated)}

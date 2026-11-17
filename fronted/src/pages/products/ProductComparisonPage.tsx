@@ -1,9 +1,12 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import { getProductById } from "../../services/api/api";
+import { getProductOfferUpdates } from "../../services/api/stores";
 import { compareProducts, type ApiProductAttributeRow } from "../../services/api/personalization";
 import {
+  formatExactUpdateDate,
   formatPrice,
+  formatPriceUpdate,
   getMinOffer,
   validateOfferComparison,
 } from "../../services/utils/productUtils";
@@ -282,15 +285,43 @@ export default function ProductComparisonPage({
       setLoading(true);
       setError(null);
       try {
-        const [results, matrix] = await Promise.all([
+        const [results, matrix, offerUpdates] = await Promise.all([
           Promise.all(productIds.map((id) => getProductById(id))),
           compareProducts(productIds),
+          Promise.all(
+            productIds.map(async (id) => {
+              try {
+                return await getProductOfferUpdates(id);
+              } catch (requestError) {
+                console.warn(
+                  "No se pudieron cargar las fechas de verificación de ofertas.",
+                  requestError,
+                );
+                return undefined;
+              }
+            }),
+          ),
         ]);
         if (cancelled) return;
         const valid = results.filter((p: Product | null): p is Product => p !== null);
-        setSelected(valid);
+        const validWithOfferUpdates = valid.map((product) => {
+          const productIndex = productIds.indexOf(product.id);
+          const updatesByOfferId = new Map<number, string>();
+          for (const update of offerUpdates[productIndex] ?? []) {
+            updatesByOfferId.set(update.offerId, update.lastUpdated);
+          }
+
+          return {
+            ...product,
+            offers: product.offers.map((offer) => {
+              const lastUpdated = updatesByOfferId.get(offer.offerId);
+              return lastUpdated === undefined ? offer : { ...offer, lastUpdated };
+            }),
+          };
+        });
+        setSelected(validWithOfferUpdates);
         setAttributeRows(matrix.attributes ?? []);
-        setComparisonCategory(valid[0]?.category);
+        setComparisonCategory(validWithOfferUpdates[0]?.category);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Error al cargar los productos");
@@ -545,6 +576,17 @@ export default function ProductComparisonPage({
                                 : "No comparable"}
                           </div>
                           <div className="text-xs text-muted">{offer.storeName}</div>
+                          <div
+                            className="text-[10px] text-muted"
+                            title={
+                              formatExactUpdateDate(offer.lastUpdated) ??
+                              "Fecha de actualización no disponible"
+                            }
+                          >
+                            {formatExactUpdateDate(offer.lastUpdated)
+                              ? `Última verificación: ${formatPriceUpdate(offer.lastUpdated)}`
+                              : "Fecha de actualización no disponible"}
+                          </div>
                           {offer.price === lowestProductPrice && (
                             <span className="mt-1 inline-flex rounded-full bg-prime px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[#181714]">
                               Mejor precio
