@@ -29,6 +29,10 @@ interface ApiOffer {
 interface ApiPricePoint {
   date: string;
   price: string;
+  recordedAt?: string;
+  currency?: string;
+  offerId?: number;
+  storeId?: number;
 }
 
 export interface ApiProductCategory {
@@ -84,7 +88,18 @@ const toPricePoints = (points: ApiPricePoint[] | undefined): PricePoint[] =>
   normalizePriceHistory(
     (points ?? []).flatMap((point) => {
       const price = parseAmount(point.price);
-      return price === null ? [] : [{ date: point.date, price }];
+      return price === null
+        ? []
+        : [
+            {
+              date: point.date,
+              price,
+              recordedAt: point.recordedAt,
+              currency: point.currency,
+              offerId: point.offerId,
+              storeId: point.storeId,
+            },
+          ];
     }),
   );
 

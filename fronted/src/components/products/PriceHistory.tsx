@@ -8,7 +8,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import type { PricePoint } from "../../types";
+import type { PricePoint, StoreOffer } from "../../types";
 import {
   detectPriceAnomalies,
   formatPrice,
@@ -34,6 +34,7 @@ interface Props {
   history: PricePoint[];
   offerHistory: PricePoint[];
   currentOfferPrice?: number;
+  offers?: readonly StoreOffer[];
 }
 
 function CustomTooltip({
@@ -64,7 +65,7 @@ function formatHistoryDate(value: string | undefined) {
     : date.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export default function PriceHistory({ history, offerHistory, currentOfferPrice }: Props) {
+export default function PriceHistory({ history, offerHistory, currentOfferPrice, offers }: Props) {
   const [range, setRange] = useState(365);
   const [mode, setMode] = useState<"price" | "offer">("price");
 
@@ -75,6 +76,19 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
     (point) => new Date(point.date) >= cutoff,
   );
   const { hasAbruptHistoryDrop } = detectPriceAnomalies([], activeData);
+  const latestPointByOffer = new Map<number, PricePoint>();
+  for (const point of normalizePriceHistory(history)) {
+    if (point.offerId !== undefined) latestPointByOffer.set(point.offerId, point);
+  }
+  const hasHistoryDrift = (offers ?? []).some((offer) => {
+    const latestPoint = latestPointByOffer.get(offer.offerId);
+    return (
+      latestPoint !== undefined &&
+      typeof offer.price === "number" &&
+      Number.isFinite(offer.price) &&
+      Math.abs(latestPoint.price - offer.price) > 0.005
+    );
+  });
 
   const hasOfferHistory = offerHistory.length > 0;
   const prices = activeData.map((d) => d.price);
@@ -142,6 +156,15 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
           title="El precio más reciente cayó a la mitad o menos respecto al registro anterior."
         >
           Precio inusual
+        </p>
+      )}
+
+      {hasHistoryDrift && (
+        <p
+          role="status"
+          className="mb-4 rounded-xl border border-bd bg-surface-2 px-4 py-2 text-sm text-muted"
+        >
+          El historial puede no estar al día
         </p>
       )}
 

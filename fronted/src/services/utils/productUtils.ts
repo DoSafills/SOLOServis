@@ -87,8 +87,13 @@ export const normalizePriceHistory = (points: readonly PricePoint[]): PricePoint
   const now = Date.now();
 
   return points
-    .filter((point) => {
-      const timestamp = Date.parse(point.date);
+    .map((point, index) => ({
+      point,
+      index,
+      timestamp: Date.parse(point.recordedAt ?? point.date),
+    }))
+    .filter(({ point, timestamp }) => {
+      // Se descarta como error de extracción aunque la base permita almacenar 0.
       return (
         Number.isFinite(point.price) &&
         point.price > 0 &&
@@ -96,7 +101,8 @@ export const normalizePriceHistory = (points: readonly PricePoint[]): PricePoint
         timestamp <= now
       );
     })
-    .sort((first, second) => Date.parse(first.date) - Date.parse(second.date));
+    .sort((first, second) => first.timestamp - second.timestamp || first.index - second.index)
+    .map(({ point }) => point);
 };
 
 export const ANOMALY_MIN_OFFERS = 3;
