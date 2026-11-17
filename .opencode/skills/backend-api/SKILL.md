@@ -71,7 +71,9 @@ go test ./internal/features/... -run TestAlgo -v   # un paquete, verboso
 ```
 
 Los tests de integración se omiten sin `TEST_DATABASE_URL` apuntando a un
-PostgreSQL 18 migrado en el orden de `migration_order.txt`.
+PostgreSQL 18 migrado en el orden de `migration_order.txt`. Con la variable,
+corre `go test -p 1 ./...`: los paquetes comparten la base y en paralelo se
+pisan los datos.
 
 ## Antes de abrir el PR
 

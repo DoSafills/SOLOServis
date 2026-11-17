@@ -75,6 +75,7 @@ kubectl logs job/soloservis-smoke-test
 
 ```bash
 kubectl kustomize k8s/overlays/uct
+bash scripts/k8s/validate-manifests.sh   # esquema de la API, sin tocar el clúster
 docker compose -f docker/compose.yml config --quiet
 sh -n k8s/tests/smoke-test.sh
 sh -n scripts/k8s/deploy.sh

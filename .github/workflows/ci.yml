@@ -130,3 +130,16 @@ jobs:
 
       - name: Topología de microservicios
         run: docker compose -f docker/compose.microservicios.yml config --quiet
+
+  # TAL-183: `kubectl kustomize` solo arma el YAML. kubeconform lo valida contra
+  # el esquema de la API y rechaza campos desconocidos o mal indentados, que de
+  # otro modo recién fallan en el `kubectl apply` del despliegue.
+  manifiestos:
+    name: Manifiestos de Kubernetes válidos
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar contra el esquema de Kubernetes
+        run: bash scripts/k8s/validate-manifests.sh

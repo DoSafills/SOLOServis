@@ -12,10 +12,10 @@ que no ejecutaste**. Si una suite no se puede correr, se reporta con la salida.
 
 | Cambiaste | Obligatorio | Opcional |
 | --- | --- | --- |
-| `backend/` | `go build ./...` + `go vet ./...` + `go test ./...` | integración con `TEST_DATABASE_URL` |
+| `backend/` | `go build ./...` + `go vet ./...` + `go test ./...` | integración con `TEST_DATABASE_URL` y `go test -p 1 ./...` |
 | `scraper/` | `./venv/bin/python -m pytest -q` + `./venv/bin/ruff check src tests` | una corrida real contra una tienda |
 | `fronted/` | `pnpm build` + `pnpm lint` | `pnpm check` completo |
-| `k8s/`, `scripts/k8s/` | `kubectl kustomize k8s/overlays/uct` + `sh -n` de los scripts | Fase 10 del deploy |
+| `k8s/`, `scripts/k8s/` | `bash scripts/k8s/validate-manifests.sh` + `sh -n` de los scripts | Fase 10 del deploy |
 | `docker/` | `docker compose -f docker/compose.yml config --quiet` | levantar el compose |
 | `backend/database/` | `go build ./...` + conteo de `migration_order.txt` | migración sobre base limpia |
 | sólo `docs/` | revisar enlaces y rutas citadas | — |
@@ -29,6 +29,10 @@ python scripts/testing/reporte.py --postgres-docker   # suma integración
 ```
 
 Deja el resultado en `docs/reportes/testing/` y sale con código 1 si algo falla.
+
+Los tests de integración de Go comparten una sola base: a mano se corren con
+`go test -p 1 ./...` (el reporte ya lo hace). En paralelo los paquetes se pisan
+los datos y aparecen fallas intermitentes que no son reales.
 
 ## Fallas conocidas (no son tuyas)
 
