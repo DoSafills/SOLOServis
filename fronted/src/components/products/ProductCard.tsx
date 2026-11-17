@@ -31,7 +31,11 @@ export default function ProductCard({
   const bestOffer = getMinOffer(product);
   const isInCart = cartProductIds.has(product.id);
   const discountPercent =
-    bestOffer?.listPrice && bestOffer.listPrice > bestOffer.price
+    bestOffer?.price !== null &&
+    bestOffer?.price !== undefined &&
+    bestOffer.listPrice !== null &&
+    bestOffer.listPrice !== undefined &&
+    bestOffer.listPrice > bestOffer.price
       ? Math.round(((bestOffer.listPrice - bestOffer.price) / bestOffer.listPrice) * 100)
       : null;
 

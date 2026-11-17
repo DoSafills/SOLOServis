@@ -293,6 +293,7 @@ function StoreProductCard({
     storeId,
     storeName,
     price: product.price,
+    currency: product.currency,
     listPrice: product.listPrice,
     available: product.available,
     shipping: product.shippingCost,

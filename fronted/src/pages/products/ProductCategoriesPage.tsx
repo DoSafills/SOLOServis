@@ -41,7 +41,11 @@ const categorySections = [
 type CategorySectionId = (typeof categorySections)[number]["id"];
 
 const normalizeCategoryName = (name: string) =>
-  name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase();
+  name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase();
 
 export default function ProductCategoriesPage({ navigate }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
@@ -159,7 +163,9 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         return [makeCard(category.name, matchingProducts, rootCategoryFor(category), category.id)];
       });
     const categoryCardKeys = new Set(
-      categoryCards.map((category) => `${category.sectionId}:${normalizeCategoryName(category.name)}`),
+      categoryCards.map(
+        (category) => `${category.sectionId}:${normalizeCategoryName(category.name)}`,
+      ),
     );
 
     const directProductsBySubtype = new Map<string, Product[]>();
