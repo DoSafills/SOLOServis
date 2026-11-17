@@ -1,7 +1,10 @@
 import { useRef, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import {
+  formatExactUpdateDate,
   formatPrice,
+  formatPriceUpdate,
+  detectPriceAnomalies,
   validateOfferComparison,
   type OfferComparisonValidation,
 } from "../../services/utils/productUtils";
@@ -83,34 +86,12 @@ const conditionLabel = (condition: string | undefined): string => {
   return labels[condition.toLowerCase()] ?? condition;
 };
 
-const relativeUpdate = (value: string | undefined): string => {
-  if (!value) return "Actualización no informada";
-
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return `Actualización: ${value}`;
-
-  const elapsedSeconds = Math.round((Date.now() - timestamp) / 1000);
-  if (Math.abs(elapsedSeconds) < 60) {
-    return elapsedSeconds < 0 ? "Actualización futura" : "Actualizado hace menos de un minuto";
-  }
-
-  const units: [Intl.RelativeTimeFormatUnit, number][] = [
-    ["year", 31_536_000],
-    ["month", 2_592_000],
-    ["day", 86_400],
-    ["hour", 3_600],
-    ["minute", 60],
-  ];
-  const [unit, secondsPerUnit] = units.find(([, seconds]) => Math.abs(elapsedSeconds) >= seconds)!;
-  const count = Math.round(elapsedSeconds / secondsPerUnit);
-  return `Actualizado ${new Intl.RelativeTimeFormat("es", { numeric: "auto" }).format(-count, unit)}`;
-};
-
 interface SelectedOffersTableProps {
   product: Product;
   offers: StoreOffer[];
   bestOffers: StoreOffer[];
   validation: OfferComparisonValidation;
+  anomalousOfferIds: ReadonlySet<number>;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
   onRemoveOffer: (storeId: string) => void;
 }
@@ -120,6 +101,7 @@ function SelectedOffersTable({
   offers,
   bestOffers,
   validation,
+  anomalousOfferIds,
   onAddToCart,
   onRemoveOffer,
 }: SelectedOffersTableProps) {
@@ -186,6 +168,14 @@ function SelectedOffersTable({
                       <span className="text-sm font-bold text-slate-100">
                         {formatPrice(offer.price)}
                       </span>
+                      {anomalousOfferIds.has(offer.offerId) && (
+                        <span
+                          className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                          title="Menos de la mitad de la mediana de otras ofertas"
+                        >
+                          Precio inusual
+                        </span>
+                      )}
                       <span className="block text-xs text-slate-400">
                         Normal <span className="line-through">{formatPrice(offer.listPrice!)}</span>
                       </span>
@@ -196,6 +186,14 @@ function SelectedOffersTable({
                       <span className="text-sm font-bold text-slate-100">
                         {formatPrice(offer.price)}
                       </span>
+                      {anomalousOfferIds.has(offer.offerId) && (
+                        <span
+                          className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                          title="Menos de la mitad de la mediana de otras ofertas"
+                        >
+                          Precio inusual
+                        </span>
+                      )}
                     </>
                   )}
                 </td>
@@ -309,8 +307,9 @@ function SelectedOffersTable({
               <td
                 key={offer.storeId}
                 className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-400"
+                title={formatExactUpdateDate(offer.lastUpdated) ?? "Actualización desconocida"}
               >
-                {relativeUpdate(offer.lastUpdated)}
+                {formatPriceUpdate(offer.lastUpdated)}
               </td>
             ))}
           </tr>
@@ -440,6 +439,7 @@ export default function PriceOfferComparison({
     }
   };
   const offers = product.offers;
+  const anomalousOfferIds = detectPriceAnomalies(offers, []).anomalousOfferIds;
   const selectedOffers = offers.filter((offer) => selectedStoreIds.includes(offer.storeId));
   const offerComparison = validateOfferComparison(offers);
   const selectedComparison = validateOfferComparison(selectedOffers);
@@ -523,6 +523,7 @@ export default function PriceOfferComparison({
               offers={selectedOffers}
               bestOffers={selectedBestOffers}
               validation={selectedComparison}
+              anomalousOfferIds={anomalousOfferIds}
               onAddToCart={onAddToCart}
               onRemoveOffer={(storeId) =>
                 setSelectedStoreIds((current) => current.filter((id) => id !== storeId))
@@ -607,6 +608,16 @@ export default function PriceOfferComparison({
                           ? formatPrice(offer.price)
                           : "No comparable"}
                       </dd>
+                      {anomalousOfferIds.has(offer.offerId) && (
+                        <dd>
+                          <span
+                            className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                            title="Menos de la mitad de la mediana de otras ofertas"
+                          >
+                            Precio inusual
+                          </span>
+                        </dd>
+                      )}
                       {discounted && (
                         <dd className="text-xs text-slate-400">
                           Normal{" "}
@@ -664,8 +675,13 @@ export default function PriceOfferComparison({
                     </div>
                     <div>
                       <dt className="text-xs text-slate-400">Última actualización</dt>
-                      <dd className="text-sm text-slate-100">
-                        {relativeUpdate(offer.lastUpdated)}
+                      <dd
+                        className="text-sm text-slate-100"
+                        title={
+                          formatExactUpdateDate(offer.lastUpdated) ?? "Actualización desconocida"
+                        }
+                      >
+                        {formatPriceUpdate(offer.lastUpdated)}
                       </dd>
                     </div>
                   </dl>
@@ -895,6 +911,14 @@ export default function PriceOfferComparison({
                               <span className="price text-sm font-bold text-text">
                                 {formatPrice(offer.price)}
                               </span>
+                              {anomalousOfferIds.has(offer.offerId) && (
+                                <span
+                                  className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                                  title="Menos de la mitad de la mediana de otras ofertas"
+                                >
+                                  Precio inusual
+                                </span>
+                              )}
                               <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400">
                                 <span>Normal</span>
                                 <span className="line-through">
@@ -910,6 +934,14 @@ export default function PriceOfferComparison({
                               <span className="price text-sm font-semibold text-text">
                                 {formatPrice(offer.price)}
                               </span>
+                              {anomalousOfferIds.has(offer.offerId) && (
+                                <span
+                                  className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                                  title="Menos de la mitad de la mediana de otras ofertas"
+                                >
+                                  Precio inusual
+                                </span>
+                              )}
                             </div>
                           )}
                         </td>
@@ -938,8 +970,13 @@ export default function PriceOfferComparison({
                             {offer.available ? "Disponible" : "No disponible"}
                           </span>
                         </td>
-                        <td className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap">
-                          {relativeUpdate(offer.lastUpdated)}
+                        <td
+                          className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap"
+                          title={
+                            formatExactUpdateDate(offer.lastUpdated) ?? "Actualización desconocida"
+                          }
+                        >
+                          {formatPriceUpdate(offer.lastUpdated)}
                         </td>
                         <td className="py-4 pl-3">
                           {safeUrl && !readOnly ? (

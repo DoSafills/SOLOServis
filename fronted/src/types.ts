@@ -68,6 +68,7 @@ export interface Product {
   categoryId?: number;
   category: string;
   subcategory: string;
+  updatedAt?: string;
   image: string;
   images: string[];
   description: string;
