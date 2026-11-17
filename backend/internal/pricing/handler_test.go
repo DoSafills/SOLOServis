@@ -401,20 +401,30 @@ func TestListProductOffersYBest(t *testing.T) {
 
 func TestHistorial(t *testing.T) {
 	t.Run("oferta con filtros", func(t *testing.T) {
-		store := &fakeStore{points: []PricePoint{{ID: 1, Price: "10.00"}}, total: 9}
+		store := &fakeStore{points: []PricePoint{{ID: 1, Price: "10.00", Currency: "CLP",
+			RecordedAt: "2026-11-16T06:00:12.345Z"}}, total: 9}
 		rec, _ := serve(t, store, nil, http.MethodGet, "/offers/5/price-history?from=2026-01-01&to=2026-12-31&limit=500&offset=2", "")
 		requireStatus(t, rec, http.StatusOK)
+		// TAL-238: cada punto lleva moneda y la hora completa del registro.
+		for _, want := range []string{`"currency":"CLP"`, `"recordedAt":"2026-11-16T06:00:12.345Z"`} {
+			if !strings.Contains(rec.Body.String(), want) {
+				t.Fatalf("falta %s en %s", want, rec.Body.String())
+			}
+		}
 		f := store.gotFilter
 		if rec.Header().Get("X-Total-Count") != "9" || *f.From != "2026-01-01" || *f.To != "2026-12-31" || f.Limit != 500 || f.Offset != 2 {
 			t.Fatalf("filtro = %+v total = %s", *f, rec.Header().Get("X-Total-Count"))
 		}
 	})
 	t.Run("producto por defecto", func(t *testing.T) {
-		store := &fakeStore{ppoints: []ProductPricePoint{{OfferID: 1, StoreName: "Ripley"}}, total: 1}
+		store := &fakeStore{ppoints: []ProductPricePoint{{PricePoint: PricePoint{Currency: "CLP"},
+			OfferID: 1, StoreName: "Ripley"}}, total: 1}
 		rec, _ := serve(t, store, nil, http.MethodGet, "/offers/product/"+testProductID+"/price-history", "")
 		requireStatus(t, rec, http.StatusOK)
 		if store.gotFilter.Limit != DefaultHistoryLimit || store.gotFilter.From != nil ||
-			!strings.Contains(rec.Body.String(), `"storeName":"Ripley"`) {
+			!strings.Contains(rec.Body.String(), `"storeName":"Ripley"`) ||
+			!strings.Contains(rec.Body.String(), `"currency":"CLP"`) ||
+			!strings.Contains(rec.Body.String(), `"offerId":1`) {
 			t.Fatalf("filtro = %+v body = %s", *store.gotFilter, rec.Body.String())
 		}
 	})
