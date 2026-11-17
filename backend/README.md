@@ -2124,6 +2124,32 @@ Ya no descarga `GET /products` de Product API: consulta la base directamente.
 | GET | `/search/facets` | total, rango de precios, marcas y atributos filtrables (para los filtros del frontend, TAL-57) |
 | GET | `/search/categories?q=&itemType=` | categorías del modelo nuevo (`categories`) |
 | GET | `/search/brands?q=` | marcas activas |
+| GET | `/search/presets` | catálogo de consultas curadas (TAL-222) |
+| GET | `/search/presets/{slug}` | ejecuta el preset: mismo formato que `/search/products` + `X-Total-Count` |
+
+### Consultas predefinidas (TAL-222)
+
+Siete búsquedas curadas en `internal/search/presets.go`, en orden editorial:
+
+| Slug | Filtros |
+| --- | --- |
+| `refrigeradores` | categoría `refrigeradores`, `price_asc` |
+| `refrigeradores-economicos` | categoría + `maxPrice=400000` |
+| `notebooks` | categoría `notebooks`, `price_asc` |
+| `notebooks-economicos` | categoría + `maxPrice=550000` |
+| `televisores` | categoría `televisores`, `price_asc` |
+| `precios-bajos` | `maxPrice=100000`, 12 resultados |
+| `novedades` | `newest`, 12 resultados |
+
+Los presets usan **slug de categoría**, texto, precio y orden: nunca `storeId`
+ni `brandId`, porque esos IDs cambian según el entorno. `GET /search/presets/{slug}`
+acepta `limit` y `offset`; el resto de los filtros los define el preset y no se
+pueden sobrescribir. Un slug desconocido responde 404 con `code: preset_not_found`.
+
+El catálogo se valida en un test (`presets_test.go`): slug único y con formato,
+título y descripción, categoría sembrada, `sort` permitido, precios válidos y
+`limit` en rango. Un preset mal escrito rompe CI, no producción.
+
 
 ### Parámetros de `/search/products` (y de `/search/facets`, sin `sort`/`limit`/`offset`)
 
