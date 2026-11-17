@@ -59,6 +59,13 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+
+# La salida de kubectl es UTF-8. Sin esto PowerShell la lee con la pagina de
+# codigos de la consola (850 o 1252) y dana las tildes de todo lo que pasa por
+# 'kubectl kustomize': los .sql del ConfigMap de migraciones llegaban al
+# cluster con los acentos rotos.
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $OverlayDir = Join-Path $RepoRoot "k8s/overlays/$Modo"
 $StateFile = Join-Path $OverlayDir 'state.json'
