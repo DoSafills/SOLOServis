@@ -88,6 +88,7 @@ func serve(t *testing.T, searcher Searcher, target string) (*httptest.ResponseRe
 	r.Get("/search/popular-products", h.PopularProducts)
 	r.Get("/search/presets", h.Presets)
 	r.Get("/search/presets/{slug}", h.PresetProducts)
+	r.Get("/search/alternatives", h.Alternatives)
 	r.Get("/search/facets", h.Facets)
 	r.Get("/search/categories", h.Categories)
 	r.Get("/search/brands", h.Brands)
