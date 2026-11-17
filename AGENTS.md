@@ -214,6 +214,7 @@ docker compose -f docker/compose.yml config --quiet
 - Los tests de integración de Go necesitan `TEST_DATABASE_URL` apuntando a un PostgreSQL 18 con las migraciones aplicadas en el orden de `migration_order.txt`; sin la variable se omiten. Con la variable, corre `go test -p 1 ./...`: los paquetes comparten la base y en paralelo se pisan los datos.
 - `scripts/k8s/validate-manifests.sh` valida los manifiestos contra el esquema de Kubernetes (kubeconform, modo estricto) sin tocar el clúster; `kubectl kustomize` solo arma el YAML y no detecta un campo mal indentado.
 - El pod de test del clúster (`k8s/tests`, fase 10 del deploy) hace 35 verificaciones.
+- **Health check (TAL-164):** `python scripts/testing/salud.py` revisa el despliegue en cualquier momento (pods, `/health`, gateway, host público, migraciones y cuota), sin escribir nada. Es lo primero que se corre cuando alguien avisa que el sitio no funciona.
 - **Reporte de testing (TAL-168):** `python scripts/testing/reporte.py` corre todas las suites y deja el resultado en `docs/reportes/testing/` (`--postgres-docker` suma los tests de integración). Córrelo antes de pedir un PR: `go build ./...` tiene que pasar siempre.
 
 ---
