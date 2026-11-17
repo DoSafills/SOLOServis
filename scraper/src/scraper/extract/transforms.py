@@ -77,11 +77,72 @@ CONDITION_ALIASES: dict[str, str] = {
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 
+PROMOTIONAL_EDGE_TERMS = (
+    "ENVÍO GRATIS",
+    "ENVIO GRATIS",
+    "DESPACHO GRATIS",
+    "OFERTA",
+    "NUEVO",
+)
+_PROMOTIONAL_TERM_PATTERN = "|".join(
+    re.escape(term) for term in sorted(PROMOTIONAL_EDGE_TERMS, key=len, reverse=True)
+)
+_PROMOTIONAL_PREFIX_PAREN_RE = re.compile(
+    rf"^\(\s*(?P<term>{_PROMOTIONAL_TERM_PATTERN})\s*\)\s*", re.IGNORECASE
+)
+_PROMOTIONAL_SUFFIX_PAREN_RE = re.compile(
+    rf"\s*\(\s*(?P<term>{_PROMOTIONAL_TERM_PATTERN})\s*\)$", re.IGNORECASE
+)
+_PROMOTIONAL_PREFIX_RE = re.compile(
+    rf"^(?P<term>{_PROMOTIONAL_TERM_PATTERN})(?P<separator>\s*[-:]\s*|\s+)",
+    re.IGNORECASE,
+)
+_PROMOTIONAL_SUFFIX_RE = re.compile(
+    rf"(?P<separator>\s*[-:]\s*|\s+)(?P<term>{_PROMOTIONAL_TERM_PATTERN})$",
+    re.IGNORECASE,
+)
+
 
 def collapse_ws(text: str) -> str:
     """Normalize Unicode to NFC, collapse whitespace and trim."""
     normalized = unicodedata.normalize("NFC", text)
     return WHITESPACE_RE.sub(" ", normalized).strip()
+
+
+def strip_promotional_edges(text: str) -> str:
+    """Remove configured promotional terms only from explicit title edges."""
+    result = collapse_ws(text)
+    while result:
+        match = _PROMOTIONAL_PREFIX_PAREN_RE.match(result)
+        if match:
+            result = result[match.end() :].strip()
+            continue
+
+        match = _PROMOTIONAL_PREFIX_RE.match(result)
+        if match and (
+            match.group("term").isupper()
+            or "-" in match.group("separator")
+            or ":" in match.group("separator")
+        ):
+            result = result[match.end() :].strip()
+            continue
+
+        match = _PROMOTIONAL_SUFFIX_PAREN_RE.search(result)
+        if match:
+            result = result[: match.start()].strip()
+            continue
+
+        match = _PROMOTIONAL_SUFFIX_RE.search(result)
+        if match and (
+            match.group("term").isupper()
+            or "-" in match.group("separator")
+            or ":" in match.group("separator")
+        ):
+            result = result[: match.start()].strip()
+            continue
+
+        return result
+    return result
 
 
 def slugify(text: str) -> str:
@@ -229,6 +290,8 @@ def apply_transform(text: str, transform: str | None, page_url: str) -> str:
         return text.strip()
     if transform == "collapse_ws":
         return collapse_ws(text)
+    if transform == "strip_promo_edges":
+        return strip_promotional_edges(text)
     if transform == "lower":
         return text.lower()
     if transform == "upper":

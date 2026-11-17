@@ -53,3 +53,5 @@ kubeconfig*
 # Claude Code: la configuracion local no se sube; las instrucciones del proyecto si.
 .claude/*
 !.claude/CLAUDE.md
+# Los skills del proyecto se versionan (espejo de .opencode/skills).
+!.claude/skills/

@@ -45,6 +45,9 @@ type PricePoint struct {
 	Price         string `json:"price"`
 	IsPromotional bool   `json:"isPromotional"`
 	RecordedAt    string `json:"recordedAt"`
+	// Currency es la moneda de la oferta (TAL-238); el historial no guarda una
+	// propia por registro.
+	Currency string `json:"currency"`
 }
 
 // ProductPricePoint es un registro del historial de un producto en todas sus

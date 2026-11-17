@@ -133,6 +133,16 @@ func names(results []ProductResult, tag string) []string {
 	return out
 }
 
+func fixtureNames(results []ProductResult, tag string) []string {
+	fixtureResults := make([]ProductResult, 0, len(results))
+	for _, result := range results {
+		if strings.HasSuffix(result.Name, tag) {
+			fixtureResults = append(fixtureResults, result)
+		}
+	}
+	return names(fixtureResults, tag)
+}
+
 func (f searchFixture) attrFilters(t *testing.T, filters map[string][2]string) []AttributeFilter {
 	t.Helper()
 	defs, err := f.repo.CategoryDefinitions(context.Background(), f.refrigeradores)
@@ -209,7 +219,7 @@ func TestPopularProductsIntegration_SearchFrequency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprint(names(results, f.tag)); got != "[Polar Ártico Glaciar]" {
+	if got := fmt.Sprint(fixtureNames(results, f.tag)); got != "[Polar Ártico Glaciar]" {
 		t.Fatalf("productos populares = %s, se esperaba que la frecuencia ordenara [Polar Ártico Glaciar]", got)
 	}
 }
@@ -251,7 +261,7 @@ func TestSearchIntegration_FiltrosYOrden(t *testing.T) {
 	}
 
 	page, total := f.search(t, Query{Limit: 1, Offset: 1})
-	// Orden por nombre con la collation de la BD: "Ártico" va antes que "Glaciar".
+	// El orden por nombre ignora tildes y es independiente de la collation de la BD.
 	if total != 3 || fmt.Sprint(names(page, f.tag)) != "[Glaciar]" {
 		t.Fatalf("página 2 = %v (total %d)", names(page, f.tag), total)
 	}

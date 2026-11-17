@@ -59,6 +59,13 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+
+# La salida de kubectl es UTF-8. Sin esto PowerShell la lee con la pagina de
+# codigos de la consola (850 o 1252) y dana las tildes de todo lo que pasa por
+# 'kubectl kustomize': los .sql del ConfigMap de migraciones llegaban al
+# cluster con los acentos rotos.
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $OverlayDir = Join-Path $RepoRoot "k8s/overlays/$Modo"
 $StateFile = Join-Path $OverlayDir 'state.json'
@@ -357,12 +364,32 @@ function Write-Overlay {
   Save-State
 }
 
+# Texto mal codificado: lo que deja UTF-8 leido con otra pagina de codigos.
+#   cp850 (consola de Windows): una o con tilde (C3 B3) queda como U+251C U+2502.
+#     Se excluye U+251C/U+252C seguido de U+2500, que es un diagrama de carpetas.
+#   Latin-1 / Windows-1252: queda como U+00C3 U+00B3.
+#   U+FFFD: el byte ya se perdio.
+$BadEncoding = '[\u251C\u252C](?!\u2500)|[\u00C2\u00C3][\u0080-\u00BF]|\uFFFD'
+
 function Build-Rendered {
   if (-not $Registry) { return 'falta -Registry' }
   Write-Overlay
   $out = & kubectl kustomize $OverlayDir 2>&1
   if ($LASTEXITCODE -ne 0) { return ($out | ForEach-Object { "$_" }) -join ' ' }
   Write-TextFile $Rendered ($out | ForEach-Object { "$_" })
+  # Se revisa lo que se va a aplicar, antes de aplicarlo.
+  $bad = @()
+  $n = 0
+  foreach ($line in [System.IO.File]::ReadAllLines($Rendered, $Utf8NoBom)) {
+    $n++
+    if ([regex]::IsMatch($line, $BadEncoding)) { $bad += ('    linea {0}: {1}' -f $n, $line.Trim()) }
+  }
+  if ($bad.Count -gt 0) {
+    Write-Host '  Texto mal codificado (UTF-8 leido con otra pagina de codigos):' -ForegroundColor Red
+    $bad | Select-Object -First 5 | ForEach-Object { if ($_.Length -gt 160) { $_.Substring(0, 160) } else { $_ } } |
+      ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+    return ('texto mal codificado en {0} lineas del render (ver arriba); no se aplico nada' -f $bad.Count)
+  }
   return ''
 }
 

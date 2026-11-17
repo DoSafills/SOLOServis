@@ -590,7 +590,10 @@ const listProductPriceHistory = `-- name: ListProductPriceHistory :many
 SELECT
     pph.recorded_at,
     pph.price,
-    pph.is_promotional
+    pph.is_promotional,
+    po.id AS offer_id,
+    po.store_id,
+    po.currency
 FROM product_price_history pph
 JOIN product_offer po
     ON po.id = pph.product_offer_id
@@ -602,6 +605,9 @@ type ListProductPriceHistoryRow struct {
 	RecordedAt    pgtype.Timestamp `json:"recorded_at"`
 	Price         pgtype.Numeric   `json:"price"`
 	IsPromotional bool             `json:"is_promotional"`
+	OfferID       int32            `json:"offer_id"`
+	StoreID       int32            `json:"store_id"`
+	Currency      string           `json:"currency"`
 }
 
 func (q *Queries) ListProductPriceHistory(ctx context.Context, productID int32) ([]ListProductPriceHistoryRow, error) {
@@ -613,7 +619,14 @@ func (q *Queries) ListProductPriceHistory(ctx context.Context, productID int32) 
 	var items []ListProductPriceHistoryRow
 	for rows.Next() {
 		var i ListProductPriceHistoryRow
-		if err := rows.Scan(&i.RecordedAt, &i.Price, &i.IsPromotional); err != nil {
+		if err := rows.Scan(
+			&i.RecordedAt,
+			&i.Price,
+			&i.IsPromotional,
+			&i.OfferID,
+			&i.StoreID,
+			&i.Currency,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
