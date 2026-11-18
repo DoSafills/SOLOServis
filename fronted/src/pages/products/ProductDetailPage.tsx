@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
-import { formatExactUpdateDate, relativeUpdate } from "../../services/utils/productUtils";
+import { formatExactUpdateDate, formatPriceUpdate } from "../../services/utils/productUtils";
 import {
   getProductById,
   getProductReviews,
   type ApiProductReview,
 } from "../../services/api/products";
+import { getProductOfferUpdates, type ApiProductOfferUpdate } from "../../services/api/stores";
 import {
   Breadcrumb,
   FavoriteButton,
@@ -108,6 +109,10 @@ export default function ProductDetailPage({
     requestKey: string;
     value: Product | null;
   } | null>(null);
+  const [offerUpdateState, setOfferUpdateState] = useState<{
+    requestKey: string;
+    updates: ApiProductOfferUpdate[];
+  } | null>(null);
   const [loadedRequestKey, setLoadedRequestKey] = useState("");
   const [selectedImage, setSelectedImage] = useState(0);
   const [reviewState, setReviewState] = useState<{
@@ -125,7 +130,22 @@ export default function ProductDetailPage({
   const [loadAttempt, setLoadAttempt] = useState(0);
   const requestKey = `${productId}:${loadAttempt}`;
   const loading = loadedRequestKey !== requestKey;
-  const product = productState?.requestKey === requestKey ? productState.value : null;
+  const storedProduct = productState?.requestKey === requestKey ? productState.value : null;
+  const offerUpdates = offerUpdateState?.requestKey === requestKey ? offerUpdateState.updates : [];
+  const product = storedProduct
+    ? {
+        ...storedProduct,
+        offers: storedProduct.offers.map((offer) => {
+          const update = offerUpdates.find((item) => item.offerId === offer.offerId);
+          return update ? { ...offer, lastUpdated: update.lastUpdated } : offer;
+        }),
+      }
+    : null;
+  const latestOfferUpdate = product?.offers.reduce<string | undefined>((latest, offer) => {
+    const updatedAt = offer.lastUpdated;
+    if (!updatedAt || !formatExactUpdateDate(updatedAt)) return latest;
+    return !latest || Date.parse(updatedAt) > Date.parse(latest) ? updatedAt : latest;
+  }, undefined);
   const reviews = reviewState?.requestKey === requestKey ? reviewState.items : [];
   const currentProductError = productError?.requestKey === requestKey ? productError.message : null;
   const currentReviewsError = reviewsError?.requestKey === requestKey ? reviewsError.message : null;
@@ -134,6 +154,16 @@ export default function ProductDetailPage({
   useEffect(() => {
     let cancelled = false;
     const currentRequestKey = `${productId}:${loadAttempt}`;
+
+    getProductOfferUpdates(productId)
+      .then((updates) => {
+        if (!cancelled && updates) {
+          setOfferUpdateState({ requestKey: currentRequestKey, updates });
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn("No se pudieron cargar las fechas de verificación de ofertas.", error);
+      });
 
     getProductById(productId)
       .then((result) => {
@@ -328,9 +358,13 @@ export default function ProductDetailPage({
             </div>
             <p
               className="mt-2 text-xs text-muted"
-              title={formatExactUpdateDate(product.updatedAt) ?? "Actualización desconocida"}
+              title={
+                formatExactUpdateDate(latestOfferUpdate) ?? "Fecha de actualización no disponible"
+              }
             >
-              Producto actualizado: {relativeUpdate(product.updatedAt)}
+              {latestOfferUpdate
+                ? `Última verificación de precios: ${formatPriceUpdate(latestOfferUpdate)}`
+                : "Fecha de actualización no disponible"}
             </p>
           </div>
 

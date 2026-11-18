@@ -35,6 +35,7 @@ export default function ProductCard({
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
   const bestOffer = getMinOffer(product);
+  const bestOfferUpdateDate = formatExactUpdateDate(bestOffer?.lastUpdated);
   const anomalousOfferIds = detectPriceAnomalies(product.offers, []).anomalousOfferIds;
   const bestOfferIsAnomalous = bestOffer !== undefined && anomalousOfferIds.has(bestOffer.offerId);
   const isInCart = cartProductIds.has(product.id);
@@ -155,12 +156,9 @@ export default function ProductCard({
           ) : (
             <div className="text-[9px] font-semibold text-muted">No disponible</div>
           )}
-          {bestOffer && (
-            <span
-              className="mt-0.5 block text-[8px] text-muted"
-              title={formatExactUpdateDate(bestOffer.lastUpdated) ?? "Actualización desconocida"}
-            >
-              {formatPriceUpdate(bestOffer.lastUpdated)}
+          {bestOffer && bestOfferUpdateDate && (
+            <span className="mt-0.5 block text-[8px] text-muted" title={bestOfferUpdateDate}>
+              Última verificación: {formatPriceUpdate(bestOffer.lastUpdated)}
             </span>
           )}
         </div>
