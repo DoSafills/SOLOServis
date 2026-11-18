@@ -23,6 +23,8 @@
 016_fk_indexes.sql
 017_nm_uniqueness.sql
 018_category_artworks.sql
+# TAL-231: debe ir antes de 019, que busca estos nombres con la tilde correcta.
+018_fix_refrigeradores_seed_encoding.sql
 019_reconcile_refrigeradores_category.sql
 020_reconcile_notebooks_category.sql
 # TAL-174: la limpieza de duplicados existía pero faltaba aquí, así que el

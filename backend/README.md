@@ -1076,15 +1076,17 @@ TEST_DATABASE_URL=
 Ejemplo en Bash:
 
 ```bash
-TEST_DATABASE_URL="postgres://usuario:password@localhost:5432/soloservis_test" go test ./...
+TEST_DATABASE_URL="postgres://usuario:password@localhost:5432/soloservis_test" go test -p 1 ./...
 ```
 
 En PowerShell:
 
 ```powershell
 $env:TEST_DATABASE_URL="postgres://usuario:password@localhost:5432/soloservis_test"
-go test ./...
+go test -p 1 ./...
 ```
+
+`-p 1` corre los paquetes en secuencia. Es necesario con base de datos: todos los paquetes comparten la misma base y en paralelo se pisan los datos, lo que produce fallas intermitentes que no son reales.
 
 Las pruebas que necesitan PostgreSQL se omiten cuando `TEST_DATABASE_URL` no está definida.
 
@@ -1704,6 +1706,12 @@ PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
 }
 ```
 
+Cada punto de `priceHistory` y `offerPriceHistory` conserva `date` y `price`, y desde TAL-238 indica de qué oferta y tienda es, la moneda de la oferta y la hora del registro (UTC, RFC 3339):
+
+```json
+{ "date": "2026-11-16", "price": "189990.00", "offerId": 69, "storeId": 4, "currency": "CLP", "recordedAt": "2026-11-16T06:00:12.345Z" }
+```
+
 `GET /products` mantiene el **cuerpo como arreglo** (lo consumen Search API y el frontend) con los mismos campos por producto, más `categorySlug` y `attributes`:
 
 | Parámetro | Regla |
@@ -2037,18 +2045,20 @@ Los montos aceptan número JSON o string numérico y **no pasan por `float64`**:
 
 ```json
 [
-  { "id": 173, "price": "329990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:13.846796Z" },
-  { "id": 172, "price": "349990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:04.554457Z" }
+  { "id": 173, "price": "329990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:13.846796Z", "currency": "CLP" },
+  { "id": 172, "price": "349990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:04.554457Z", "currency": "CLP" }
 ]
 ```
+
+`currency` es la moneda de la oferta (TAL-238): el historial no guarda una propia por registro.
 
 `GET /offers/product/{productId}/price-history?limit=3` (`X-Total-Count: 5`) agrega la oferta y la tienda de cada punto:
 
 ```json
 [
-  { "id": 173, "price": "329990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:13.846796Z", "offerId": 125, "storeId": 2, "storeName": "Paris" },
-  { "id": 172, "price": "349990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:04.554457Z", "offerId": 125, "storeId": 2, "storeName": "Paris" },
-  { "id": 108, "price": "379990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:11:55.34416Z", "offerId": 66, "storeId": 7, "storeName": "Lider" }
+  { "id": 173, "price": "329990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:13.846796Z", "currency": "CLP", "offerId": 125, "storeId": 2, "storeName": "Paris" },
+  { "id": 172, "price": "349990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:14:04.554457Z", "currency": "CLP", "offerId": 125, "storeId": 2, "storeName": "Paris" },
+  { "id": 108, "price": "379990.00", "isPromotional": false, "recordedAt": "2026-10-25T22:11:55.34416Z", "currency": "CLP", "offerId": 66, "storeId": 7, "storeName": "Lider" }
 ]
 ```
 
@@ -2114,6 +2124,32 @@ Ya no descarga `GET /products` de Product API: consulta la base directamente.
 | GET | `/search/facets` | total, rango de precios, marcas y atributos filtrables (para los filtros del frontend, TAL-57) |
 | GET | `/search/categories?q=&itemType=` | categorías del modelo nuevo (`categories`) |
 | GET | `/search/brands?q=` | marcas activas |
+| GET | `/search/presets` | catálogo de consultas curadas (TAL-222) |
+| GET | `/search/presets/{slug}` | ejecuta el preset: mismo formato que `/search/products` + `X-Total-Count` |
+
+### Consultas predefinidas (TAL-222)
+
+Siete búsquedas curadas en `internal/search/presets.go`, en orden editorial:
+
+| Slug | Filtros |
+| --- | --- |
+| `refrigeradores` | categoría `refrigeradores`, `price_asc` |
+| `refrigeradores-economicos` | categoría + `maxPrice=400000` |
+| `notebooks` | categoría `notebooks`, `price_asc` |
+| `notebooks-economicos` | categoría + `maxPrice=550000` |
+| `televisores` | categoría `televisores`, `price_asc` |
+| `precios-bajos` | `maxPrice=100000`, 12 resultados |
+| `novedades` | `newest`, 12 resultados |
+
+Los presets usan **slug de categoría**, texto, precio y orden: nunca `storeId`
+ni `brandId`, porque esos IDs cambian según el entorno. `GET /search/presets/{slug}`
+acepta `limit` y `offset`; el resto de los filtros los define el preset y no se
+pueden sobrescribir. Un slug desconocido responde 404 con `code: preset_not_found`.
+
+El catálogo se valida en un test (`presets_test.go`): slug único y con formato,
+título y descripción, categoría sembrada, `sort` permitido, precios válidos y
+`limit` en rango. Un preset mal escrito rompe CI, no producción.
+
 
 ### Parámetros de `/search/products` (y de `/search/facets`, sin `sort`/`limit`/`offset`)
 

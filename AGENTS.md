@@ -207,11 +207,13 @@ cd backend && go build ./... && go vet ./... && go test ./...
 cd fronted && pnpm check
 cd scraper && python -m pytest -q && ruff check src tests
 kubectl kustomize k8s/overlays/uct
+bash scripts/k8s/validate-manifests.sh
 docker compose -f docker/compose.yml config --quiet
 ```
 
-- Los tests de integración de Go necesitan `TEST_DATABASE_URL` apuntando a un PostgreSQL 18 con las migraciones aplicadas en el orden de `migration_order.txt`; sin la variable se omiten.
-- El pod de test del clúster (`k8s/tests`, fase 10 del deploy) hace 29 verificaciones.
+- Los tests de integración de Go necesitan `TEST_DATABASE_URL` apuntando a un PostgreSQL 18 con las migraciones aplicadas en el orden de `migration_order.txt`; sin la variable se omiten. Con la variable, corre `go test -p 1 ./...`: los paquetes comparten la base y en paralelo se pisan los datos.
+- `scripts/k8s/validate-manifests.sh` valida los manifiestos contra el esquema de Kubernetes (kubeconform, modo estricto) sin tocar el clúster; `kubectl kustomize` solo arma el YAML y no detecta un campo mal indentado.
+- El pod de test del clúster (`k8s/tests`, fase 10 del deploy) hace 35 verificaciones.
 - **Reporte de testing (TAL-168):** `python scripts/testing/reporte.py` corre todas las suites y deja el resultado en `docs/reportes/testing/` (`--postgres-docker` suma los tests de integración). Córrelo antes de pedir un PR: `go build ./...` tiene que pasar siempre.
 
 ---
@@ -229,7 +231,7 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 
 **Pendiente:**
 - Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra fallas: 2 tests del crawler en Windows (conexión SQLite sin cerrar) y `pnpm format:check` (archivos con CRLF).
-- CI en `.github/workflows/ci.yml` (TAL-235): backend, scraper, frontend, skills y compose. El frontend sigue sin tests.
+- CI en `.github/workflows/ci.yml` (TAL-235): backend, scraper, frontend, skills, compose y manifiestos de Kubernetes. El frontend sigue sin tests.
 - El frontend no tiene pantallas para seguimiento de precios ni notificaciones.
 - Mercado Libre bloqueado por anti-bots; evaluar su API oficial.
 - Que ingestion resuelva la tienda por nombre en vez de por ID.

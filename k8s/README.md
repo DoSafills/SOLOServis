@@ -629,6 +629,7 @@ El contrato completo para el scraper está en `backend/README.md`, §12.7. **No 
 | Fase 6: `CrashLoopBackOff` | la API no conecta a la base o falla al arrancar | `kubectl logs deployment/<pod> --previous` |
 | Fase 6: ingestion termina con `faltan URLs de APIs de otro dominio` | falta `NOTIFICATION_API_URL` en su Deployment | revisa `k8s/components/dominios/ingestion.yaml` |
 | Fase 5: `faltan migraciones` | un `.sql` nuevo no está en `migration_order.txt` | agrégalo al manifiesto y corre desde la Fase 5 |
+| Cualquier fase: `texto mal codificado en N lineas del render` | un archivo trae tildes dañadas (`Educaci├│n`, `EducaciÃ³n`), o la terminal leyó la salida de `kubectl` con otra página de códigos. El script se detiene antes de aplicar | revisa las líneas que muestra: si están así en git, corrige el archivo; si en git están bien, ejecuta el script con PowerShell 5.1 o 7 sin cambiar la codificación de la consola |
 | Fase 7: el frontend no arranca (`host not found in upstream`) | falta el Service de algún pod de API | corre desde la Fase 6 (crea las APIs antes que el frontend) |
 | Fase 8: `sin respuesta: DNS o red` | el DNS aún no se propaga | espera unos minutos y abre la URL en el navegador |
 | Fase 10: líneas `FALLA` | una ruta respondió otro código | el log muestra la URL y el inicio de la respuesta; revisa `kubectl logs deployment/<pod>` |
