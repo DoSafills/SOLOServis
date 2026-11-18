@@ -10,6 +10,13 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function isPositiveIntegerArray(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => typeof item === "number" && Number.isInteger(item) && item > 0)
+  );
+}
+
 function isPricePoint(value: unknown): value is PricePoint {
   return (
     isRecord(value) &&
@@ -74,7 +81,8 @@ function isPage(value: unknown): value is Page {
         (value.categoryContext === undefined || typeof value.categoryContext === "string") &&
         (value.productGroup === undefined || typeof value.productGroup === "string") &&
         (value.categoryId === undefined ||
-          (typeof value.categoryId === "number" && Number.isInteger(value.categoryId)))
+          (typeof value.categoryId === "number" && Number.isInteger(value.categoryId))) &&
+        (value.categoryIds === undefined || isPositiveIntegerArray(value.categoryIds))
       );
     case "product-detail":
       return typeof value.productId === "string";
@@ -121,6 +129,7 @@ function pageUrl(page: Page): string {
       addStringParameter(params, "categoryContext", page.categoryContext);
       addStringParameter(params, "productGroup", page.productGroup);
       if (page.categoryId !== undefined) params.set("categoryId", String(page.categoryId));
+      page.categoryIds?.forEach((categoryId) => params.append("categoryIds", String(categoryId)));
       break;
     case "product-detail":
       params.set("productId", page.productId);
@@ -167,6 +176,10 @@ function pageFromUrl(): Page {
       return { id };
     case "search-products": {
       const categoryId = Number(params.get("categoryId"));
+      const categoryIds = params
+        .getAll("categoryIds")
+        .map(Number)
+        .filter((value) => Number.isInteger(value) && value > 0);
       return {
         id,
         query: params.get("query") ?? "",
@@ -176,6 +189,7 @@ function pageFromUrl(): Page {
           : {}),
         ...(params.has("productGroup") ? { productGroup: params.get("productGroup") ?? "" } : {}),
         ...(Number.isInteger(categoryId) && categoryId > 0 ? { categoryId } : {}),
+        ...(categoryIds.length > 0 ? { categoryIds: [...new Set(categoryIds)] } : {}),
       };
     }
     case "product-detail": {

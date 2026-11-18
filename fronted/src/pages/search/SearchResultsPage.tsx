@@ -35,6 +35,7 @@ interface Props {
   categoryContext?: string;
   productGroup?: string;
   categoryId?: number;
+  categoryIds?: number[];
   pageSize: number;
   onPageSizeChange: (pageSize: number) => void;
   navigate: (page: Page) => void;
@@ -140,6 +141,7 @@ export default function SearchResultsPage({
   categoryContext,
   productGroup,
   categoryId,
+  categoryIds,
   pageSize,
   onPageSizeChange,
   navigate,
@@ -156,6 +158,7 @@ export default function SearchResultsPage({
     categoryContext,
     productGroup,
     categoryId,
+    categoryIds,
   ])}`;
   const [sort, setSort] = useSessionStorageState<SortOption>(
     `${sessionKey}:sort`,
@@ -163,6 +166,7 @@ export default function SearchResultsPage({
     stringSessionCodec,
   );
   const activeProductGroup = productGroup ?? "all";
+  const isMultiCategoryView = Boolean(categoryIds?.length);
   const [filtersByGroup, setFiltersByGroup] = useSessionStorageState<
     Record<string, ProductFilterState>
   >(`${sessionKey}:filters`, () => ({}), productFiltersSessionCodec);
@@ -194,11 +198,15 @@ export default function SearchResultsPage({
   );
   const [searchAttempt, setSearchAttempt] = useState(0);
   const hasCategoryContext =
-    Boolean(category) || Boolean(categoryContext) || categoryId !== undefined;
+    Boolean(category) ||
+    Boolean(categoryContext) ||
+    categoryId !== undefined ||
+    isMultiCategoryView;
   const isGroupedProductsView =
     activeProductGroup !== "all" &&
     !category &&
     categoryId === undefined &&
+    !isMultiCategoryView &&
     selectedCategory === null &&
     selectedCategorySlug === null;
   const showCategoryFilter = !hasCategoryContext || isGroupedProductsView;
@@ -293,7 +301,9 @@ export default function SearchResultsPage({
     )?.id;
     return {
       query,
-      category: selectedCategorySlug ?? selectedCategory ?? categoryId ?? categoryFromRoute,
+      category: isMultiCategoryView
+        ? undefined
+        : (selectedCategorySlug ?? selectedCategory ?? categoryId ?? categoryFromRoute),
       brandIds: [...activeFilters.selectedBrands],
       storeIds: [...activeFilters.selectedStores],
       minPrice: activeFilters.priceMin || undefined,
@@ -309,6 +319,7 @@ export default function SearchResultsPage({
     categories,
     category,
     categoryId,
+    isMultiCategoryView,
     page,
     pageSize,
     query,
@@ -318,6 +329,7 @@ export default function SearchResultsPage({
   ]);
   const searchRequestKey = JSON.stringify([
     searchParams,
+    categoryIds,
     searchAttempt,
     productGroupCategoryIds,
     isGroupedProductsView,
@@ -326,10 +338,11 @@ export default function SearchResultsPage({
     loading ||
     loadedSearchKey !== searchRequestKey ||
     (isGroupedProductsView && !categoriesLoaded) ||
+    (isMultiCategoryView && !categoriesLoaded) ||
     (Boolean(category) && !categoriesLoaded);
 
   useEffect(() => {
-    if ((isGroupedProductsView || category) && !categoriesLoaded) return;
+    if ((isGroupedProductsView || isMultiCategoryView || category) && !categoriesLoaded) return;
     let cancelled = false;
     const loadResults = async () => {
       if (
@@ -343,12 +356,17 @@ export default function SearchResultsPage({
         );
       }
       return Promise.all(
-        isGroupedProductsView
+        isMultiCategoryView
           ? [
-              searchProductsAcrossCategories(searchParams, productGroupCategoryIds),
-              getSearchFacetsAcrossCategories(searchParams, productGroupCategoryIds),
+              searchProductsAcrossCategories(searchParams, categoryIds ?? []),
+              getSearchFacetsAcrossCategories(searchParams, categoryIds ?? []),
             ]
-          : [searchProducts(searchParams), getSearchFacets(searchParams)],
+          : isGroupedProductsView
+            ? [
+                searchProductsAcrossCategories(searchParams, productGroupCategoryIds),
+                getSearchFacetsAcrossCategories(searchParams, productGroupCategoryIds),
+              ]
+            : [searchProducts(searchParams), getSearchFacets(searchParams)],
       );
     };
     loadResults()
@@ -388,6 +406,8 @@ export default function SearchResultsPage({
     category,
     categoryError,
     productGroupCategoryIds,
+    categoryIds,
+    isMultiCategoryView,
     isGroupedProductsView,
     groupCategoryLabel,
     page,

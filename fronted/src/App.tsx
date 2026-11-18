@@ -903,13 +903,14 @@ export default function App() {
       case "search-products":
         return (
           <SearchResultsPage
-            key={`${page.categoryId ?? ""}:${page.category ?? ""}:${page.categoryContext ?? ""}:${page.productGroup ?? ""}:${page.query}`}
+            key={`${page.categoryId ?? ""}:${page.categoryIds?.join(",") ?? ""}:${page.category ?? ""}:${page.categoryContext ?? ""}:${page.productGroup ?? ""}:${page.query}`}
             {...sharedProps}
             query={page.query}
             category={page.category}
             categoryContext={page.categoryContext}
             productGroup={page.productGroup}
             categoryId={page.categoryId}
+            categoryIds={page.categoryIds}
             pageSize={productsPerPage}
             onPageSizeChange={setProductsPerPage}
           />

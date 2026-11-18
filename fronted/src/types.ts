@@ -9,6 +9,7 @@ export type Page =
       categoryContext?: string;
       productGroup?: string;
       categoryId?: number;
+      categoryIds?: number[];
     }
   | {
       id: "product-detail";

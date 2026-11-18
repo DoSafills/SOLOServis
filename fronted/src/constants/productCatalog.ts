@@ -90,7 +90,10 @@ const PRODUCT_SUBTYPES = [
   { name: "Aire acondicionado", pattern: /aire acondicionado|climatizador/ },
   { name: "Ventiladores y calefactores", pattern: /ventilador|calefactor|estufa electrica/ },
   { name: "Notebooks", pattern: /notebook|laptop|macbook|computador portatil/ },
-  { name: "Celulares", pattern: /celular|smartphone|iphone|telefono movil|telefono celular/ },
+  {
+    name: "Celulares",
+    pattern: /celular|smartphone|iphone|telefonia|telefono movil|telefono celular/,
+  },
   { name: "Relojes inteligentes", pattern: /reloj|smartwatch/ },
   { name: "Audífonos y audio", pattern: /audif|auricular|headphone|parlante|speaker|audio/ },
   { name: "Monitores", pattern: /monitor/ },
