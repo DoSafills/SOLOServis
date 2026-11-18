@@ -142,10 +142,21 @@ export const detectPriceAnomalies = (
   }
 
   const validHistory = normalizePriceHistory(history);
+  const historyByOffer = new Map<number, PricePoint[]>();
+  for (const point of validHistory) {
+    if (point.offerId === undefined) continue;
+    const offerHistory = historyByOffer.get(point.offerId) ?? [];
+    offerHistory.push(point);
+    historyByOffer.set(point.offerId, offerHistory);
+  }
+
+  const hasAbruptDrop = (points: readonly PricePoint[]): boolean =>
+    points.length >= ANOMALY_MIN_HISTORY_POINTS &&
+    points[points.length - 1].price <= points[points.length - 2].price * ANOMALY_HISTORY_DROP_RATIO;
   const hasAbruptHistoryDrop =
-    validHistory.length >= ANOMALY_MIN_HISTORY_POINTS &&
-    validHistory[validHistory.length - 1].price <=
-      validHistory[validHistory.length - 2].price * ANOMALY_HISTORY_DROP_RATIO;
+    historyByOffer.size > 0
+      ? [...historyByOffer.values()].some(hasAbruptDrop)
+      : hasAbruptDrop(validHistory);
 
   return { anomalousOfferIds, hasAbruptHistoryDrop };
 };
