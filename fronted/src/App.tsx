@@ -21,6 +21,7 @@ import ComparisonDock from "./components/products/ComparisonDock";
 import ServiceComparisonDock from "./components/services/ServiceComparisonDock";
 import { getProductById, getServiceById } from "./services/api/api";
 import {
+  AUTH_SESSION_KEY,
   AUTH_SESSION_EXPIRED_EVENT,
   addCartItem,
   addServiceCartItem,
@@ -262,6 +263,40 @@ export default function App() {
   useEffect(() => {
     window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, clearExpiredAuthState);
     return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, clearExpiredAuthState);
+  }, [clearExpiredAuthState]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.storageArea !== localStorage) return;
+      if (event.key !== null && event.key !== AUTH_SESSION_KEY) return;
+
+      const currentUserId = activeUserId.current;
+      if (currentUserId === null) return;
+      if (event.key === null || event.newValue === null) {
+        clearExpiredAuthState();
+        return;
+      }
+
+      let value: unknown;
+      try {
+        value = JSON.parse(event.newValue);
+      } catch {
+        clearExpiredAuthState();
+        return;
+      }
+
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("userId" in value) ||
+        value.userId !== currentUserId
+      ) {
+        clearExpiredAuthState();
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
   }, [clearExpiredAuthState]);
 
   useEffect(() => {

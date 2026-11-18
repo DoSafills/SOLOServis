@@ -2,7 +2,7 @@ import type { AnyCartItem, Product, Service } from "../../types";
 import { getProductById, getServiceById } from "../../services/api/api";
 import { API_URLS } from "./config";
 
-const AUTH_SESSION_KEY = "soloservice.auth-session";
+export const AUTH_SESSION_KEY = "soloservice.auth-session";
 const COMPARISON_ID_KEY = "soloservice.product-comparison-id";
 const SERVICE_COMPARISON_ID_KEY = "soloservice.service-comparison-id";
 export const AUTH_SESSION_EXPIRED_EVENT = "soloservice:auth-session-expired";
