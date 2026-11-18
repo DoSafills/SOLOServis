@@ -25,7 +25,7 @@ type RunStore interface {
 	ItemsTarget(ctx context.Context, id int32) (int32, error)
 	AddCounters(ctx context.Context, id int32, found, processed, failed int) error
 	SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, raw json.RawMessage) error
-	FindProduct(ctx context.Context, sku, brand, model string) (ExistingProduct, bool, error)
+	FindProduct(ctx context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error)
 	EnsureBrand(ctx context.Context, name string) (int32, error)
 	ProductID(ctx context.Context, publicID pgtype.UUID) (int32, error)
 }
@@ -54,6 +54,8 @@ type Processor struct {
 	logger   *slog.Logger
 }
 
+// NewProcessor arma el procesador de ítems con sus dependencias: ejecuciones,
+// catálogo de productos, ofertas, notificaciones y logger.
 func NewProcessor(runs RunStore, catalog Catalog, offers Offers, notifier pricing.Notifier, logger *slog.Logger) *Processor {
 	return &Processor{runs: runs, catalog: catalog, offers: offers, notifier: notifier, logger: logger}
 }
@@ -78,6 +80,9 @@ func (p *Processor) Process(ctx context.Context, runID, storeID int32, items []I
 	return result
 }
 
+// processItem procesa un ítem del lote: lo valida, busca si el producto ya
+// existe (o lo crea), registra la oferta y avisa si el precio bajó. Nunca
+// detiene el lote: un ítem con problemas vuelve como fallido con sus errores.
 func (p *Processor) processItem(ctx context.Context, runID, storeID int32, index int, item Item) ItemResult {
 	result := ItemResult{Index: index, ExternalID: strings.TrimSpace(item.ExternalID)}
 	fail := func(errs ...httpx.FieldError) ItemResult {
@@ -98,7 +103,11 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, index
 	}
 	offer.StoreID = storeID
 
-	existing, found, err := p.runs.FindProduct(ctx, product.SKU, product.Brand, product.Model)
+	productURL := ""
+	if offer.ProductURL != nil {
+		productURL = strings.TrimSpace(*offer.ProductURL)
+	}
+	existing, found, err := p.runs.FindProduct(ctx, product.SKU, product.Brand, product.Model, storeID, productURL)
 	if err != nil {
 		return internal("find_product", err)
 	}
@@ -106,7 +115,7 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, index
 	switch {
 	case found && !existing.Active:
 		return fail(httpx.FieldError{Field: "product", Code: "conflict",
-			Message: "el producto que coincide (por sku o marca y modelo) está dado de baja"})
+			Message: "el producto que coincide (por sku, marca y modelo o URL de la oferta) está dado de baja"})
 	case found:
 		// El catálogo existente no se modifica: lo cura el admin. Solo la oferta.
 		productID, result.ProductID, result.Status = existing.ID, existing.PublicID, ItemUpdated
@@ -123,6 +132,11 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, index
 	}
 
 	offer.ProductID = productID
+	if found && existing.OfferURL != "" {
+		// Se actualiza la oferta que ya existe, aunque la tienda haya cambiado
+		// los parámetros de la URL: una sola oferta y un solo historial de precios.
+		offer.ProductURL = &existing.OfferURL
+	}
 	offerID, _, previous, err := p.offers.UpsertOffer(ctx, offer)
 	if err != nil {
 		return internal("upsert_offer", err)
@@ -197,7 +211,7 @@ func validateItem(item Item) (ItemProduct, pricing.OfferWrite, []httpx.FieldErro
 	p.Name = strings.TrimSpace(p.Name)
 	p.Brand = strings.TrimSpace(p.Brand)
 	p.Model = strings.TrimSpace(p.Model)
-	p.CategorySlug = strings.TrimSpace(p.CategorySlug)
+	p.CategorySlug = categories.CanonicalCategorySlug(p.CategorySlug)
 	p.Description = strings.TrimSpace(p.Description)
 	p.ImageURL = strings.TrimSpace(p.ImageURL)
 
@@ -209,7 +223,9 @@ func validateItem(item Item) (ItemProduct, pricing.OfferWrite, []httpx.FieldErro
 	v.MaxLength("product.sku", p.SKU, products.MaxSKULength)
 	v.MaxLength("product.description", p.Description, products.MaxDescriptionLength)
 	v.MaxLength("product.brand", p.Brand, MaxBrandName)
-	v.Check(p.CategorySlug == "" || categories.ValidSlug(p.CategorySlug), "product.categorySlug", "format",
+	v.Check(p.CategorySlug == "" || (categories.ValidSlug(p.CategorySlug) &&
+		!strings.HasPrefix(p.CategorySlug, "-") && !strings.HasSuffix(p.CategorySlug, "-") &&
+		!strings.Contains(p.CategorySlug, "--")), "product.categorySlug", "format",
 		"product.categorySlug debe tener entre 1 y 64 caracteres: minúsculas, dígitos o guiones")
 	v.Check(p.ImageURL == "" || isHTTPURL(p.ImageURL), "product.imageUrl", "format",
 		"product.imageUrl debe ser una URL http(s) válida")
@@ -221,6 +237,8 @@ func validateItem(item Item) (ItemProduct, pricing.OfferWrite, []httpx.FieldErro
 	return p, offer, errs
 }
 
+// prefixErrors antepone prefix al campo y al mensaje de cada error, para que
+// apunten a la ruta completa dentro del ítem.
 func prefixErrors(prefix string, errs []httpx.FieldError) []httpx.FieldError {
 	out := make([]httpx.FieldError, 0, len(errs))
 	for _, e := range errs {
@@ -250,6 +268,7 @@ func (p *Processor) save(ctx context.Context, runID int32, item Item) {
 	}
 }
 
+// isHTTPURL indica si value es una URL http o https válida.
 func isHTTPURL(value string) bool {
 	parsed, err := url.ParseRequestURI(value)
 	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""

@@ -457,6 +457,8 @@ class RunState:
     errors: list[str] = field(default_factory=list)
     task_id: str | None = None
     trigger: str | None = None
+    ingestion_run_id: int | None = None
+    ingestion_error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -474,6 +476,12 @@ class RunState:
             payload["taskId"] = self.task_id
         if self.trigger:
             payload["trigger"] = self.trigger
+        # El run remoto y su motivo de fallo sólo existen cuando hubo ingesta:
+        # se omiten en vez de mandar null para no ensuciar la respuesta.
+        if self.ingestion_run_id is not None:
+            payload["ingestionRunId"] = self.ingestion_run_id
+        if self.ingestion_error:
+            payload["ingestionError"] = self.ingestion_error
         return payload
 
 

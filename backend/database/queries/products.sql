@@ -440,7 +440,10 @@ ORDER BY pcs.display_order ASC, pcs.id ASC;
 SELECT
     pph.recorded_at,
     pph.price,
-    pph.is_promotional
+    pph.is_promotional,
+    po.id AS offer_id,
+    po.store_id,
+    po.currency
 FROM product_price_history pph
 JOIN product_offer po
     ON po.id = pph.product_offer_id

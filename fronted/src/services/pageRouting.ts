@@ -25,7 +25,8 @@ function isStoreOffer(value: unknown): value is StoreOffer {
     typeof value.offerId === "number" &&
     typeof value.storeId === "string" &&
     typeof value.storeName === "string" &&
-    typeof value.price === "number" &&
+    (value.price === null || (typeof value.price === "number" && Number.isFinite(value.price))) &&
+    (value.currency === undefined || typeof value.currency === "string") &&
     typeof value.available === "boolean"
   );
 }

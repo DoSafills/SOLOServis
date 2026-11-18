@@ -28,9 +28,20 @@ type ProductDetail struct {
 	Attributes   map[string]json.RawMessage `json:"attributes"`
 }
 
+// PricePoint es un registro del historial de precios dentro del detalle de un
+// producto. Date y Price son los campos originales; el resto (TAL-238) permite
+// al cliente saber de qué oferta y tienda es el punto, en qué moneda y a qué
+// hora exacta se registró.
 type PricePoint struct {
 	Date  string `json:"date"`
 	Price string `json:"price"`
+	// OfferID y StoreID identifican la oferta y la tienda del registro.
+	OfferID int32 `json:"offerId"`
+	StoreID int32 `json:"storeId"`
+	// Currency es la moneda de la oferta (el historial no guarda una propia).
+	Currency string `json:"currency"`
+	// RecordedAt es el momento del registro en UTC, RFC 3339.
+	RecordedAt string `json:"recordedAt"`
 }
 
 type ProductImage struct {

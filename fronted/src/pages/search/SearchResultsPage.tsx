@@ -163,11 +163,9 @@ export default function SearchResultsPage({
     stringSessionCodec,
   );
   const activeProductGroup = productGroup ?? "all";
-  const [filtersByGroup, setFiltersByGroup] = useSessionStorageState(
-    `${sessionKey}:filters`,
-    () => ({}),
-    productFiltersSessionCodec,
-  );
+  const [filtersByGroup, setFiltersByGroup] = useSessionStorageState<
+    Record<string, ProductFilterState>
+  >(`${sessionKey}:filters`, () => ({}), productFiltersSessionCodec);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useSessionStorageState(
     `${sessionKey}:page`,

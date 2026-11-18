@@ -271,7 +271,7 @@ El script guarda el registry, el tag y la StorageClass elegida en `k8s/overlays/
 
 ## 5. Pod de test
 
-Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **No escribe nada en la base:** solo hace lecturas, y los dos POST van sin token y se rechazan antes de tocarla. Detecta solo la topología (dominios o consolidado). Son 29 verificaciones en `dominios`.
+Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **No escribe nada en la base:** solo hace lecturas, y los dos POST van sin token y se rechazan antes de tocarla. Detecta solo la topología (dominios o consolidado). Son 29 verificaciones de las APIs en `dominios`, más hasta 6 del scraper cuando `scraper-api` está desplegado.
 
 | Verificación | Qué espera |
 |---|---|
@@ -281,6 +281,9 @@ Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/
 | Ruta interna con `INTERNAL_API_TOKEN`: `GET /ingestion/runs` | 200 |
 | Aislamiento: `comercial` no sirve `/auth` ni `/ingestion`; `usuarios` e `ingestion` no sirven `/products` | 404 |
 | nginx del frontend: `/` → app, `/products` → comercial, `/auth` → usuarios | 200, 200, 401 |
+| Scraper: `/health`, `/ready` | 200 y `"status"` esperado |
+| Scraper sin token: `/stores`, `/runs` | 401 |
+| Scraper con `INTERNAL_API_TOKEN`: `/stores`, `/runs` | 200 |
 
 Lo corre la Fase 10 del deploy. Para correrlo solo:
 
@@ -626,6 +629,7 @@ El contrato completo para el scraper está en `backend/README.md`, §12.7. **No 
 | Fase 6: `CrashLoopBackOff` | la API no conecta a la base o falla al arrancar | `kubectl logs deployment/<pod> --previous` |
 | Fase 6: ingestion termina con `faltan URLs de APIs de otro dominio` | falta `NOTIFICATION_API_URL` en su Deployment | revisa `k8s/components/dominios/ingestion.yaml` |
 | Fase 5: `faltan migraciones` | un `.sql` nuevo no está en `migration_order.txt` | agrégalo al manifiesto y corre desde la Fase 5 |
+| Cualquier fase: `texto mal codificado en N lineas del render` | un archivo trae tildes dañadas (`Educaci├│n`, `EducaciÃ³n`), o la terminal leyó la salida de `kubectl` con otra página de códigos. El script se detiene antes de aplicar | revisa las líneas que muestra: si están así en git, corrige el archivo; si en git están bien, ejecuta el script con PowerShell 5.1 o 7 sin cambiar la codificación de la consola |
 | Fase 7: el frontend no arranca (`host not found in upstream`) | falta el Service de algún pod de API | corre desde la Fase 6 (crea las APIs antes que el frontend) |
 | Fase 8: `sin respuesta: DNS o red` | el DNS aún no se propaga | espera unos minutos y abre la URL en el navegador |
 | Fase 10: líneas `FALLA` | una ruta respondió otro código | el log muestra la URL y el inicio de la respuesta; revisa `kubectl logs deployment/<pod>` |

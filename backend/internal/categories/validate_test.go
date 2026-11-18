@@ -209,6 +209,38 @@ func TestValidateAttributes_OpcionalesNullOVaciosSeOmiten(t *testing.T) {
 	}
 }
 
+func TestValidateAttributes_SentinelsSeTratanComoAusentes(t *testing.T) {
+	for _, sentinel := range []string{`"N/A"`, `"NA"`, `"-"`, `"No aplica"`} {
+		t.Run("opcional "+sentinel, func(t *testing.T) {
+			input := map[string]json.RawMessage{
+				"capacidad_litros": json.RawMessage(`100`),
+				"color":            json.RawMessage(sentinel),
+			}
+			values, errs := ValidateAttributes(testDefs, input)
+			if len(errs) != 0 {
+				t.Fatalf("errores inesperados: %+v", errs)
+			}
+			if len(values) != 1 || values[0].Key != "capacidad_litros" {
+				t.Fatalf("values = %+v, quiero solo capacidad_litros", values)
+			}
+		})
+
+		t.Run("requerido "+sentinel, func(t *testing.T) {
+			input := map[string]json.RawMessage{
+				"capacidad_litros": json.RawMessage(sentinel),
+			}
+			values, errs := ValidateAttributes(testDefs, input)
+			if len(errs) != 1 || errs[0].Field != "attributes.capacidad_litros" ||
+				errs[0].Code != "required" {
+				t.Fatalf("errores = %+v, quiero attributes.capacidad_litros/required", errs)
+			}
+			if len(values) != 0 {
+				t.Fatalf("values = %+v, quiero ninguno", values)
+			}
+		})
+	}
+}
+
 func TestValidateAttributes_KeysDesconocidas(t *testing.T) {
 	input := decodeInput(t, `{"capacidad_litros": 100, "zeta": 1, "Capacidad": 2, "alfa": "x"}`)
 

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AnyCartItem, CartItem, Page, Product, Service, StoreOffer } from "./types";
 import Header from "./components/common/Header";
 import Footer from "./components/common/Footer";
@@ -21,6 +21,8 @@ import ComparisonDock from "./components/products/ComparisonDock";
 import ServiceComparisonDock from "./components/services/ServiceComparisonDock";
 import { getProductById, getServiceById } from "./services/api/api";
 import {
+  AUTH_SESSION_KEY,
+  AUTH_SESSION_EXPIRED_EVENT,
   addCartItem,
   addServiceCartItem,
   addSearchHistory,
@@ -46,6 +48,7 @@ import {
   pushPage,
   replacePage,
 } from "./services/pageRouting";
+import { validateOfferComparison } from "./services/utils/productUtils";
 
 const SERVICE_COMPARISON_KEY = "soloservice.service-comparison";
 const PRODUCT_COMPARISON_PRODUCTS_KEY = "soloservice.product-comparison-products";
@@ -247,13 +250,54 @@ export default function App() {
     localStorage.setItem(PRODUCTS_PER_PAGE_KEY, String(productsPerPage));
   }, [productsPerPage]);
 
-  const clearExpiredAuthState = () => {
+  const clearExpiredAuthState = useCallback(() => {
     activeUserId.current = null;
     setUser(null);
     setFavorites(new Set());
     setSearchHistory([]);
     setCart([]);
-  };
+    setCartLoading(false);
+    setAccountDataLoading(false);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, clearExpiredAuthState);
+    return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, clearExpiredAuthState);
+  }, [clearExpiredAuthState]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.storageArea !== localStorage) return;
+      if (event.key !== null && event.key !== AUTH_SESSION_KEY) return;
+
+      const currentUserId = activeUserId.current;
+      if (currentUserId === null) return;
+      if (event.key === null || event.newValue === null) {
+        clearExpiredAuthState();
+        return;
+      }
+
+      let value: unknown;
+      try {
+        value = JSON.parse(event.newValue);
+      } catch {
+        clearExpiredAuthState();
+        return;
+      }
+
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("userId" in value) ||
+        value.userId !== currentUserId
+      ) {
+        clearExpiredAuthState();
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [clearExpiredAuthState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -378,7 +422,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [clearExpiredAuthState, userId]);
 
   useEffect(() => {
     localStorage.setItem(SERVICE_COMPARISON_KEY, JSON.stringify([...compareList]));
@@ -533,15 +577,22 @@ export default function App() {
         `No se pudo cerrar la sesión en el servidor: ${error instanceof Error ? error.message : "error desconocido"}`,
       );
     } finally {
-      setUser(null);
-      setFavorites(new Set());
-      setSearchHistory([]);
-      setCart([]);
+      clearExpiredAuthState();
       navigate({ id: "home" });
     }
   };
 
   const addToCart = async (product: Product, offer: StoreOffer) => {
+    const validation = validateOfferComparison([offer]);
+    if (
+      !offer.available ||
+      !validation.validPriceOffers.includes(offer) ||
+      !validation.currencyCompatible
+    ) {
+      setPersistenceError("No se puede agregar una oferta sin precio válido y moneda compatible.");
+      return false;
+    }
+
     if (offer.offerId <= 0) {
       setPersistenceError(
         "Esta oferta no tiene un identificador válido para guardarla en la cesta.",

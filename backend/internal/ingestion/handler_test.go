@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,15 @@ func floatp(f float64) *float64 { return &f }
 func int32p(i int32) *int32     { return &i }
 func strp(s string) *string     { return &s }
 
+func mustJSON(t *testing.T, value string) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
 // refrigeradores: categoría nueva enlazada a la anterior, con un requerido.
 var refrigeradores = products.WriteCategory{
 	ID: int32p(1), Slug: strp("refrigeradores"), ItemType: categories.ItemTypeProduct, LegacyID: int32p(5),
@@ -44,7 +54,7 @@ type fakeRuns struct {
 	storeID            int32
 	targetErr, openErr error
 	finishErr, getErr  error
-	existing           map[string]ExistingProduct // por sku o "marca|modelo"
+	existing           map[string]ExistingProduct // por sku, "marca|modelo" o "tienda|url"
 	findErr            error
 
 	opened   []any
@@ -79,15 +89,19 @@ func (f *fakeRuns) SaveScraped(_ context.Context, _ int32, externalID, _ *string
 	f.saved = append(f.saved, id)
 	return nil
 }
-func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string) (ExistingProduct, bool, error) {
+func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error) {
 	if f.findErr != nil {
 		return ExistingProduct{}, false, f.findErr
 	}
 	if p, ok := f.existing[sku]; ok && sku != "" {
 		return p, true, nil
 	}
-	p, ok := f.existing[brand+"|"+model]
-	return p, ok && brand != "" && model != "", nil
+	if p, ok := f.existing[brand+"|"+model]; ok && brand != "" && model != "" {
+		return p, true, nil
+	}
+	path, _, _ := strings.Cut(productURL, "?")
+	p, ok := f.existing[fmt.Sprintf("%d|%s", storeID, path)]
+	return p, ok && productURL != "", nil
 }
 func (f *fakeRuns) EnsureBrand(_ context.Context, name string) (int32, error) {
 	f.brands = append(f.brands, name)
@@ -96,13 +110,19 @@ func (f *fakeRuns) EnsureBrand(_ context.Context, name string) (int32, error) {
 func (f *fakeRuns) ProductID(context.Context, pgtype.UUID) (int32, error) { return 500, nil }
 
 type fakeCatalog struct {
-	category   products.WriteCategory
-	resolveErr error
-	createErr  error
-	created    []products.ProductWrite
+	category      products.WriteCategory
+	resolveErr    error
+	resolveErrors map[string]error
+	createErr     error
+	created       []products.ProductWrite
+	resolved      []products.CategoryRef
 }
 
-func (c *fakeCatalog) ResolveCategory(context.Context, products.CategoryRef) (products.WriteCategory, error) {
+func (c *fakeCatalog) ResolveCategory(_ context.Context, ref products.CategoryRef) (products.WriteCategory, error) {
+	c.resolved = append(c.resolved, ref)
+	if err := c.resolveErrors[ref.Slug]; err != nil {
+		return products.WriteCategory{}, err
+	}
 	return c.category, c.resolveErr
 }
 func (c *fakeCatalog) Create(_ context.Context, w products.ProductWrite) (pgtype.UUID, error) {
@@ -368,6 +388,34 @@ func TestAddItems_ProductoExistenteSoloRegistraLaOferta(t *testing.T) {
 	}
 }
 
+// TAL-169: el scraper no envía SKU ni modelo. La identidad que siempre trae es
+// la tienda + la URL de la oferta, así que repetir un ítem no duplica el producto.
+func TestAddItems_SinSkuNiModeloSeReconocePorTiendaYURL(t *testing.T) {
+	e := newEnv()
+	e.runs.existing["2|https://tienda.test/p/refri-1"] = ExistingProduct{ID: 12, PublicID: "existente-url", Active: true,
+		OfferURL: "https://tienda.test/p/refri-1?pos=4"}
+
+	result := batch(t, e, `{"product":{"name":"Refri Midea 174L","brand":"Midea","categorySlug":"refrigeradores",
+		"attributes":{"capacidad_litros":174}},"offer":{"price":199990,"productUrl":" https://tienda.test/p/refri-1?pos=9 "}},
+		{"product":{"name":"Refri Midea 515L","brand":"Midea","categorySlug":"refrigeradores",
+		"attributes":{"capacidad_litros":515}},"offer":{"price":599990,"productUrl":"https://tienda.test/p/refri-2"}},
+		{"product":{"name":"Refri sin URL","brand":"Midea","categorySlug":"refrigeradores",
+		"attributes":{"capacidad_litros":300}},"offer":{"price":299990}}`)
+
+	if result.Processed != 3 || result.Results[0].Status != ItemUpdated || result.Results[0].ProductID != "existente-url" {
+		t.Fatalf("la misma tienda + URL debe reutilizar el producto: %+v", result)
+	}
+	if result.Results[1].Status != ItemCreated || result.Results[2].Status != ItemCreated || len(e.catalog.created) != 2 {
+		t.Fatalf("otra URL o un ítem sin URL crean un producto nuevo: %+v", result)
+	}
+	if w := e.offers.written[0]; w.ProductID != 12 || *w.ProductURL != "https://tienda.test/p/refri-1?pos=4" {
+		t.Fatalf("debe actualizar la oferta existente (su URL guardada), no crear otra: %+v", w)
+	}
+	if *e.offers.written[1].ProductURL != "https://tienda.test/p/refri-2" {
+		t.Fatalf("un producto nuevo conserva la URL que envió el scraper: %+v", e.offers.written[1])
+	}
+}
+
 func TestAddItems_ItemsInvalidosNoDetienenElLote(t *testing.T) {
 	e := newEnv()
 	e.runs.existing["BAJA"] = ExistingProduct{ID: 1, PublicID: "x", Active: false}
@@ -428,6 +476,98 @@ func TestAddItems_ErroresDeCategoriaYBaseDeDatos(t *testing.T) {
 			}
 			if tc.want[0] == "/internal_error" && !strings.Contains(e.logs.String(), "relation") {
 				t.Fatal("el error interno debe quedar en el log")
+			}
+		})
+	}
+}
+
+func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
+	tests := []struct {
+		name       string
+		slug       string
+		wantSlug   string
+		wantError  string
+		resolveErr error
+	}{
+		{name: "nombre de categoría", slug: "Refrigeradores", wantSlug: "refrigeradores"},
+		{name: "espacios y mayúsculas", slug: "  REFRIGERADORES ", wantSlug: "refrigeradores"},
+		{name: "notebooks", slug: "Notebooks", wantSlug: "notebooks"},
+		{
+			name:     "refrigeración se enruta a refrigeradores",
+			slug:     "refrigeración",
+			wantSlug: "refrigeradores",
+		},
+		{
+			name:       "desconocido",
+			slug:       "desconocida",
+			wantSlug:   "desconocida",
+			wantError:  "product.categorySlug/not_found",
+			resolveErr: products.ErrCategoryNotFound,
+		},
+		{
+			name:       "electrodomésticos es demasiado amplio para enrutar",
+			slug:       "electrodomésticos",
+			wantSlug:   "electrodomesticos",
+			wantError:  "product.categorySlug/not_found",
+			resolveErr: products.ErrCategoryNotFound,
+		},
+		{name: "vacío", slug: "", wantError: "product.categorySlug/required"},
+		{name: "solo espacios", slug: "   ", wantError: "product.categorySlug/required"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			e.catalog.resolveErrors = map[string]error{}
+			if tc.resolveErr != nil {
+				e.catalog.resolveErrors[tc.wantSlug] = tc.resolveErr
+			}
+
+			item := `{"product":{"name":"Producto de prueba","categorySlug":` +
+				mustJSON(t, tc.slug) +
+				`,"attributes":{"capacidad_litros":200}},"offer":{"price":1}}`
+			result := batch(t, e, item)
+			gotErrors := codes(result.Results[0])
+
+			if tc.wantError != "" {
+				if len(gotErrors) != 1 || gotErrors[0] != tc.wantError {
+					t.Fatalf("errores = %v, quiero %q", gotErrors, tc.wantError)
+				}
+			} else if result.Results[0].Status != ItemCreated {
+				t.Fatalf("resultado = %+v, quiero producto creado", result.Results[0])
+			}
+
+			if tc.wantSlug == "" {
+				if len(e.catalog.resolved) != 0 {
+					t.Fatalf("se llamó a ResolveCategory con slug vacío: %+v", e.catalog.resolved)
+				}
+				return
+			}
+			if len(e.catalog.resolved) != 1 || e.catalog.resolved[0].Slug != tc.wantSlug {
+				t.Fatalf("slugs enviados a ResolveCategory = %+v, quiero %q", e.catalog.resolved, tc.wantSlug)
+			}
+		})
+	}
+}
+
+func TestAddItems_RechazaSeparadoresDeSlugInvalidos(t *testing.T) {
+	for _, slug := range []string{
+		"-refrigeradores",
+		"refrigeradores-",
+		"refrigeradores--",
+		"internet__fibra_optica",
+	} {
+		t.Run(slug, func(t *testing.T) {
+			e := newEnv()
+			item := `{"product":{"name":"Producto de prueba","categorySlug":` +
+				mustJSON(t, slug) +
+				`,"attributes":{"capacidad_litros":200}},"offer":{"price":1}}`
+			result := batch(t, e, item)
+			if got := codes(result.Results[0]); len(got) != 1 || got[0] != "product.categorySlug/format" {
+				t.Fatalf("errores = %v, quiero product.categorySlug/format", got)
+			}
+			if len(e.catalog.resolved) != 0 {
+				t.Fatalf("no debe buscar un slug inválido: %+v", e.catalog.resolved)
 			}
 		})
 	}

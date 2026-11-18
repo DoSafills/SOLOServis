@@ -1,4 +1,4 @@
-import type { Product } from "../../types";
+import type { PricePoint, Product, StoreOffer } from "../../types";
 
 const clpFormatter = new Intl.NumberFormat("es-CL", {
   style: "currency",
@@ -6,7 +6,137 @@ const clpFormatter = new Intl.NumberFormat("es-CL", {
   maximumFractionDigits: 0,
 });
 
-export const formatPrice = (price: number): string => clpFormatter.format(price);
+export const formatPrice = (price: number | null | undefined): string =>
+  price === null || price === undefined || !Number.isFinite(price)
+    ? "Precio no disponible"
+    : clpFormatter.format(price);
+
+export const STALE_PRICE_DAYS = 7;
+
+const getPastTimestamp = (value: string | null | undefined): number | undefined => {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp <= Date.now() ? timestamp : undefined;
+};
+
+export const relativeUpdate = (value: string | null | undefined): string => {
+  const timestamp = getPastTimestamp(value);
+  if (timestamp === undefined) return "Actualización desconocida";
+
+  const elapsedSeconds = Math.round((Date.now() - timestamp) / 1000);
+  if (elapsedSeconds < 60) return "Actualizado hace menos de un minuto";
+
+  const units: [Intl.RelativeTimeFormatUnit, number][] = [
+    ["year", 31_536_000],
+    ["month", 2_592_000],
+    ["day", 86_400],
+    ["hour", 3_600],
+    ["minute", 60],
+  ];
+  const [unit, secondsPerUnit] = units.find(([, seconds]) => elapsedSeconds >= seconds)!;
+  const count = Math.round(elapsedSeconds / secondsPerUnit);
+  return `Actualizado ${new Intl.RelativeTimeFormat("es", { numeric: "auto" }).format(-count, unit)}`;
+};
+
+export const isStalePrice = (value: string | null | undefined): boolean => {
+  const timestamp = getPastTimestamp(value);
+  return timestamp !== undefined && Date.now() - timestamp > STALE_PRICE_DAYS * 24 * 60 * 60 * 1000;
+};
+
+export const formatPriceUpdate = (value: string | null | undefined): string =>
+  isStalePrice(value) ? "Desactualizado" : relativeUpdate(value);
+
+export const formatExactUpdateDate = (value: string | null | undefined): string | undefined => {
+  const timestamp = getPastTimestamp(value);
+  return timestamp === undefined ? undefined : new Date(timestamp).toLocaleString("es-CL");
+};
+
+export interface OfferComparisonValidation {
+  validPriceOffers: StoreOffer[];
+  availableOffers: StoreOffer[];
+  currencyCompatible: boolean;
+  hasMixedCurrencies: boolean;
+  canCompare: boolean;
+}
+
+export const validateOfferComparison = (
+  offers: readonly StoreOffer[],
+): OfferComparisonValidation => {
+  const validPriceOffers = offers.filter(
+    (offer) => typeof offer.price === "number" && Number.isFinite(offer.price) && offer.price > 0,
+  );
+  const availableOffers = validPriceOffers.filter((offer) => offer.available);
+  const currencies = new Set(
+    validPriceOffers.map((offer) =>
+      typeof offer.currency === "string" ? offer.currency.trim().toUpperCase() : "",
+    ),
+  );
+  const hasMixedCurrencies = currencies.size > 1;
+  const currencyCompatible = currencies.size === 1 && currencies.has("CLP");
+
+  return {
+    validPriceOffers,
+    availableOffers,
+    currencyCompatible,
+    hasMixedCurrencies,
+    canCompare: availableOffers.length >= 2 && currencyCompatible,
+  };
+};
+
+export const normalizePriceHistory = (points: readonly PricePoint[]): PricePoint[] => {
+  const now = Date.now();
+
+  return points
+    .filter((point) => {
+      const timestamp = Date.parse(point.date);
+      return (
+        Number.isFinite(point.price) &&
+        point.price > 0 &&
+        Number.isFinite(timestamp) &&
+        timestamp <= now
+      );
+    })
+    .sort((first, second) => Date.parse(first.date) - Date.parse(second.date));
+};
+
+export const ANOMALY_MIN_OFFERS = 3;
+export const ANOMALY_LOW_RATIO = 0.5;
+export const ANOMALY_MIN_HISTORY_POINTS = 3;
+export const ANOMALY_HISTORY_DROP_RATIO = 0.5;
+
+export const detectPriceAnomalies = (
+  offers: readonly StoreOffer[],
+  history: readonly PricePoint[],
+): { anomalousOfferIds: ReadonlySet<number>; hasAbruptHistoryDrop: boolean } => {
+  const validation = validateOfferComparison(offers);
+  const anomalousOfferIds = new Set<number>();
+
+  if (validation.currencyCompatible && validation.availableOffers.length >= ANOMALY_MIN_OFFERS) {
+    for (const offer of validation.availableOffers) {
+      const peerPrices = validation.availableOffers
+        .filter((peer) => peer !== offer)
+        .flatMap((peer) => (peer.price === null ? [] : [peer.price]))
+        .sort((first, second) => first - second);
+      const middle = Math.floor(peerPrices.length / 2);
+      const median =
+        peerPrices.length % 2 === 0
+          ? (peerPrices[middle - 1] + peerPrices[middle]) / 2
+          : peerPrices[middle];
+
+      if (offer.price !== null && offer.price < median * ANOMALY_LOW_RATIO) {
+        anomalousOfferIds.add(offer.offerId);
+      }
+    }
+  }
+
+  const validHistory = normalizePriceHistory(history);
+  const hasAbruptHistoryDrop =
+    validHistory.length >= ANOMALY_MIN_HISTORY_POINTS &&
+    validHistory[validHistory.length - 1].price <=
+      validHistory[validHistory.length - 2].price * ANOMALY_HISTORY_DROP_RATIO;
+
+  return { anomalousOfferIds, hasAbruptHistoryDrop };
+};
 
 export const getBillingPeriodText = (period: string | null | undefined): string => {
   if (period === "yearly") return "/año";
@@ -20,18 +150,23 @@ export const getBillingPeriodName = (period: string | null | undefined): string 
   return "mensual";
 };
 
-export const getMinPrice = (product: Product): number => {
-  const availableOffers = product.offers.filter((offer) => offer.available);
+export const getMinPrice = (product: Product): number | null => {
+  const validation = validateOfferComparison(product.offers);
 
-  if (availableOffers.length === 0) {
-    return 0;
+  if (!validation.currencyCompatible || validation.availableOffers.length === 0) {
+    return null;
   }
 
-  return Math.min(...availableOffers.map((offer) => offer.price));
+  const prices = validation.availableOffers.flatMap((offer) =>
+    offer.price === null ? [] : [offer.price],
+  );
+  return Math.min(...prices);
 };
 
 export const getMinOffer = (product: Product) => {
-  return product.offers.filter((offer) => offer.available).sort((a, b) => a.price - b.price)[0];
+  const validation = validateOfferComparison(product.offers);
+  if (!validation.currencyCompatible) return undefined;
+  return [...validation.availableOffers].sort((a, b) => a.price! - b.price!)[0];
 };
 
 export const getAvailableStoreCount = (product: Product): number =>

@@ -152,13 +152,29 @@ func TestCatalogIntegration_ResolveCategory(t *testing.T) {
 		t.Fatalf("categoría antigua sin equivalente = %+v (%v)", lavado, err)
 	}
 
-	var refrigeracionID int32
-	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Refrigeracion'`).Scan(&refrigeracionID); err != nil {
+	var refrigeradoresID int32
+	if err := pool.QueryRow(ctx, `
+		SELECT child.id
+		FROM product_category child
+		JOIN product_category parent ON parent.id = child.parent_category_id
+		WHERE child.name = 'Refrigeradores' AND parent.name = 'Electrodomésticos'
+		ORDER BY child.id LIMIT 1`).Scan(&refrigeradoresID); err != nil {
 		t.Fatal(err)
 	}
-	fridge, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: refrigeracionID})
+	fridge, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: refrigeradoresID})
 	if err != nil || fridge.Slug == nil || *fridge.Slug != "refrigeradores" || len(fridge.Attributes) != 5 {
 		t.Fatalf("categoría antigua enlazada = %+v (%v)", fridge, err)
+	}
+	if fridge.LegacyID == nil || *fridge.LegacyID != refrigeradoresID {
+		t.Fatalf("categoría unificada usa legacy id %v, quiero %d", fridge.LegacyID, refrigeradoresID)
+	}
+
+	var oldRefrigeracionID int32
+	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Refrigeracion'`).Scan(&oldRefrigeracionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: oldRefrigeracionID}); !errors.Is(err, ErrCategoryNotFound) {
+		t.Fatalf("categoría legacy retirada = %v, quiero ErrCategoryNotFound", err)
 	}
 
 	service, err := repo.ResolveCategory(ctx, CategoryRef{Slug: "internet-fibra-optica"})
@@ -170,6 +186,71 @@ func TestCatalogIntegration_ResolveCategory(t *testing.T) {
 		if _, err := repo.ResolveCategory(ctx, ref); !errors.Is(err, ErrCategoryNotFound) {
 			t.Fatalf("ResolveCategory(%+v) = %v, quiero ErrCategoryNotFound", ref, err)
 		}
+	}
+}
+
+func TestCatalogIntegration_RefrigeradoresConsolidadosEnElectrodomesticos(t *testing.T) {
+	pool := repositoryTestPool(t)
+	ctx := context.Background()
+
+	var applianceID, refrigeratorID, oldRefrigerationID, unifiedID int32
+	if err := pool.QueryRow(ctx, `
+		SELECT parent.id, child.id
+		FROM product_category parent
+		JOIN product_category child ON child.parent_category_id = parent.id
+		WHERE parent.name = 'Electrodomésticos' AND child.name = 'Refrigeradores'
+		ORDER BY parent.id, child.id LIMIT 1`).Scan(&applianceID, &refrigeratorID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Refrigeracion'`).Scan(&oldRefrigerationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT id FROM categories WHERE slug = 'refrigeradores'`).Scan(&unifiedID); err != nil {
+		t.Fatal(err)
+	}
+
+	var parentID pgtype.Int4
+	var sourceActive bool
+	if err := pool.QueryRow(ctx, `SELECT parent_category_id FROM product_category WHERE id = $1`, refrigeratorID).Scan(&parentID); err != nil {
+		t.Fatal(err)
+	}
+	if !parentID.Valid || parentID.Int32 != applianceID {
+		t.Fatalf("padre de Refrigeradores = %v, quiero %d", parentID, applianceID)
+	}
+	if err := pool.QueryRow(ctx, `SELECT active FROM product_category WHERE id = $1`, oldRefrigerationID).Scan(&sourceActive); err != nil {
+		t.Fatal(err)
+	}
+	if sourceActive {
+		t.Fatal("Refrigeracion debe quedar inactiva")
+	}
+
+	var misplaced, wrongUnifiedRef, oldSpecValues int64
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM product WHERE category_id = $1`, oldRefrigerationID).Scan(&misplaced); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM product
+		WHERE category_id = $1 AND category_ref IS DISTINCT FROM $2`, refrigeratorID, unifiedID).Scan(&wrongUnifiedRef); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM product_specification_value value
+		JOIN product_category_specification spec ON spec.id = value.specification_id
+		WHERE spec.category_id = $1`, oldRefrigerationID).Scan(&oldSpecValues); err != nil {
+		t.Fatal(err)
+	}
+	if misplaced != 0 || wrongUnifiedRef != 0 || oldSpecValues != 0 {
+		t.Fatalf("productos fuera de Refrigeradores = %d, referencias unificadas incorrectas = %d, valores de especificación antiguos = %d",
+			misplaced, wrongUnifiedRef, oldSpecValues)
+	}
+
+	var linkedLegacyID int32
+	if err := pool.QueryRow(ctx, `SELECT legacy_product_category_id FROM categories WHERE id = $1`, unifiedID).Scan(&linkedLegacyID); err != nil {
+		t.Fatal(err)
+	}
+	if linkedLegacyID != refrigeratorID {
+		t.Fatalf("legacy_product_category_id = %d, quiero %d", linkedLegacyID, refrigeratorID)
 	}
 }
 
@@ -306,5 +387,79 @@ func TestCatalogIntegration_BaseDeDatosProtegeLosAtributos(t *testing.T) {
 	_ = unknown.Scan("00000000-0000-0000-0000-000000000000")
 	if _, err := repo.GetDetail(ctx, unknown); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("GetDetail inexistente = %v", err)
+	}
+}
+
+// TAL-238: cada punto del historial en el detalle del producto indica de qué
+// oferta y tienda es, en qué moneda y a qué hora exacta se registró, además de
+// los campos originales date y price.
+func TestCatalogIntegration_HistorialConOfertaMonedaYHora(t *testing.T) {
+	pool := repositoryTestPool(t)
+	repo := NewRepository(pool)
+	ctx := context.Background()
+
+	fridge, values := resolveAndValidate(t, repo, "refrigeradores",
+		`{"capacidad_litros": 350, "eficiencia_energetica": "A+", "no_frost": true}`)
+	publicID, err := repo.Create(ctx, ProductWrite{
+		LegacyCategoryID: *fridge.LegacyID, CategoryRef: fridge.ID,
+		Name: "Refrigerador TAL-238", SKU: uniqueSKU("tal238"), Attributes: values,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var storeID int32
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO store (name, website_url) VALUES ($1, 'https://tal238.example.test')
+		RETURNING id`, uniqueSKU("Tienda TAL-238")).Scan(&storeID); err != nil {
+		t.Fatalf("crear tienda: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE public_id = $1`, publicID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM store WHERE id = $1`, storeID)
+	})
+
+	// El trigger de la migración 010 registra un punto al crear la oferta y
+	// otro al cambiar el precio.
+	var offerID int32
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO product_offer (product_id, store_id, price, currency, product_url)
+		SELECT id, $2, 199990, 'CLP', 'https://tal238.example.test/p/1' FROM product WHERE public_id = $1
+		RETURNING id`, publicID, storeID).Scan(&offerID); err != nil {
+		t.Fatalf("crear oferta: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE product_offer SET price = 189990 WHERE id = $1`, offerID); err != nil {
+		t.Fatalf("cambiar precio: %v", err)
+	}
+
+	detail, err := repo.GetDetail(ctx, publicID)
+	if err != nil {
+		t.Fatalf("GetDetail: %v", err)
+	}
+	if len(detail.PriceHistory) != 2 {
+		t.Fatalf("historial = %+v, quiero 2 puntos", detail.PriceHistory)
+	}
+	for i, wantPrice := range []string{"199990.00", "189990.00"} {
+		point := detail.PriceHistory[i]
+		recordedAt, err := time.Parse(time.RFC3339Nano, point.RecordedAt)
+		if err != nil {
+			t.Fatalf("recordedAt %q no es RFC 3339: %v", point.RecordedAt, err)
+		}
+		if point.Price != wantPrice || point.OfferID != offerID || point.StoreID != storeID ||
+			point.Currency != "CLP" || point.Date != recordedAt.Format("2006-01-02") {
+			t.Fatalf("punto %d = %+v", i, point)
+		}
+	}
+
+	// La forma JSON conserva date y price y agrega los cuatro campos nuevos.
+	encoded, _ := json.Marshal(detail.PriceHistory[0])
+	var keys map[string]json.RawMessage
+	_ = json.Unmarshal(encoded, &keys)
+	for _, key := range []string{"date", "price", "offerId", "storeId", "currency", "recordedAt"} {
+		if _, ok := keys[key]; !ok {
+			t.Fatalf("falta %q en %s", key, encoded)
+		}
+	}
+	if len(keys) != 6 {
+		t.Fatalf("campos inesperados en %s", encoded)
 	}
 }

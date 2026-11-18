@@ -27,6 +27,7 @@
       "product.name": {
         "selector": ".product-item--name",
         "type": "string",
+        "transform": "strip_promo_edges",
         "required": true
       },
       "product.brand": {
@@ -64,6 +65,11 @@
   },
   "rules": {
     "dedupeBy": "externalId",
-    "rejectIfMissing": ["externalUrl", "product.name", "offer.price"]
+    "rejectIfMissing": [
+      "externalUrl",
+      "product.name",
+      "offer.price",
+      "product.attributes.capacidad_litros"
+    ]
   }
 }

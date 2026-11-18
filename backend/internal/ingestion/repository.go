@@ -16,6 +16,7 @@ type Repository struct {
 	db *pgxpool.Pool
 }
 
+// NewRepository crea el repositorio de ingestion sobre el pool de PostgreSQL.
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
 }
@@ -92,6 +93,7 @@ FROM scrape_run r
 JOIN scraper_config sc ON sc.id = r.scraper_config_id
 JOIN data_source ds ON ds.id = sc.data_source_id`
 
+// scanRun convierte una fila de la consulta de ejecuciones en un Run.
 func scanRun(row pgx.Row) (Run, error) {
 	var run Run
 	err := row.Scan(&run.ID, &run.Source, &run.SourceURL, &run.StoreID, &run.ScraperType, &run.Status,
@@ -178,8 +180,12 @@ func (r *Repository) SaveScraped(ctx context.Context, runID int32, externalID, e
 // FindProduct busca un producto ya catalogado: primero por SKU y, si no lo
 // encuentra (o no hay SKU), por marca + modelo sin distinguir mayúsculas. Así
 // un SKU propio de la tienda no duplica un producto que ya existe con otro SKU.
+// Si tampoco coincide, usa la identidad que el scraper siempre envía: una
+// oferta de la misma tienda con la misma URL (TAL-169). La URL se compara sin
+// parámetros ni fragmento, porque las tiendas agregan parámetros de
+// seguimiento que cambian en cada corrida (Ripley: pos, catPos, ps).
 // Prefiere los activos.
-func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string) (ExistingProduct, bool, error) {
+func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error) {
 	var p ExistingProduct
 	if sku != "" {
 		err := r.db.QueryRow(ctx, `SELECT id, public_id::text, active FROM product WHERE sku = $1`, sku).
@@ -191,25 +197,46 @@ func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string) 
 			return ExistingProduct{}, false, err
 		}
 	}
-	if brand == "" || model == "" {
+	if brand != "" && model != "" {
+		err := r.db.QueryRow(ctx, `
+			SELECT p.id, p.public_id::text, p.active
+			FROM product p JOIN brand b ON b.id = p.brand_id
+			WHERE lower(b.name) = lower($1) AND lower(p.model) = lower($2)
+			ORDER BY p.active DESC, p.id LIMIT 1`, brand, model).Scan(&p.ID, &p.PublicID, &p.Active)
+		if err == nil {
+			return p, true, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return ExistingProduct{}, false, err
+		}
+	}
+	if productURL == "" {
 		return ExistingProduct{}, false, nil
 	}
+	// Misma normalización que el índice único de product_offer (migración 009),
+	// cortada en el "?". Una URL que no se puede normalizar da NULL y no
+	// coincide con nada. Se devuelve la URL guardada para reutilizar esa oferta.
 	err := r.db.QueryRow(ctx, `
-		SELECT p.id, p.public_id::text, p.active
-		FROM product p JOIN brand b ON b.id = p.brand_id
-		WHERE lower(b.name) = lower($1) AND lower(p.model) = lower($2)
-		ORDER BY p.active DESC, p.id LIMIT 1`, brand, model).Scan(&p.ID, &p.PublicID, &p.Active)
+		SELECT p.id, p.public_id::text, p.active, o.product_url
+		FROM product_offer o JOIN product p ON p.id = o.product_id
+		WHERE o.store_id = $1
+		  AND split_part(normalize_product_offer_url(o.product_url), '?', 1) =
+		      split_part(normalize_product_offer_url($2), '?', 1)
+		ORDER BY p.active DESC, p.id, o.id LIMIT 1`, storeID, productURL).Scan(&p.ID, &p.PublicID, &p.Active, &p.OfferURL)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ExistingProduct{}, false, nil
 	}
 	return p, err == nil, err
 }
 
-// EnsureBrand devuelve la marca con ese nombre (sin distinguir mayúsculas)
-// o la crea.
+// EnsureBrand devuelve la marca con la misma clave normalizada o la crea.
 func (r *Repository) EnsureBrand(ctx context.Context, name string) (int32, error) {
 	var id int32
-	err := r.db.QueryRow(ctx, `SELECT id FROM brand WHERE lower(name) = lower($1) ORDER BY id LIMIT 1`, name).Scan(&id)
+	err := r.db.QueryRow(ctx, `
+		SELECT id FROM brand
+		WHERE lower(trim(regexp_replace(replace(name, '.', ''), '[[:space:]]+', ' ', 'g'))) =
+		      lower(trim(regexp_replace(replace($1, '.', ''), '[[:space:]]+', ' ', 'g')))
+		ORDER BY id LIMIT 1`, name).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = r.db.QueryRow(ctx, `
 			INSERT INTO brand (name) VALUES ($1)

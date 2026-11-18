@@ -9,7 +9,11 @@ import {
   CartesianGrid,
 } from "recharts";
 import type { PricePoint } from "../../types";
-import { formatPrice } from "../../services/utils/productUtils";
+import {
+  detectPriceAnomalies,
+  formatPrice,
+  normalizePriceHistory,
+} from "../../services/utils/productUtils";
 
 const ranges = [
   { label: "7d", days: 7 },
@@ -67,9 +71,10 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - range);
 
-  const activeData = (mode === "price" ? history : offerHistory)
-    .filter((point) => new Date(point.date) >= cutoff)
-    .sort((first, second) => Date.parse(first.date) - Date.parse(second.date));
+  const activeData = normalizePriceHistory(mode === "price" ? history : offerHistory).filter(
+    (point) => new Date(point.date) >= cutoff,
+  );
+  const { hasAbruptHistoryDrop } = detectPriceAnomalies([], activeData);
 
   const hasOfferHistory = offerHistory.length > 0;
   const prices = activeData.map((d) => d.price);
@@ -131,6 +136,15 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
         </div>
       </div>
 
+      {hasAbruptHistoryDrop && (
+        <p
+          className="mb-4 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-200"
+          title="El precio más reciente cayó a la mitad o menos respecto al registro anterior."
+        >
+          Precio inusual
+        </p>
+      )}
+
       {mode === "offer" && !hasOfferHistory && (
         <div className="rounded-xl border border-bd bg-surface-2 p-6 text-center">
           <p className="mb-1 text-sm font-semibold text-text">No hay historial de ofertas</p>
@@ -180,7 +194,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
         </div>
       )}
 
-      {activeData.length > 0 && (
+      {activeData.length >= 2 && (
         <div className="h-52 rounded-xl border border-bd bg-surface-2 p-2 sm:h-60 sm:p-3">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={activeData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
@@ -229,9 +243,9 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
           </ResponsiveContainer>
         </div>
       )}
-      {activeData.length === 0 && !(mode === "offer" && !hasOfferHistory) && (
+      {activeData.length < 2 && !(mode === "offer" && !hasOfferHistory) && (
         <p className="rounded-xl border border-bd bg-surface-2 px-4 py-6 text-center text-sm text-muted">
-          No hay datos de precios registrados para este período.
+          Historial insuficiente
         </p>
       )}
     </section>

@@ -2,7 +2,11 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
 import { getProductById } from "../../services/api/api";
 import { compareProducts, type ApiProductAttributeRow } from "../../services/api/personalization";
-import { formatPrice, getMinOffer } from "../../services/utils/productUtils";
+import {
+  formatPrice,
+  getMinOffer,
+  validateOfferComparison,
+} from "../../services/utils/productUtils";
 import { Breadcrumb, Skeleton } from "../../components/common/ui";
 import { areProductCategoriesCompatible } from "./productComparisonUtils";
 
@@ -20,11 +24,29 @@ interface ComparedOffer {
 
 type SpecCellState = "best" | "equal" | "default";
 
-const getAvailableOffers = (product: Product): ComparedOffer[] =>
-  product.offers
-    .filter((offer) => offer.available)
-    .sort((first, second) => first.price - second.price)
+interface SpecCellComparison {
+  states: SpecCellState[];
+  unitsNotComparable: boolean;
+}
+
+const getAvailableOffers = (
+  product: Product,
+  validOffers: ReadonlySet<StoreOffer>,
+  currencyCompatible: boolean,
+): ComparedOffer[] => {
+  const offers = product.offers.filter((offer) => offer.available);
+  if (!currencyCompatible) return offers.slice(0, 1).map((offer) => ({ offer }));
+
+  return offers
+    .sort((first, second) => {
+      const firstIsValid = validOffers.has(first);
+      const secondIsValid = validOffers.has(second);
+      if (firstIsValid && secondIsValid) return first.price! - second.price!;
+      return Number(secondIsValid) - Number(firstIsValid);
+    })
+    .slice(0, 1)
     .map((offer) => ({ offer }));
+};
 
 const specificationGroups = [
   { title: "Capacidad y carga", pattern: /(capacidad|volumen|carga|soporte)/i },
@@ -132,7 +154,7 @@ const isLowerBetterSpec = (specName: string): boolean => {
 const getSpecCellStates = (
   specName: string,
   values: Array<string | undefined>,
-): SpecCellState[] => {
+): SpecCellComparison => {
   const entries = values.map((value) => ({
     value: value ?? "",
     normalized: normalizeComparableText(value),
@@ -143,7 +165,7 @@ const getSpecCellStates = (
   const populated = entries.filter((entry) => entry.normalized.length > 0);
 
   if (populated.length === 0) {
-    return values.map(() => "default");
+    return { states: values.map(() => "default"), unitsNotComparable: false };
   }
 
   if (isEnergyEfficiencySpec(specName)) {
@@ -153,16 +175,22 @@ const getSpecCellStates = (
     const populatedRanks = energyRanks.filter((rank) => rank !== null);
     if (populatedRanks.length === populated.length) {
       const bestRank = Math.max(...populatedRanks);
-      return energyRanks.map((rank) => (rank === bestRank ? "best" : "default"));
+      return {
+        states: energyRanks.map((rank) => (rank === bestRank ? "best" : "default")),
+        unitsNotComparable: false,
+      };
     }
   }
 
   const textValues = populated.map((entry) => entry.normalized);
   const allSimilarText = new Set(textValues).size <= 1;
   if (allSimilarText) {
-    return values.map((value) =>
-      value && normalizeComparableText(value).length > 0 ? "equal" : "default",
-    );
+    return {
+      states: values.map((value) =>
+        value && normalizeComparableText(value).length > 0 ? "equal" : "default",
+      ),
+      unitsNotComparable: false,
+    };
   }
 
   const numericValues = populated.map((entry) => entry.numeric);
@@ -176,16 +204,25 @@ const getSpecCellStates = (
     const isSimilar = range / Math.max(Math.abs(bestValue), 1) <= 0.05;
 
     if (isSimilar && !isEnergyConsumptionSpec(specName)) {
-      return values.map((_, index) => (entries[index].normalized ? "equal" : "default"));
+      return {
+        states: values.map((_, index) => (entries[index].normalized ? "equal" : "default")),
+        unitsNotComparable: false,
+      };
     }
 
-    return values.map((_, index) => {
-      const entry = entries[index];
-      return entry.numeric === bestValue ? "best" : "default";
-    });
+    return {
+      states: values.map((_, index) => {
+        const entry = entries[index];
+        return entry.numeric === bestValue ? "best" : "default";
+      }),
+      unitsNotComparable: false,
+    };
   }
 
-  return values.map(() => "default");
+  return {
+    states: values.map(() => "default"),
+    unitsNotComparable: numericValues.every((num) => num !== null) && units.size > 1,
+  };
 };
 
 const getCellTone = (state: SpecCellState) => {
@@ -348,15 +385,19 @@ export default function ProductComparisonPage({
     );
   }
 
-  const productOffers = selected.map((product) => getAvailableOffers(product));
-  const cartOffers = selected.map(
-    (product, index) => productOffers[index][0]?.offer ?? getMinOffer(product),
+  const offerComparison = validateOfferComparison(selected.flatMap((product) => product.offers));
+  const validOffers = new Set(offerComparison.validPriceOffers);
+  const productOffers = selected.map((product) =>
+    getAvailableOffers(product, validOffers, offerComparison.currencyCompatible),
   );
+  const cartOffers = selected.map((product) => getMinOffer(product));
   const specificationRows = getSpecificationGroups(selected);
   const bestRating = Math.max(...selected.map((product) => product.rating));
-  const comparableProductPrices = productOffers.flatMap((result) =>
-    result.map(({ offer }) => offer.price),
-  );
+  const comparableProductPrices = offerComparison.canCompare
+    ? offerComparison.availableOffers.flatMap((offer) =>
+        offer.price === null ? [] : [offer.price],
+      )
+    : [];
   const lowestProductPrice =
     comparableProductPrices.length > 0 ? Math.min(...comparableProductPrices) : null;
 
@@ -379,6 +420,15 @@ export default function ProductComparisonPage({
           </span>
           El resaltado dorado identifica el mejor valor comparable en cada característica.
         </p>
+        {!offerComparison.canCompare && (
+          <p role="status" className="mb-4 text-sm text-amber-200">
+            {offerComparison.hasMixedCurrencies
+              ? "Monedas distintas: los precios no son comparables."
+              : !offerComparison.currencyCompatible && offerComparison.validPriceOffers.length > 0
+                ? "Moneda no compatible: los precios no son comparables."
+                : "Se requieren al menos dos ofertas válidas para comparar precios."}
+          </p>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] border-separate border-spacing-1.5">
             <thead>
@@ -481,8 +531,18 @@ export default function ProductComparisonPage({
                     {result.length > 0 ? (
                       result.map(({ offer }) => (
                         <div key={offer.storeId} className="mb-1 rounded-lg px-2 py-2 last:mb-0">
-                          <div className="text-base font-bold text-text">
-                            {formatPrice(offer.price)}
+                          <div
+                            className={`font-bold text-text ${
+                              offer.price === lowestProductPrice
+                                ? "text-xl sm:text-2xl"
+                                : "text-base"
+                            }`}
+                          >
+                            {!validOffers.has(offer)
+                              ? "Precio no disponible"
+                              : offerComparison.currencyCompatible
+                                ? formatPrice(offer.price)
+                                : "No comparable"}
                           </div>
                           <div className="text-xs text-muted">{offer.storeName}</div>
                           {offer.price === lowestProductPrice && (
@@ -543,7 +603,7 @@ export default function ProductComparisonPage({
                   </tr>
 
                   {group.names.map((name) => {
-                    const states = getSpecCellStates(
+                    const comparison = getSpecCellStates(
                       name,
                       selected.map((product) => product.specs[name]),
                     );
@@ -555,11 +615,16 @@ export default function ProductComparisonPage({
                           className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-text"
                         >
                           {name}
+                          {comparison.unitsNotComparable && (
+                            <span className="mt-1 block normal-case tracking-normal text-amber-300">
+                              Unidades no comparables
+                            </span>
+                          )}
                         </th>
 
                         {selected.map((product, productIndex) => {
                           const rawValue = product.specs[name]?.trim();
-                          const state = states[productIndex] ?? "default";
+                          const state = comparison.states[productIndex] ?? "default";
                           const displayValue =
                             rawValue && rawValue.length > 0 ? rawValue : "No informado";
 

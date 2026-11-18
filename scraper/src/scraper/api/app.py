@@ -32,6 +32,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import (
     Depends,
@@ -171,7 +172,12 @@ def create_app(settings: Settings, manager: RunManager | None = None) -> FastAPI
         specs = current_manager(request).specs
         if not specs:
             raise HTTPException(status_code=503, detail="no store specs loaded")
-        return ReadyResponse(status="ready", database=f"ok ({count} runs)", stores=len(specs))
+        return ReadyResponse(
+            status="ready",
+            database=f"ok ({count} runs)",
+            stores=len(specs),
+            ingestion=settings.ingestion_status,
+        )
 
     @app.get(
         "/stores",
@@ -206,9 +212,15 @@ def create_app(settings: Settings, manager: RunManager | None = None) -> FastAPI
         dependencies=[Depends(require_token)],
     )
     async def list_runs(
-        request: Request, limit: int = Query(default=50, ge=1, le=200)
+        request: Request,
+        limit: int = Query(default=50, ge=1, le=200),
+        status_filter: Literal["pending", "running", "success", "failed"] | None = Query(
+            default=None,
+            alias="status",
+            description="Filtra por estado del run; sin el parámetro se listan todos",
+        ),
     ) -> RunListResponse:
-        states = await current_manager(request).list_runs(limit=limit)
+        states = await current_manager(request).list_runs(limit=limit, status=status_filter)
         return RunListResponse(runs=[RunResponse(**state.to_dict()) for state in states])
 
     @app.get(

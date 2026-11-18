@@ -30,6 +30,8 @@ class RunResponse(BaseModel):
     errors: list[str]
     taskId: str | None = None
     trigger: str | None = None
+    ingestionRunId: int | None = None
+    ingestionError: str | None = None
 
 
 class RunListResponse(BaseModel):
@@ -57,6 +59,7 @@ class ReadyResponse(BaseModel):
     status: str
     database: str
     stores: int
+    ingestion: str = "unknown"
 
 
 # ---------------------------------------------------------------------------

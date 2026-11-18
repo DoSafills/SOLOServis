@@ -6,8 +6,10 @@ import asyncio
 import json
 
 import httpx
+import pytest
 
 from scraper.config import load_settings
+from scraper.errors import ConfigError
 from scraper.ingestion import IngestionClient
 from scraper.models import Item, Offer, Product
 
@@ -85,11 +87,11 @@ def test_transient_failure_is_retried():
     assert attempts["n"] == 2
 
 
-def test_short_token_disables_ingestion():
-    settings = load_settings(
-        {
-            "INGESTION_API_URL": "http://ingest",
-            "INGESTION_API_TOKEN": "too-short",
-        }
-    )
-    assert IngestionClient.from_settings(settings) is None
+def test_short_token_is_a_configuration_error():
+    with pytest.raises(ConfigError, match="at least 32"):
+        load_settings(
+            {
+                "INGESTION_API_URL": "http://ingest",
+                "INGESTION_API_TOKEN": "too-short",
+            }
+        )

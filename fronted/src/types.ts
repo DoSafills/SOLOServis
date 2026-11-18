@@ -39,7 +39,8 @@ export interface StoreOffer {
   offerId: number;
   storeId: string;
   storeName: string;
-  price: number;
+  price: number | null;
+  currency?: string;
   listPrice?: number | null;
   available: boolean;
   shipping: number | null;
@@ -67,6 +68,7 @@ export interface Product {
   categoryId?: number;
   category: string;
   subcategory: string;
+  updatedAt?: string;
   image: string;
   images: string[];
   description: string;
@@ -144,10 +146,10 @@ export interface StoreProduct {
   model: string;
   category: string;
   description: string;
-  price: number;
-  listPrice: number;
+  price: number | null;
+  listPrice: number | null;
   currency: string;
-  shippingCost: number;
+  shippingCost: number | null;
   shippingFree: boolean;
   available: boolean;
   stock: number | null;

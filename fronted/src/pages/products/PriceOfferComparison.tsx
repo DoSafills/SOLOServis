@@ -1,6 +1,13 @@
 import { useRef, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
-import { formatPrice } from "../../services/utils/productUtils";
+import {
+  formatExactUpdateDate,
+  formatPrice,
+  formatPriceUpdate,
+  detectPriceAnomalies,
+  validateOfferComparison,
+  type OfferComparisonValidation,
+} from "../../services/utils/productUtils";
 import { Breadcrumb } from "../../components/common/ui";
 
 interface Props {
@@ -15,9 +22,19 @@ interface Props {
   initialSelectedStoreIds?: string[];
 }
 
-const getTotal = (offer: StoreOffer): number | null => {
+const getTotal = (offer: StoreOffer, validation: OfferComparisonValidation): number | null => {
+  if (
+    !validation.validPriceOffers.includes(offer) ||
+    !validation.currencyCompatible ||
+    offer.price === null
+  ) {
+    return null;
+  }
+
   const shipping = offer.shippingFree ? 0 : offer.shipping;
-  return shipping === null ? null : offer.price + shipping;
+  if (shipping === null || !Number.isFinite(shipping) || shipping < 0) return null;
+  const total = offer.price + shipping;
+  return Number.isFinite(total) && total > 0 ? total : null;
 };
 
 const getSafeOfferUrl = (url: string | undefined): string | null => {
@@ -31,10 +48,30 @@ const getSafeOfferUrl = (url: string | undefined): string | null => {
   }
 };
 
-const shippingLabel = (offer: StoreOffer): string => {
+const shippingLabel = (offer: StoreOffer, currencyCompatible: boolean): string => {
   if (offer.shippingFree) return "Gratis";
   if (offer.shipping === null) return "No informado";
+  if (!currencyCompatible || !Number.isFinite(offer.shipping) || offer.shipping < 0) {
+    return "No comparable";
+  }
   return formatPrice(offer.shipping);
+};
+
+const getComparisonNotice = (
+  validation: OfferComparisonValidation,
+  hasUnknownShipping: boolean,
+): string | null => {
+  if (validation.hasMixedCurrencies) return "Monedas distintas: los precios no son comparables.";
+  if (validation.validPriceOffers.length > 0 && !validation.currencyCompatible) {
+    return "Moneda no compatible: los precios no son comparables.";
+  }
+  if (validation.availableOffers.length < 2) {
+    return "Se requieren al menos dos ofertas válidas y disponibles.";
+  }
+  if (hasUnknownShipping) {
+    return "No se puede determinar el mejor total porque falta el costo de envío.";
+  }
+  return null;
 };
 
 const conditionLabel = (condition: string | undefined): string => {
@@ -49,33 +86,12 @@ const conditionLabel = (condition: string | undefined): string => {
   return labels[condition.toLowerCase()] ?? condition;
 };
 
-const relativeUpdate = (value: string | undefined): string => {
-  if (!value) return "Actualización no informada";
-
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return `Actualización: ${value}`;
-
-  const elapsedSeconds = Math.round((Date.now() - timestamp) / 1000);
-  if (Math.abs(elapsedSeconds) < 60) {
-    return elapsedSeconds < 0 ? "Actualización futura" : "Actualizado hace menos de un minuto";
-  }
-
-  const units: [Intl.RelativeTimeFormatUnit, number][] = [
-    ["year", 31_536_000],
-    ["month", 2_592_000],
-    ["day", 86_400],
-    ["hour", 3_600],
-    ["minute", 60],
-  ];
-  const [unit, secondsPerUnit] = units.find(([, seconds]) => Math.abs(elapsedSeconds) >= seconds)!;
-  const count = Math.round(elapsedSeconds / secondsPerUnit);
-  return `Actualizado ${new Intl.RelativeTimeFormat("es", { numeric: "auto" }).format(-count, unit)}`;
-};
-
 interface SelectedOffersTableProps {
   product: Product;
   offers: StoreOffer[];
   bestOffers: StoreOffer[];
+  validation: OfferComparisonValidation;
+  anomalousOfferIds: ReadonlySet<number>;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
   onRemoveOffer: (storeId: string) => void;
 }
@@ -84,6 +100,8 @@ function SelectedOffersTable({
   product,
   offers,
   bestOffers,
+  validation,
+  anomalousOfferIds,
   onAddToCart,
   onRemoveOffer,
 }: SelectedOffersTableProps) {
@@ -123,8 +141,10 @@ function SelectedOffersTable({
             </th>
             {offers.map((offer) => {
               const discounted =
+                validation.validPriceOffers.includes(offer) &&
                 offer.listPrice !== null &&
                 offer.listPrice !== undefined &&
+                offer.price !== null &&
                 offer.listPrice > offer.price;
               const isBest = bestOffers.some((best) => best.storeId === offer.storeId);
               return (
@@ -136,7 +156,11 @@ function SelectedOffersTable({
                       : "border-bd bg-surface"
                   }`}
                 >
-                  {discounted ? (
+                  {!validation.validPriceOffers.includes(offer) ? (
+                    <span className="text-sm text-slate-400">Precio no disponible</span>
+                  ) : !validation.currencyCompatible ? (
+                    <span className="text-sm text-slate-400">No comparable</span>
+                  ) : discounted ? (
                     <>
                       <span className="block text-[11px] font-medium text-prime">
                         Precio oferta
@@ -144,6 +168,14 @@ function SelectedOffersTable({
                       <span className="text-sm font-bold text-slate-100">
                         {formatPrice(offer.price)}
                       </span>
+                      {anomalousOfferIds.has(offer.offerId) && (
+                        <span
+                          className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                          title="Menos de la mitad de la mediana de otras ofertas"
+                        >
+                          Precio inusual
+                        </span>
+                      )}
                       <span className="block text-xs text-slate-400">
                         Normal <span className="line-through">{formatPrice(offer.listPrice!)}</span>
                       </span>
@@ -154,6 +186,14 @@ function SelectedOffersTable({
                       <span className="text-sm font-bold text-slate-100">
                         {formatPrice(offer.price)}
                       </span>
+                      {anomalousOfferIds.has(offer.offerId) && (
+                        <span
+                          className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                          title="Menos de la mitad de la mediana de otras ofertas"
+                        >
+                          Precio inusual
+                        </span>
+                      )}
                     </>
                   )}
                 </td>
@@ -172,7 +212,7 @@ function SelectedOffersTable({
                 key={offer.storeId}
                 className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-200"
               >
-                {shippingLabel(offer)}
+                {shippingLabel(offer, validation.currencyCompatible)}
               </td>
             ))}
           </tr>
@@ -184,7 +224,7 @@ function SelectedOffersTable({
               Total
             </th>
             {offers.map((offer) => {
-              const total = getTotal(offer);
+              const total = getTotal(offer, validation);
               const isBest = bestOffers.some((best) => best.storeId === offer.storeId);
               return (
                 <td
@@ -195,7 +235,13 @@ function SelectedOffersTable({
                       : "border-bd bg-surface text-text"
                   }`}
                 >
-                  {total === null ? "No informado" : formatPrice(total)}
+                  {!validation.validPriceOffers.includes(offer)
+                    ? "Precio no disponible"
+                    : !validation.currencyCompatible
+                      ? "No comparable"
+                      : total === null
+                        ? "No informado"
+                        : formatPrice(total)}
                 </td>
               );
             })}
@@ -261,8 +307,9 @@ function SelectedOffersTable({
               <td
                 key={offer.storeId}
                 className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-400"
+                title={formatExactUpdateDate(offer.lastUpdated) ?? "Actualización desconocida"}
               >
-                {relativeUpdate(offer.lastUpdated)}
+                {formatPriceUpdate(offer.lastUpdated)}
               </td>
             ))}
           </tr>
@@ -310,7 +357,11 @@ function SelectedOffersTable({
               >
                 <button
                   type="button"
-                  disabled={!offer.available}
+                  disabled={
+                    !offer.available ||
+                    !validation.validPriceOffers.includes(offer) ||
+                    !validation.currencyCompatible
+                  }
                   onClick={() => onAddToCart(product, offer)}
                   className="rounded-lg bg-prime px-3 py-2 text-xs font-semibold text-[#181714] shadow-md shadow-black/15 transition hover:bg-prime-dark disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-muted disabled:shadow-none"
                 >
@@ -363,8 +414,17 @@ export default function PriceOfferComparison({
   const addingProductIdsRef = useRef(new Set<string>());
 
   const addOfferToCart = async (offer: StoreOffer) => {
-    if (readOnly || cartProductIds.has(product.id) || addingProductIdsRef.current.has(product.id))
+    const validation = validateOfferComparison([offer]);
+    if (
+      readOnly ||
+      cartProductIds.has(product.id) ||
+      addingProductIdsRef.current.has(product.id) ||
+      !offer.available ||
+      !validation.validPriceOffers.includes(offer) ||
+      !validation.currencyCompatible
+    ) {
       return;
+    }
     addingProductIdsRef.current.add(product.id);
     setAddingProductIds((previous) => new Set(previous).add(product.id));
     try {
@@ -379,36 +439,47 @@ export default function PriceOfferComparison({
     }
   };
   const offers = product.offers;
+  const anomalousOfferIds = detectPriceAnomalies(offers, []).anomalousOfferIds;
   const selectedOffers = offers.filter((offer) => selectedStoreIds.includes(offer.storeId));
-  const hasUnknownShipping = offers.some((offer) => offer.available && getTotal(offer) === null);
-  const selectedAvailableOffers = selectedOffers.filter((offer) => offer.available);
+  const offerComparison = validateOfferComparison(offers);
+  const selectedComparison = validateOfferComparison(selectedOffers);
+  const hasUnknownShipping = offerComparison.availableOffers.some(
+    (offer) => getTotal(offer, offerComparison) === null,
+  );
+  const selectedAvailableOffers = selectedComparison.availableOffers;
   const selectedHasUnknownShipping = selectedAvailableOffers.some(
-    (offer) => getTotal(offer) === null,
+    (offer) => getTotal(offer, selectedComparison) === null,
   );
 
   const selectedAvailableTotals = selectedAvailableOffers
-    .map((offer) => ({ offer, total: getTotal(offer) }))
+    .map((offer) => ({ offer, total: getTotal(offer, selectedComparison) }))
     .filter((entry): entry is { offer: StoreOffer; total: number } => entry.total !== null);
   const selectedLowestTotal = selectedAvailableTotals.reduce<number | null>(
     (lowest, entry) => (lowest === null || entry.total < lowest ? entry.total : lowest),
     null,
   );
-  const selectedBestOffers = selectedHasUnknownShipping
-    ? []
-    : selectedAvailableTotals
-        .filter((entry) => entry.total === selectedLowestTotal)
-        .map((entry) => entry.offer);
-  const availableTotals = offers
-    .filter((offer) => offer.available)
-    .map((offer) => ({ offer, total: getTotal(offer) }))
+  const selectedBestOffers =
+    !selectedComparison.canCompare || selectedHasUnknownShipping
+      ? []
+      : selectedAvailableTotals
+          .filter((entry) => entry.total === selectedLowestTotal)
+          .map((entry) => entry.offer);
+  const availableTotals = offerComparison.availableOffers
+    .map((offer) => ({ offer, total: getTotal(offer, offerComparison) }))
     .filter((entry): entry is { offer: StoreOffer; total: number } => entry.total !== null);
   const lowestTotal = availableTotals.reduce<number | null>(
     (lowest, entry) => (lowest === null || entry.total < lowest ? entry.total : lowest),
     null,
   );
-  const lowestOffers = hasUnknownShipping
-    ? []
-    : availableTotals.filter((entry) => entry.total === lowestTotal).map((entry) => entry.offer);
+  const lowestOffers =
+    !offerComparison.canCompare || hasUnknownShipping
+      ? []
+      : availableTotals.filter((entry) => entry.total === lowestTotal).map((entry) => entry.offer);
+  const comparisonNotice = getComparisonNotice(offerComparison, hasUnknownShipping);
+  const selectedComparisonNotice = getComparisonNotice(
+    selectedComparison,
+    selectedHasUnknownShipping,
+  );
 
   const toggleOffer = (offer: StoreOffer) => {
     setSelectedStoreIds((current) =>
@@ -443,13 +514,16 @@ export default function PriceOfferComparison({
             <span className="inline-flex items-center gap-1 rounded-full border border-prime/50 bg-prime px-2 py-1 font-extrabold text-[#181714]">
               ✦ Menor total
             </span>
-            La mejor oferta considera el precio del producto y su costo de envío.
+            {selectedComparisonNotice ??
+              "La mejor oferta considera el precio del producto y su costo de envío."}
           </p>
           {selectedOffers.length > 0 ? (
             <SelectedOffersTable
               product={product}
               offers={selectedOffers}
               bestOffers={selectedBestOffers}
+              validation={selectedComparison}
+              anomalousOfferIds={anomalousOfferIds}
               onAddToCart={onAddToCart}
               onRemoveOffer={(storeId) =>
                 setSelectedStoreIds((current) => current.filter((id) => id !== storeId))
@@ -503,6 +577,7 @@ export default function PriceOfferComparison({
               const discounted =
                 offer.listPrice !== null &&
                 offer.listPrice !== undefined &&
+                offer.price !== null &&
                 offer.listPrice > offer.price;
 
               return (
@@ -518,7 +593,7 @@ export default function PriceOfferComparison({
                     <div className="text-right">
                       <p className="text-xs text-muted">Total con envío</p>
                       <p className="price text-xl font-bold text-prime">
-                        {formatPrice(getTotal(offer)!)}
+                        {formatPrice(getTotal(offer, offerComparison)!)}
                       </p>
                     </div>
                   </div>
@@ -529,8 +604,20 @@ export default function PriceOfferComparison({
                         {discounted ? "Precio actual" : "Precio del producto"}
                       </dt>
                       <dd className="text-sm font-semibold text-slate-100">
-                        {formatPrice(offer.price)}
+                        {offerComparison.currencyCompatible
+                          ? formatPrice(offer.price)
+                          : "No comparable"}
                       </dd>
+                      {anomalousOfferIds.has(offer.offerId) && (
+                        <dd>
+                          <span
+                            className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                            title="Menos de la mitad de la mediana de otras ofertas"
+                          >
+                            Precio inusual
+                          </span>
+                        </dd>
+                      )}
                       {discounted && (
                         <dd className="text-xs text-slate-400">
                           Normal{" "}
@@ -547,7 +634,7 @@ export default function PriceOfferComparison({
                             : "text-sm text-slate-100"
                         }
                       >
-                        {shippingLabel(offer)}
+                        {shippingLabel(offer, offerComparison.currencyCompatible)}
                       </dd>
                     </div>
                     <div>
@@ -588,8 +675,13 @@ export default function PriceOfferComparison({
                     </div>
                     <div>
                       <dt className="text-xs text-slate-400">Última actualización</dt>
-                      <dd className="text-sm text-slate-100">
-                        {relativeUpdate(offer.lastUpdated)}
+                      <dd
+                        className="text-sm text-slate-100"
+                        title={
+                          formatExactUpdateDate(offer.lastUpdated) ?? "Actualización desconocida"
+                        }
+                      >
+                        {formatPriceUpdate(offer.lastUpdated)}
                       </dd>
                     </div>
                   </dl>
@@ -663,9 +755,10 @@ export default function PriceOfferComparison({
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted">
-              {offers.some((offer) => offer.available)
-                ? "No determinable: falta el costo de envío de una oferta disponible."
-                : "No hay ofertas disponibles."}
+              {comparisonNotice ??
+                (offers.some((offer) => offer.available)
+                  ? "No determinable: falta el costo de envío de una oferta disponible."
+                  : "No hay ofertas disponibles.")}
             </p>
             {onToggleCompare && (
               <button
@@ -712,7 +805,7 @@ export default function PriceOfferComparison({
             </span>
             <button
               type="button"
-              disabled={readOnly || selectedOffers.length < 2}
+              disabled={readOnly || !selectedComparison.canCompare}
               onClick={() =>
                 navigate({
                   id: "offer-comparison",
@@ -730,140 +823,185 @@ export default function PriceOfferComparison({
         {offers.length === 0 ? (
           <p className="text-sm text-muted py-4">Este producto todavía no tiene ofertas.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px] border-collapse text-left">
-              <thead>
-                <tr className="border-b border-slate-700/80">
-                  <th className="py-3 pr-4 text-xs font-semibold uppercase text-slate-300">
-                    Tienda
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
-                    Precio
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
-                    Envío
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
-                    Total
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
-                    Entrega
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
-                    Garantía
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
-                    Disponibilidad
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
-                    Actualización
-                  </th>
-                  <th className="py-3 pl-3 text-xs font-semibold uppercase text-slate-300">
-                    Comprar
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {offers.map((offer) => {
-                  const isSelected = selectedStoreIds.includes(offer.storeId);
-                  const total = getTotal(offer);
-                  const isLowest = lowestOffers.some(
-                    (lowestOffer) => lowestOffer.storeId === offer.storeId,
-                  );
-                  const isDiscounted =
-                    offer.listPrice !== null &&
-                    offer.listPrice !== undefined &&
-                    offer.listPrice > offer.price;
-                  const safeUrl = getSafeOfferUrl(offer.url);
+          <>
+            {comparisonNotice && (
+              <p role="status" className="mb-3 text-sm text-amber-200">
+                {comparisonNotice}
+              </p>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1120px] border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-slate-700/80">
+                    <th className="py-3 pr-4 text-xs font-semibold uppercase text-slate-300">
+                      Tienda
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
+                      Precio
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
+                      Envío
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
+                      Total
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
+                      Entrega
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
+                      Garantía
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
+                      Disponibilidad
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold uppercase text-slate-300">
+                      Actualización
+                    </th>
+                    <th className="py-3 pl-3 text-xs font-semibold uppercase text-slate-300">
+                      Comprar
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {offers.map((offer) => {
+                    const isSelected = selectedStoreIds.includes(offer.storeId);
+                    const hasValidPrice = offerComparison.validPriceOffers.includes(offer);
+                    const total = getTotal(offer, offerComparison);
+                    const isLowest = lowestOffers.some(
+                      (lowestOffer) => lowestOffer.storeId === offer.storeId,
+                    );
+                    const isDiscounted =
+                      hasValidPrice &&
+                      offer.listPrice !== null &&
+                      offer.listPrice !== undefined &&
+                      offer.price !== null &&
+                      offer.listPrice > offer.price;
+                    const safeUrl = getSafeOfferUrl(offer.url);
 
-                  return (
-                    <tr
-                      key={offer.storeId}
-                      className={`border-b border-slate-700/80 last:border-0 ${isSelected ? "bg-slate-800/60" : "bg-slate-900/20"}`}
-                    >
-                      <th scope="row" className="py-4 pr-4 font-normal">
-                        <label className="flex items-center gap-3 text-sm text-slate-100 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleOffer(offer)}
-                            className="h-4 w-4 accent-prime"
-                            aria-label={`Comparar ${offer.storeName}`}
-                          />
-                          <span className="whitespace-nowrap">{offer.storeName}</span>
-                          {isLowest && (
-                            <span className="text-[11px] font-semibold text-prime">
-                              Menor total
+                    return (
+                      <tr
+                        key={offer.storeId}
+                        className={`border-b border-slate-700/80 last:border-0 ${isSelected ? "bg-slate-800/60" : "bg-slate-900/20"}`}
+                      >
+                        <th scope="row" className="py-4 pr-4 font-normal">
+                          <label className="flex items-center gap-3 text-sm text-slate-100 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleOffer(offer)}
+                              className="h-4 w-4 accent-prime"
+                              aria-label={`Comparar ${offer.storeName}`}
+                            />
+                            <span className="whitespace-nowrap">{offer.storeName}</span>
+                            {isLowest && (
+                              <span className="text-[11px] font-semibold text-prime">
+                                Menor total
+                              </span>
+                            )}
+                          </label>
+                        </th>
+                        <td className="px-4 py-4">
+                          {!hasValidPrice ? (
+                            <span className="text-sm text-slate-400">Precio no disponible</span>
+                          ) : !offerComparison.currencyCompatible ? (
+                            <span className="text-sm text-slate-400">No comparable</span>
+                          ) : isDiscounted ? (
+                            <div className="min-w-36">
+                              <span className="block text-[11px] text-prime">Precio oferta</span>
+                              <span className="price text-sm font-bold text-text">
+                                {formatPrice(offer.price)}
+                              </span>
+                              {anomalousOfferIds.has(offer.offerId) && (
+                                <span
+                                  className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                                  title="Menos de la mitad de la mediana de otras ofertas"
+                                >
+                                  Precio inusual
+                                </span>
+                              )}
+                              <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400">
+                                <span>Normal</span>
+                                <span className="line-through">
+                                  {formatPrice(offer.listPrice!)}
+                                </span>
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="whitespace-nowrap">
+                              <span className="block text-[11px] text-slate-400">
+                                Precio normal
+                              </span>
+                              <span className="price text-sm font-semibold text-text">
+                                {formatPrice(offer.price)}
+                              </span>
+                              {anomalousOfferIds.has(offer.offerId) && (
+                                <span
+                                  className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                                  title="Menos de la mitad de la mediana de otras ofertas"
+                                >
+                                  Precio inusual
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-100 whitespace-nowrap">
+                          {shippingLabel(offer, offerComparison.currencyCompatible)}
+                        </td>
+                        <td
+                          className={`px-4 py-4 text-sm font-bold whitespace-nowrap ${isLowest ? "text-prime" : "text-text"}`}
+                        >
+                          {!hasValidPrice
+                            ? "Precio no disponible"
+                            : !offerComparison.currencyCompatible
+                              ? "No comparable"
+                              : total === null
+                                ? "No informado"
+                                : formatPrice(total)}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap">
+                          {offer.deliveryTime || "No informado"}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap">
+                          {offer.warranty || "No informado"}
+                        </td>
+                        <td className="px-4 py-4 text-sm whitespace-nowrap">
+                          <span className={offer.available ? "text-emerald-300" : "text-slate-400"}>
+                            {offer.available ? "Disponible" : "No disponible"}
+                          </span>
+                        </td>
+                        <td
+                          className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap"
+                          title={
+                            formatExactUpdateDate(offer.lastUpdated) ?? "Actualización desconocida"
+                          }
+                        >
+                          {formatPriceUpdate(offer.lastUpdated)}
+                        </td>
+                        <td className="py-4 pl-3">
+                          {safeUrl && !readOnly ? (
+                            <a
+                              href={safeUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-md border border-bd bg-surface-2 px-2.5 py-1.5 text-xs font-semibold text-text transition-colors hover:border-prime hover:text-prime whitespace-nowrap"
+                            >
+                              Comprar oferta
+                              <span aria-hidden="true">↗</span>
+                            </a>
+                          ) : (
+                            <span className="text-xs text-slate-400 whitespace-nowrap">
+                              {readOnly ? "Vista de ejemplo" : "Enlace no disponible"}
                             </span>
                           )}
-                        </label>
-                      </th>
-                      <td className="px-4 py-4">
-                        {isDiscounted ? (
-                          <div className="min-w-36">
-                            <span className="block text-[11px] text-prime">Precio oferta</span>
-                            <span className="price text-sm font-bold text-text">
-                              {formatPrice(offer.price)}
-                            </span>
-                            <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400">
-                              <span>Normal</span>
-                              <span className="line-through">{formatPrice(offer.listPrice!)}</span>
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="whitespace-nowrap">
-                            <span className="block text-[11px] text-slate-400">Precio normal</span>
-                            <span className="price text-sm font-semibold text-text">
-                              {formatPrice(offer.price)}
-                            </span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-100 whitespace-nowrap">
-                        {shippingLabel(offer)}
-                      </td>
-                      <td
-                        className={`px-4 py-4 text-sm font-bold whitespace-nowrap ${isLowest ? "text-prime" : "text-text"}`}
-                      >
-                        {total === null ? "No informado" : formatPrice(total)}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap">
-                        {offer.deliveryTime || "No informado"}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap">
-                        {offer.warranty || "No informado"}
-                      </td>
-                      <td className="px-4 py-4 text-sm whitespace-nowrap">
-                        <span className={offer.available ? "text-emerald-300" : "text-slate-400"}>
-                          {offer.available ? "Disponible" : "No disponible"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-300 whitespace-nowrap">
-                        {relativeUpdate(offer.lastUpdated)}
-                      </td>
-                      <td className="py-4 pl-3">
-                        {safeUrl && !readOnly ? (
-                          <a
-                            href={safeUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-md border border-bd bg-surface-2 px-2.5 py-1.5 text-xs font-semibold text-text transition-colors hover:border-prime hover:text-prime whitespace-nowrap"
-                          >
-                            Comprar oferta
-                            <span aria-hidden="true">↗</span>
-                          </a>
-                        ) : (
-                          <span className="text-xs text-slate-400 whitespace-nowrap">
-                            {readOnly ? "Vista de ejemplo" : "Enlace no disponible"}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>
