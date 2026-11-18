@@ -980,6 +980,7 @@ export default function App() {
             navigate={navigate}
             cartServiceIds={cartServiceIds}
             onAddToCart={addServiceToCart}
+            onRemoveService={(serviceId) => toggleCompare(serviceId)}
           />
         );
       case "stores":

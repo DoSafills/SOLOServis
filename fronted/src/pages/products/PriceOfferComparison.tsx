@@ -170,7 +170,7 @@ function SelectedOffersTable({
                       </span>
                       {anomalousOfferIds.has(offer.offerId) && (
                         <span
-                          className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                          className="mt-1 inline-flex rounded-full border border-amber-400 bg-amber-900 px-2 py-0.5 text-[10px] font-semibold text-amber-50"
                           title="Menos de la mitad de la mediana de otras ofertas"
                         >
                           Precio inusual
@@ -188,7 +188,7 @@ function SelectedOffersTable({
                       </span>
                       {anomalousOfferIds.has(offer.offerId) && (
                         <span
-                          className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                          className="mt-1 inline-flex rounded-full border border-amber-400 bg-amber-900 px-2 py-0.5 text-[10px] font-semibold text-amber-50"
                           title="Menos de la mitad de la mediana de otras ofertas"
                         >
                           Precio inusual
@@ -613,7 +613,7 @@ export default function PriceOfferComparison({
                       {anomalousOfferIds.has(offer.offerId) && (
                         <dd>
                           <span
-                            className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                            className="mt-1 inline-flex rounded-full border border-amber-400 bg-amber-900 px-2 py-0.5 text-[10px] font-semibold text-amber-50"
                             title="Menos de la mitad de la mediana de otras ofertas"
                           >
                             Precio inusual
@@ -916,7 +916,7 @@ export default function PriceOfferComparison({
                               </span>
                               {anomalousOfferIds.has(offer.offerId) && (
                                 <span
-                                  className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                                  className="mt-1 inline-flex rounded-full border border-amber-400 bg-amber-900 px-2 py-0.5 text-[10px] font-semibold text-amber-50"
                                   title="Menos de la mitad de la mediana de otras ofertas"
                                 >
                                   Precio inusual
@@ -939,7 +939,7 @@ export default function PriceOfferComparison({
                               </span>
                               {anomalousOfferIds.has(offer.offerId) && (
                                 <span
-                                  className="mt-1 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200"
+                                  className="mt-1 inline-flex rounded-full border border-amber-400 bg-amber-900 px-2 py-0.5 text-[10px] font-semibold text-amber-50"
                                   title="Menos de la mitad de la mediana de otras ofertas"
                                 >
                                   Precio inusual

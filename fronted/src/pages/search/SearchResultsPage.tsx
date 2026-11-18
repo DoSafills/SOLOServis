@@ -1022,21 +1022,6 @@ export default function SearchResultsPage({
               ))}
             </select>
           </label>
-
-          {/* Compare button */}
-          {productCompareList.size >= 2 && (
-            <button
-              onClick={() =>
-                navigate({
-                  id: "product-comparison",
-                  productIds: [...productCompareList],
-                })
-              }
-              className="rounded-lg bg-gradient-to-r from-cyan-600 to-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110"
-            >
-              Comparar {productCompareList.size} productos
-            </button>
-          )}
         </div>
       </div>
 

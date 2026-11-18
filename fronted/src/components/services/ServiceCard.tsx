@@ -76,7 +76,7 @@ export default function ServiceCard({
         </div>
       </div>
 
-      <div className="flex h-full min-w-0 flex-1 flex-col justify-center gap-1 bg-surface px-2 py-1.5">
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 bg-surface px-2 py-1.5">
         <div className="min-w-0">
           <span className="block truncate text-[8px] font-bold uppercase tracking-[0.12em] text-prime sm:text-[9px]">
             {service.provider}

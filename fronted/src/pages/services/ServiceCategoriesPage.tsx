@@ -98,18 +98,18 @@ export default function ServiceCategoriesPage({ navigate }: Props) {
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-prime">
             Catálogo
           </p>
-          <h1 className="text-2xl font-bold text-text sm:text-3xl">
+          <h1 className="text-xl font-semibold tracking-tight text-text sm:text-2xl">
             Explora servicios por categoría
           </h1>
-          <p className="mt-2 text-sm text-muted">
+          <p className="mt-1.5 text-sm text-muted">
             Encuentra y compara ofertas de servicios por tipo.
           </p>
         </div>
         <button
           onClick={showAllServices}
-          className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-prime/40 bg-prime-muted px-4 py-2.5 text-sm font-semibold text-prime transition-colors hover:border-prime hover:bg-prime/20 sm:self-auto"
+          className="inline-flex items-center justify-center gap-2 self-start rounded-lg bg-prime px-3.5 py-2 text-xs font-semibold text-[#181714] transition hover:bg-prime-dark sm:self-auto"
         >
-          Ver todos los servicios
+          Ver servicios
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               d="M5 12h14m-6-6 6 6-6 6"
@@ -254,7 +254,7 @@ export default function ServiceCategoriesPage({ navigate }: Props) {
                               }}
                               className="group relative flex min-h-40 min-w-0 cursor-pointer overflow-hidden rounded-[1.5rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
                             >
-                              <div className="absolute inset-y-0 left-0 w-[58%]">
+                              <div className="theme-media-panel absolute inset-y-0 left-0 w-[58%]">
                                 <CategoryArtwork name={category.name} type="service" />
                                 <span
                                   aria-hidden="true"

@@ -10,6 +10,7 @@ interface Props {
   navigate: (page: Page) => void;
   cartServiceIds: ReadonlySet<string>;
   onAddToCart: (service: Service) => Promise<boolean>;
+  onRemoveService: (serviceId: string) => void;
 }
 
 export default function ServiceComparisonPage({
@@ -17,9 +18,12 @@ export default function ServiceComparisonPage({
   navigate,
   cartServiceIds,
   onAddToCart,
+  onRemoveService,
 }: Props) {
-  const requestKey = JSON.stringify(serviceIds);
-  const [result, setResult] = useState<{ requestKey: string; services: Service[] } | null>(null);
+  const [selected, setSelected] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [addingServiceIdsState, setAddingServiceIdsState] = useState<Set<string>>(() => new Set());
   const addingServiceIds = useRef(new Set<string>());
 
@@ -41,31 +45,52 @@ export default function ServiceComparisonPage({
 
   useEffect(() => {
     let cancelled = false;
-    const currentRequestKey = JSON.stringify(serviceIds);
+    const loadServices = async () => {
+      if (serviceIds.length === 0) {
+        setSelected([]);
+        setError(null);
+        setLoading(false);
+        return;
+      }
 
-    Promise.all(serviceIds.map((id) => getServiceById(id)))
-      .then((services) => {
-        if (!cancelled) {
-          setResult({
-            requestKey: currentRequestKey,
-            services: services.filter((service): service is Service => service !== null),
-          });
+      setLoading(true);
+      setError(null);
+      try {
+        const services = await Promise.all(serviceIds.map((id) => getServiceById(id)));
+        if (cancelled) return;
+        const availableServices = services.filter(
+          (service): service is Service => service !== null,
+        );
+        setSelected(availableServices);
+        if (availableServices.length !== serviceIds.length) {
+          setError("No se pudo encontrar uno o más servicios seleccionados.");
         }
-      })
-      .catch((error) => {
-        console.error(error);
-        if (!cancelled) {
-          setResult({ requestKey: currentRequestKey, services: [] });
-        }
-      });
+      } catch (loadError) {
+        if (cancelled) return;
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "No se pudieron cargar los servicios seleccionados.",
+        );
+        setSelected([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void loadServices();
 
     return () => {
       cancelled = true;
     };
-  }, [serviceIds]);
+  }, [serviceIds, loadAttempt]);
 
-  const loading = result?.requestKey !== requestKey;
-  const selected = result?.requestKey === requestKey ? result.services : [];
+  const removeService = (service: Service) => {
+    setSelected((previous) =>
+      previous.filter((selectedService) => selectedService.id !== service.id),
+    );
+    onRemoveService(service.id);
+  };
 
   if (loading) {
     return (
@@ -75,7 +100,7 @@ export default function ServiceComparisonPage({
         <div className="grid gap-4 sm:grid-cols-2">
           {[0, 1, 2].map((item) => (
             <div key={item} className="rounded-2xl border border-bd bg-surface p-5">
-              <Skeleton className="mb-4 h-36 w-full" />
+              <Skeleton className="mb-4 h-40 w-full" />
               <Skeleton className="mb-3 h-6 w-3/4" />
               <Skeleton className="mb-6 h-4 w-1/2" />
               <Skeleton className="h-10 w-full" />
@@ -83,6 +108,23 @@ export default function ServiceComparisonPage({
           ))}
         </div>
         <Skeleton className="mt-6 h-64 w-full rounded-2xl" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-20 text-center">
+        <p role="alert" className="mb-4 text-warn">
+          {error}
+        </p>
+        <button
+          type="button"
+          onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+          className="rounded-xl bg-prime px-5 py-2 text-sm font-semibold text-[#181714] shadow-md shadow-black/20 transition hover:bg-prime-dark"
+        >
+          Reintentar
+        </button>
       </div>
     );
   }
@@ -225,7 +267,7 @@ export default function ServiceComparisonPage({
           <span className="inline-flex items-center gap-1 rounded-full border border-prime/50 bg-prime px-2 py-1 font-extrabold text-[#181714]">
             ✦ Mejor
           </span>
-          El brillo cian destaca los servicios con mejor precio en su período y valoración.
+          El resaltado dorado indica el mejor valor comparable en cada característica.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] border-separate border-spacing-1.5">
@@ -300,6 +342,13 @@ export default function ServiceComparisonPage({
                           : addingServiceIdsState.has(service.id)
                             ? "Agregando a la cesta..."
                             : "Agregar al carrito"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeService(service)}
+                        className="rounded-lg border border-rose-300/40 bg-rose-950/40 px-3 py-1.5 text-[11px] font-semibold text-rose-200 transition hover:border-rose-200 hover:bg-rose-900/60 hover:text-white"
+                      >
+                        Quitar servicio
                       </button>
                     </div>
                   </th>
@@ -430,7 +479,8 @@ export default function ServiceComparisonPage({
                                 height="10"
                                 viewBox="0 0 24 24"
                                 fill="none"
-                                stroke="#67e8f9"
+                                className="shrink-0 text-prime"
+                                stroke="currentColor"
                                 strokeWidth="3"
                               >
                                 <path d="M20 6 9 17l-5-5" />

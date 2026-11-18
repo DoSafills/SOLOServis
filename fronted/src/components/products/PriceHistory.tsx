@@ -134,7 +134,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
 
       {hasAbruptHistoryDrop && (
         <p
-          className="mb-4 inline-flex rounded-full border border-amber-300/50 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-200"
+          className="mb-4 inline-flex rounded-full border border-amber-400 bg-amber-900 px-3 py-1.5 text-xs font-semibold text-amber-50"
           title="El precio más reciente cayó a la mitad o menos respecto al registro anterior."
         >
           Precio inusual

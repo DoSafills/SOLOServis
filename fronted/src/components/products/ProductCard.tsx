@@ -133,7 +133,7 @@ export default function ProductCard({
               </span>
               {bestOfferIsAnomalous && (
                 <span
-                  className="rounded-full border border-amber-300/50 bg-amber-400/15 px-1.5 py-0.5 text-[8px] font-semibold text-amber-200 sm:text-[9px]"
+                  className="rounded-full border border-amber-400 bg-amber-900 px-1.5 py-0.5 text-[8px] font-semibold text-amber-50 sm:text-[9px]"
                   title="Menos de la mitad de la mediana de otras ofertas"
                 >
                   Precio inusual
@@ -143,10 +143,10 @@ export default function ProductCard({
                 <span
                   className={`rounded-full border px-1.5 py-0.5 text-[8px] font-bold shadow-sm sm:text-[9px] ${
                     discountPercent >= 30
-                      ? "border-rose-300/70 bg-rose-500/25 text-rose-200 shadow-rose-500/20"
+                      ? "border-rose-400 bg-rose-900 text-rose-50 shadow-rose-900/20"
                       : discountPercent >= 15
-                        ? "border-amber-300/70 bg-amber-400/20 text-amber-100 shadow-amber-400/20"
-                        : "border-emerald-300/70 bg-emerald-500/20 text-emerald-200 shadow-emerald-500/20"
+                        ? "border-amber-400 bg-amber-900 text-amber-50 shadow-amber-900/20"
+                        : "border-emerald-400 bg-emerald-900 text-emerald-50 shadow-emerald-900/20"
                   }`}
                 >
                   -{discountPercent}%
