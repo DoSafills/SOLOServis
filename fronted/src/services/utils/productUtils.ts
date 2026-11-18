@@ -19,12 +19,9 @@ const getPastTimestamp = (value: string | null | undefined): number | undefined 
   return Number.isFinite(timestamp) && timestamp <= Date.now() ? timestamp : undefined;
 };
 
-export const relativeUpdate = (value: string | null | undefined): string => {
-  const timestamp = getPastTimestamp(value);
-  if (timestamp === undefined) return "Actualización desconocida";
-
+const relativeTime = (timestamp: number): string => {
   const elapsedSeconds = Math.round((Date.now() - timestamp) / 1000);
-  if (elapsedSeconds < 60) return "Actualizado hace menos de un minuto";
+  if (elapsedSeconds < 60) return "hace menos de un minuto";
 
   const units: [Intl.RelativeTimeFormatUnit, number][] = [
     ["year", 31_536_000],
@@ -35,7 +32,13 @@ export const relativeUpdate = (value: string | null | undefined): string => {
   ];
   const [unit, secondsPerUnit] = units.find(([, seconds]) => elapsedSeconds >= seconds)!;
   const count = Math.round(elapsedSeconds / secondsPerUnit);
-  return `Actualizado ${new Intl.RelativeTimeFormat("es", { numeric: "auto" }).format(-count, unit)}`;
+  return new Intl.RelativeTimeFormat("es", { numeric: "auto" }).format(-count, unit);
+};
+
+export const relativeUpdate = (value: string | null | undefined): string => {
+  const timestamp = getPastTimestamp(value);
+  if (timestamp === undefined) return "Fecha de actualización no disponible";
+  return `Actualizado ${relativeTime(timestamp)}`;
 };
 
 export const isStalePrice = (value: string | null | undefined): boolean => {
@@ -43,8 +46,11 @@ export const isStalePrice = (value: string | null | undefined): boolean => {
   return timestamp !== undefined && Date.now() - timestamp > STALE_PRICE_DAYS * 24 * 60 * 60 * 1000;
 };
 
-export const formatPriceUpdate = (value: string | null | undefined): string =>
-  isStalePrice(value) ? "Desactualizado" : relativeUpdate(value);
+export const formatPriceUpdate = (value: string | null | undefined): string => {
+  const timestamp = getPastTimestamp(value);
+  if (timestamp === undefined) return "Fecha de actualización no disponible";
+  return isStalePrice(value) ? "Desactualizado" : relativeTime(timestamp);
+};
 
 export const formatExactUpdateDate = (value: string | null | undefined): string | undefined => {
   const timestamp = getPastTimestamp(value);
