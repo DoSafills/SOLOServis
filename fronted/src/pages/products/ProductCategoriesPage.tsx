@@ -322,7 +322,9 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         </div>
       ) : totalProducts === 0 ? (
         <div className="py-8 text-center">
-          <p className="mb-4 text-sm text-muted">Todavía no hay categorías disponibles.</p>
+          <p className="mb-4 text-sm text-muted">
+            Todavía no hay productos disponibles para mostrar por categoría.
+          </p>
           <button onClick={showAllProducts} className="text-sm font-semibold text-prime">
             Ver todos los productos
           </button>

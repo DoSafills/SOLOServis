@@ -89,11 +89,12 @@ export async function searchProducts(
     `${API_URLS.search}/search/products?${query}`,
     "Search API",
   );
-  const total = Number(response.headers.get("X-Total-Count") ?? 0);
-  if (!Number.isSafeInteger(total) || total < 0)
-    throw new Error("La búsqueda devolvió un total de resultados inválido.");
+  const items = (await response.json()) as SearchProductResult[];
+  const totalHeader = response.headers.get("X-Total-Count");
+  const parsedTotal = totalHeader?.trim() ? Number(totalHeader) : Number.NaN;
+  const total = Number.isSafeInteger(parsedTotal) && parsedTotal >= 0 ? parsedTotal : items.length;
   return {
-    items: (await response.json()) as SearchProductResult[],
+    items,
     total,
   };
 }
