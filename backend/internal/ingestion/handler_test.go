@@ -56,12 +56,15 @@ type fakeRuns struct {
 	finishErr, getErr  error
 	existing           map[string]ExistingProduct // por sku, "marca|modelo" o "tienda|url"
 	findErr            error
+	images             map[int32]string // imagen activa por id de producto
+	addImageErr        error
 
-	opened   []any
-	counters []int
-	saved    []string
-	brands   []string
-	finished []any
+	imageCalls []string // "id|url" de cada llamada a AddImageIfMissing
+	opened     []any
+	counters   []int
+	saved      []string
+	brands     []string
+	finished   []any
 }
 
 func (f *fakeRuns) OpenRun(_ context.Context, name string, baseURL *string, storeID int32, scraperType string) (int32, error) {
@@ -102,6 +105,24 @@ func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string, stor
 	path, _, _ := strings.Cut(productURL, "?")
 	p, ok := f.existing[fmt.Sprintf("%d|%s", storeID, path)]
 	return p, ok && productURL != "", nil
+}
+
+// AddImageIfMissing simula al repositorio: registra la llamada, devuelve
+// addImageErr si está definido y guarda la imagen solo si el producto no
+// tiene una. Devuelve true si la guardó.
+func (f *fakeRuns) AddImageIfMissing(_ context.Context, productID int32, imageURL string) (bool, error) {
+	f.imageCalls = append(f.imageCalls, fmt.Sprintf("%d|%s", productID, imageURL))
+	if f.addImageErr != nil {
+		return false, f.addImageErr
+	}
+	if _, ok := f.images[productID]; ok {
+		return false, nil
+	}
+	if f.images == nil {
+		f.images = map[int32]string{}
+	}
+	f.images[productID] = imageURL
+	return true, nil
 }
 func (f *fakeRuns) EnsureBrand(_ context.Context, name string) (int32, error) {
 	f.brands = append(f.brands, name)
@@ -413,6 +434,86 @@ func TestAddItems_SinSkuNiModeloSeReconocePorTiendaYURL(t *testing.T) {
 	}
 	if *e.offers.written[1].ProductURL != "https://tienda.test/p/refri-2" {
 		t.Fatalf("un producto nuevo conserva la URL que envió el scraper: %+v", e.offers.written[1])
+	}
+}
+
+// TAL-243: un producto existente sin imagen activa toma la imagen que envía la
+// tienda; una imagen existente (curada por el admin) no se reemplaza.
+func TestAddItems_ImagenDeProductoExistente(t *testing.T) {
+	const existente = int32(8)
+	for _, tc := range []struct {
+		name       string
+		image      string // product.imageUrl del ítem
+		stored     string // imagen activa que ya tiene el producto ("" = ninguna)
+		addErr     error
+		wantStatus string
+		wantCodes  []string
+		wantCalls  []string
+		wantImage  string // imagen del producto después del lote ("" = ninguna)
+		wantOffers int
+	}{
+		{name: "producto sin imagen + ítem con imagen: la guarda",
+			image: " https://img.test/refri.jpg ", wantStatus: ItemUpdated, wantCodes: []string{},
+			wantCalls: []string{"8|https://img.test/refri.jpg"}, wantImage: "https://img.test/refri.jpg", wantOffers: 1},
+		{name: "producto con imagen + ítem con otra: no la cambia",
+			image: "https://img.test/otra.jpg", stored: "https://img.test/curada.jpg", wantStatus: ItemUpdated,
+			wantCodes: []string{}, wantCalls: []string{"8|https://img.test/otra.jpg"},
+			wantImage: "https://img.test/curada.jpg", wantOffers: 1},
+		{name: "ítem sin imagen: no cambia nada",
+			wantStatus: ItemUpdated, wantCodes: []string{}, wantCalls: nil, wantOffers: 1},
+		{name: "error al guardar la imagen: el ítem falla como error interno",
+			image: "https://img.test/refri.jpg", addErr: errBoom, wantStatus: ItemFailed,
+			wantCodes: []string{"/internal_error"}, wantCalls: []string{"8|https://img.test/refri.jpg"}, wantOffers: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			e.runs.existing["LG-1"] = ExistingProduct{ID: existente, PublicID: "existente-sku", Active: true}
+			if tc.stored != "" {
+				e.runs.images = map[int32]string{existente: tc.stored}
+			}
+			e.runs.addImageErr = tc.addErr
+			image := ""
+			if tc.image != "" {
+				image = fmt.Sprintf(`,"imageUrl":%q`, tc.image)
+			}
+
+			result := batch(t, e, `{"product":{"sku":"LG-1","name":"Refri"`+image+`},"offer":{"price":90}}`)
+
+			r := result.Results[0]
+			if r.Status != tc.wantStatus || !reflect.DeepEqual(codes(r), tc.wantCodes) {
+				t.Fatalf("resultado = %+v", r)
+			}
+			if !reflect.DeepEqual(e.runs.imageCalls, tc.wantCalls) {
+				t.Fatalf("llamadas a AddImageIfMissing = %v, quiero %v", e.runs.imageCalls, tc.wantCalls)
+			}
+			if got := e.runs.images[existente]; got != tc.wantImage {
+				t.Fatalf("imagen del producto = %q, quiero %q", got, tc.wantImage)
+			}
+			if len(e.offers.written) != tc.wantOffers || len(e.catalog.created) != 0 {
+				t.Fatalf("ofertas = %d, productos creados = %d", len(e.offers.written), len(e.catalog.created))
+			}
+			if tc.addErr != nil {
+				body, _ := json.Marshal(result)
+				if strings.Contains(string(body), "relation") {
+					t.Fatal("el resultado expone el error interno")
+				}
+				if !strings.Contains(e.logs.String(), "relation") || !strings.Contains(e.logs.String(), `"stage":"add_image"`) {
+					t.Fatalf("el error interno debe quedar en el log con su etapa: %s", e.logs.String())
+				}
+			}
+		})
+	}
+}
+
+// Un producto nuevo guarda su imagen al crearse (Create); no pasa por
+// AddImageIfMissing.
+func TestAddItems_ProductoNuevoNoUsaAddImageIfMissing(t *testing.T) {
+	e := newEnv()
+	result := batch(t, e, `{"product":{"name":"Nuevo","categorySlug":"refrigeradores","imageUrl":"https://img.test/n.jpg",
+		"attributes":{"capacidad_litros":200}},"offer":{"price":1}}`)
+	if result.Results[0].Status != ItemCreated || len(e.runs.imageCalls) != 0 ||
+		e.catalog.created[0].ImageURL != "https://img.test/n.jpg" {
+		t.Fatalf("resultado = %+v, llamadas = %v", result.Results[0], e.runs.imageCalls)
 	}
 }
 
