@@ -5,18 +5,11 @@ import (
 	"net/http"
 )
 
-func DecodeJSON(r *http.Request, target any) error {
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	return decoder.Decode(target)
-}
-
+// WriteJSON responde value como JSON con el código de estado indicado. Para
+// leer bodies se usa httpx.DecodeJSON y para errores httpx.WriteProblem
+// (estándar TAL-78); aquí no hay equivalentes para no saltarse esas reglas.
 func WriteJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
-}
-
-func WriteError(w http.ResponseWriter, status int, message string) {
-	WriteJSON(w, status, map[string]string{"error": message})
 }

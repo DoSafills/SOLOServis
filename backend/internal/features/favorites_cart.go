@@ -1,6 +1,7 @@
 package features
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -20,6 +21,9 @@ func (h *Handler) ListFavorites(w http.ResponseWriter, r *http.Request) {
 		WHERE i.user_id=$1 AND i.is_favorite ORDER BY i.updated_at DESC`, userID)
 }
 
+// AddFavorite atiende POST /favorites/{productId}: marca el producto como
+// favorito del usuario de la sesión. Responde 400 si productId no es un id
+// numérico ni un UUID, 404 si no existe y 201 si quedó guardado.
 func (h *Handler) AddFavorite(w http.ResponseWriter, r *http.Request) {
 	var input favoriteInput
 	if !decode(w, r, &input) {
@@ -36,7 +40,7 @@ func (h *Handler) AddFavorite(w http.ResponseWriter, r *http.Request) {
 		h.dbError(w, r, err, http.StatusNotFound, "Producto no encontrado.")
 		return
 	}
-	if looksLikeUUID(productKey) {
+	if isUUID(productKey) {
 		if err := verifyProductService(r.Context(), productKey); err != nil {
 			h.remoteError(w, r, err, "Product API no está disponible.")
 			return
@@ -108,6 +112,11 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		WHERE ci.user_id=$1 ORDER BY ci.created_at DESC`, userID)
 }
 
+// AddCartItem atiende POST /cart/items: agrega una oferta de producto o de
+// servicio al carrito del usuario de la sesión. Responde 422 si quantity está
+// fuera de 1..maxCartQuantity, si no viene exactamente un par producto/oferta
+// o servicio/oferta, o si los ids no existen; 201 con el ítem guardado. Si la
+// oferta ya estaba, suma las unidades sin pasar de maxCartQuantity.
 func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	var input cartInput
 	if !decode(w, r, &input) {
@@ -119,7 +128,7 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 		input.ProductID == "" && input.OfferID == 0
 
 	var v httpx.Validator
-	v.Check(input.Quantity > 0, "quantity", "min", "quantity debe ser mayor que 0")
+	checkQuantity(&v, input.Quantity)
 	v.Check(productItem || serviceItem, "productId", "one_of",
 		"Indica productId y offerId, o serviceId y serviceOfferId")
 	if !valid(w, r, &v) {
@@ -182,8 +191,8 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = tx.Exec(r.Context(), `INSERT INTO cart_item (user_id,product_id,offer_id,quantity,saved_price,saved_shipping_cost)
 		VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id,offer_id) DO UPDATE SET
-		quantity=cart_item.quantity+EXCLUDED.quantity,saved_price=EXCLUDED.saved_price,
-		saved_shipping_cost=EXCLUDED.saved_shipping_cost,updated_at=NOW()`, userID, productID, input.OfferID, input.Quantity, price, shipping)
+		quantity=LEAST(cart_item.quantity+EXCLUDED.quantity,$7),saved_price=EXCLUDED.saved_price,
+		saved_shipping_cost=EXCLUDED.saved_shipping_cost,updated_at=NOW()`, userID, productID, input.OfferID, input.Quantity, price, shipping, maxCartQuantity)
 	if err != nil {
 		h.dbError(w, r, err, http.StatusInternalServerError, "No se pudo agregar la oferta al carrito.")
 		return
@@ -235,6 +244,10 @@ func (h *Handler) addServiceCartItem(w http.ResponseWriter, r *http.Request, inp
 	})
 }
 
+// UpdateCartItem atiende PUT /cart/items/{id}: fija las unidades de un ítem
+// del carrito del usuario de la sesión. Responde 400 si el id no es un entero
+// positivo, 422 si quantity está fuera de 1..maxCartQuantity, 404 si el ítem
+// no es suyo o no existe y 200 con la nueva cantidad.
 func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := intParam(r, "id")
 	if !ok {
@@ -246,7 +259,7 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var v httpx.Validator
-	v.Check(input.Quantity > 0, "quantity", "min", "quantity debe ser mayor que 0")
+	checkQuantity(&v, input.Quantity)
 	if !valid(w, r, &v) {
 		return
 	}
@@ -256,6 +269,14 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"id": id, "quantity": input.Quantity})
+}
+
+// checkQuantity exige entre 1 y maxCartQuantity unidades por ítem. Recibe el
+// Validator donde registra el error.
+func checkQuantity(v *httpx.Validator, quantity int32) {
+	v.Check(quantity > 0, "quantity", "min", "quantity debe ser mayor que 0")
+	v.Check(quantity <= maxCartQuantity, "quantity", "max",
+		fmt.Sprintf("quantity no puede superar %d", maxCartQuantity))
 }
 
 func (h *Handler) DeleteCartItem(w http.ResponseWriter, r *http.Request) {

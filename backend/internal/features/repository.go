@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
-	"strings"
 )
 
 // errInvalidID indica un id que no es numérico ni UUID: el handler responde
@@ -43,26 +42,32 @@ func (r *Repository) Exec(ctx context.Context, query string, args ...any) error 
 	return err
 }
 
+// ResolveProductID busca el id interno de un producto activo. Recibe su id
+// numérico o su UUID público y devuelve el id, pgx.ErrNoRows si no existe o
+// errInvalidID si value no es ninguno de los dos formatos.
 func (r *Repository) ResolveProductID(ctx context.Context, value string) (int32, error) {
 	var id int32
 	if number, err := strconv.ParseInt(value, 10, 32); err == nil {
 		err = r.db.QueryRow(ctx, `SELECT id FROM product WHERE id = $1 AND active = TRUE`, number).Scan(&id)
 		return id, err
 	}
-	if !looksLikeUUID(value) {
+	if !isUUID(value) {
 		return 0, errInvalidID
 	}
 	err := r.db.QueryRow(ctx, `SELECT id FROM product WHERE public_id = $1::uuid AND active = TRUE`, value).Scan(&id)
 	return id, err
 }
 
+// ResolveServiceID busca el id interno de un servicio activo. Recibe su id
+// numérico o su UUID público y devuelve el id, pgx.ErrNoRows si no existe o
+// errInvalidID si value no es ninguno de los dos formatos.
 func (r *Repository) ResolveServiceID(ctx context.Context, value string) (int32, error) {
 	var id int32
 	if number, err := strconv.ParseInt(value, 10, 32); err == nil {
 		err = r.db.QueryRow(ctx, `SELECT id FROM service WHERE id=$1 AND active=TRUE`, number).Scan(&id)
 		return id, err
 	}
-	if !looksLikeUUID(value) {
+	if !isUUID(value) {
 		return 0, errInvalidID
 	}
 	err := r.db.QueryRow(ctx, `SELECT id FROM service WHERE public_id=$1::uuid AND active=TRUE`, value).Scan(&id)
@@ -73,8 +78,4 @@ func (r *Repository) ResolveUserID(ctx context.Context, value int32) (int32, err
 	var id int32
 	err := r.db.QueryRow(ctx, `SELECT id FROM user_account WHERE id = $1 AND active = TRUE`, value).Scan(&id)
 	return id, err
-}
-
-func looksLikeUUID(value string) bool {
-	return len(value) == 36 && strings.Count(value, "-") == 4
 }
