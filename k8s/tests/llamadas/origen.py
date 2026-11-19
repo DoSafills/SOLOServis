@@ -7,6 +7,8 @@ propia ventana lo que recibió cada servicio.
 
   - TAL-165 (escenarios.py): solicitudes con distintos parámetros, por el
     gateway y directo, con y sin token.
+  - TAL-166 (escenarios.py): entradas válidas, inválidas, incompletas y
+    límite, y la forma de cada salida.
 
 Es de solo lectura: las únicas escrituras son pedidos que la API rechaza al
 decodificar o validar, antes de llegar a la base. El token de servicio viene
@@ -42,6 +44,7 @@ OK, FALLA, AVISO, OMITIDA = "OK", "FALLA", "AVISO", "OMITIDA"
 # Ticket -> (módulo, función) con sus escenarios. Cada función recibe (Visor, contexto).
 ESCENARIOS = {
     "165": ("escenarios", "solicitudes"),
+    "166": ("escenarios", "entradas_y_salidas"),
 }
 
 # URL que se muestra para cada servicio lógico (la que usaría el origen real).

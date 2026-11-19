@@ -329,8 +329,9 @@ Otro Job, aparte de la fase 10: `soloservis-llamadas` (`k8s/tests/llamadas`). Si
 Cada llamada lleva un `X-Request-ID` propio (`t165-05-productos-pagina`), el mismo en las dos ventanas y en el AccessLog del pod real. Los escenarios son:
 
 - TAL-165: parámetros de cada API, la misma llamada por el gateway y directo, lo que el gateway bloquea, autenticación y 10 lecturas simultáneas.
+- TAL-166: valores válidos, inválidos, incompletos y límite, y la forma de cada salida (problem+json, `request_id`, camelCase, sin detalles internos).
 
-**No escribe en la base:** solo hace lecturas; los POST, PUT y DELETE que prueba por el gateway los corta el nginx. El token de servicio sale de `soloservis-internal` y no se imprime. Ocupa un pod con 2 contenedores de 25m/64Mi (límite 100m/64Mi).
+**No escribe en la base:** las únicas escrituras son pedidos que Ingestion API y Auth API rechazan al decodificar o validar, antes de la consulta. El token de servicio sale de `soloservis-internal` y no se imprime. Ocupa un pod con 2 contenedores de 25m/64Mi (límite 100m/64Mi).
 
 ```bash
 python scripts/testing/llamadas.py --ventanas

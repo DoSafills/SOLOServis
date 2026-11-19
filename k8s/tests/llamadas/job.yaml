@@ -84,7 +84,7 @@ spec:
               value: /scripts
             # Lo cambia scripts/testing/llamadas.py (--tickets, --pausa).
             - name: TICKETS
-              value: "165"
+              value: "165,166"
             - name: PAUSA
               value: "0.4"
             # Para las rutas internas. Nunca se imprime.
