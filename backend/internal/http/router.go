@@ -16,6 +16,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/comparison"
 	"github.com/DoSafills/SOLOServis/backend/internal/features"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx/chiroute"
 	"github.com/DoSafills/SOLOServis/backend/internal/ingestion"
 	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
@@ -78,8 +79,14 @@ func adminOnly(db *pgxpool.Pool, logger *slog.Logger) func(http.Handler) http.Ha
 	return authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
 }
 
+// newRouter arma el router de una API: middlewares del estándar TAL-78, CORS,
+// GET /health y las rutas de cada registrar. Recibe el nombre que responde
+// /health, el pool de PostgreSQL, el origen permitido por CORS y los
+// registrars de la API. Devuelve el router listo; las rutas inexistentes y
+// los métodos no permitidos responden problem+json (TAL-245).
 func newRouter(name string, db *pgxpool.Pool, frontendURL string, registrars ...routeRegistrar) *chi.Mux {
 	r := chi.NewRouter()
+	chiroute.UseProblemFallbacks(r)
 	logger := useStandardMiddleware(r)
 	r.Use(corsMiddleware(frontendURL))
 	r.Get("/health", HealthHandler(name, db))

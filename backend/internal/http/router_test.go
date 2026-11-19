@@ -38,7 +38,7 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 		{"store preflight CORS", NewStoreRouter(nil, frontendURL), http.MethodOptions, "/stores", "", "", 204, "", ""},
 		{"store id inválido", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/abc", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"store offers sin product", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/offers", "", "", 400, "", httpx.CodeInvalidParameter},
-		{"store escritura no existe", NewStoreRouter(nil, frontendURL), http.MethodPost, "/stores", `{}`, "application/json", 405, "", ""},
+		{"store escritura no existe", NewStoreRouter(nil, frontendURL), http.MethodPost, "/stores", `{}`, "application/json", 405, "", httpx.CodeMethodNotAllowed},
 		{"search parámetro inválido", NewSearchRouter(nil, frontendURL), http.MethodGet, "/search/products?limit=0", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"pricing id inválido", NewPricingRouter(nil, frontendURL), http.MethodGet, "/offers/abc", "", "", 400, "", httpx.CodeInvalidParameter},
 		{"ingestion sin token", NewIngestionRouter(nil, frontendURL), http.MethodPost, "/ingestion/runs", `{}`, "application/json", 401, "", httpx.CodeUnauthorized},
@@ -79,29 +79,91 @@ func TestRouters_CableadoSinCambiarRespuestas(t *testing.T) {
 	}
 }
 
+// assertRoutingProblem verifica que rec sea un problem+json del estándar
+// TAL-78 con el status, el code y el detail dados y con request_id. Recibe el
+// test, la respuesta grabada y lo esperado; no devuelve nada y falla el test
+// si algo no coincide.
+func assertRoutingProblem(t *testing.T, rec *httptest.ResponseRecorder, status int, code, detail string) {
+	t.Helper()
+	if rec.Code != status {
+		t.Fatalf("status = %d, quiero %d (%s)", rec.Code, status, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != httpx.ProblemContentType {
+		t.Fatalf("Content-Type = %q, quiero %q", got, httpx.ProblemContentType)
+	}
+	var p httpx.Problem
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatalf("body no es un Problem: %v (%s)", err, rec.Body.String())
+	}
+	if p.Status != status || p.Code != code || p.Detail != detail || !httpx.ValidRequestID(p.RequestID) {
+		t.Fatalf("problem = %+v, quiero status %d, code %q, detail %q y request_id", p, status, code, detail)
+	}
+}
+
+// Métodos no registrados (TAL-245): 405 problem+json con Allow, que lista los
+// métodos con que la ruta sí responde.
 func TestRouters_MetodosNoRegistradosResponden405(t *testing.T) {
 	tests := []struct {
 		name   string
 		router http.Handler
 		method string
 		path   string
+		allow  string
 	}{
-		{"PATCH products", NewProductRouter(nil, "http://localhost:5173"), http.MethodPatch, "/products/00000000-0000-0000-0000-000000000001"},
-		{"POST stores", NewStoreRouter(nil, "http://localhost:5173"), http.MethodPost, "/stores"},
-		{"PATCH stores", NewStoreRouter(nil, "http://localhost:5173"), http.MethodPatch, "/stores/1"},
-		{"POST services", NewServiceRouter(nil, "http://localhost:5173"), http.MethodPost, "/services"},
-		{"POST search", NewSearchRouter(nil, "http://localhost:5173"), http.MethodPost, "/search/products"},
-		{"PATCH comparisons", NewComparisonRouter(nil, "http://localhost:5173"), http.MethodPatch, "/comparisons/products/1"},
-		{"GET auth login", auth.NewRouter(nil, "http://localhost:5173"), http.MethodGet, "/auth/login"},
-		{"DELETE ingestion run", NewIngestionRouter(nil, "http://localhost:5173"), http.MethodDelete, "/ingestion/runs/1"},
+		{"PATCH products", NewProductRouter(nil, "http://localhost:5173"), http.MethodPatch, "/products/00000000-0000-0000-0000-000000000001", "GET, PUT, DELETE"},
+		{"POST stores", NewStoreRouter(nil, "http://localhost:5173"), http.MethodPost, "/stores", "GET"},
+		{"PATCH stores", NewStoreRouter(nil, "http://localhost:5173"), http.MethodPatch, "/stores/1", "GET"},
+		{"POST services", NewServiceRouter(nil, "http://localhost:5173"), http.MethodPost, "/services", "GET"},
+		{"POST search", NewSearchRouter(nil, "http://localhost:5173"), http.MethodPost, "/search/products", "GET"},
+		{"DELETE search", NewSearchRouter(nil, "http://localhost:5173"), http.MethodDelete, "/search/products", "GET"},
+		{"GET offers", NewPricingRouter(nil, "http://localhost:5173"), http.MethodGet, "/offers", "POST"},
+		{"PATCH comparisons", NewComparisonRouter(nil, "http://localhost:5173"), http.MethodPatch, "/comparisons/products/1", "GET, PUT, DELETE"},
+		{"GET auth login", auth.NewRouter(nil, "http://localhost:5173"), http.MethodGet, "/auth/login", "POST"},
+		{"DELETE ingestion run", NewIngestionRouter(nil, "http://localhost:5173"), http.MethodDelete, "/ingestion/runs/1", "GET"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			recorder := httptest.NewRecorder()
-			tc.router.ServeHTTP(recorder, httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`)))
-			if recorder.Code != http.StatusMethodNotAllowed {
-				t.Fatalf("%s %s = %d, want 405", tc.method, tc.path, recorder.Code)
+			rec := httptest.NewRecorder()
+			tc.router.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`)))
+			assertRoutingProblem(t, rec, http.StatusMethodNotAllowed, httpx.CodeMethodNotAllowed, httpx.MethodNotAllowedDetail)
+			if got := rec.Header().Get("Allow"); got != tc.allow {
+				t.Fatalf("Allow = %q, quiero %q", got, tc.allow)
+			}
+		})
+	}
+}
+
+// Rutas inexistentes dentro de una API (TAL-245): 404 problem+json en vez del
+// "404 page not found" en text/plain de chi. Incluye la raíz del prefijo de
+// cada API sin ruta propia y rutas más largas que cualquiera registrada.
+func TestRouters_RutaInexistenteResponde404(t *testing.T) {
+	const frontendURL = "http://localhost:5173"
+	tests := []struct {
+		name   string
+		router http.Handler
+		method string
+		path   string
+	}{
+		{"product ruta larga", NewProductRouter(nil, frontendURL), http.MethodGet, "/products/x/y/z"},
+		{"store ruta larga", NewStoreRouter(nil, frontendURL), http.MethodGet, "/stores/1/offers/x"},
+		{"service ruta larga", NewServiceRouter(nil, frontendURL), http.MethodGet, "/services/x/y"},
+		{"user ruta larga", NewUserRouter(nil, frontendURL), http.MethodGet, "/users/1/x"},
+		{"pricing ruta larga", NewPricingRouter(nil, frontendURL), http.MethodGet, "/offers/1/x"},
+		{"search raíz", NewSearchRouter(nil, frontendURL), http.MethodGet, "/search"},
+		{"comparison raíz", NewComparisonRouter(nil, frontendURL), http.MethodGet, "/comparisons"},
+		{"ingestion raíz", NewIngestionRouter(nil, frontendURL), http.MethodGet, "/ingestion"},
+		{"ingestion POST inexistente", NewIngestionRouter(nil, frontendURL), http.MethodPost, "/ingestion/x"},
+		{"auth raíz", auth.NewRouter(nil, frontendURL), http.MethodGet, "/auth"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			tc.router.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+			assertRoutingProblem(t, rec, http.StatusNotFound, httpx.CodeNotFound, httpx.RouteNotFoundDetail)
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != frontendURL {
+				t.Fatalf("CORS alterado: Access-Control-Allow-Origin = %q", got)
 			}
 		})
 	}
