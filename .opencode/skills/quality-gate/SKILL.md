@@ -38,9 +38,14 @@ los datos y aparecen fallas intermitentes que no son reales.
 
 | Suite | Falla | Estado |
 | --- | --- | --- |
-| `ruff check src tests` | `I001` import desordenado en `scraper/tests/test_extract.py` | confirmado el 2026-11-16 |
-| `pnpm format:check` | archivos con CRLF | reportado en `AGENTS.md` §13 |
 | `crawler/` | 2 tests de SQLite sin cerrar, sólo en Windows | reportado en `AGENTS.md` §13 |
+
+`ruff check src tests` y `pnpm format:check` pasan limpios en `develop`
+(verificado el 2026-11-19): si fallan, la falla es del cambio.
+
+El CI no corre los tests de integración de Go. Si tocaste
+`backend/database/` o consultas SQL, córrelos con `TEST_DATABASE_URL`
+(o `reporte.py --postgres-docker`) y compáralos con `develop`.
 
 Si te topas con una de estas, **dilo en el PR** y no la arregles de paso: se
 corrige en su propia rama para que el diff se pueda revisar.
