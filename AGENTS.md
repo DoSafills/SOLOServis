@@ -40,6 +40,7 @@ No repitas en un skill lo que ya dice este archivo: aquí va **qué** se hace y 
 7. **Secretos:** nunca imprimas ni escribas en git tokens o contraseñas. Los Secrets se nombran, no se muestran. No leas `~/.docker/config.json` ni el kubeconfig.
 8. **Reporta lo real:** si un test falla o no se pudo correr, dilo con la salida. No des por validado lo que no ejecutaste.
 9. **Responde en español.**
+10. **Toda función se explica.** Cada función, método o handler que agregues o modifiques lleva un comentario que diga qué hace, qué recibe y qué devuelve, y por qué existe si no es obvio. En Go, comentario de documentación (`// NombreFuncion …`); en Python, docstring; en TypeScript, JSDoc (`/** … */`). Lo pidió el scrum master para todo el proyecto: si tocas un archivo con funciones sin explicar, explícalas en el mismo cambio.
 
 ---
 
@@ -80,8 +81,8 @@ No hay rastro en el código de: **Redis**, **Scrapy**, **Playwright** (directo),
 | Caché (Redis) | Prevista; sin implementar |
 | Documentación OpenAPI | Prevista; hoy los endpoints están en `backend/README.md` |
 | Pantallas de seguimiento de precios y notificaciones | Las APIs `watchlist` y `notification` existen; el frontend no las usa |
-| CI (GitHub Actions) | No existe `.github/workflows` |
 | Tests del frontend | No hay ninguno; solo `pnpm check` |
+| Visor de llamadas en el pod de test | Pedido por el scrum master: un sistema de pruebas que recree el flujo de datos (scraper → ingestion → catálogo → gateway) y el uso de las APIs desde el pod de test, y que muestre cada llamada en **dos ventanas**: en una, lo que envía el origen; en la otra, lo que recibe el destino. Parte de `scripts/testing/salud.py` (TAL-164) y `scripts/testing/flujo_productos.py` (TAL-184), que ya comparan lo enviado con lo recibido. Diseño pendiente: proponlo antes de implementarlo |
 
 ---
 
@@ -137,6 +138,7 @@ docs/               estandares/, auditorias/, database/, requirements/
 | Antes de afirmar que algo está en `develop` | Verifícalo (`git merge-base --is-ancestor`): ya hubo PR que quedaron en `main` por error |
 | Checkout de la persona | No cambies de rama sin avisar. No toques sus contenedores de Docker (`soloservis_*`) |
 | Documentación de una tarea | Se escribe después del código y del redeploy, con evidencia real del clúster |
+| A quién va un ticket | Según el área del problema: frontend (`fronted/`) → Cristian; APIs del backend y Kubernetes → Marcelo; scraper y crawler → Kevin; lo demás → Ricardo (scrum master). Revisa en el código dónde está la causa antes de asignarlo |
 
 ---
 
