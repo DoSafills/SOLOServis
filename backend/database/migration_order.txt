@@ -33,3 +33,5 @@
 021_dedupe_scraped_products.sql
 022_unify_product_category_tree.sql
 023_consolidate_computacion_category.sql
+024_celulares_category.sql
+025_merge_refrigeradores_duplicates.sql

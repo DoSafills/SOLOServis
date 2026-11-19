@@ -457,7 +457,11 @@ func TestAddItems_ErroresDeCategoriaYBaseDeDatos(t *testing.T) {
 		{"categoría inexistente", func(e *env) { e.catalog.resolveErr = products.ErrCategoryNotFound }, []string{"product.categorySlug/not_found"}},
 		{"categoría de servicios", func(e *env) {
 			e.catalog.category = products.WriteCategory{ID: int32p(4), ItemType: categories.ItemTypeService}
-		}, []string{"product.categorySlug/not_found"}},
+		}, []string{"product.categorySlug/not_enabled"}},
+		{"categoría sin vínculo legado", func(e *env) {
+			e.catalog.category = products.WriteCategory{ID: int32p(7), Slug: strp("celulares"),
+				ItemType: categories.ItemTypeProduct}
+		}, []string{"product.categorySlug/not_enabled"}},
 		{"sku duplicado en carrera", func(e *env) { e.catalog.createErr = &pgconn.PgError{Code: "23505"} }, []string{"product.sku/conflict"}},
 		{"error al buscar", func(e *env) { e.runs.findErr = errBoom }, []string{"/internal_error"}},
 		{"error al registrar la oferta", func(e *env) { e.offers.upsertErr = errBoom }, []string{"/internal_error"}},
@@ -481,6 +485,41 @@ func TestAddItems_ErroresDeCategoriaYBaseDeDatos(t *testing.T) {
 	}
 }
 
+func TestAddItems_CodigosDeCategoria(t *testing.T) {
+	item := func(slug string) string {
+		return `{"product":{"name":"Producto","categorySlug":` + mustJSON(t, slug) + `},"offer":{"price":1}}`
+	}
+	for _, tc := range []struct {
+		name  string
+		slug  string
+		setup func(*env)
+		want  string
+	}{
+		{name: "vacía", slug: " ", want: "product.categorySlug/required"},
+		{name: "desconocida", slug: "categoria-inexistente", setup: func(e *env) {
+			e.catalog.resolveErrors = map[string]error{"categoria-inexistente": products.ErrCategoryNotFound}
+		}, want: "product.categorySlug/not_found"},
+		{name: "sin vínculo legado", slug: "celulares", setup: func(e *env) {
+			e.catalog.category = products.WriteCategory{ID: int32p(7), Slug: strp("celulares"),
+				ItemType: categories.ItemTypeProduct}
+		}, want: "product.categorySlug/not_enabled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			if tc.setup != nil {
+				tc.setup(e)
+			}
+			result := batch(t, e, item(tc.slug))
+			if got := codes(result.Results[0]); !reflect.DeepEqual(got, []string{tc.want}) {
+				t.Fatalf("errores = %v, quiero %s", got, tc.want)
+			}
+			if result.Failed != 1 || result.Processed != 0 {
+				t.Fatalf("el ítem debe fallar sin detener el lote: %+v", result)
+			}
+		})
+	}
+}
+
 func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -497,6 +536,9 @@ func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
 			slug:     "refrigeración",
 			wantSlug: "refrigeradores",
 		},
+		{name: "telefonía se enruta a celulares", slug: "telefonía", wantSlug: "celulares"},
+		{name: "computación se enruta a notebooks", slug: "computación", wantSlug: "notebooks"},
+		{name: "computadores se enruta a notebooks", slug: "computadores", wantSlug: "notebooks"},
 		{
 			name:       "desconocido",
 			slug:       "desconocida",

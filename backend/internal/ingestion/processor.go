@@ -177,7 +177,7 @@ func (p *Processor) createProduct(
 		return 0, "", nil, err
 	}
 	if category.ItemType != categories.ItemTypeProduct || category.LegacyID == nil {
-		return 0, "", []httpx.FieldError{{Field: "product.categorySlug", Code: "not_found",
+		return 0, "", []httpx.FieldError{{Field: "product.categorySlug", Code: "not_enabled",
 			Message: "product.categorySlug no está habilitada para productos"}}, nil
 	}
 
