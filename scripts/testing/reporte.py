@@ -8,6 +8,7 @@ estados en un reporte Markdown. Solo usa la libreria estandar de Python 3.9+.
     python scripts/testing/reporte.py --suites backend   # solo una
     python scripts/testing/reporte.py --postgres-docker  # con tests de integracion
     python scripts/testing/reporte.py --smoke            # suma el pod de test de k8s
+    python scripts/testing/reporte.py --salud            # suma el health check del cluster
 
 Sale con codigo 1 si alguna prueba falla, para poder usarlo en CI.
 """
@@ -54,6 +55,7 @@ class Suite:
     reason: str = ""
     seconds: float = 0.0
     cases: list[Case] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # Markdown extra para el detalle de la suite
 
     def count(self, status: str) -> int:
         return sum(1 for case in self.cases if case.status == status)
@@ -260,6 +262,46 @@ def suite_smoke(raw_dir: Path) -> Suite:
     return suite
 
 
+# ------------------------------------------------------------------ salud
+
+
+def suite_salud(raw_dir: Path) -> Suite:
+    """Health check del despliegue (TAL-164): corre scripts/testing/salud.py."""
+    suite = Suite("salud", "Kubernetes (health check)", "python scripts/testing/salud.py --detalle")
+    if not which("kubectl"):
+        suite.reason = "no se encontró `kubectl` en el PATH"
+        return suite
+    result = raw_dir / "salud.json"
+    started = time.monotonic()
+    code, out = run([sys.executable, str(ROOT / "scripts" / "testing" / "salud.py"), "--detalle",
+                     "--json", str(result)], ROOT, timeout=600)
+    suite.seconds = time.monotonic() - started
+    (raw_dir / "salud.txt").write_text(out, encoding="utf-8")
+    if code not in (0, 1) or not result.exists():
+        suite.reason = trim(out, 2).replace("ERROR: ", "") or "no se pudo consultar el clúster"
+        return suite
+    data = json.loads(result.read_text(encoding="utf-8"))
+    warnings = []
+    for check in data["checks"]:
+        name = f"{check['section']}: {check['name']}"
+        detail = "\n".join([check["detail"], *check["items"]]).strip()
+        # Un aviso no es una falla: cuenta como aprobada y se lista aparte.
+        suite.cases.append(Case(name, FAIL if check["status"] == "FALLA" else OK, detail))
+        if check["status"] == "AVISO":
+            warnings.append(f"- **{name}:** {check['detail']}" + "".join(f"\n  - {i}" for i in check["items"]))
+    if warnings:
+        suite.notes += ["**Avisos (no son fallas):**", "", *warnings, ""]
+    cell = lambda text: str(text).replace("|", "\\|")  # noqa: E731
+    suite.notes += ["**Pedidos realizados** (lo esperado y lo obtenido en cada consulta):", "",
+                    "| Estado | Pedido | Esperado | Obtenido |", "| --- | --- | --- | --- |"]
+    icons = {"OK": "✅", "FALLA": "❌", "AVISO": "⚠️"}
+    suite.notes += [f"| {icons.get(p['estado'], p['estado'])} | `{cell(p['pedido'])}` | {cell(p['esperado'])} | "
+                    f"{cell(p['obtenido'])} |" for p in data["probes"]]
+    suite.notes.append("")
+    suite.status = FAIL if suite.count(FAIL) else OK
+    return suite
+
+
 # ------------------------------------------------- PostgreSQL desechable
 
 
@@ -417,6 +459,8 @@ def render(suites: list[Suite], meta: dict[str, str]) -> str:
                 for group, counts in sorted(groups2.items())
             ]
         lines.append("")
+        if suite.notes:
+            lines += suite.notes
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -425,6 +469,8 @@ def main() -> int:
     parser.add_argument("--suites", default=",".join(SUITES),
                         help=f"suites separadas por coma (por defecto: {','.join(SUITES)})")
     parser.add_argument("--smoke", action="store_true", help="suma el pod de test de Kubernetes")
+    parser.add_argument("--salud", action="store_true",
+                        help="suma el health check del despliegue (scripts/testing/salud.py)")
     parser.add_argument("--postgres-docker", action="store_true",
                         help="levanta un PostgreSQL 18 desechable para los tests de integración")
     parser.add_argument("--python", default=sys.executable,
@@ -471,6 +517,9 @@ def main() -> int:
         if args.smoke:
             print("Suite smoke: leyendo el pod de test…", flush=True)
             suites.append(suite_smoke(raw_dir))
+        if args.salud:
+            print("Suite salud: revisando el despliegue…", flush=True)
+            suites.append(suite_salud(raw_dir))
     finally:
         if started_pg:
             stop_postgres()
@@ -480,7 +529,7 @@ def main() -> int:
         "Fecha": f"{now:%Y-%m-%d %H:%M %z}",
         "Rama": f"`{git('rev-parse', '--abbrev-ref', 'HEAD')}`",
         "Commit": f"`{commit}`{dirty}",
-        "Suites pedidas": ", ".join(chosen + (["smoke"] if args.smoke else [])),
+        "Suites pedidas": ", ".join(chosen + (["smoke"] if args.smoke else []) + (["salud"] if args.salud else [])),
         "Tests de integración": integration,
         "Go": version(["go", "version"]),
         "Python": version([args.python, "--version"]),
@@ -496,7 +545,8 @@ def main() -> int:
         extra = f" ({suite.reason})" if suite.status == NOT_RUN else (
             f" {suite.count(OK)} ok, {suite.count(FAIL)} fallidas, {suite.count(SKIPPED)} omitidas")
         print(f"  {suite.title}: {suite.status}{extra}")
-    print(f"Reporte: {report.relative_to(ROOT)}")
+    # Con --out fuera del repo, relative_to fallaba después de escribir el reporte.
+    print(f"Reporte: {report.relative_to(ROOT) if report.is_relative_to(ROOT) else report}")
     print(f"Datos crudos: {raw_dir.relative_to(ROOT)}")
     return 1 if any(suite.status == FAIL for suite in suites) else 0
 

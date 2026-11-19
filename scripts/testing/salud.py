@@ -6,7 +6,9 @@ Revisa en una sola pasada que SOLOServis este disponible y sano:
   - Pods y Deployments: todos listos, sin CrashLoopBackOff ni reinicios.
   - APIs: /health de cada proceso (comercial, usuarios e ingestion, o backend
     en la topologia consolidada) con la base conectada; scraper-api y frontend.
-  - Gateway: una ruta de cada dominio publico pasa por el nginx del frontend.
+  - Gateway: lee las reglas location -> proxy_pass del nginx desplegado y, por
+    cada prefijo, compara la respuesta por el gateway con la del upstream
+    configurado y con la de los otros procesos.
   - Acceso publico: el Ingress responde por el host publico.
   - PostgreSQL: responde y tiene aplicadas todas las migraciones del manifiesto.
   - Cuota del namespace y volumenes.
@@ -19,7 +21,9 @@ PostgreSQL. No usa el token de servicio. Usa el kubectl y el namespace del
 contexto actual. Solo la libreria estandar de Python 3.9+.
 
     python scripts/testing/salud.py
+    python scripts/testing/salud.py --detalle        # cada pedido: esperado y obtenido
     python scripts/testing/salud.py --md salud.md    # evidencia en Markdown
+    python scripts/testing/reporte.py --salud        # dentro del reporte de testing
 
 Sale con codigo 1 si alguna comprobacion falla.
 """
@@ -63,6 +67,18 @@ class ClusterError(RuntimeError):
     pass
 
 
+# Cada pedido que hace el script, con lo esperado y lo obtenido (--detalle).
+PROBES: list[dict[str, str]] = []
+
+
+def probe(section: str, request: str, expected: str, got: str, sample: str, ok: bool | str) -> None:
+    """Registra un pedido. `ok` es True/False, o directamente OK, FAIL o WARN."""
+    sample = " ".join(sample.split())
+    status = ok if isinstance(ok, str) else (OK if ok else FAIL)
+    PROBES.append({"seccion": section, "pedido": request, "esperado": expected, "obtenido": got,
+                   "extracto": sample[:100] + ("…" if len(sample) > 100 else ""), "estado": status})
+
+
 # ---------------------------------------------------------------- kubectl
 
 def kubectl(args: list[str], stdin: str | None = None, timeout: int = 120) -> str:
@@ -102,20 +118,53 @@ def sql(query: str) -> list[dict]:
     return json.loads(out.strip())
 
 
-def http_get(urls: list[str]) -> dict[str, tuple[int, str]]:
-    """GET de URLs internas desde el pod del frontend, en un solo exec."""
+def http_get(urls: list[str]) -> dict[str, tuple[int, str, str]]:
+    """GET de URLs internas desde el pod del frontend, en un solo exec.
+
+    Devuelve por URL (código, cuerpo, Content-Type)."""
     lines = []
     for i, url in enumerate(urls):
         lines.append(f"echo '@@@BEGIN {i}'")
-        lines.append(f"curl -s -m 15 -w '\\n@@@STATUS %{{http_code}}\\n' '{url}'")
+        lines.append(f"curl -s -m 15 -w '\\n@@@STATUS %{{http_code}} %{{content_type}}\\n' '{url}'")
     out = kubectl(["exec", "-i", "deploy/frontend", "--", "sh", "-s"], stdin="\n".join(lines) + "\n",
                   timeout=60 + 15 * len(urls))
-    result: dict[str, tuple[int, str]] = {}
+    result: dict[str, tuple[int, str, str]] = {}
     for chunk in out.split("@@@BEGIN ")[1:]:
         head, _, rest = chunk.partition("\n")
         body, _, status = rest.rpartition("@@@STATUS ")
-        result[urls[int(head)]] = (int(status.strip() or 0), body.rstrip("\n"))
+        code, _, ctype = status.strip().partition(" ")
+        result[urls[int(head)]] = (int(code or 0), body.rstrip("\n"), ctype.split(";")[0].strip())
     return result
+
+
+NGINX_CONF = "/etc/nginx/conf.d/default.conf"
+LOCATION = re.compile(r"location\s+~\s+\^/\(?([a-z|-]+)\)?\(/\.\*\)\?\$\s*\{")
+PROXY = re.compile(r"proxy_pass\s+https?://([^;/\s]+)")
+METHODS = re.compile(r"limit_except\s+([A-Z ]+?)\s*\{")
+REQUEST_ID = re.compile(r'"(request_?[iI]d)"\s*:\s*"[^"]*"')
+
+
+def gateway_routes() -> list[tuple[str, str, str]]:
+    """Reglas (prefijo, upstream, métodos) del nginx que corre en el pod del frontend."""
+    conf = kubectl(["exec", "deploy/frontend", "--", "cat", NGINX_CONF])
+    # Un bloque va hasta el siguiente `location`: puede tener llaves anidadas
+    # (limit_except GET { deny all; }).
+    heads = list(re.finditer(r"location\s", conf))
+    routes = []
+    for i, head in enumerate(heads):
+        block = conf[head.start(): heads[i + 1].start() if i + 1 < len(heads) else len(conf)]
+        match, upstream = LOCATION.match(block), PROXY.search(block)
+        if match and upstream:
+            methods = METHODS.search(block)
+            allowed = " ".join(methods.group(1).split()) if methods else "todos"
+            routes += [(prefix, upstream.group(1), allowed) for prefix in match.group(1).split("|")]
+    return routes
+
+
+def fingerprint(response: tuple[int, str, str]) -> tuple[int, str, str]:
+    """Respuesta comparable entre pedidos: sin el request_id, que cambia en cada uno."""
+    code, body, ctype = response
+    return code, ctype, REQUEST_ID.sub("", body)
 
 
 QUANTITY = re.compile(r"^([0-9.]+)([a-zA-Z]*)$")
@@ -161,6 +210,9 @@ def check_pods() -> tuple[list[Check], list[str], str]:
                                  f" ({term.get('reason', '?')}, código {term.get('exitCode', '?')})")
         if not ready:
             not_ready.append(f"{name}: {pod['status'].get('phase')}")
+    probe(s, "kubectl get pods (sin los de Jobs)", "todos Ready, sin esperas ni reinicios",
+          f"{len(running) - len(not_ready)} de {len(running)} Ready, {len(restarted)} con reinicios",
+          "; ".join(crashing), not (crashing or not_ready))
     if crashing or not_ready:
         checks.append(Check(s, "Pods listos", FAIL, f"{len(running) - len(not_ready)} de {len(running)} listos",
                              items=crashing + not_ready))
@@ -178,6 +230,8 @@ def check_pods() -> tuple[list[Check], list[str], str]:
               for d in deployments if d["status"].get("readyReplicas", 0) < d["spec"].get("replicas", 1)]
     images = sorted({c["image"].rsplit(":", 1)[-1] for d in deployments
                      for c in d["spec"]["template"]["spec"]["containers"] if "soloservis" in c["image"]})
+    probe(s, "kubectl get deployments", "readyReplicas = replicas en todos",
+          f"{len(deployments) - len(behind)} de {len(deployments)}", "; ".join(behind), not behind)
     checks.append(Check(s, "Deployments", FAIL if behind else OK,
                         f"{len(deployments) - len(behind)} de {len(deployments)} con todas sus réplicas listas; "
                         f"tag de imagen: {', '.join(images) or '?'}", items=behind))
@@ -196,37 +250,64 @@ def check_http(services: list[str]) -> list[Check]:
     targets = {f"http://{name}:8080/health": name for name in apis}
     targets["http://scraper-api:8095/health"] = "scraper-api"
     targets["http://frontend:80/healthz"] = "frontend"
-    gateway = {
-        "http://frontend:80/": ("app (frontend)", 200, 'id="root"'),
-        "http://frontend:80/products?limit=1": ("/products → comercial", 200, '"id"'),
-        "http://frontend:80/search/products?limit=1": ("/search → comercial", 200, '"id"'),
-        "http://frontend:80/services?limit=1": ("/services → comercial", 200, ""),
-        "http://frontend:80/auth/validate": ("/auth → usuarios (sin sesión: 401)", 401, ""),
-    }
-    responses = http_get(list(targets) + list(gateway))
+    app = "http://frontend:80/"
+    # Las rutas se leen de la configuración desplegada, no de este script. Cada
+    # prefijo se pide por el gateway y directo a cada proceso de API.
+    routes = gateway_routes()
+    route_urls = [f"http://{host}/{prefix}" for prefix, _, _ in routes
+                  for host in ["frontend:80"] + [f"{a}:8080" for a in apis]]
+    responses = http_get(list(targets) + [app] + list(dict.fromkeys(route_urls)))
 
     checks: list[Check] = []
     for url, name in targets.items():
-        code, body = responses[url]
+        code, body, _ = responses[url]
         problem = ""
+        needs_db = name in API_SERVICES
         if code != 200:
             problem = f"HTTP {code}"
-        elif name in API_SERVICES and '"database":"connected"' not in body.replace(" ", ""):
+        elif needs_db and '"database":"connected"' not in body.replace(" ", ""):
             problem = "la base no está conectada"
+        probe(SECTIONS[1], f"GET {url}", "200" + (' con "database":"connected"' if needs_db else ""),
+              str(code), body, not problem)
         checks.append(Check(SECTIONS[1], f"{name} /health" if name != "frontend" else "frontend /healthz",
                             FAIL if problem else OK, f"{problem + ': ' if problem else ''}{body[:90]}".strip()))
-    wrong = []
-    for url, (label, expected, needle) in gateway.items():
-        code, body = responses[url]
-        # Una ruta que nginx no enruta cae en la app y responde 200 con HTML:
-        # las rutas de API tienen que devolver JSON.
-        is_api = not url.endswith(":80/")
-        if code != expected or (needle and needle not in body):
-            wrong.append(f"{label}: HTTP {code}, se esperaba {expected}")
-        elif is_api and body.lstrip().startswith("<"):
-            wrong.append(f"{label}: respondió HTML de la app, no la API (nginx no enruta la ruta)")
-    checks.append(Check(SECTIONS[2], "Rutas del gateway (nginx del frontend)", FAIL if wrong else OK,
-                        f"{len(gateway) - len(wrong)} de {len(gateway)} rutas llegan a su dominio", items=wrong))
+    code, body, ctype = responses[app]
+    app_ok = code == 200 and 'id="root"' in body
+    probe(SECTIONS[2], f"GET {app}", '200, HTML con `id="root"`', f"{code} {ctype}", body, app_ok)
+    checks.append(Check(SECTIONS[2], "App del frontend", OK if app_ok else FAIL, f"`/` → HTTP {code} {ctype}"))
+
+    # Una ruta llega a su dominio si la respuesta del gateway es igual a la del
+    # upstream configurado (código, Content-Type y cuerpo sin request_id). Se
+    # distingue si además es distinta de la de los otros procesos.
+    rows, wrong, ambiguous = [], [], []
+    for prefix, upstream, methods in routes:
+        via = responses[f"http://frontend:80/{prefix}"]
+        direct = responses.get(f"http://{upstream}/{prefix}")
+        others = [a for a in apis if f"{a}:8080" != upstream]
+        same_as = [a for a in others if fingerprint(responses[f"http://{a}:8080/{prefix}"]) == fingerprint(via)]
+        reached = direct is not None and fingerprint(direct) == fingerprint(via)
+        detail = (f"/{prefix} → {upstream} (config, métodos: {methods}): gateway {via[0]} {via[2]}"
+                  + (f" = directo {direct[0]} {direct[2]}" if reached else
+                     f" ≠ directo {direct[0]} {direct[2]}" if direct else " (upstream no es un proceso de API)")
+                  + "".join(f"; {a} {responses[f'http://{a}:8080/{prefix}'][0]} "
+                            f"{responses[f'http://{a}:8080/{prefix}'][2]}" for a in others))
+        rows.append(detail)
+        if not reached:
+            wrong.append(detail + (f" — la respuesta del gateway es la de {', '.join(same_as)}" if same_as else
+                                   " — el gateway respondió la app (nginx no enruta el prefijo)"
+                                   if via[2] == "text/html" else ""))
+        elif same_as:
+            ambiguous.append(detail + f" (igual que {', '.join(same_as)}: no se distingue el dominio)")
+        probe(SECTIONS[2], f"GET http://frontend:80/{prefix}",
+              f"igual a {upstream}" + (f", distinta de {', '.join(others)}" if others else ""),
+              f"{via[0]} {via[2]}" + (", igual al upstream" if reached else ", distinta del upstream")
+              + (f", igual a {', '.join(same_as)}" if same_as else ""),
+              via[1], FAIL if not reached else WARN if same_as else OK)
+    status = FAIL if wrong or not routes else WARN if ambiguous else OK
+    summary = (f"{len(routes) - len(wrong)} de {len(routes)} prefijos de `{NGINX_CONF}` llegan al upstream "
+               "que dice la config" if routes else f"no se encontraron reglas `proxy_pass` en {NGINX_CONF}")
+    checks.append(Check(SECTIONS[2], "Enrutamiento del gateway (nginx del frontend)", status, summary,
+                        items=wrong + ambiguous + [r for r in rows if not any(x.startswith(r) for x in wrong + ambiguous)]))
     return checks
 
 
@@ -250,8 +331,10 @@ def check_public() -> list[Check]:
     except urllib.error.HTTPError as exc:
         code = exc.code
     except (urllib.error.URLError, OSError) as exc:
+        probe(s, f"GET {url} (desde este equipo)", "200", "sin respuesta", str(getattr(exc, "reason", exc)), False)
         return [Check(s, "Acceso público", FAIL, f"{url}: {getattr(exc, 'reason', exc)}")]
     ms = (time.monotonic() - started) * 1000
+    probe(s, f"GET {url} (desde este equipo)", "200", f"{code} en {ms:.0f} ms", "", code == 200)
     return [Check(s, "Acceso público", OK if code == 200 else FAIL,
                   f"{url} → HTTP {code} en {ms:.0f} ms (certificado de la plataforma, no de confianza)")]
 
@@ -265,6 +348,9 @@ def check_postgres() -> list[Check]:
     missing = [m for m in manifest if m not in applied]
     extra = sorted(applied - set(manifest))
     products = rows[0]["productos"] if rows else 0
+    probe(s, "SQL: SELECT version FROM schema_migrations (READ ONLY)",
+          f"las {len(manifest)} del manifiesto", f"{len(applied)} aplicadas, {len(missing)} faltan",
+          ", ".join(missing), not missing)
     checks = [Check(s, "PostgreSQL responde", OK, f"{products} productos activos")]
     if missing:
         checks.append(Check(s, "Migraciones", WARN,
@@ -292,10 +378,16 @@ def check_resources() -> list[Check]:
             rows.append(f"{key} {used.get(key, '0')}/{hard[key]}")
             if ratio >= QUOTA_WARN:
                 high.append(f"{key}: {used.get(key, '0')} de {hard[key]} ({ratio:.0%})")
+        probe(s, f"kubectl get resourcequota {quota['metadata']['name']}",
+              f"cada recurso bajo el {QUOTA_WARN:.0%}", f"{len(high)} sobre el umbral", "; ".join(high),
+              WARN if high else OK)
         checks.append(Check(s, f"Cuota `{quota['metadata']['name']}`", WARN if high else OK,
                             "; ".join(rows), items=high))
+    pvcs = kget("pvc")
     unbound = [f"{p['metadata']['name']}: {p['status'].get('phase')}"
-               for p in kget("pvc") if p["status"].get("phase") != "Bound"]
+               for p in pvcs if p["status"].get("phase") != "Bound"]
+    probe(s, "kubectl get pvc", "todos Bound", f"{len(pvcs) - len(unbound)} de {len(pvcs)}",
+          "; ".join(unbound), not unbound)
     checks.append(Check(s, "Volúmenes (PVC)", FAIL if unbound else OK,
                         "todos en Bound" if not unbound else f"{len(unbound)} sin enlazar", items=unbound))
     return checks
@@ -303,7 +395,7 @@ def check_resources() -> list[Check]:
 
 # ---------------------------------------------------------------- salida
 
-def print_report(checks: list[Check], header: dict[str, str]) -> None:
+def print_report(checks: list[Check], header: dict[str, str], detail: bool) -> None:
     for key, value in header.items():
         print(f"{key}: {value}")
     for section in SECTIONS:
@@ -312,12 +404,27 @@ def print_report(checks: list[Check], header: dict[str, str]) -> None:
             print(f"  [{c.status}] {c.name}: {c.detail}")
             for item in c.items:
                 print(f"      - {item}")
+    if detail:
+        print("\n== Pedidos realizados")
+        for p in PROBES:
+            print(f"  [{p['estado']}] {p['pedido']}\n      esperado: {p['esperado']} | obtenido: {p['obtenido']}"
+                  + (f" | {p['extracto']}" if p["extracto"] else ""))
     fails = sum(c.status == FAIL for c in checks)
     warns = sum(c.status == WARN for c in checks)
     print(f"\nResultado: {len(checks) - fails - warns} OK, {fails} fallas, {warns} avisos")
 
 
-def write_markdown(path: Path, checks: list[Check], header: dict[str, str]) -> None:
+def probes_markdown() -> list[str]:
+    cell = lambda text: text.replace("|", "\\|")  # noqa: E731
+    lines = ["## Pedidos realizados", "",
+             "Cada consulta que hizo el script, con lo esperado y lo obtenido.", "",
+             "| Estado | Pedido | Esperado | Obtenido | Extracto de la respuesta |", "| --- | --- | --- | --- | --- |"]
+    lines += [f"| {ICON[p['estado']]} | `{cell(p['pedido'])}` | {cell(p['esperado'])} | {cell(p['obtenido'])} | "
+              f"{('`' + cell(p['extracto']) + '`') if p['extracto'] else ''} |" for p in PROBES]
+    return lines + [""]
+
+
+def write_markdown(path: Path, checks: list[Check], header: dict[str, str], detail: bool) -> None:
     fails = sum(c.status == FAIL for c in checks)
     warns = sum(c.status == WARN for c in checks)
     lines = ["# Health check del despliegue", "", "| Campo | Valor |", "| --- | --- |"]
@@ -333,12 +440,17 @@ def write_markdown(path: Path, checks: list[Check], header: dict[str, str]) -> N
             if c.items:
                 lines += ["", f"**{c.name}:**", ""] + [f"- {i}" for i in c.items]
         lines.append("")
+    if detail:
+        lines += probes_markdown()
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Health check del despliegue de SOLOServis en el clúster.")
     parser.add_argument("--md", type=Path, help="guarda el resultado en Markdown")
+    parser.add_argument("--detalle", action="store_true",
+                        help="muestra cada pedido hecho, con lo esperado y lo obtenido")
+    parser.add_argument("--json", type=Path, help="guarda el resultado en JSON (lo usa reporte.py --salud)")
     args = parser.parse_args()
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -361,10 +473,13 @@ def main() -> int:
         "Topología": "dominios" if "comercial" in services else "consolidado" if "backend" in services else "?",
         "Generado con": "`python scripts/testing/salud.py`",
     }
-    print_report(checks, header)
+    print_report(checks, header, args.detalle)
     if args.md:
-        write_markdown(args.md, checks, header)
+        write_markdown(args.md, checks, header, args.detalle)
         print(f"Markdown: {args.md}")
+    if args.json:
+        args.json.write_text(json.dumps({"header": header, "checks": [c.__dict__ for c in checks],
+                                         "probes": PROBES}, ensure_ascii=False, indent=2), encoding="utf-8")
     return 1 if any(c.status == FAIL for c in checks) else 0
 
 
