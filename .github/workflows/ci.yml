@@ -122,6 +122,11 @@ jobs:
     name: Docker Compose válido
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      # compose.yml exige DATABASE_URL (no cae al postgres local); en CI no
+      # existe .env, así que se define un valor de desarrollo solo para
+      # validar la interpolación. No se levanta ningún contenedor.
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/soloservis
     steps:
       - uses: actions/checkout@v4
 
