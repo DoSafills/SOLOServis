@@ -1,6 +1,7 @@
 package features
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -248,8 +249,11 @@ func sessionUserID(r *http.Request) int32 {
 	return session.UserID
 }
 
+// rawJSON convierte un campo JSON del body en el texto que se guarda en una
+// columna jsonb. Recibe el valor crudo y devuelve "{}" si se omitió o vino
+// null, para no guardar un null JSON en columnas que esperan un objeto.
 func rawJSON(value json.RawMessage) string {
-	if len(value) == 0 {
+	if trimmed := bytes.TrimSpace(value); len(trimmed) == 0 || string(trimmed) == "null" {
 		return "{}"
 	}
 	return string(value)

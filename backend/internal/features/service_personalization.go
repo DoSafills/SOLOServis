@@ -73,6 +73,11 @@ type serviceComparisonInput struct {
 	Services  []string `json:"serviceIds"`
 }
 
+// CreateServiceComparison atiende POST /comparisons/services: crea una
+// comparación del usuario de la sesión con serviceIds (y serviceId, si
+// viene). Responde 422 si no hay servicios, si hay más de
+// maxComparedServices o repetidos, si name supera maxServiceComparison
+// caracteres o si un servicio no existe; 201 con la comparación creada.
 func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request) {
 	var input serviceComparisonInput
 	if !decode(w, r, &input) {
@@ -80,13 +85,17 @@ func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request
 	}
 	input.Name = strings.TrimSpace(input.Name)
 	if input.Name == "" {
-		input.Name = "Comparación de servicios"
+		input.Name = defaultComparisonName
 	}
 	if input.ServiceID != "" {
 		input.Services = append(input.Services, input.ServiceID)
 	}
 	var v httpx.Validator
+	v.MaxLength("name", input.Name, maxServiceComparison)
 	v.Check(len(input.Services) > 0, "serviceIds", "required", "serviceIds debe tener al menos un servicio")
+	v.Check(len(input.Services) <= maxComparedServices, "serviceIds", "max",
+		fmt.Sprintf("serviceIds admite hasta %d servicios", maxComparedServices))
+	v.Check(distinct(input.Services), "serviceIds", "unique", "serviceIds no puede repetir servicios")
 	if !valid(w, r, &v) {
 		return
 	}
@@ -143,6 +152,20 @@ func (h *Handler) CreateServiceComparison(w http.ResponseWriter, r *http.Request
 		"name":     input.Name,
 		"services": input.Services,
 	})
+}
+
+// distinct informa si values no repite elementos, sin distinguir mayúsculas
+// (un UUID en mayúsculas y en minúsculas es el mismo servicio).
+func distinct(values []string) bool {
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		key := strings.ToLower(strings.TrimSpace(value))
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
+	}
+	return true
 }
 
 func (h *Handler) GetServiceComparison(w http.ResponseWriter, r *http.Request) {

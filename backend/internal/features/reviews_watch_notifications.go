@@ -2,6 +2,7 @@ package features
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,11 +19,14 @@ type reviewInput struct {
 	Content string `json:"content"`
 }
 
-// validate aplica las reglas de una reseña: rating entre 1 y 5.
+// validate aplica las reglas de una reseña: rating entre 1 y 5 y title de
+// hasta maxReviewTitle caracteres. Devuelve el Validator con los errores por
+// campo (vacío si la reseña es válida).
 func (input reviewInput) validate() *httpx.Validator {
 	var v httpx.Validator
 	v.Check(input.Rating >= 1, "rating", "min", "rating debe ser al menos 1")
 	v.Check(input.Rating <= 5, "rating", "max", "rating no puede superar 5")
+	v.MaxLength("title", input.Title, maxReviewTitle)
 	return &v
 }
 
@@ -36,6 +40,10 @@ func (h *Handler) ListProductReviews(w http.ResponseWriter, r *http.Request) {
 		FROM product_review WHERE product_id=$1 ORDER BY created_at DESC`, productID)
 }
 
+// CreateProductReview atiende POST /reviews/product/{productId}: crea o
+// reemplaza la reseña del usuario de la sesión. Responde 400 si productId no
+// es un id numérico ni un UUID, 422 si la reseña no cumple las reglas y 201
+// con la reseña guardada.
 func (h *Handler) CreateProductReview(w http.ResponseWriter, r *http.Request) {
 	productKey := chi.URLParam(r, "productId")
 	var input reviewInput
@@ -47,7 +55,7 @@ func (h *Handler) CreateProductReview(w http.ResponseWriter, r *http.Request) {
 		h.dbError(w, r, err, http.StatusNotFound, "Producto no encontrado.")
 		return
 	}
-	if looksLikeUUID(productKey) {
+	if isUUID(productKey) {
 		if err := verifyProductService(r.Context(), productKey); err != nil {
 			h.remoteError(w, r, err, "Product API no está disponible.")
 			return
@@ -98,6 +106,10 @@ func (h *Handler) ListServiceReviews(w http.ResponseWriter, r *http.Request) {
 		FROM service_review WHERE service_id=$1 ORDER BY created_at DESC`, serviceID)
 }
 
+// CreateServiceReview atiende POST /reviews/service/{serviceId}: crea o
+// reemplaza la reseña del usuario de la sesión. Responde 400 si serviceId no
+// es un id numérico ni un UUID, 422 si la reseña no cumple las reglas y 201
+// con la reseña guardada.
 func (h *Handler) CreateServiceReview(w http.ResponseWriter, r *http.Request) {
 	serviceKey := chi.URLParam(r, "serviceId")
 	var input reviewInput
@@ -109,7 +121,7 @@ func (h *Handler) CreateServiceReview(w http.ResponseWriter, r *http.Request) {
 		h.dbError(w, r, err, http.StatusNotFound, "Servicio no encontrado.")
 		return
 	}
-	if looksLikeUUID(serviceKey) {
+	if isUUID(serviceKey) {
 		var service json.RawMessage
 		if err := remoteJSON(r.Context(), "SERVICE_API_URL", "http://localhost:8083", http.MethodGet, "/services/"+serviceKey, nil, &service); err != nil {
 			h.remoteError(w, r, err, "Service API no está disponible.")
@@ -190,6 +202,9 @@ func (h *Handler) GetWatchlist(w http.ResponseWriter, r *http.Request) {
 		ORDER BY i.updated_at DESC`, userID)
 }
 
+// AddWatchlist atiende POST /watchlist: sigue el precio de productId para el
+// usuario de la sesión. Responde 422 si productId falta o no existe, o si
+// targetPrice está fuera de rango, y 201 con el producto y el precio objetivo.
 func (h *Handler) AddWatchlist(w http.ResponseWriter, r *http.Request) {
 	var input watchlistInput
 	if !decode(w, r, &input) {
@@ -197,7 +212,7 @@ func (h *Handler) AddWatchlist(w http.ResponseWriter, r *http.Request) {
 	}
 	var v httpx.Validator
 	v.Required("productId", input.ProductID)
-	v.Check(input.TargetPrice >= 0, "targetPrice", "min", "targetPrice no puede ser negativo")
+	checkTargetPrice(&v, input.TargetPrice)
 	if !valid(w, r, &v) {
 		return
 	}
@@ -220,6 +235,9 @@ func (h *Handler) AddWatchlist(w http.ResponseWriter, r *http.Request) {
 	apiutil.WriteJSON(w, http.StatusCreated, map[string]any{"productId": input.ProductID, "targetPrice": input.TargetPrice})
 }
 
+// UpdateWatchlist atiende PUT /watchlist/{productId}: cambia el precio
+// objetivo. Responde 422 si targetPrice está fuera de rango, 404 si el
+// producto no está en la watchlist y 200 con el nuevo precio objetivo.
 func (h *Handler) UpdateWatchlist(w http.ResponseWriter, r *http.Request) {
 	productKey := chi.URLParam(r, "productId")
 	var input watchlistInput
@@ -227,7 +245,7 @@ func (h *Handler) UpdateWatchlist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var v httpx.Validator
-	v.Check(input.TargetPrice >= 0, "targetPrice", "min", "targetPrice no puede ser negativo")
+	checkTargetPrice(&v, input.TargetPrice)
 	if !valid(w, r, &v) {
 		return
 	}
@@ -248,6 +266,14 @@ func (h *Handler) UpdateWatchlist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"productId": productKey, "targetPrice": input.TargetPrice})
+}
+
+// checkTargetPrice exige un targetPrice entre 0 y maxTargetPrice, el máximo
+// de target_price NUMERIC(12,2). Recibe el Validator donde registra el error.
+func checkTargetPrice(v *httpx.Validator, price float64) {
+	v.Check(price >= 0, "targetPrice", "min", "targetPrice no puede ser negativo")
+	v.Check(price <= maxTargetPrice, "targetPrice", "max",
+		fmt.Sprintf("targetPrice no puede superar %.2f", maxTargetPrice))
 }
 
 func (h *Handler) DeleteWatchlist(w http.ResponseWriter, r *http.Request) {
@@ -273,6 +299,9 @@ type notificationInput struct {
 	Data    json.RawMessage `json:"data"`
 }
 
+// CreateNotification atiende POST /notifications (interno, con token de
+// servicio). Responde 422 si falta un campo, si type o title superan el largo
+// de su columna o si data no es un objeto JSON, y 201 con la notificación.
 func (h *Handler) CreateNotification(w http.ResponseWriter, r *http.Request) {
 	var input notificationInput
 	if !decode(w, r, &input) {
@@ -281,8 +310,11 @@ func (h *Handler) CreateNotification(w http.ResponseWriter, r *http.Request) {
 	var v httpx.Validator
 	v.Check(input.UserID > 0, "userId", "min", "userId debe ser mayor que 0")
 	v.Required("type", input.Type)
+	v.MaxLength("type", input.Type, maxNotificationType)
 	v.Required("title", input.Title)
+	v.MaxLength("title", input.Title, maxNotificationTitle)
 	v.Required("message", input.Message)
+	v.Check(isJSONObject(input.Data), "data", "invalid_type", "data debe ser un objeto JSON")
 	if !valid(w, r, &v) {
 		return
 	}
