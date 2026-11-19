@@ -69,6 +69,12 @@ export default function CartPage({ cart, loading, navigate, onUpdateQuantity, on
         : null,
     };
   });
+  const storeColors = new Map<string, string>();
+  const orderedStoreIds = storeSummaries.map((store) => store.id).sort();
+  orderedStoreIds.forEach((storeId, index) => {
+    const hue = Math.round((index * 360) / orderedStoreIds.length);
+    storeColors.set(storeId, `hsl(${hue} 78% 34% / 45%)`);
+  });
   const serviceSummaries = Array.from(
     cart
       .filter((item): item is ServiceCartItem => item.type === "service")
@@ -300,16 +306,24 @@ export default function CartPage({ cart, loading, navigate, onUpdateQuantity, on
                 className="rounded-3xl border border-bd bg-gradient-to-br from-surface to-surface-2 p-4 shadow-lg shadow-black/20 md:p-5"
               >
                 <div className="flex flex-col md:flex-row gap-4">
-                  <button
-                    onClick={() => navigate({ id: "product-detail", productId: product.id })}
-                    className="w-full md:w-32 h-28 rounded-2xl overflow-hidden shrink-0"
-                  >
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
+                  <div className="w-full shrink-0 md:w-32">
+                    <button
+                      onClick={() => navigate({ id: "product-detail", productId: product.id })}
+                      className="h-28 w-full overflow-hidden rounded-2xl"
+                    >
+                      <img
+                        src={product.image}
+                        alt={product.name}
+                        className="h-full w-full object-cover"
+                      />
+                    </button>
+                    <p
+                      className="mt-2 truncate text-center text-xs font-semibold text-muted"
+                      title={offer.storeName}
+                    >
+                      {offer.storeName}
+                    </p>
+                  </div>
 
                   <div className="flex-1 flex flex-col md:flex-row gap-4 md:items-center justify-between">
                     <div>
@@ -405,7 +419,10 @@ export default function CartPage({ cart, loading, navigate, onUpdateQuantity, on
                 key={store.id}
                 className="overflow-hidden rounded-2xl border border-bd bg-gradient-to-br from-surface to-surface-2 shadow-sm shadow-black/20"
               >
-                <h3 className="border-b border-bd bg-prime-muted px-4 py-3 text-xl font-extrabold text-prime">
+                <h3
+                  style={{ backgroundColor: storeColors.get(store.id) }}
+                  className="border-b border-bd px-4 py-3 text-xl font-extrabold text-white"
+                >
                   {store.name}
                 </h3>
                 <ul className="space-y-3 p-4">

@@ -139,15 +139,18 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       name: string,
       items: Product[],
       root: ApiProductCategory,
-      categoryId: number,
+      categoryIds: number[],
       query = "",
+      isSubtype = true,
     ) => {
       return {
         name,
         rootName: root.name,
         count: items.length,
-        categoryId,
+        categoryIds,
+        productIds: new Set(items.map((product) => product.id)),
         query,
+        isSubtype,
         sectionId: getProductCategoryGroup(root.name),
       };
     };
@@ -160,13 +163,13 @@ export default function ProductCategoriesPage({ navigate }: Props) {
           (child) => (productsByCategory.get(child.id)?.length ?? 0) > 0,
         );
         if (matchingProducts.length === 0 || childHasProducts) return [];
-        return [makeCard(category.name, matchingProducts, rootCategoryFor(category), category.id)];
+        const subtypes = new Set(matchingProducts.map(getProductSubtype));
+        const isSubtype = subtypes.size === 1;
+        const name = isSubtype ? ([...subtypes][0] ?? category.name) : category.name;
+        return [
+          makeCard(name, matchingProducts, rootCategoryFor(category), [category.id], "", isSubtype),
+        ];
       });
-    const categoryCardKeys = new Set(
-      categoryCards.map(
-        (category) => `${category.sectionId}:${normalizeCategoryName(category.name)}`,
-      ),
-    );
 
     const directProductsBySubtype = new Map<string, Product[]>();
     for (const product of products) {
@@ -188,11 +191,46 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       const root = categoriesById.get(Number(rootId));
       if (!root) return [];
       const subtype = subtypeParts.join(":");
-      const card = makeCard(subtype, items, root, root.id, getProductSubtypeSearchQuery(subtype));
-      const cardKey = `${card.sectionId}:${normalizeCategoryName(card.name)}`;
-      return categoryCardKeys.has(cardKey) ? [] : [card];
+      const subtreeProducts = productsByCategory.get(root.id) ?? [];
+      const query = subtreeProducts.every((product) => getProductSubtype(product) === subtype)
+        ? ""
+        : getProductSubtypeSearchQuery(subtype);
+      return [makeCard(subtype, items, root, [root.id], query)];
     });
-    const displayCards = [...categoryCards, ...inferredCards].sort((first, second) =>
+    const cardsByKey = new Map<string, (typeof categoryCards)[number]>();
+    for (const card of [...categoryCards, ...inferredCards]) {
+      const cardKey = `${card.sectionId}:${normalizeCategoryName(card.name)}`;
+      const existing = cardsByKey.get(cardKey);
+      if (!existing) {
+        cardsByKey.set(cardKey, card);
+        continue;
+      }
+
+      const categoryIds = [...new Set([...existing.categoryIds, ...card.categoryIds])];
+      existing.categoryIds = categoryIds
+        .filter(
+          (categoryId) =>
+            !categoryIds.some(
+              (ancestorId) =>
+                ancestorId !== categoryId && getDescendantIds(ancestorId).has(categoryId),
+            ),
+        )
+        .sort((first, second) => first - second);
+      existing.productIds = new Set([...existing.productIds, ...card.productIds]);
+      existing.count = existing.productIds.size;
+      existing.isSubtype = existing.isSubtype || card.isSubtype;
+      if (existing.isSubtype) {
+        const categoryProducts = existing.categoryIds.flatMap(
+          (categoryId) => productsByCategory.get(categoryId) ?? [],
+        );
+        existing.query =
+          categoryProducts.length > 0 &&
+          categoryProducts.every((product) => getProductSubtype(product) === existing.name)
+            ? ""
+            : getProductSubtypeSearchQuery(existing.name);
+      }
+    }
+    const displayCards = [...cardsByKey.values()].sort((first, second) =>
       first.name.localeCompare(second.name, "es"),
     );
 
@@ -385,12 +423,12 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                                 id: "search-products",
                                 query: category.query,
                                 categoryContext: category.name,
-                                categoryId: category.categoryId,
+                                categoryIds: category.categoryIds,
                               });
 
                             return (
                               <article
-                                key={`${category.categoryId ?? category.query}:${category.name}`}
+                                key={`${category.categoryIds.join(",")}:${category.name}`}
                                 role="button"
                                 tabIndex={0}
                                 aria-label={`Ver categoría ${category.name}`}

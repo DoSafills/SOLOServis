@@ -642,15 +642,6 @@ export default function ServicesPage({
             <option value="price-desc">Precio: mayor a menor</option>
             <option value="rating">Mejor valoración</option>
           </select>
-          {compareList.size >= 2 && (
-            <button
-              onClick={() => navigate({ id: "service-comparison", serviceIds: [...compareList] })}
-              style={{ background: "var(--color-action)", color: "#181714" }}
-              className="px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
-            >
-              Comparar {compareList.size} servicios
-            </button>
-          )}
         </div>
       </div>
 

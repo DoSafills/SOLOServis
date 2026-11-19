@@ -7,7 +7,6 @@ import {
   ProductSkeletonGrid,
   Rating,
   Skeleton,
-  SkeletonGrid,
 } from "../../components/common/ui";
 import ProductCard from "../../components/products/ProductCard";
 import { stringSessionCodec, useSessionStorageState } from "../../hooks/useSessionStorageState";
@@ -29,6 +28,7 @@ function StoreLogo({
   website,
   className,
   imageFit = "contain",
+  imagePadding = true,
   fallbackClassName = "text-sm",
 }: {
   name: string;
@@ -36,6 +36,7 @@ function StoreLogo({
   website: string;
   className: string;
   imageFit?: "contain" | "cover";
+  imagePadding?: boolean;
   fallbackClassName?: string;
 }) {
   const websiteOrigin = website.match(/^https?:\/\/[^/]+/i)?.[0] ?? "";
@@ -61,7 +62,7 @@ function StoreLogo({
         <img
           src={imageSource}
           alt={`${name} logo`}
-          className={`h-full w-full ${imageFit === "cover" ? "object-cover" : "object-contain p-1.5"}`}
+          className={`h-full w-full ${imageFit === "cover" ? "object-cover" : "object-contain"} ${imagePadding ? "p-1.5" : ""}`}
           onError={() => setFailedImage({ sourceKey, index: imageIndex + 1 })}
         />
       ) : (
@@ -69,6 +70,43 @@ function StoreLogo({
           {name.slice(0, 2).toLocaleUpperCase("es")}
         </span>
       )}
+    </div>
+  );
+}
+
+function StoreSkeletonGrid() {
+  return (
+    <div
+      role="status"
+      aria-label="Cargando tiendas"
+      className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+    >
+      {Array.from({ length: 6 }, (_, index) => (
+        <article
+          key={index}
+          aria-hidden="true"
+          className="flex min-h-[24rem] flex-col overflow-hidden rounded-[1.75rem] border border-bd bg-surface shadow-lg shadow-black/20"
+        >
+          <div className="flex h-40 w-full shrink-0 items-center justify-center bg-white p-3 sm:h-44">
+            <Skeleton className="h-full w-full rounded-none" />
+          </div>
+          <div className="flex w-full flex-1 flex-col gap-4 p-4 sm:p-5">
+            <Skeleton className="mx-auto h-7 w-3/4" />
+            <Skeleton className="mx-auto h-5 w-32" />
+            <div className="mx-auto grid w-full max-w-[17rem] grid-cols-1 gap-2 border-y border-bd py-3">
+              <div className="rounded-xl bg-surface-2 px-3 py-2.5">
+                <Skeleton className="mx-auto h-3 w-20" />
+                <Skeleton className="mx-auto mt-2 h-5 w-16" />
+              </div>
+              <div className="rounded-xl bg-surface-2 px-3 py-2.5">
+                <Skeleton className="mx-auto h-3 w-20" />
+                <Skeleton className="mx-auto mt-2 h-5 w-24" />
+              </div>
+            </div>
+            <Skeleton className="mt-auto h-11 w-full rounded-xl" />
+          </div>
+        </article>
+      ))}
     </div>
   );
 }
@@ -153,7 +191,7 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
       </header>
 
       {loading ? (
-        <SkeletonGrid count={6} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" />
+        <StoreSkeletonGrid />
       ) : error ? (
         <div className="rounded-2xl border border-bd bg-surface p-8 text-center" role="alert">
           <p className="text-sm text-warn">{error}</p>
@@ -181,34 +219,21 @@ function StoreList({ navigate }: { navigate: (page: Page) => void }) {
             <button
               key={store.id}
               onClick={() => navigate({ id: "store-detail", storeId: store.id })}
-              className="group relative isolate flex min-h-[24rem] flex-col overflow-hidden rounded-[1.75rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime lg:min-h-[22rem]"
+              className="group flex min-h-[24rem] flex-col overflow-hidden rounded-[1.75rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
             >
-              <div className="theme-media-panel relative h-40 w-full shrink-0 bg-slate-950/60 sm:h-44 lg:absolute lg:inset-y-0 lg:left-0 lg:h-full lg:w-[58%]">
+              <div className="flex h-40 w-full shrink-0 items-center justify-center bg-white p-3 sm:h-44">
                 <StoreLogo
                   name={store.name}
                   logo={store.logo}
                   website={store.website}
-                  imageFit="cover"
+                  imageFit="contain"
+                  imagePadding={false}
                   className="h-full w-full rounded-none border-0 bg-transparent"
                   fallbackClassName="text-5xl"
                 />
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-slate-950/25 lg:bg-gradient-to-r"
-                />
               </div>
 
-              <div
-                aria-hidden="true"
-                className="absolute inset-y-0 right-0 hidden w-[66%] lg:block"
-                style={{
-                  background:
-                    "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
-                  clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
-                }}
-              />
-
-              <div className="relative z-10 flex w-full min-w-0 flex-1 flex-col gap-4 p-4 sm:p-5 lg:ml-[38%] lg:w-[62%] lg:justify-center lg:p-4">
+              <div className="flex w-full min-w-0 flex-1 flex-col gap-4 p-4 sm:p-5">
                 <div className="min-w-0 text-center">
                   <h2 className="line-clamp-2 text-xl font-bold leading-snug text-text transition-colors group-hover:text-prime sm:text-2xl">
                     {store.name}

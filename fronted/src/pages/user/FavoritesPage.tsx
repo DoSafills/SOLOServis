@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Page, Product, Service } from "../../types";
 import { getProducts, getServices } from "../../services/api/api";
-import { SkeletonGrid } from "../../components/common/ui";
+import { Breadcrumb, FavoriteButton, Rating, Skeleton } from "../../components/common/ui";
 import { formatPrice, getBillingPeriodText, getMinOffer } from "../../services/utils/productUtils";
-import { Breadcrumb, FavoriteButton, Rating } from "../../components/common/ui";
 
 interface Props {
   navigate: (page: Page) => void;
@@ -99,7 +98,15 @@ export default function FavoritesPage({
           </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-text">Favoritos</h1>
         </div>
-        <SkeletonGrid count={3} className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3" />
+        <div
+          role="status"
+          aria-label="Cargando favoritos"
+          className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+        >
+          {[0, 1, 2].map((item) => (
+            <FavoriteCardSkeleton key={item} />
+          ))}
+        </div>
       </div>
     );
   }
@@ -169,7 +176,7 @@ export default function FavoritesPage({
           {favProducts.length > 0 && (
             <section>
               <SectionHeading title="Productos" count={favProducts.length} />
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {favProducts.map((product) => {
                   const minOffer = getMinOffer(product);
                   const available = product.offers.some((offer) => offer.available);
@@ -177,60 +184,63 @@ export default function FavoritesPage({
                   return (
                     <article
                       key={product.id}
-                      className="group flex min-w-0 gap-4 overflow-hidden rounded-2xl border border-bd bg-gradient-to-br from-surface to-surface-2 p-4 shadow-lg shadow-black/15 transition duration-200 hover:-translate-y-0.5 hover:border-prime/60 hover:shadow-xl hover:shadow-black/20"
+                      className="group overflow-hidden rounded-[1.75rem] border border-prime/20 bg-gradient-to-br from-surface via-surface to-surface-2 shadow-xl shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/60 hover:shadow-2xl hover:shadow-black/30"
                     >
-                      <button
-                        type="button"
-                        onClick={() => navigate({ id: "product-detail", productId: product.id })}
-                        aria-label={`Ver ${product.name}`}
-                        className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-bd bg-surface-2 p-2.5 shadow-inner focus-visible:outline-2 focus-visible:outline-prime"
-                      >
-                        {product.image ? (
-                          <img
-                            src={product.image}
-                            alt=""
-                            loading="lazy"
-                            className="h-full w-full object-contain transition-transform group-hover:scale-105"
-                          />
-                        ) : (
-                          <span className="text-[10px] text-slate-500">Sin imagen</span>
-                        )}
-                      </button>
-
-                      <div className="flex min-h-24 min-w-0 flex-1 flex-col">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-                              {product.brand}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                navigate({ id: "product-detail", productId: product.id })
-                              }
-                              className="mt-1 line-clamp-2 text-left text-sm font-semibold leading-snug text-text transition-colors hover:text-prime"
-                            >
-                              {product.name}
-                            </button>
-                          </div>
+                      <div className="relative aspect-square overflow-hidden bg-surface-2">
+                        <button
+                          type="button"
+                          onClick={() => navigate({ id: "product-detail", productId: product.id })}
+                          aria-label={`Ver ${product.name}`}
+                          className="absolute inset-0 flex h-full w-full items-center justify-center focus-visible:outline-2 focus-visible:outline-prime"
+                        >
+                          {product.image ? (
+                            <img
+                              src={product.image}
+                              alt=""
+                              loading="lazy"
+                              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                            />
+                          ) : (
+                            <span className="text-sm text-muted">Sin imagen</span>
+                          )}
+                        </button>
+                        <div
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/10"
+                        />
+                        <span className="absolute bottom-3 left-3 rounded-full border border-white/15 bg-slate-950/70 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-rose-100 backdrop-blur">
+                          Producto favorito
+                        </span>
+                        <div className="absolute right-3 top-3 z-10 rounded-full border border-bd bg-surface/90 shadow-lg backdrop-blur-md">
                           <FavoriteButton
                             active
                             onClick={() => onToggleFavorite(product.id, "product")}
                           />
                         </div>
+                      </div>
 
+                      <div className="p-4">
+                        <p className="truncate text-[10px] font-bold uppercase tracking-[0.14em] text-prime">
+                          {product.brand}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => navigate({ id: "product-detail", productId: product.id })}
+                          className="mt-1 line-clamp-2 min-h-10 text-left text-base font-bold leading-snug text-text transition-colors hover:text-prime"
+                        >
+                          {product.name}
+                        </button>
                         <div className="mt-2">
                           <Rating value={product.rating} count={product.reviewCount} />
                         </div>
-
-                        <div className="mt-auto flex flex-wrap items-end justify-between gap-2 border-t border-bd pt-3">
+                        <div className="mt-4 flex min-h-20 items-end justify-between gap-2 rounded-2xl border border-prime/20 bg-prime-muted/20 p-3">
                           <div className="min-w-0">
                             {minOffer ? (
                               <>
                                 <span className="block text-[10px] font-medium text-muted">
                                   Mejor precio
                                 </span>
-                                <span className="price text-lg font-semibold leading-tight text-prime">
+                                <span className="price block text-xl font-bold leading-tight text-prime">
                                   {formatPrice(minOffer.price)}
                                 </span>
                                 <span className="mt-0.5 block max-w-36 truncate text-[10px] text-muted">
@@ -242,15 +252,22 @@ export default function FavoritesPage({
                             )}
                           </div>
                           <span
-                            className={`mb-0.5 rounded-full border px-2.5 py-1 text-[10px] font-medium ${
+                            className={`mb-0.5 shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
                               available
-                                ? "border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-300"
+                                ? "border-emerald-400/30 bg-emerald-900/60 text-emerald-100"
                                 : "border-bd bg-surface-2 text-muted"
                             }`}
                           >
                             {available ? "Disponible" : "Agotado"}
                           </span>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => navigate({ id: "product-detail", productId: product.id })}
+                          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-prime px-4 py-2.5 text-sm font-bold text-[#181714] shadow-md shadow-black/15 transition hover:bg-prime-dark"
+                        >
+                          Ver producto <span aria-hidden="true">→</span>
+                        </button>
                       </div>
                     </article>
                   );
@@ -262,73 +279,79 @@ export default function FavoritesPage({
           {favServices.length > 0 && (
             <section>
               <SectionHeading title="Servicios" count={favServices.length} />
-              <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {favServices.map((service) => (
                   <article
                     key={service.id}
-                    className="group flex min-w-0 gap-4 overflow-hidden rounded-2xl border border-bd bg-gradient-to-br from-surface to-surface-2 p-4 shadow-lg shadow-black/15 transition duration-200 hover:-translate-y-0.5 hover:border-prime/60 hover:shadow-xl hover:shadow-black/20"
+                    className="group overflow-hidden rounded-[1.75rem] border border-prime/20 bg-gradient-to-br from-surface via-surface to-surface-2 shadow-xl shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/60 hover:shadow-2xl hover:shadow-black/30"
                   >
-                    <button
-                      type="button"
-                      onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
-                      aria-label={`Ver ${service.name}`}
-                      className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-bd bg-surface-2 p-2.5 shadow-inner focus-visible:outline-2 focus-visible:outline-prime"
-                    >
-                      {service.image ? (
-                        <img
-                          src={service.image}
-                          alt=""
-                          loading="lazy"
-                          className="h-full w-full object-contain transition-transform group-hover:scale-105"
-                        />
-                      ) : (
-                        <span className="text-[10px] text-slate-500">Sin imagen</span>
-                      )}
-                    </button>
-
-                    <div className="flex min-h-24 min-w-0 flex-1 flex-col">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-                            {service.provider}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              navigate({ id: "service-detail", serviceId: service.id })
-                            }
-                            className="mt-1 line-clamp-2 text-left text-sm font-semibold leading-snug text-text transition-colors hover:text-prime"
-                          >
-                            {service.name}
-                          </button>
-                        </div>
+                    <div className="relative aspect-square overflow-hidden bg-surface-2">
+                      <button
+                        type="button"
+                        onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
+                        aria-label={`Ver ${service.name}`}
+                        className="absolute inset-0 flex h-full w-full items-center justify-center focus-visible:outline-2 focus-visible:outline-prime"
+                      >
+                        {service.image ? (
+                          <img
+                            src={service.image}
+                            alt=""
+                            loading="lazy"
+                            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                          />
+                        ) : (
+                          <span className="text-sm text-muted">Sin imagen</span>
+                        )}
+                      </button>
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/10"
+                      />
+                      <span className="absolute bottom-3 left-3 rounded-full border border-white/15 bg-slate-950/70 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-rose-100 backdrop-blur">
+                        Servicio favorito
+                      </span>
+                      <div className="absolute right-3 top-3 z-10 rounded-full border border-bd bg-surface/90 shadow-lg backdrop-blur-md">
                         <FavoriteButton
                           active
                           onClick={() => onToggleFavorite(service.id, "service")}
                         />
                       </div>
+                    </div>
 
-                      <div className="mt-auto flex flex-wrap items-end justify-between gap-2 border-t border-bd pt-3">
-                        <div>
-                          <span className="block text-[10px] font-medium text-muted">
+                    <div className="p-4">
+                      <p className="truncate text-[10px] font-bold uppercase tracking-[0.14em] text-prime">
+                        {service.provider}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
+                        className="mt-1 line-clamp-2 min-h-10 text-left text-base font-bold leading-snug text-text transition-colors hover:text-prime"
+                      >
+                        {service.name}
+                      </button>
+                      <div className="mt-2">
+                        <Rating value={service.rating} count={service.reviewCount} />
+                      </div>
+                      <div className="mt-4 flex min-h-20 items-end justify-between gap-2 rounded-2xl border border-prime/20 bg-prime-muted/20 p-3">
+                        <div className="min-w-0">
+                          <span className="block truncate text-[10px] font-medium text-muted">
                             {service.category}
                           </span>
-                          <span className="price text-lg font-semibold leading-tight text-prime">
+                          <span className="price block text-xl font-bold leading-tight text-prime">
                             {formatPrice(service.monthlyPrice)}
                           </span>
-                          <span className="ml-1 text-[10px] text-muted">
-                            {getBillingPeriodText(service.billingPeriod)}
-                          </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
-                          className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-prime transition-colors hover:text-text"
-                        >
-                          Ver servicio
-                          <span aria-hidden="true">→</span>
-                        </button>
+                        <span className="mb-0.5 shrink-0 rounded-full border border-bd bg-surface-2 px-2.5 py-1 text-[10px] font-semibold text-muted">
+                          {getBillingPeriodText(service.billingPeriod)}
+                        </span>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
+                        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-prime px-4 py-2.5 text-sm font-bold text-[#181714] shadow-md shadow-black/15 transition hover:bg-prime-dark"
+                      >
+                        Ver servicio <span aria-hidden="true">→</span>
+                      </button>
                     </div>
                   </article>
                 ))}
@@ -347,6 +370,34 @@ function SectionHeading({ title, count }: { title: string; count: number }) {
       <h2 className="text-sm font-semibold text-text">{title}</h2>
       <span className="text-xs text-muted">{count}</span>
     </div>
+  );
+}
+
+function FavoriteCardSkeleton() {
+  return (
+    <article
+      aria-hidden="true"
+      className="overflow-hidden rounded-[1.75rem] border border-prime/20 bg-gradient-to-br from-surface via-surface to-surface-2 shadow-xl shadow-black/20"
+    >
+      <div className="relative aspect-square bg-surface-2">
+        <Skeleton className="absolute inset-0 h-full w-full rounded-none" />
+        <Skeleton className="absolute bottom-3 left-3 h-6 w-32 rounded-full" />
+        <Skeleton className="absolute right-3 top-3 h-10 w-10 rounded-full" />
+      </div>
+      <div className="space-y-3 p-4">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-5 w-3/4" />
+        <Skeleton className="h-3 w-28" />
+        <div className="flex min-h-20 items-end justify-between gap-2 rounded-2xl border border-bd bg-surface-2 p-3">
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-6 w-28" />
+          </div>
+          <Skeleton className="h-6 w-20 rounded-full" />
+        </div>
+        <Skeleton className="h-10 w-full rounded-xl" />
+      </div>
+    </article>
   );
 }
 

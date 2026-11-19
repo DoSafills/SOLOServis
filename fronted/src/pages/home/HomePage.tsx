@@ -28,7 +28,7 @@ const serviceCategories = [
   { name: UI_TEXT.categories.education, icon: SERVICE_CATEGORY_ICONS.education, color: "#D1A85A" },
 ];
 
-const POPULAR_PRODUCTS_AUTOPLAY_MS = 7000;
+const POPULAR_PRODUCTS_AUTOPLAY_MS = 3500;
 const MAX_RECENT_SEARCHES = 5;
 const MAX_RECENT_SEARCH_LABEL_LENGTH = 24;
 
@@ -381,177 +381,192 @@ export default function HomePage({
             </div>
           </div>
 
-          {popularProductsLoading && (
-            <div
-              role="status"
-              aria-label="Cargando productos destacados"
-              className="mx-auto max-w-6xl"
-            >
-              <Skeleton className="h-[90vw] max-h-[360px] w-full rounded-[2rem] sm:h-[320px] lg:h-[360px]" />
-            </div>
-          )}
-          {popularProductsError && (
-            <div
-              className="rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200"
-              role="alert"
-            >
-              No se pudieron cargar los productos más buscados: {popularProductsError}
-              <button
-                type="button"
-                onClick={() => {
-                  setPopularProductsError(null);
-                  setPopularProductsAttempt((attempt) => attempt + 1);
-                }}
-                className="ml-3 rounded-md font-semibold underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-200"
-              >
-                Reintentar
-              </button>
-            </div>
-          )}
-          {!popularProductsLoading && !popularProductsError && popularProducts.length === 0 && (
-            <p className="py-4 text-sm text-muted">
-              Aún no hay búsquedas suficientes para mostrar productos.
-            </p>
-          )}
-          {!popularProductsLoading && !popularProductsError && activePopularProduct && (
-            <div
-              className="mx-auto max-w-6xl"
-              onMouseEnter={() => setPopularCarouselPaused(true)}
-              onMouseLeave={() => setPopularCarouselPaused(false)}
-              onFocus={() => setPopularCarouselPaused(true)}
-              onBlur={(event) => {
-                const nextTarget = event.relatedTarget;
-                if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
-                  setPopularCarouselPaused(false);
-                }
-              }}
-            >
-              <article
-                role="group"
-                aria-roledescription="diapositiva"
-                aria-label={`Producto ${popularProductIndex + 1} de ${popularProducts.length}: ${activePopularProduct.name}`}
-                className="relative isolate h-[90vw] max-h-[360px] w-full overflow-hidden rounded-[2rem] border border-bd bg-surface shadow-2xl shadow-black/30 ring-1 ring-white/5 sm:h-[320px] lg:h-[360px]"
-              >
-                <div aria-hidden="true" className="absolute inset-0 bg-surface-2">
-                  <span className="absolute inset-0 flex items-center justify-center text-5xl">
-                    🛍️
-                  </span>
-                  {activePopularProduct.imageUrl &&
-                  failedPopularImageId !== activePopularProduct.id ? (
-                    <img
-                      src={activePopularProduct.imageUrl}
-                      alt=""
-                      loading="lazy"
-                      onError={() => setFailedPopularImageId(activePopularProduct.id)}
-                      className="absolute inset-0 h-full w-full object-cover object-center md:w-[88%]"
-                    />
-                  ) : null}
-                  <div className="absolute inset-0 bg-gradient-to-tr from-slate-950/20 via-transparent to-slate-950/10" />
+          <div className="mt-7 grid items-start gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(18rem,1fr)] lg:gap-10">
+            <div className="min-w-0">
+              {popularProductsLoading && (
+                <div role="status" aria-label="Cargando productos destacados">
+                  <Skeleton className="h-[90vw] max-h-[360px] w-full rounded-[2rem] sm:h-[320px] lg:h-[360px]" />
                 </div>
+              )}
+              {popularProductsError && (
                 <div
-                  aria-hidden="true"
-                  className="absolute inset-x-0 bottom-0 h-[60%] md:hidden"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
-                    clipPath: "polygon(0 14%, 100% 0, 100% 100%, 0 100%)",
-                  }}
-                />
-                <div
-                  aria-hidden="true"
-                  className="absolute inset-y-0 right-0 hidden w-[48%] md:block"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
-                    clipPath: "polygon(14% 0, 100% 0, 100% 100%, 0 100%)",
-                  }}
-                />
-                <div className="absolute inset-x-10 bottom-4 z-10 flex flex-col items-center gap-1.5 text-center sm:inset-x-12 md:inset-x-auto md:right-10 md:top-1/2 md:bottom-auto md:w-[30%] md:-translate-y-1/2 md:items-start md:text-left">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-prime/40 bg-prime-muted px-2 py-0.5 text-[8px] font-bold uppercase tracking-[0.16em] text-prime backdrop-blur-sm">
-                    <span className="h-1.5 w-1.5 rounded-full bg-prime shadow-[0_0_10px_rgba(209,168,90,0.6)]" />
-                    Más buscado
-                  </span>
-                  <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-prime">
-                    {activePopularProduct.brand} · {activePopularProduct.category}
-                  </p>
-                  <h3 className="line-clamp-2 text-sm font-bold leading-tight text-text sm:text-base md:text-base">
-                    {activePopularProduct.name}
-                  </h3>
+                  className="rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200"
+                  role="alert"
+                >
+                  No se pudieron cargar los productos más buscados: {popularProductsError}
                   <button
                     type="button"
-                    onClick={() =>
-                      navigate({ id: "product-detail", productId: activePopularProduct.id })
-                    }
-                    className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-prime px-4 py-2 text-xs font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+                    onClick={() => {
+                      setPopularProductsError(null);
+                      setPopularProductsAttempt((attempt) => attempt + 1);
+                    }}
+                    className="ml-3 rounded-md font-semibold underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-200"
                   >
-                    Ver producto
-                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
-                      <path
-                        d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
-                        stroke="currentColor"
-                        strokeWidth="1.7"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                    Reintentar
                   </button>
                 </div>
-                {popularProducts.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label="Ver producto anterior"
-                      onClick={() => changePopularProduct(-1)}
-                      className="absolute left-2 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-bd bg-surface/90 text-sm text-text shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-prime hover:bg-prime hover:text-[#181714] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:left-3 sm:h-9 sm:w-9"
-                    >
-                      <span aria-hidden="true" className="text-xl leading-none">
-                        ←
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Ver siguiente producto"
-                      onClick={() => changePopularProduct(1)}
-                      className="absolute right-2 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-bd bg-surface/90 text-sm text-text shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-prime hover:bg-prime hover:text-[#181714] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:right-3 sm:h-9 sm:w-9"
-                    >
-                      <span aria-hidden="true" className="text-xl leading-none">
-                        →
-                      </span>
-                    </button>
-                  </>
-                )}
-              </article>
-              {popularProducts.length > 1 && (
-                <div className="mt-5 flex items-center justify-center gap-3">
-                  <div
+              )}
+              {!popularProductsLoading && !popularProductsError && popularProducts.length === 0 && (
+                <p className="py-4 text-sm text-muted">
+                  Aún no hay búsquedas suficientes para mostrar productos.
+                </p>
+              )}
+              {!popularProductsLoading && !popularProductsError && activePopularProduct && (
+                <div
+                  className="relative min-w-0"
+                  onMouseEnter={() => setPopularCarouselPaused(true)}
+                  onMouseLeave={() => setPopularCarouselPaused(false)}
+                  onFocus={() => setPopularCarouselPaused(true)}
+                  onBlur={(event) => {
+                    const nextTarget = event.relatedTarget;
+                    if (
+                      !(nextTarget instanceof Node) ||
+                      !event.currentTarget.contains(nextTarget)
+                    ) {
+                      setPopularCarouselPaused(false);
+                    }
+                  }}
+                >
+                  <article
                     role="group"
-                    aria-label="Seleccionar producto destacado"
-                    className="flex items-center gap-1.5"
+                    aria-roledescription="diapositiva"
+                    aria-label={`Producto ${popularProductIndex + 1} de ${popularProducts.length}: ${activePopularProduct.name}`}
+                    className="relative isolate h-[90vw] max-h-[360px] w-full overflow-hidden rounded-[2rem] border border-bd bg-surface shadow-2xl shadow-black/30 ring-1 ring-white/5 sm:h-[320px] lg:h-[360px]"
                   >
-                    {popularProducts.map((product, index) => (
+                    <div aria-hidden="true" className="absolute inset-0 bg-surface-2">
+                      <span className="absolute inset-0 flex items-center justify-center text-5xl">
+                        🛍️
+                      </span>
+                      {activePopularProduct.imageUrl &&
+                      failedPopularImageId !== activePopularProduct.id ? (
+                        <img
+                          src={activePopularProduct.imageUrl}
+                          alt=""
+                          loading="lazy"
+                          onError={() => setFailedPopularImageId(activePopularProduct.id)}
+                          className="absolute inset-0 h-full w-full object-cover object-center md:w-[88%]"
+                        />
+                      ) : null}
+                      <div className="absolute inset-0 bg-gradient-to-tr from-slate-950/20 via-transparent to-slate-950/10" />
+                    </div>
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-x-0 bottom-0 h-[54%] md:hidden"
+                      style={{
+                        background:
+                          "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
+                        clipPath: "polygon(0 16%, 100% 0, 100% 100%, 0 100%)",
+                      }}
+                    />
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-y-0 right-0 hidden w-[46%] md:block"
+                      style={{
+                        background:
+                          "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
+                        clipPath: "polygon(6% 0, 100% 0, 100% 100%, 0 100%)",
+                      }}
+                    />
+                    <div className="absolute inset-x-10 bottom-4 z-10 flex flex-col items-center gap-1.5 text-center sm:inset-x-12 md:inset-x-auto md:right-10 md:top-1/2 md:bottom-auto md:w-[36%] md:-translate-y-1/2 md:items-start md:text-left">
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-prime/40 bg-prime-muted px-2 py-0.5 text-[8px] font-bold uppercase tracking-[0.16em] text-prime backdrop-blur-sm">
+                        <span className="h-1.5 w-1.5 rounded-full bg-prime shadow-[0_0_10px_rgba(209,168,90,0.6)]" />
+                        Más buscado
+                      </span>
+                      <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-prime">
+                        {activePopularProduct.brand} · {activePopularProduct.category}
+                      </p>
+                      <h3 className="line-clamp-2 text-sm font-bold leading-tight text-text sm:text-base md:text-base">
+                        {activePopularProduct.name}
+                      </h3>
                       <button
-                        key={product.id}
                         type="button"
-                        aria-label={`Mostrar producto ${index + 1}: ${product.name}`}
-                        aria-pressed={index === popularProductIndex}
-                        onClick={() => setPopularProductIndex(index)}
-                        className={`h-2.5 rounded-full transition-all duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime ${
-                          index === popularProductIndex
-                            ? "w-7 bg-prime shadow-[0_0_12px_rgba(209,168,90,0.4)]"
-                            : "w-2.5 bg-bd hover:bg-muted"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <span className="min-w-[3.5rem] text-xs font-medium tabular-nums text-muted">
-                    {String(popularProductIndex + 1).padStart(2, "0")}
-                    <span className="px-1 text-muted">/</span>
-                    {String(popularProducts.length).padStart(2, "0")}
-                  </span>
+                        onClick={() =>
+                          navigate({ id: "product-detail", productId: activePopularProduct.id })
+                        }
+                        className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-prime px-4 py-2 text-xs font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+                      >
+                        Ver producto
+                        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+                          <path
+                            d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    {popularProducts.length > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          aria-label="Ver producto anterior"
+                          onClick={() => changePopularProduct(-1)}
+                          className="absolute left-2 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-bd bg-surface/90 text-sm text-text shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-prime hover:bg-prime hover:text-[#181714] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:left-3 sm:h-9 sm:w-9"
+                        >
+                          <span aria-hidden="true" className="text-xl leading-none">
+                            ←
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Ver siguiente producto"
+                          onClick={() => changePopularProduct(1)}
+                          className="absolute right-2 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-bd bg-surface/90 text-sm text-text shadow-lg shadow-black/20 backdrop-blur-md transition-all duration-200 hover:scale-105 hover:border-prime hover:bg-prime hover:text-[#181714] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:right-3 sm:h-9 sm:w-9"
+                        >
+                          <span aria-hidden="true" className="text-xl leading-none">
+                            →
+                          </span>
+                        </button>
+                      </>
+                    )}
+                  </article>
+                  {popularProducts.length > 1 && (
+                    <div className="mt-5 flex items-center justify-center gap-3">
+                      <div
+                        role="group"
+                        aria-label="Seleccionar producto destacado"
+                        className="flex items-center gap-1.5"
+                      >
+                        {popularProducts.map((product, index) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            aria-label={`Mostrar producto ${index + 1}: ${product.name}`}
+                            aria-pressed={index === popularProductIndex}
+                            onClick={() => setPopularProductIndex(index)}
+                            className={`h-2.5 rounded-full transition-all duration-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime ${
+                              index === popularProductIndex
+                                ? "w-7 bg-prime shadow-[0_0_12px_rgba(209,168,90,0.4)]"
+                                : "w-2.5 bg-bd hover:bg-muted"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <span className="min-w-[3.5rem] text-xs font-medium tabular-nums text-muted">
+                        {String(popularProductIndex + 1).padStart(2, "0")}
+                        <span className="px-1 text-muted">/</span>
+                        {String(popularProducts.length).padStart(2, "0")}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
+            <aside className="relative lg:flex lg:min-h-[420px] lg:flex-col lg:justify-center">
+              <span className="inline-flex items-center gap-2 rounded-full border border-prime/30 bg-prime-muted px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-prime">
+                Productos que marcan tendencia
+              </span>
+              <h3 className="mt-5 text-4xl font-black leading-tight tracking-tight text-text sm:text-5xl">
+                No pagues de más.
+                <span className="mt-1 block text-prime">Encuentra tu próxima oferta.</span>
+              </h3>
+              <p className="mt-4 text-sm leading-relaxed text-muted">
+                Descubre lo que todos buscan y compara antes de elegir.
+              </p>
+            </aside>
+          </div>
         </div>
       </section>
 
