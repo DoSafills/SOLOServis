@@ -33,7 +33,7 @@ No repitas en un skill lo que ya dice este archivo: aquí va **qué** se hace y 
 
 1. **Propuesta antes de código.** Muestra el diseño (esquema, endpoints, contratos, archivos a tocar) y espera aprobación. Después muestra el diff antes del commit.
 2. **Una rama por tarea**, creada desde `develop`. Nunca hagas commit directo en `develop` ni en `main`.
-3. **No hagas push ni merge.** El push y el PR los hace la persona. El PR va contra **`develop`** (no `main`).
+3. **Push y PR solo cuando la persona lo pide; nunca merge.** Sin un pedido explícito, deja los commits en la rama local y entrega el texto del PR para que la persona lo abra. El PR va contra **`develop`** (no `main`).
 4. **Commits sin atribución de IA:** nada de `Co-Authored-By` ni "Generated with…".
 5. **Migraciones:** las aplicadas no se editan. Todo cambio va en un archivo nuevo.
 6. **SQL siempre parametrizado** (`$1`, `$2`…). Nunca concatenes valores.
