@@ -218,7 +218,7 @@ docker compose -f docker/compose.yml config --quiet
 
 ---
 
-## 13. Estado al 2026-11-15
+## 13. Estado al 2026-11-19
 
 Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear antes de darla por cierta.
 
@@ -230,12 +230,12 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 - Scraper v2 entregando productos reales de Falabella y Ripley de punta a punta.
 
 **Pendiente:**
-- Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra fallas: 2 tests del crawler en Windows (conexión SQLite sin cerrar) y `pnpm format:check` (archivos con CRLF).
-- CI en `.github/workflows/ci.yml` (TAL-235): backend, scraper, frontend, skills, compose y manifiestos de Kubernetes. El frontend sigue sin tests.
+- Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra 2 tests del crawler que fallan en Windows (conexión SQLite sin cerrar).
+- CI en `.github/workflows/ci.yml` (TAL-235) corre backend, scraper, frontend, skills, compose y manifiestos de Kubernetes, pero **no** los tests de integración de Go (no levanta PostgreSQL): un PR con migraciones puede quedar verde en CI y romper `TEST_DATABASE_URL`. Antes de mergear migraciones, córrelos a mano (§12). El frontend sigue sin tests.
+- `pnpm format:check` ya pasa (no quedan archivos con CRLF), pero el CI todavía lo excluye: falta activarlo en `ci.yml`.
 - El frontend no tiene pantallas para seguimiento de precios ni notificaciones.
 - Mercado Libre bloqueado por anti-bots; evaluar su API oficial.
 - Que ingestion resuelva la tienda por nombre en vez de por ID.
-- `lint-staged` de la raíz apunta a rutas que no existen (`backend/**/*.ts`, `frontend/`): el pre-commit no formatea nada.
 - Restos sin uso: `backend/src/database/*.ts` y `fronted/package-lock.json` junto al `pnpm-lock.yaml`.
 
 ---
