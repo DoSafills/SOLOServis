@@ -19,6 +19,7 @@ configMapGenerator:
       - origen.py
       - destino.py
       - escenarios.py
+      - flujo.py
     options:
       labels:
         app.kubernetes.io/component: test

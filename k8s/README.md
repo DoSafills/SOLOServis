@@ -321,7 +321,7 @@ Cada línea dice `OK` o `FALLA` con el código HTTP y la URL; la última es `Res
 
 ### Visor de llamadas
 
-Otro Job, aparte de la fase 10: `soloservis-llamadas` (`k8s/tests/llamadas`). Simula el uso de las APIs y muestra cada llamada en dos ventanas:
+Otro Job, aparte de la fase 10: `soloservis-llamadas` (`k8s/tests/llamadas`). Simula el uso de las APIs y el flujo scraper → ingestion → catálogo → gateway, y muestra cada llamada en dos ventanas:
 
 - `origen` corre los escenarios y muestra lo que envía, lo que le vuelve y si coincide con lo esperado.
 - `destino` es un sidecar que hace de proxy: muestra lo que le llega a cada servicio y lo que responde.
@@ -330,6 +330,7 @@ Cada llamada lleva un `X-Request-ID` propio (`t165-05-productos-pagina`), el mis
 
 - TAL-165: parámetros de cada API, la misma llamada por el gateway y directo, lo que el gateway bloquea, autenticación y 10 lecturas simultáneas.
 - TAL-166: valores válidos, inválidos, incompletos y límite, y la forma de cada salida (problem+json, `request_id`, camelCase, sin detalles internos).
+- TAL-167: la última corrida real de cada tienda, del scraper a Ingestion API, al catálogo y al gateway.
 
 **No escribe en la base:** las únicas escrituras son pedidos que Ingestion API y Auth API rechazan al decodificar o validar, antes de la consulta. El token de servicio sale de `soloservis-internal` y no se imprime. Ocupa un pod con 2 contenedores de 25m/64Mi (límite 100m/64Mi).
 

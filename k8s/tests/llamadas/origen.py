@@ -9,6 +9,8 @@ propia ventana lo que recibió cada servicio.
     gateway y directo, con y sin token.
   - TAL-166 (escenarios.py): entradas válidas, inválidas, incompletas y
     límite, y la forma de cada salida.
+  - TAL-167 (flujo.py): el flujo scraper -> ingestion -> catálogo -> gateway
+    con los datos de la última corrida real.
 
 Es de solo lectura: las únicas escrituras son pedidos que la API rechaza al
 decodificar o validar, antes de llegar a la base. El token de servicio viene
@@ -45,6 +47,7 @@ OK, FALLA, AVISO, OMITIDA = "OK", "FALLA", "AVISO", "OMITIDA"
 ESCENARIOS = {
     "165": ("escenarios", "solicitudes"),
     "166": ("escenarios", "entradas_y_salidas"),
+    "167": ("flujo", "flujo_completo"),
 }
 
 # URL que se muestra para cada servicio lógico (la que usaría el origen real).
