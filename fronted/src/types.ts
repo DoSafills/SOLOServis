@@ -57,6 +57,10 @@ export interface StoreOffer {
 export interface PricePoint {
   date: string;
   price: number;
+  recordedAt?: string;
+  currency?: string;
+  offerId?: number;
+  storeId?: number;
 }
 
 export interface Product {

@@ -8,8 +8,12 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import type { PricePoint } from "../../types";
-import { detectPriceAnomalies, formatPrice } from "../../services/utils/productUtils";
+import type { PricePoint, StoreOffer } from "../../types";
+import {
+  detectPriceAnomalies,
+  formatPrice,
+  normalizePriceHistory,
+} from "../../services/utils/productUtils";
 
 const ranges = [
   { label: "7d", days: 7 },
@@ -30,6 +34,7 @@ interface Props {
   history: PricePoint[];
   offerHistory: PricePoint[];
   currentOfferPrice?: number;
+  offers?: readonly StoreOffer[];
 }
 
 function CustomTooltip({
@@ -60,17 +65,30 @@ function formatHistoryDate(value: string | undefined) {
     : date.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export default function PriceHistory({ history, offerHistory, currentOfferPrice }: Props) {
+export default function PriceHistory({ history, offerHistory, currentOfferPrice, offers }: Props) {
   const [range, setRange] = useState(365);
   const [mode, setMode] = useState<"price" | "offer">("price");
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - range);
 
-  const activeData = (mode === "price" ? history : offerHistory)
-    .filter((point) => new Date(point.date) >= cutoff)
-    .sort((first, second) => Date.parse(first.date) - Date.parse(second.date));
+  const activeData = normalizePriceHistory(mode === "price" ? history : offerHistory).filter(
+    (point) => new Date(point.date) >= cutoff,
+  );
   const { hasAbruptHistoryDrop } = detectPriceAnomalies([], activeData);
+  const latestPointByOffer = new Map<number, PricePoint>();
+  for (const point of normalizePriceHistory(history)) {
+    if (point.offerId !== undefined) latestPointByOffer.set(point.offerId, point);
+  }
+  const hasHistoryDrift = (offers ?? []).some((offer) => {
+    const latestPoint = latestPointByOffer.get(offer.offerId);
+    return (
+      latestPoint !== undefined &&
+      typeof offer.price === "number" &&
+      Number.isFinite(offer.price) &&
+      Math.abs(latestPoint.price - offer.price) > 0.005
+    );
+  });
 
   const hasOfferHistory = offerHistory.length > 0;
   const prices = activeData.map((d) => d.price);
@@ -141,6 +159,15 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
         </p>
       )}
 
+      {hasHistoryDrift && (
+        <p
+          role="status"
+          className="mb-4 rounded-xl border border-bd bg-surface-2 px-4 py-2 text-sm text-muted"
+        >
+          El historial puede no estar al día
+        </p>
+      )}
+
       {mode === "offer" && !hasOfferHistory && (
         <div className="rounded-xl border border-bd bg-surface-2 p-6 text-center">
           <p className="mb-1 text-sm font-semibold text-text">No hay historial de ofertas</p>
@@ -190,7 +217,7 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
         </div>
       )}
 
-      {activeData.length > 0 && (
+      {activeData.length >= 2 && (
         <div className="h-52 rounded-xl border border-bd bg-surface-2 p-2 sm:h-60 sm:p-3">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={activeData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
@@ -239,9 +266,9 @@ export default function PriceHistory({ history, offerHistory, currentOfferPrice 
           </ResponsiveContainer>
         </div>
       )}
-      {activeData.length === 0 && !(mode === "offer" && !hasOfferHistory) && (
+      {activeData.length < 2 && !(mode === "offer" && !hasOfferHistory) && (
         <p className="rounded-xl border border-bd bg-surface-2 px-4 py-6 text-center text-sm text-muted">
-          No hay datos de precios registrados para este período.
+          Historial insuficiente
         </p>
       )}
     </section>

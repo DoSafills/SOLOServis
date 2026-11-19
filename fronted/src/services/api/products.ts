@@ -1,4 +1,5 @@
 import type { Product, PricePoint } from "../../types";
+import { normalizePriceHistory } from "../utils/productUtils";
 import { API_URLS, fetchServiceResponse, getJson } from "./config";
 
 interface ApiImage {
@@ -28,6 +29,10 @@ interface ApiOffer {
 interface ApiPricePoint {
   date: string;
   price: string;
+  recordedAt?: string;
+  currency?: string;
+  offerId?: number;
+  storeId?: number;
 }
 
 export interface ApiProductCategory {
@@ -80,10 +85,23 @@ export const parseAmount = (value: string | number | null | undefined): number |
 };
 
 const toPricePoints = (points: ApiPricePoint[] | undefined): PricePoint[] =>
-  (points ?? []).flatMap((point) => {
-    const price = parseAmount(point.price);
-    return price === null ? [] : [{ date: point.date, price }];
-  });
+  normalizePriceHistory(
+    (points ?? []).flatMap((point) => {
+      const price = parseAmount(point.price);
+      return price === null
+        ? []
+        : [
+            {
+              date: point.date,
+              price,
+              recordedAt: point.recordedAt,
+              currency: point.currency,
+              offerId: point.offerId,
+              storeId: point.storeId,
+            },
+          ];
+    }),
+  );
 
 export const toProduct = (product: ApiProduct): Product => {
   const images = (product.images ?? []).map((image) => image.url).filter(Boolean);
