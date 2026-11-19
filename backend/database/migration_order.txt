@@ -31,3 +31,5 @@
 # runner nunca la aplicaba. Debe ir al final: usa normalize_product_offer_url
 # de 009 y la tabla product_offer ya consolidada.
 021_dedupe_scraped_products.sql
+022_unify_product_category_tree.sql
+023_consolidate_computacion_category.sql

@@ -21,6 +21,7 @@ var categorySlugAliases = map[string]string{
 	"congelador":                       "refrigeradores",
 	"congeladores":                     "refrigeradores",
 	"refrigeradores-y-equipos-de-frio": "refrigeradores",
+	"linea-blanca-refrigeracion":       "refrigeradores",
 	"notebook":                         "notebooks",
 	"laptop":                           "notebooks",
 	"laptops":                          "notebooks",

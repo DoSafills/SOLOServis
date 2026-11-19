@@ -550,6 +550,54 @@ func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
 	}
 }
 
+func TestAddItems_ResuelveAliasSlugYOrigenDesconocido(t *testing.T) {
+	tests := []struct {
+		name         string
+		original     string
+		wantSlug     string
+		unrecognized bool
+	}{
+		{name: "alias explícito", original: "Línea blanca refrigeración", wantSlug: "refrigeradores"},
+		{name: "slug directo normalizado", original: "  REFRIGERADORES ", wantSlug: "refrigeradores"},
+		{name: "origen desconocido", original: "Audio desconocido", wantSlug: "audio-desconocido", unrecognized: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			e.catalog.resolveErrors = map[string]error{}
+			if tc.unrecognized {
+				e.catalog.resolveErrors[tc.wantSlug] = products.ErrCategoryNotFound
+			}
+			item := `{"product":{"name":"Producto","categorySlug":` +
+				mustJSON(t, tc.original) +
+				`,"attributes":{"capacidad_litros":200}},"offer":{"price":1}}`
+			result := batch(t, e, item)
+
+			if len(e.catalog.resolved) != 1 || e.catalog.resolved[0].Slug != tc.wantSlug {
+				t.Fatalf("categorías resueltas = %+v, quiero %q", e.catalog.resolved, tc.wantSlug)
+			}
+			if tc.unrecognized {
+				fieldErrors := codes(result.Results[0])
+				if result.Results[0].Status != ItemFailed ||
+					!reflect.DeepEqual(fieldErrors, []string{"product.categorySlug/not_found"}) ||
+					len(e.catalog.created) != 0 || len(e.offers.written) != 0 {
+					t.Fatalf("el origen desconocido debe rechazarse sin crear producto ni oferta: %+v", result.Results[0])
+				}
+				message := result.Results[0].Errors[0].Message
+				if !strings.Contains(message, "Ripley scraper") || !strings.Contains(message, tc.original) ||
+					!strings.Contains(e.logs.String(), "Ripley scraper") || !strings.Contains(e.logs.String(), tc.original) {
+					t.Fatalf("la tienda y el valor original deben quedar en respuesta y log: %s / %s", message, e.logs.String())
+				}
+				return
+			}
+			if result.Results[0].Status != ItemCreated || len(e.catalog.created) != 1 {
+				t.Fatalf("categoría reconocida no creada: %+v", result.Results[0])
+			}
+		})
+	}
+}
+
 func TestAddItems_RechazaSeparadoresDeSlugInvalidos(t *testing.T) {
 	for _, slug := range []string{
 		"-refrigeradores",
