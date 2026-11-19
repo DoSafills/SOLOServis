@@ -653,6 +653,8 @@ El contrato completo para el scraper está en `backend/README.md`, §12.7. **No 
 
 ## 8. Solución de problemas
 
+Antes de buscar en la tabla, corre `python scripts/testing/salud.py`: en una pasada revisa pods, `/health` de cada proceso, gateway, host público, migraciones y cuota, y dice qué falla. Es de solo lectura.
+
 | Síntoma | Causa probable | Qué hacer |
 |---|---|---|
 | `unknown command "oidc-login" for "kubectl"` | falta el plugin de login de la plataforma | instálalo como en [§3.1](#31-tu-kubeconfig) y abre una terminal nueva |
