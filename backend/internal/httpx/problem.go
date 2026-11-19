@@ -24,6 +24,7 @@ const (
 	CodeUnauthorized         = "unauthorized"
 	CodeForbidden            = "forbidden"
 	CodeNotFound             = "not_found"
+	CodeMethodNotAllowed     = "method_not_allowed"
 	CodeConflict             = "conflict"
 	CodeBodyTooLarge         = "body_too_large"
 	CodeUnsupportedMediaType = "unsupported_media_type"

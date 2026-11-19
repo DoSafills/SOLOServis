@@ -7,10 +7,17 @@ import (
 
 	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
+	"github.com/DoSafills/SOLOServis/backend/internal/httpx/chiroute"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// NewRouter arma el router de la API name (auth-api, cart-api, favorites-api,
+// review-api, watchlist-api o notification-api). Recibe ese nombre, el pool de
+// PostgreSQL y el origen permitido por CORS. Devuelve el router con los
+// middlewares del estándar TAL-78, GET /health y las rutas de la API; las
+// rutas inexistentes y los métodos no permitidos responden problem+json
+// (TAL-245).
 func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	// Estándar TAL-78, en el mismo orden que las demás APIs
 	// (internal/http.useStandardMiddleware): RequestID → AccessLog → Recover.
@@ -19,6 +26,7 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	// Crear notificaciones es interno: lo llaman pricing e ingestion con INTERNAL_API_TOKEN.
 	admin := authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
 	r := chi.NewRouter()
+	chiroute.UseProblemFallbacks(r)
 	r.Use(httpx.RequestID, httpx.AccessLog(logger), httpx.Recover(logger))
 	r.Use(cors(frontendURL))
 	r.Get("/health", h.Health)
