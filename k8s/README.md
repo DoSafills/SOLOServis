@@ -319,6 +319,41 @@ kubectl logs job/soloservis-smoke-test
 
 Cada línea dice `OK` o `FALLA` con el código HTTP y la URL; la última es `Resultado: N OK, M fallas`. El Job termina en `Complete` si todo pasa y en `Failed` si algo falla. Se borra solo una hora después.
 
+### Visor de llamadas
+
+Otro Job, aparte de la fase 10: `soloservis-llamadas` (`k8s/tests/llamadas`). Simula el uso de las APIs y muestra cada llamada en dos ventanas:
+
+- `origen` corre los escenarios y muestra lo que envía, lo que le vuelve y si coincide con lo esperado.
+- `destino` es un sidecar que hace de proxy: muestra lo que le llega a cada servicio y lo que responde.
+
+Cada llamada lleva un `X-Request-ID` propio (`t165-05-productos-pagina`), el mismo en las dos ventanas y en el AccessLog del pod real. Los escenarios son:
+
+- TAL-165: parámetros de cada API, la misma llamada por el gateway y directo, lo que el gateway bloquea, autenticación y 10 lecturas simultáneas.
+
+**No escribe en la base:** solo hace lecturas; los POST, PUT y DELETE que prueba por el gateway los corta el nginx. El token de servicio sale de `soloservis-internal` y no se imprime. Ocupa un pod con 2 contenedores de 25m/64Mi (límite 100m/64Mi).
+
+```bash
+python scripts/testing/llamadas.py --ventanas
+```
+
+Recrea el Job, abre dos PowerShell (`ORIGEN` y `DESTINO`) con `kubectl logs -f` y, al terminar, deja en `docs/reportes/testing/llamadas-<fecha>.md` cada llamada lado a lado, con la línea del AccessLog del backend o del nginx que tiene el mismo id. `--tickets 166` corre uno solo y `--pausa 1` hace más lenta la secuencia. A mano:
+
+```bash
+kubectl delete job soloservis-llamadas --ignore-not-found
+```
+
+```bash
+kubectl apply -k k8s/tests/llamadas
+```
+
+```bash
+kubectl logs -f job/soloservis-llamadas -c origen
+```
+
+```bash
+kubectl logs -f job/soloservis-llamadas -c destino
+```
+
 ---
 
 ## 6. Operación del día a día
@@ -664,6 +699,7 @@ k8s/
 │   ├── consolidado/              Deployment "backend" con las 14 APIs + destino del nginx (respaldo)
 │   └── espera-postgres/          initContainer que espera a PostgreSQL; lo incluyen las dos topologías
 ├── tests/                        pod de test: Job + smoke-test.sh (solo lecturas)
+│   └── llamadas/                 visor de llamadas: Job con origen y destino
 └── overlays/uct/                 GENERADO por el script (ignorado por git): namespace, imágenes,
                                   StorageClass, host y los .sql de backend/database/migrations
 scripts/k8s/deploy.ps1            despliegue por fases (PowerShell 5.1+)
