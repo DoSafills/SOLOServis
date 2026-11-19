@@ -229,6 +229,47 @@ func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string, 
 	return p, err == nil, err
 }
 
+// AddImageIfMissing completa la imagen de un producto ya catalogado (TAL-243).
+// Recibe el id interno del producto y la URL de imagen que envió la tienda, ya
+// validada como http(s). La guarda como imagen principal (sort_order 0, con el
+// nombre del producto como texto alternativo; ambos son VARCHAR(255)) solo si
+// el producto no tiene ninguna imagen activa y si esa URL no fue desactivada
+// antes por un admin: nunca reemplaza ni reactiva lo curado. Devuelve true si
+// la guardó.
+//
+// Bloquea la fila del producto (FOR NO KEY UPDATE, que no choca con las
+// ofertas que lo referencian) para que dos lotes simultáneos no inserten la
+// imagen dos veces: product_image no tiene una restricción única que lo evite.
+func (r *Repository) AddImageIfMissing(ctx context.Context, productID int32, imageURL string) (bool, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	var name string
+	err = tx.QueryRow(ctx, `SELECT name FROM product WHERE id = $1 FOR NO KEY UPDATE`, productID).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO product_image (product_id, image_url, alt_text, sort_order)
+		SELECT $1, $2, $3, 0
+		WHERE NOT EXISTS (SELECT 1 FROM product_image WHERE product_id = $1 AND active)
+		  AND NOT EXISTS (SELECT 1 FROM product_image WHERE product_id = $1 AND image_url = $2)`,
+		productID, imageURL, name)
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // EnsureBrand devuelve la marca con la misma clave normalizada o la crea.
 func (r *Repository) EnsureBrand(ctx context.Context, name string) (int32, error) {
 	var id int32

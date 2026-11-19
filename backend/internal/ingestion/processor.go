@@ -27,6 +27,7 @@ type RunStore interface {
 	AddCounters(ctx context.Context, id int32, found, processed, failed int) error
 	SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, raw json.RawMessage) error
 	FindProduct(ctx context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error)
+	AddImageIfMissing(ctx context.Context, productID int32, imageURL string) (bool, error)
 	EnsureBrand(ctx context.Context, name string) (int32, error)
 	ProductID(ctx context.Context, publicID pgtype.UUID) (int32, error)
 }
@@ -81,9 +82,12 @@ func (p *Processor) Process(ctx context.Context, runID, storeID int32, storeName
 	return result
 }
 
-// processItem procesa un ítem del lote: lo valida, busca si el producto ya
-// existe (o lo crea), registra la oferta y avisa si el precio bajó. Nunca
-// detiene el lote: un ítem con problemas vuelve como fallido con sus errores.
+// processItem procesa el ítem número index del lote runID para la tienda
+// storeID: lo valida, busca si el producto ya existe (o lo crea), completa la
+// imagen de un producto existente que no tiene (TAL-243), registra la oferta y
+// avisa si el precio bajó. Devuelve el resultado del ítem; nunca detiene el
+// lote: un ítem con problemas vuelve como fallido con sus errores, y un error
+// interno, con el código internal_error y el detalle solo en el log.
 func (p *Processor) processItem(ctx context.Context, runID, storeID int32, storeName string, index int, item Item) ItemResult {
 	result := ItemResult{Index: index, ExternalID: strings.TrimSpace(item.ExternalID)}
 	originalCategory := item.Product.CategorySlug
@@ -119,8 +123,14 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, store
 		return fail(httpx.FieldError{Field: "product", Code: "conflict",
 			Message: "el producto que coincide (por sku, marca y modelo o URL de la oferta) está dado de baja"})
 	case found:
-		// El catálogo existente no se modifica: lo cura el admin. Solo la oferta.
+		// El catálogo existente lo cura el admin: no se modifica, salvo para
+		// completar la imagen si el producto no tiene ninguna activa (TAL-243).
 		productID, result.ProductID, result.Status = existing.ID, existing.PublicID, ItemUpdated
+		if product.ImageURL != "" {
+			if _, err := p.runs.AddImageIfMissing(ctx, productID, product.ImageURL); err != nil {
+				return internal("add_image", err)
+			}
+		}
 	default:
 		var fieldErrs []httpx.FieldError
 		productID, result.ProductID, fieldErrs, err = p.createProduct(

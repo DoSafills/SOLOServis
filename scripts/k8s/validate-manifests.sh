@@ -4,7 +4,7 @@
 # `kubectl kustomize` solo arma el YAML: no detecta un campo mal indentado o
 # con otro nombre. Asi paso un `spec:` fuera de lugar en el Deployment del
 # scraper, que recien fallo en el `kubectl apply` del despliegue. Este script
-# genera las dos topologias (dominios y consolidado) y el Job de pruebas, y
+# genera las dos topologias (dominios y consolidado) y los Jobs de pruebas, y
 # los pasa por kubeconform en modo estricto, que rechaza campos desconocidos.
 #
 #   scripts/k8s/validate-manifests.sh
@@ -59,6 +59,7 @@ done
 
 mkdir -p "$TMP"
 check "tests (pod de pruebas)" "$ROOT/k8s/tests"
+check "tests (visor de llamadas)" "$ROOT/k8s/tests/llamadas"
 
 if [ "$failed" -ne 0 ]; then
   echo "FALLA: hay manifiestos que la API de Kubernetes rechazaria."

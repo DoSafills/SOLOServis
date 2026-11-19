@@ -33,13 +33,14 @@ No repitas en un skill lo que ya dice este archivo: aquí va **qué** se hace y 
 
 1. **Propuesta antes de código.** Muestra el diseño (esquema, endpoints, contratos, archivos a tocar) y espera aprobación. Después muestra el diff antes del commit.
 2. **Una rama por tarea**, creada desde `develop`. Nunca hagas commit directo en `develop` ni en `main`.
-3. **No hagas push ni merge.** El push y el PR los hace la persona. El PR va contra **`develop`** (no `main`).
+3. **Push y PR solo cuando la persona lo pide; nunca merge.** Sin un pedido explícito, deja los commits en la rama local y entrega el texto del PR para que la persona lo abra. El PR va contra **`develop`** (no `main`).
 4. **Commits sin atribución de IA:** nada de `Co-Authored-By` ni "Generated with…".
 5. **Migraciones:** las aplicadas no se editan. Todo cambio va en un archivo nuevo.
 6. **SQL siempre parametrizado** (`$1`, `$2`…). Nunca concatenes valores.
 7. **Secretos:** nunca imprimas ni escribas en git tokens o contraseñas. Los Secrets se nombran, no se muestran. No leas `~/.docker/config.json` ni el kubeconfig.
 8. **Reporta lo real:** si un test falla o no se pudo correr, dilo con la salida. No des por validado lo que no ejecutaste.
 9. **Responde en español.**
+10. **Toda función se explica.** Cada función, método o handler que agregues o modifiques lleva un comentario que diga qué hace, qué recibe y qué devuelve, y por qué existe si no es obvio. En Go, comentario de documentación (`// NombreFuncion …`); en Python, docstring; en TypeScript, JSDoc (`/** … */`). Lo pidió el scrum master para todo el proyecto: si tocas un archivo con funciones sin explicar, explícalas en el mismo cambio.
 
 ---
 
@@ -80,8 +81,8 @@ No hay rastro en el código de: **Redis**, **Scrapy**, **Playwright** (directo),
 | Caché (Redis) | Prevista; sin implementar |
 | Documentación OpenAPI | Prevista; hoy los endpoints están en `backend/README.md` |
 | Pantallas de seguimiento de precios y notificaciones | Las APIs `watchlist` y `notification` existen; el frontend no las usa |
-| CI (GitHub Actions) | No existe `.github/workflows` |
 | Tests del frontend | No hay ninguno; solo `pnpm check` |
+| Visor de llamadas en el pod de test | Pedido por el scrum master: un sistema de pruebas que recree el flujo de datos (scraper → ingestion → catálogo → gateway) y el uso de las APIs desde el pod de test, y que muestre cada llamada en **dos ventanas**: en una, lo que envía el origen; en la otra, lo que recibe el destino. Parte de `scripts/testing/salud.py` (TAL-164) y `scripts/testing/flujo_productos.py` (TAL-184), que ya comparan lo enviado con lo recibido. Diseño pendiente: proponlo antes de implementarlo |
 
 ---
 
@@ -137,6 +138,7 @@ docs/               estandares/, auditorias/, database/, requirements/
 | Antes de afirmar que algo está en `develop` | Verifícalo (`git merge-base --is-ancestor`): ya hubo PR que quedaron en `main` por error |
 | Checkout de la persona | No cambies de rama sin avisar. No toques sus contenedores de Docker (`soloservis_*`) |
 | Documentación de una tarea | Se escribe después del código y del redeploy, con evidencia real del clúster |
+| A quién va un ticket | Según el área del problema: frontend (`fronted/`) → Cristian; APIs del backend y Kubernetes → Marcelo; scraper y crawler → Kevin; lo demás → Ricardo (scrum master). Revisa en el código dónde está la causa antes de asignarlo |
 
 ---
 
@@ -214,11 +216,12 @@ docker compose -f docker/compose.yml config --quiet
 - Los tests de integración de Go necesitan `TEST_DATABASE_URL` apuntando a un PostgreSQL 18 con las migraciones aplicadas en el orden de `migration_order.txt`; sin la variable se omiten. Con la variable, corre `go test -p 1 ./...`: los paquetes comparten la base y en paralelo se pisan los datos.
 - `scripts/k8s/validate-manifests.sh` valida los manifiestos contra el esquema de Kubernetes (kubeconform, modo estricto) sin tocar el clúster; `kubectl kustomize` solo arma el YAML y no detecta un campo mal indentado.
 - El pod de test del clúster (`k8s/tests`, fase 10 del deploy) hace 35 verificaciones.
+- **Health check (TAL-164):** `python scripts/testing/salud.py` revisa el despliegue en cualquier momento (pods, `/health`, gateway, host público, migraciones y cuota), sin escribir nada. Es lo primero que se corre cuando alguien avisa que el sitio no funciona. Con `--detalle` lista cada pedido con lo esperado y lo obtenido; `python scripts/testing/reporte.py --salud` lo suma al reporte de testing.
 - **Reporte de testing (TAL-168):** `python scripts/testing/reporte.py` corre todas las suites y deja el resultado en `docs/reportes/testing/` (`--postgres-docker` suma los tests de integración). Córrelo antes de pedir un PR: `go build ./...` tiene que pasar siempre.
 
 ---
 
-## 13. Estado al 2026-11-15
+## 13. Estado al 2026-11-19
 
 Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear antes de darla por cierta.
 
@@ -230,12 +233,12 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 - Scraper v2 entregando productos reales de Falabella y Ripley de punta a punta.
 
 **Pendiente:**
-- Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra fallas: 2 tests del crawler en Windows (conexión SQLite sin cerrar) y `pnpm format:check` (archivos con CRLF).
-- CI en `.github/workflows/ci.yml` (TAL-235): backend, scraper, frontend, skills, compose y manifiestos de Kubernetes. El frontend sigue sin tests.
+- Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra 2 tests del crawler que fallan en Windows (conexión SQLite sin cerrar).
+- CI en `.github/workflows/ci.yml` (TAL-235) corre backend, scraper, frontend, skills, compose y manifiestos de Kubernetes, pero **no** los tests de integración de Go (no levanta PostgreSQL): un PR con migraciones puede quedar verde en CI y romper `TEST_DATABASE_URL`. Antes de mergear migraciones, córrelos a mano (§12). El frontend sigue sin tests.
+- `pnpm format:check` ya pasa (no quedan archivos con CRLF), pero el CI todavía lo excluye: falta activarlo en `ci.yml`.
 - El frontend no tiene pantallas para seguimiento de precios ni notificaciones.
 - Mercado Libre bloqueado por anti-bots; evaluar su API oficial.
 - Que ingestion resuelva la tienda por nombre en vez de por ID.
-- `lint-staged` de la raíz apunta a rutas que no existen (`backend/**/*.ts`, `frontend/`): el pre-commit no formatea nada.
 - Restos sin uso: `backend/src/database/*.ts` y `fronted/package-lock.json` junto al `pnpm-lock.yaml`.
 
 ---

@@ -64,7 +64,8 @@ Justificación:
 | `invalid_parameter` | 400 | Parámetro de ruta o query con formato inválido (p. ej. UUID mal formado). |
 | `unauthorized` | 401 | Falta el token o no corresponde a una sesión vigente (TAL-70). Incluye `WWW-Authenticate: Bearer`. |
 | `forbidden` | 403 | Token válido sin el rol requerido (TAL-70: escrituras de productos exigen `admin`). |
-| `not_found` | 404 | El recurso no existe (o está desactivado y el endpoint no expone inactivos). |
+| `not_found` | 404 | El recurso no existe (o está desactivado y el endpoint no expone inactivos), o la ruta no existe en la API (TAL-245). |
+| `method_not_allowed` | 405 | La ruta existe, pero no con ese método. Incluye `Allow` con los métodos aceptados (TAL-245). |
 | `conflict` | 409 | Violación de unicidad o estado incompatible (p. ej. SKU duplicado). |
 | `body_too_large` | 413 | El body supera el límite configurado. |
 | `unsupported_media_type` | 415 | `Content-Type` ausente o distinto de `application/json`. |
@@ -85,7 +86,8 @@ Los códigos por campo (`errors[].code`) iniciales son: `required`, `min`, `max`
 | **400 Bad Request** | La petición **no se puede interpretar**: JSON malformado, body vacío, campo desconocido, tipo incorrecto, parámetro de ruta/query mal formado. | Problem (`malformed_json`, `unknown_field`, `invalid_type`, `invalid_parameter`). |
 | **401 Unauthorized** | Endpoint protegido sin token válido (`internal/authz`). | Problem `unauthorized`. |
 | **403 Forbidden** | Token válido sin el rol requerido. | Problem `forbidden`. |
-| **404 Not Found** | El recurso direccionado no existe. **Solo** cuando el repositorio indica "no encontrado" (`pgx.ErrNoRows`), nunca como comodín para cualquier error de BD. | Problem `not_found`. |
+| **404 Not Found** | El recurso direccionado no existe. **Solo** cuando el repositorio indica "no encontrado" (`pgx.ErrNoRows`), nunca como comodín para cualquier error de BD. También cuando ninguna ruta de la API coincide (lo responde el router, no el handler). | Problem `not_found`. |
+| **405 Method Not Allowed** | La ruta existe con otros métodos. Lo responde el router (`httpx/chiroute.UseProblemFallbacks`) con el header `Allow`. | Problem `method_not_allowed`. |
 | **409 Conflict** | Violación de restricción UNIQUE (SQLSTATE `23505`) o conflicto de estado. | Problem `conflict`. |
 | **413 Content Too Large** | Body mayor al límite (1 MB por defecto). | Problem `body_too_large`. |
 | **415 Unsupported Media Type** | Endpoint con body y `Content-Type` distinto de `application/json` (se aceptan parámetros como `charset=utf-8`). | Problem `unsupported_media_type`. |
@@ -250,6 +252,8 @@ Cada endpoint nuevo o modificado:
 | `requestid.go` | Middleware `RequestID`, `RequestIDFrom(ctx)`, header `X-Request-ID`. |
 | `logging.go` | `NewLogger`, `ParseLevel`, middleware `AccessLog`. |
 | `recover.go` | Middleware `Recover`. |
+| `routes.go` | `WriteRouteNotFound` (404 "La ruta no existe en esta API.") y `WriteMethodNotAllowed` (405 con `Allow`) (TAL-245). |
+| `chiroute/` | `UseProblemFallbacks(r *chi.Mux)`: conecta esos dos con `NotFound` y `MethodNotAllowed` de chi; `AllowedMethods` arma el `Allow`. Va aparte para que `httpx` siga sin depender de chi. Lo llaman `internal/http.newRouter` y `features.NewRouter`; un router agregado con `r.Mount` necesita su propia llamada. |
 
 Cableado (`backend/internal/http/router.go`): en `NewProductRouter` y `NewStoreRouter`, orden `RequestID → AccessLog → Recover → CORS`. Los endpoints existentes responden igual que antes; lo nuevo es el header `X-Request-ID`, el log de acceso y que un panic devuelve 500 problem+json en lugar de cortar la conexión.
 

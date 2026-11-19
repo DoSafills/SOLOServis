@@ -3,6 +3,7 @@ package features
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 )
@@ -15,19 +16,23 @@ type searchInput struct {
 	Filters json.RawMessage `json:"filters"`
 }
 
+// CreateSearchHistory atiende POST /search/history: registra una búsqueda
+// del usuario de la sesión. Responde 422 si query viene vacío o type no es
+// product, service o mixed (por defecto product), y 201 con la búsqueda.
 func (h *Handler) CreateSearchHistory(w http.ResponseWriter, r *http.Request) {
 	var input searchInput
 	if !decode(w, r, &input) {
 		return
 	}
+	typeValue := strings.TrimSpace(input.Type)
+	if typeValue == "" {
+		typeValue = defaultSearchType
+	}
 	var v httpx.Validator
 	v.Required("query", input.Query)
+	v.Check(searchTypes[typeValue], "type", "one_of", "type debe ser product, service o mixed")
 	if !valid(w, r, &v) {
 		return
-	}
-	typeValue := input.Type
-	if typeValue == "" {
-		typeValue = "product"
 	}
 	h.created(w, r, `WITH inserted AS (INSERT INTO search_query (user_id,raw_query,search_type)
 		VALUES ($1,$2,$3) RETURNING id,user_id,raw_query,search_type,created_at)
@@ -40,6 +45,10 @@ func (h *Handler) GetSearchHistory(w http.ResponseWriter, r *http.Request) {
 		FROM search_query WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, userID)
 }
 
+// SaveSearch atiende POST /search/saved: guarda una búsqueda con nombre para
+// el usuario de la sesión. Responde 422 si name falta o supera
+// maxSavedSearchName caracteres, o si filters no es un objeto JSON, y 201 con
+// la búsqueda guardada.
 func (h *Handler) SaveSearch(w http.ResponseWriter, r *http.Request) {
 	var input searchInput
 	if !decode(w, r, &input) {
@@ -47,6 +56,8 @@ func (h *Handler) SaveSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	var v httpx.Validator
 	v.Required("name", input.Name)
+	v.MaxLength("name", input.Name, maxSavedSearchName)
+	v.Check(isJSONObject(input.Filters), "filters", "invalid_type", "filters debe ser un objeto JSON")
 	if !valid(w, r, &v) {
 		return
 	}

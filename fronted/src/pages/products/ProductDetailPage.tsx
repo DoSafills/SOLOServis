@@ -451,6 +451,7 @@ export default function ProductDetailPage({
         history={product.priceHistory}
         offerHistory={product.offerPriceHistory}
         currentOfferPrice={product.offerPrice}
+        offers={product.offers}
       />
 
       {/* Reviews */}

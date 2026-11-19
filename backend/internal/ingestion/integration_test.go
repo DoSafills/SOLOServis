@@ -257,3 +257,136 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		t.Fatalf("configuraciones = %d, quiero 1 reutilizada", configs)
 	}
 }
+
+// Integración TAL-243: un producto existente sin imagen activa toma la imagen
+// que envía la tienda, sin duplicarla ni pisar una imagen existente, y sin
+// reactivar una imagen que el admin desactivó. Se omite sin TEST_DATABASE_URL.
+func TestIngestionIntegration_ImagenDeProductoExistente(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL no definida: se omite el test de integración")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	tag := "tal243-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	source := "Scraper " + tag
+	brand := "Marca " + tag
+	name := "Refri sin imagen " + tag
+	var storeID int32
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM data_source WHERE name = $1`, source)
+		_, _ = pool.Exec(ctx, `DELETE FROM product WHERE name = $1`, name) // product_image cae en cascada
+		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = $1`, storeID)
+		_, _ = pool.Exec(ctx, `DELETE FROM brand WHERE name = $1`, brand)
+	})
+	must := func(err error, what string) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+	}
+	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda "+tag).Scan(&storeID), "tienda")
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	runs := NewRepository(pool)
+	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), &fakeNotifier{}, logger), logger)
+	r := chi.NewRouter()
+	r.Use(httpx.RequestID)
+	r.Post("/ingestion/runs", h.OpenRun)
+	r.Post("/ingestion/runs/{id}/items", h.AddItems)
+	do := func(path string, body any) *httptest.ResponseRecorder {
+		encoded, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(encoded)))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec
+	}
+	rec := do("/ingestion/runs", map[string]any{
+		"source": map[string]any{"name": source, "baseUrl": "https://tienda.example.test"}, "storeId": storeID})
+	var run Run
+	if err := json.Unmarshal(rec.Body.Bytes(), &run); err != nil || rec.Code != http.StatusCreated {
+		t.Fatalf("abrir = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Ítem como los del scraper: sin SKU ni modelo, identificado por tienda + URL.
+	send := func(imageURL string) ItemResult {
+		t.Helper()
+		product := map[string]any{"name": name, "brand": brand, "categorySlug": "refrigeradores",
+			"attributes": map[string]any{"capacidad_litros": 300}}
+		if imageURL != "" {
+			product["imageUrl"] = imageURL
+		}
+		rec := do(fmt.Sprintf("/ingestion/runs/%d/items", run.ID), map[string]any{"items": []any{map[string]any{
+			"product": product, "offer": map[string]any{"price": 299990, "productUrl": "https://tienda.example.test/p/refri?pos=3"}}}})
+		var result BatchResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil || rec.Code != http.StatusOK || len(result.Results) != 1 {
+			t.Fatalf("lote = %d %s", rec.Code, rec.Body.String())
+		}
+		return result.Results[0]
+	}
+	// images devuelve las imágenes del producto como "url|activa|orden|alt".
+	images := func() []string {
+		t.Helper()
+		rows, err := pool.Query(ctx, `SELECT i.image_url, i.active, i.sort_order, COALESCE(i.alt_text, '')
+			FROM product_image i JOIN product p ON p.id = i.product_id WHERE p.name = $1 ORDER BY i.id`, name)
+		must(err, "imágenes")
+		defer rows.Close()
+		out := []string{}
+		for rows.Next() {
+			var imageURL, alt string
+			var active bool
+			var order int
+			must(rows.Scan(&imageURL, &active, &order, &alt), "imagen")
+			out = append(out, fmt.Sprintf("%s|%t|%d|%s", imageURL, active, order, alt))
+		}
+		return out
+	}
+
+	// 1. Se crea sin imagen (como los 18 productos de Falabella).
+	if r := send(""); r.Status != ItemCreated || len(images()) != 0 {
+		t.Fatalf("crear = %+v, imágenes = %v", r, images())
+	}
+	// 2. El mismo producto llega con imagen: se guarda una sola vez.
+	first := "https://img.example.test/refri.jpg"
+	for range 2 {
+		if r := send(first); r.Status != ItemUpdated || len(r.Errors) != 0 {
+			t.Fatalf("actualizar = %+v", r)
+		}
+	}
+	if got, want := images(), []string{first + "|true|0|" + name}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("imágenes = %v, quiero %v", got, want)
+	}
+	// 3. Con imagen activa, otra URL no la reemplaza ni se agrega.
+	if r := send("https://img.example.test/otra.jpg"); r.Status != ItemUpdated {
+		t.Fatalf("otra imagen = %+v", r)
+	}
+	if got := images(); len(got) != 1 || !strings.HasPrefix(got[0], first+"|true") {
+		t.Fatalf("una imagen existente no se cambia: %v", got)
+	}
+	// 4. El admin la desactiva: la misma URL no se reactiva ni se duplica.
+	_, err = pool.Exec(ctx, `UPDATE product_image SET active = FALSE
+		WHERE product_id = (SELECT id FROM product WHERE name = $1)`, name)
+	must(err, "desactivar imagen")
+	send(first)
+	if got := images(); len(got) != 1 || !strings.HasPrefix(got[0], first+"|false") {
+		t.Fatalf("una imagen desactivada por el admin no vuelve: %v", got)
+	}
+	// 5. Sin imagen activa, una URL distinta sí se guarda.
+	second := "https://img.example.test/nueva.jpg"
+	send(second)
+	if got := images(); len(got) != 2 || got[1] != second+"|true|0|"+name {
+		t.Fatalf("imágenes = %v, quiero la nueva activa", got)
+	}
+	var copies int
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM product WHERE name = $1`, name).Scan(&copies), "copias")
+	if copies != 1 {
+		t.Fatalf("productos = %d, quiero 1 (sin duplicados)", copies)
+	}
+}

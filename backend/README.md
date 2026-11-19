@@ -830,6 +830,8 @@ PostgreSQL
 
 La API de Ingestion administra ejecuciones de integración y procesa los productos y ofertas recibidos.
 
+Cuando un ítem coincide con un producto ya catalogado (por SKU, marca + modelo o tienda + URL de la oferta), Ingestion solo actualiza la oferta: el catálogo lo cura el admin. La única excepción es la imagen (TAL-243): si el producto no tiene ninguna imagen activa y el ítem trae `product.imageUrl`, se guarda como imagen principal. Nunca reemplaza una imagen existente ni reactiva una URL que el admin desactivó.
+
 Las operaciones internas están protegidas por autorización administrativa o `INTERNAL_API_TOKEN`, según corresponda.
 
 Documentación relacionada:
