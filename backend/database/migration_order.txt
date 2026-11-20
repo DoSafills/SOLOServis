@@ -39,3 +39,6 @@
 026_integrity_constraints.sql
 # TAL-190: corrige padres y fusiona duplicados de product_category (idempotente).
 027_product_category_parent_fixes.sql
+# 028: reparenta Computación/Celulares/Gaming bajo Tecnología, repone las
+# hijas de Computación y agrega las subcategorías de Electrodomésticos.
+028_reparent_and_expand_category_tree.sql
