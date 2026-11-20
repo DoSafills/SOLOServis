@@ -32,7 +32,7 @@ No repitas en un skill lo que ya dice este archivo: aquí va **qué** se hace y 
 ## 1. Reglas que no se rompen
 
 1. **Propuesta antes de código.** Muestra el diseño (esquema, endpoints, contratos, archivos a tocar) y espera aprobación. Después muestra el diff antes del commit.
-2. **Una rama por tarea**, creada desde `develop`. Nunca hagas commit directo en `develop` ni en `main`.
+2. **Una rama por dominio**, creada desde `develop` (§6). Nunca hagas commit directo en `develop` ni en `main`.
 3. **Push y PR solo cuando la persona lo pide; nunca merge.** Sin un pedido explícito, deja los commits en la rama local y entrega el texto del PR para que la persona lo abra. El PR va contra **`develop`** (no `main`).
 4. **Commits sin atribución de IA:** nada de `Co-Authored-By` ni "Generated with…".
 5. **Migraciones:** las aplicadas no se editan. Todo cambio va en un archivo nuevo.
@@ -132,7 +132,7 @@ docs/               estandares/, auditorias/, database/, requirements/
 
 | Tema | Convención |
 | --- | --- |
-| Ramas | `feature/TAL-XX-descripcion`, `fix/…`, `docs/…`, `chore/…`, `test/TAL-XX-…`, desde `develop` |
+| Ramas | Desde 2026-11-20, **una rama por dominio**, no por tarea: `feat/api`, `feat/backend`, `feat/frontend`, `feat/test` u otra según el área (por ejemplo `feat/scraper`, `feat/k8s`, `docs/…`). Se crean desde `develop`, que sigue siendo la rama de integración. El ticket va en el commit, no en el nombre de la rama. Antes de empezar, actualiza la rama con `git merge origin/develop`: la comparten varias tareas y se desfasa rápido |
 | Commits | Pequeños, `tipo(TAL-XX): descripción` en español (`feat`, `fix`, `docs`, `test`, `chore`). Sin tarea: `tipo(área): …` |
 | PR | Contra `develop`. Descripción breve: qué cambia, cómo se validó, riesgos. No repitas el README |
 | Antes de afirmar que algo está en `develop` | Verifícalo (`git merge-base --is-ancestor`): ya hubo PR que quedaron en `main` por error |
