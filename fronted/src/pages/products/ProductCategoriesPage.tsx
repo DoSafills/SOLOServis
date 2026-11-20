@@ -10,7 +10,7 @@ import {
   CATEGORY_SECTION_ICONS,
   getProductCategoryGroup,
   getProductSubtype,
-  getProductSubtypeSearchQuery,
+  getSubtypeQueryForProducts,
 } from "../../constants/productCatalog";
 
 interface Props {
@@ -40,6 +40,12 @@ const categorySections = [
 
 type CategorySectionId = (typeof categorySections)[number]["id"];
 
+/**
+ * Normaliza el nombre de una tarjeta para agrupar las que se llaman igual
+ * (sin tildes, sin espacios en los extremos y en minúsculas).
+ * @param name Nombre de la categoría o del tipo.
+ * @returns La clave normalizada.
+ */
 const normalizeCategoryName = (name: string) =>
   name
     .normalize("NFD")
@@ -47,6 +53,14 @@ const normalizeCategoryName = (name: string) =>
     .trim()
     .toLocaleLowerCase();
 
+/**
+ * Página "Explora por categoría": agrupa los productos en secciones (Hogar,
+ * Tecnología, Otras) y muestra una tarjeta por categoría o por tipo inferido.
+ * Cada tarjeta abre la búsqueda filtrada por sus categorías y, si hace falta
+ * acotar un tipo dentro de una categoría mezclada, por un texto de búsqueda.
+ * @param props.navigate Cambia de página en la aplicación.
+ * @returns La página de categorías de productos.
+ */
 export default function ProductCategoriesPage({ navigate }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ApiProductCategory[]>([]);
@@ -90,6 +104,11 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       childrenByParent.set(category.parentId, children);
     }
 
+    /**
+     * Reúne una categoría y todas sus subcategorías.
+     * @param categoryId Id de la categoría de partida.
+     * @returns Conjunto con el id y los de sus descendientes.
+     */
     const getDescendantIds = (categoryId: number) => {
       const descendants = new Set([categoryId]);
       const pending = [categoryId];
@@ -106,6 +125,11 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       return descendants;
     };
 
+    /**
+     * Sube por el árbol hasta la categoría raíz.
+     * @param category Categoría de partida.
+     * @returns La raíz (la misma categoría si ya lo es).
+     */
     const rootCategoryFor = (category: ApiProductCategory) => {
       let current = category;
       while (current.parentId !== null) {
@@ -135,6 +159,16 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         ),
     );
 
+    /**
+     * Arma los datos de una tarjeta del catálogo.
+     * @param name Nombre visible de la tarjeta.
+     * @param items Productos que cuenta.
+     * @param root Categoría raíz, que decide la sección.
+     * @param categoryIds Categorías con las que filtra la búsqueda.
+     * @param query Texto de búsqueda adicional ("" si no hace falta).
+     * @param isSubtype true si la tarjeta representa un tipo inferido.
+     * @returns La tarjeta.
+     */
     const makeCard = (
       name: string,
       items: Product[],
@@ -194,7 +228,7 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       const subtreeProducts = productsByCategory.get(root.id) ?? [];
       const query = subtreeProducts.every((product) => getProductSubtype(product) === subtype)
         ? ""
-        : getProductSubtypeSearchQuery(subtype);
+        : getSubtypeQueryForProducts(subtype, items);
       return [makeCard(subtype, items, root, [root.id], query)];
     });
     const cardsByKey = new Map<string, (typeof categoryCards)[number]>();
@@ -227,7 +261,10 @@ export default function ProductCategoriesPage({ navigate }: Props) {
           categoryProducts.length > 0 &&
           categoryProducts.every((product) => getProductSubtype(product) === existing.name)
             ? ""
-            : getProductSubtypeSearchQuery(existing.name);
+            : getSubtypeQueryForProducts(
+                existing.name,
+                products.filter((product) => existing.productIds.has(product.id)),
+              );
       }
     }
     const displayCards = [...cardsByKey.values()].sort((first, second) =>
@@ -249,8 +286,13 @@ export default function ProductCategoriesPage({ navigate }: Props) {
 
   const totalProducts = products.length;
 
+  /** Abre la búsqueda con todos los productos, sin filtros. */
   const showAllProducts = () => navigate({ id: "search-products", query: "" });
 
+  /**
+   * Abre o cierra una sección de la página.
+   * @param sectionId Sección a alternar.
+   */
   const toggleSection = (sectionId: CategorySectionId) => {
     setExpandedSections((previous) => {
       const next = new Set(previous);
@@ -420,6 +462,7 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                       ) : (
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                           {section.categories.map((category) => {
+                            /** Abre la búsqueda filtrada por las categorías y el texto de la tarjeta. */
                             const openCategory = () =>
                               navigate({
                                 id: "search-products",
