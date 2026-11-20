@@ -10,6 +10,8 @@ export type Page =
       productGroup?: string;
       categoryId?: number;
       categoryIds?: number[];
+      /** Ignora los filtros guardados en la sesión al abrir la búsqueda. */
+      resetFilters?: boolean;
     }
   | {
       id: "product-detail";

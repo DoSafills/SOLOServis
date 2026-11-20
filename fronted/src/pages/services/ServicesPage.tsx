@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Page, Service } from "../../types";
 import { getServices } from "../../services/api/api";
 import ServiceCard from "../../components/services/ServiceCard";
@@ -9,12 +9,9 @@ import {
   Skeleton,
   ServiceSkeletonGrid,
 } from "../../components/common/ui";
-import CategoryIcon from "../../components/common/CategoryIcon";
-import { getServiceCategoryIcon } from "../../constants/productCatalog";
 import {
   type SessionStorageCodec,
   positiveIntegerSessionCodec,
-  stringSessionCodec,
   useSessionStorageState,
 } from "../../hooks/useSessionStorageState";
 
@@ -53,15 +50,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
-}
-
-const stringRecordSessionCodec: SessionStorageCodec<Record<string, string>> = {
-  decode: (value) => (isStringRecord(value) ? value : undefined),
-  encode: (value) => value,
-};
-
 const serviceSortSessionCodec: SessionStorageCodec<SortOption> = {
   decode: (value) =>
     value === "relevance" || value === "price-asc" || value === "price-desc" || value === "rating"
@@ -70,52 +58,48 @@ const serviceSortSessionCodec: SessionStorageCodec<SortOption> = {
   encode: (value) => value,
 };
 
-const serviceFiltersSessionCodec: SessionStorageCodec<Record<string, ServiceFilterState>> = {
-  decode: (value) => {
-    if (!isRecord(value)) return undefined;
-    const restored: Record<string, ServiceFilterState> = {};
-    for (const [key, candidate] of Object.entries(value)) {
-      if (!isRecord(candidate)) continue;
-      const { priceMin, priceMax, selectedProviders, selectedSpecs, availableOnly } = candidate;
-      if (
-        typeof priceMin !== "string" ||
-        typeof priceMax !== "string" ||
-        !Array.isArray(selectedProviders) ||
-        !selectedProviders.every((provider) => typeof provider === "string") ||
-        typeof availableOnly !== "boolean" ||
-        !isRecord(selectedSpecs)
-      ) {
-        continue;
-      }
-      const restoredSpecs: Record<string, Set<string>> = {};
-      for (const [name, values] of Object.entries(selectedSpecs)) {
-        if (Array.isArray(values) && values.every((item) => typeof item === "string")) {
-          restoredSpecs[name] = new Set(values);
-        }
-      }
-      restored[key] = {
-        priceMin,
-        priceMax,
-        selectedProviders: new Set(selectedProviders),
-        selectedSpecs: restoredSpecs,
-        availableOnly,
-      };
+/**
+ * Reconstruye un estado de filtros guardado en sesión.
+ * @param value Valor leído de sessionStorage.
+ * @returns El filtro validado, o undefined si no tiene la forma esperada.
+ */
+const decodeServiceFilter = (value: unknown): ServiceFilterState | undefined => {
+  if (!isRecord(value)) return undefined;
+  const { priceMin, priceMax, selectedProviders, selectedSpecs, availableOnly } = value;
+  if (
+    typeof priceMin !== "string" ||
+    typeof priceMax !== "string" ||
+    !Array.isArray(selectedProviders) ||
+    !selectedProviders.every((provider) => typeof provider === "string") ||
+    typeof availableOnly !== "boolean" ||
+    !isRecord(selectedSpecs)
+  ) {
+    return undefined;
+  }
+  const restoredSpecs: Record<string, Set<string>> = {};
+  for (const [name, values] of Object.entries(selectedSpecs)) {
+    if (Array.isArray(values) && values.every((item) => typeof item === "string")) {
+      restoredSpecs[name] = new Set(values);
     }
-    return restored;
-  },
-  encode: (filters) =>
-    Object.fromEntries(
-      Object.entries(filters).map(([key, filter]) => [
-        key,
-        {
-          ...filter,
-          selectedProviders: [...filter.selectedProviders],
-          selectedSpecs: Object.fromEntries(
-            Object.entries(filter.selectedSpecs).map(([name, values]) => [name, [...values]]),
-          ),
-        },
-      ]),
+  }
+  return {
+    priceMin,
+    priceMax,
+    selectedProviders: new Set(selectedProviders),
+    selectedSpecs: restoredSpecs,
+    availableOnly,
+  };
+};
+
+const serviceFiltersSessionCodec: SessionStorageCodec<ServiceFilterState> = {
+  decode: decodeServiceFilter,
+  encode: (filter) => ({
+    ...filter,
+    selectedProviders: [...filter.selectedProviders],
+    selectedSpecs: Object.fromEntries(
+      Object.entries(filter.selectedSpecs).map(([name, values]) => [name, [...values]]),
     ),
+  }),
 };
 
 const normalizeFilterValue = (value: string) => value.trim().toLocaleLowerCase("es");
@@ -154,24 +138,11 @@ export default function ServicesPage({
     () => "relevance",
     serviceSortSessionCodec,
   );
-  const [activeGroup, setActiveGroup] = useSessionStorageState(
-    `${sessionKey}:group`,
-    () => group ?? "all",
-    stringSessionCodec,
+  const [activeFilters, setActiveFilters] = useSessionStorageState<ServiceFilterState>(
+    `${sessionKey}:filters`,
+    () => emptyFilters,
+    serviceFiltersSessionCodec,
   );
-  const [activeMicrocategory, setActiveMicrocategory] = useSessionStorageState(
-    `${sessionKey}:microcategory`,
-    () => "all",
-    stringSessionCodec,
-  );
-  const [microcategoriesByGroup, setMicrocategoriesByGroup] = useSessionStorageState(
-    `${sessionKey}:microcategories`,
-    () => ({ all: "all" }),
-    stringRecordSessionCodec,
-  );
-  const [filtersByMicrocategory, setFiltersByMicrocategory] = useSessionStorageState<
-    Record<string, ServiceFilterState>
-  >(`${sessionKey}:filters`, () => ({}), serviceFiltersSessionCodec);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useSessionStorageState(
     `${sessionKey}:page`,
@@ -181,24 +152,15 @@ export default function ServicesPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const perPage = 6;
-  const filterKey =
-    activeMicrocategory === "all" ? activeGroup : `${activeGroup}:${activeMicrocategory}`;
-  const activeFilters = filtersByMicrocategory[filterKey] ?? emptyFilters;
   const { priceMin, priceMax, selectedProviders, selectedSpecs, availableOnly } = activeFilters;
 
   const updateActiveFilters = (update: Partial<ServiceFilterState>) => {
-    setFiltersByMicrocategory((previous) => ({
-      ...previous,
-      [filterKey]: { ...(previous[filterKey] ?? emptyFilters), ...update },
-    }));
+    setActiveFilters((previous) => ({ ...previous, ...update }));
     setPage(1);
   };
 
   const updateActiveFiltersWith = (update: (current: ServiceFilterState) => ServiceFilterState) => {
-    setFiltersByMicrocategory((previous) => ({
-      ...previous,
-      [filterKey]: update(previous[filterKey] ?? emptyFilters),
-    }));
+    setActiveFilters(update);
     setPage(1);
   };
 
@@ -240,23 +202,9 @@ export default function ServicesPage({
     return true;
   });
 
-  const groups = useMemo(
-    () =>
-      [
-        ...new Set(departmentServices.map((service) => service.subcategory.trim() || "Servicios")),
-      ].sort((a, b) => a.localeCompare(b, "es")),
-    [departmentServices],
-  );
-  const selectedGroup = activeGroup === "all" ? groups : [activeGroup];
-  const matchingGroupServices = departmentServices.filter((service) =>
-    selectedGroup.includes(service.subcategory.trim() || "Servicios"),
-  );
-  const microcategories = [
-    ...new Set(matchingGroupServices.map((service) => service.category)),
-  ].sort((a, b) => a.localeCompare(b, "es"));
-  const matchingServices = matchingGroupServices.filter(
-    (service) => activeMicrocategory === "all" || service.category === activeMicrocategory,
-  );
+  const matchingServices = group
+    ? departmentServices.filter((service) => (service.subcategory.trim() || "Servicios") === group)
+    : departmentServices;
   const providers = [...new Set(matchingServices.map((service) => service.provider))].sort((a, b) =>
     a.localeCompare(b, "es"),
   );
@@ -397,9 +345,7 @@ export default function ServicesPage({
       {specFilters.length > 0 && (
         <details className="border-b border-bd pb-2" open>
           <summary className="cursor-pointer list-none py-2 text-sm font-semibold text-text">
-            Características de{" "}
-            {activeMicrocategory === "all" ? "la categoría" : activeMicrocategory}
-            <span className="float-right text-muted">⌄</span>
+            Características de los servicios <span className="float-right text-muted">⌄</span>
           </summary>
           <div className="max-h-72 space-y-3 overflow-y-auto pb-2 pt-1">
             {specFilters.map((spec) => (
@@ -449,12 +395,7 @@ export default function ServicesPage({
           <Skeleton className="mb-3 h-8 w-64" />
           <Skeleton className="h-4 w-80 max-w-full" />
         </div>
-        <div className="mb-6 flex gap-2">
-          <Skeleton className="h-10 w-28 rounded-lg" />
-          <Skeleton className="h-10 w-28 rounded-lg" />
-          <Skeleton className="h-10 w-28 rounded-lg" />
-        </div>
-        <ServiceSkeletonGrid count={6} className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3" />
+        <ServiceSkeletonGrid count={6} className="grid grid-cols-1 gap-4 sm:grid-cols-2" />
       </div>
     );
   }
@@ -474,16 +415,13 @@ export default function ServicesPage({
     );
   }
 
-  const selectedGroupName = activeGroup === "all" ? "Todos los servicios" : activeGroup;
   const heading =
     category ??
-    (activeMicrocategory !== "all"
-      ? activeMicrocategory
-      : activeGroup !== "all"
-        ? `${activeGroup}${query ? `: ${query}` : ""}`
-        : query
-          ? `Resultados para "${query}"`
-          : selectedGroupName);
+    (group
+      ? `${group}${query ? `: ${query}` : ""}`
+      : query
+        ? `Resultados para "${query}"`
+        : "Todos los servicios");
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -495,101 +433,6 @@ export default function ServicesPage({
           ...(query ? [{ label: `"${query}"` }] : []),
         ]}
       />
-
-      {!category && groups.length > 0 && (
-        <nav
-          aria-label="Categorías principales de servicios"
-          role="tablist"
-          className="mb-5 flex gap-2 overflow-x-auto border-b border-white/10 pb-3"
-        >
-          {[{ name: "Todos", id: "all" }, ...groups.map((name) => ({ name, id: name }))].map(
-            (group) => {
-              const selectedMicrocategory = microcategoriesByGroup[group.id] ?? "all";
-              const groupFilterKey =
-                selectedMicrocategory === "all" ? group.id : `${group.id}:${selectedMicrocategory}`;
-              const groupFilterCount = getFilterCount(
-                filtersByMicrocategory[groupFilterKey] ?? emptyFilters,
-              );
-              return (
-                <button
-                  key={group.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeGroup === group.id}
-                  onClick={() => {
-                    setActiveGroup(group.id);
-                    setActiveMicrocategory(microcategoriesByGroup[group.id] ?? "all");
-                    setPage(1);
-                  }}
-                  className={`inline-flex shrink-0 items-center gap-2 rounded-t-lg border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${
-                    activeGroup === group.id
-                      ? "border-prime text-prime"
-                      : "border-transparent text-muted-2 hover:text-text"
-                  }`}
-                >
-                  {group.id !== "all" && (
-                    <CategoryIcon name={getServiceCategoryIcon(group.name)} className="h-4 w-4" />
-                  )}
-                  {group.name}
-                  {groupFilterCount > 0 && (
-                    <span className="rounded-full bg-prime/15 px-1.5 py-0.5 text-[10px] text-prime">
-                      {groupFilterCount}
-                    </span>
-                  )}
-                </button>
-              );
-            },
-          )}
-        </nav>
-      )}
-
-      {!category && microcategories.length > 0 && (
-        <nav
-          aria-label="Microcategorías de servicios"
-          role="tablist"
-          className="mb-6 flex gap-2 overflow-x-auto pb-1"
-        >
-          {["Todas las microcategorías", ...microcategories].map((name, index) => {
-            const microcategory = index === 0 ? "all" : name;
-            return (
-              <button
-                key={microcategory}
-                type="button"
-                role="tab"
-                aria-selected={activeMicrocategory === microcategory}
-                onClick={() => {
-                  setActiveMicrocategory(microcategory);
-                  setMicrocategoriesByGroup((previous) => ({
-                    ...previous,
-                    [activeGroup]: microcategory,
-                  }));
-                  setPage(1);
-                }}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                  activeMicrocategory === microcategory
-                    ? "border-prime bg-prime/10 text-prime"
-                    : "border-white/10 text-muted-2 hover:border-white/30 hover:text-text"
-                }`}
-              >
-                {name}
-                {getFilterCount(
-                  filtersByMicrocategory[
-                    microcategory === "all" ? activeGroup : `${activeGroup}:${microcategory}`
-                  ] ?? emptyFilters,
-                ) > 0 && (
-                  <span className="text-[10px]">
-                    {getFilterCount(
-                      filtersByMicrocategory[
-                        microcategory === "all" ? activeGroup : `${activeGroup}:${microcategory}`
-                      ] ?? emptyFilters,
-                    )}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-      )}
 
       <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div>
@@ -694,7 +537,7 @@ export default function ServicesPage({
             />
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {paginated.map((service) => (
                   <ServiceCard
                     key={service.id}

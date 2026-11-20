@@ -951,6 +951,7 @@ export default function App() {
             productGroup={page.productGroup}
             categoryId={page.categoryId}
             categoryIds={page.categoryIds}
+            resetFilters={page.resetFilters}
             pageSize={productsPerPage}
             onPageSizeChange={setProductsPerPage}
           />
