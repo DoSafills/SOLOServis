@@ -35,3 +35,7 @@
 023_consolidate_computacion_category.sql
 024_celulares_category.sql
 025_merge_refrigeradores_duplicates.sql
+# TAL-190: restricciones de rango y anti-ciclo, todas NOT VALID.
+026_integrity_constraints.sql
+# TAL-190: corrige padres y fusiona duplicados de product_category (idempotente).
+027_product_category_parent_fixes.sql

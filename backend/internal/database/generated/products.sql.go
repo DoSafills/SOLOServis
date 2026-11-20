@@ -820,7 +820,7 @@ WITH RECURSIVE subtree AS (
     FROM product_category child
     JOIN subtree s ON child.parent_category_id = s.id
     WHERE child.active = true
-)
+) CYCLE id SET is_cycle USING path
 SELECT
     p.id,
     p.public_id,
@@ -844,7 +844,7 @@ JOIN product_category pc ON pc.id = p.category_id
 LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
 LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
 WHERE p.active = true
-  AND p.category_id IN (SELECT id FROM subtree)
+  AND p.category_id IN (SELECT id FROM subtree WHERE NOT is_cycle)
 ORDER BY p.id
 `
 
