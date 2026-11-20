@@ -142,8 +142,10 @@ func TestCatalogIntegration_ResolveCategory(t *testing.T) {
 	repo := NewRepository(pool)
 	ctx := context.Background()
 
+	// Lavadoras es una categoría antigua activa sin slug en `categories`
+	// (TAL-231 fusionó en ella la rama "Lavado").
 	var lavadoID int32
-	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Lavado'`).Scan(&lavadoID); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Lavadoras' AND active`).Scan(&lavadoID); err != nil {
 		t.Fatal(err)
 	}
 	lavado, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: lavadoID})
@@ -286,23 +288,26 @@ func TestCatalogIntegration_ListPaginaYFiltroAntiguo(t *testing.T) {
 		}
 	}
 
-	// El filtro antiguo incluye subcategorías: Computacion → Computadores.
-	var computacionID int32
-	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Computacion'`).Scan(&computacionID); err != nil {
+	// El filtro antiguo incluye subcategorías: Electrodomésticos →
+	// Refrigeradores y Lavadoras (árbol canónico de TAL-231).
+	var electroID int32
+	if err := pool.QueryRow(ctx, `
+		SELECT id FROM product_category
+		WHERE name = 'Electrodomésticos' AND parent_category_id IS NULL AND active`).Scan(&electroID); err != nil {
 		t.Fatal(err)
 	}
 	var wantSubtree int64
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM product p JOIN product_category c ON c.id = p.category_id
-		WHERE p.active AND (c.id = $1 OR c.parent_category_id = $1)`, computacionID).Scan(&wantSubtree); err != nil {
+		WHERE p.active AND (c.id = $1 OR c.parent_category_id = $1)`, electroID).Scan(&wantSubtree); err != nil {
 		t.Fatal(err)
 	}
-	items, total, err := repo.List(ctx, ListParams{LegacyCategoryID: &computacionID, Limit: 100})
+	items, total, err := repo.List(ctx, ListParams{LegacyCategoryID: &electroID, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if total != wantSubtree || int64(len(items)) != wantSubtree || wantSubtree == 0 {
-		t.Fatalf("filtro Computacion = %d (total %d), quiero %d", len(items), total, wantSubtree)
+		t.Fatalf("filtro Electrodomésticos = %d (total %d), quiero %d", len(items), total, wantSubtree)
 	}
 
 	// Página fuera de rango: arreglo vacío, total real.

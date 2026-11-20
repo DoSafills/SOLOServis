@@ -19,6 +19,7 @@ import (
 
 type searchFixture struct {
 	repo           *Repository
+	pool           *pgxpool.Pool
 	tag            string
 	brandA, brandB int32
 	storeA, storeB int32
@@ -38,7 +39,7 @@ func newSearchFixture(t *testing.T) searchFixture {
 	}
 	t.Cleanup(pool.Close)
 
-	f := searchFixture{repo: NewRepository(pool), tag: "tal75-" + strconv.FormatInt(time.Now().UnixNano(), 10),
+	f := searchFixture{repo: NewRepository(pool), pool: pool, tag: "tal75-" + strconv.FormatInt(time.Now().UnixNano(), 10),
 		refrigeradores: "refrigeradores"}
 	// La limpieza se registra antes de crear datos: si el fixture falla a la
 	// mitad, igual se borra lo que alcanzó a crear.
@@ -386,5 +387,39 @@ func TestSearchIntegration_CategoriasYMarcas(t *testing.T) {
 	brands, err := f.repo.SearchBrands(ctx, "nandu "+f.tag)
 	if err != nil || len(brands) != 1 || brands[0].ID != f.brandA {
 		t.Fatalf("marcas = %+v (%v)", brands, err)
+	}
+}
+
+// TestSearchIntegration_SlugYCategoriaAntiguaCoinciden comprueba (TAL-244)
+// que filtrar por el slug de una categoría devuelve los mismos productos que
+// filtrar por el id de su product_category. El slug compara con
+// product.category_ref y el id con el subárbol de category_id; antes de la
+// migración 026, `category=celulares` devolvía 0 productos y
+// `category=notebooks` 5 de 8 porque 022-024 no rellenaron category_ref.
+func TestSearchIntegration_SlugYCategoriaAntiguaCoinciden(t *testing.T) {
+	f := newSearchFixture(t)
+	ctx := context.Background()
+
+	for _, slug := range []string{"celulares", "notebooks", "refrigeradores", "televisores"} {
+		t.Run(slug, func(t *testing.T) {
+			var legacyID int32
+			if err := f.pool.QueryRow(ctx, `
+				SELECT legacy_product_category_id FROM categories
+				WHERE slug = $1 AND active AND legacy_product_category_id IS NOT NULL`, slug).Scan(&legacyID); err != nil {
+				t.Fatalf("categoría %s: %v", slug, err)
+			}
+			s := slug
+			_, bySlug, err := f.repo.SearchProducts(ctx, Query{CategorySlug: &s, Limit: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, byID, err := f.repo.SearchProducts(ctx, Query{LegacyCategoryID: &legacyID, Limit: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bySlug == 0 || bySlug != byID {
+				t.Fatalf("category=%s encuentra %d producto(s); category=%d encuentra %d", slug, bySlug, legacyID, byID)
+			}
+		})
 	}
 }

@@ -35,3 +35,5 @@
 023_consolidate_computacion_category.sql
 024_celulares_category.sql
 025_merge_refrigeradores_duplicates.sql
+# TAL-244: 022-024 movieron productos sin actualizar category_ref.
+026_backfill_product_category_ref.sql
