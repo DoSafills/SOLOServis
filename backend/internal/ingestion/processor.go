@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"strings"
@@ -63,10 +64,10 @@ func NewProcessor(runs RunStore, catalog Catalog, offers Offers, notifier pricin
 
 // Process aplica cada ítem por separado: un ítem inválido o con error no
 // detiene el lote. Guarda cada ítem en scraped_data y suma los contadores.
-func (p *Processor) Process(ctx context.Context, runID, storeID int32, items []Item) BatchResult {
+func (p *Processor) Process(ctx context.Context, runID, storeID int32, storeName string, items []Item) BatchResult {
 	result := BatchResult{RunID: runID, Received: len(items), Results: make([]ItemResult, 0, len(items))}
 	for i, item := range items {
-		r := p.processItem(ctx, runID, storeID, i, item)
+		r := p.processItem(ctx, runID, storeID, storeName, i, item)
 		if r.Status == ItemFailed {
 			result.Failed++
 		} else {
@@ -87,8 +88,9 @@ func (p *Processor) Process(ctx context.Context, runID, storeID int32, items []I
 // avisa si el precio bajó. Devuelve el resultado del ítem; nunca detiene el
 // lote: un ítem con problemas vuelve como fallido con sus errores, y un error
 // interno, con el código internal_error y el detalle solo en el log.
-func (p *Processor) processItem(ctx context.Context, runID, storeID int32, index int, item Item) ItemResult {
+func (p *Processor) processItem(ctx context.Context, runID, storeID int32, storeName string, index int, item Item) ItemResult {
 	result := ItemResult{Index: index, ExternalID: strings.TrimSpace(item.ExternalID)}
+	originalCategory := item.Product.CategorySlug
 	fail := func(errs ...httpx.FieldError) ItemResult {
 		result.Status, result.Errors = ItemFailed, errs
 		return result
@@ -131,7 +133,8 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, index
 		}
 	default:
 		var fieldErrs []httpx.FieldError
-		productID, result.ProductID, fieldErrs, err = p.createProduct(ctx, product)
+		productID, result.ProductID, fieldErrs, err = p.createProduct(
+			ctx, runID, storeID, storeName, index, originalCategory, product)
 		if err != nil {
 			return internal("create_product", err)
 		}
@@ -163,20 +166,28 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, index
 }
 
 // createProduct valida categoría y atributos con TAL-70/72 y crea el producto.
-func (p *Processor) createProduct(ctx context.Context, item ItemProduct) (int32, string, []httpx.FieldError, error) {
+func (p *Processor) createProduct(
+	ctx context.Context,
+	runID, storeID int32,
+	storeName string,
+	index int,
+	originalCategory string,
+	item ItemProduct,
+) (int32, string, []httpx.FieldError, error) {
 	if item.CategorySlug == "" {
-		return 0, "", []httpx.FieldError{{Field: "product.categorySlug", Code: "required",
-			Message: "product.categorySlug es obligatorio para crear un producto nuevo"}}, nil
+		return 0, "", []httpx.FieldError{p.categoryMappingError(
+			ctx, runID, storeID, storeName, index, originalCategory, "required")}, nil
 	}
 	category, err := p.catalog.ResolveCategory(ctx, products.CategoryRef{Slug: item.CategorySlug})
 	if errors.Is(err, products.ErrCategoryNotFound) {
-		return 0, "", []httpx.FieldError{{Field: "product.categorySlug", Code: "not_found", Message: "product.categorySlug no existe"}}, nil
+		return 0, "", []httpx.FieldError{p.categoryMappingError(
+			ctx, runID, storeID, storeName, index, originalCategory, "not_found")}, nil
 	}
 	if err != nil {
 		return 0, "", nil, err
 	}
 	if category.ItemType != categories.ItemTypeProduct || category.LegacyID == nil {
-		return 0, "", []httpx.FieldError{{Field: "product.categorySlug", Code: "not_found",
+		return 0, "", []httpx.FieldError{{Field: "product.categorySlug", Code: "not_enabled",
 			Message: "product.categorySlug no está habilitada para productos"}}, nil
 	}
 
@@ -211,6 +222,32 @@ func (p *Processor) createProduct(ctx context.Context, item ItemProduct) (int32,
 		return 0, "", nil, err
 	}
 	return id, publicID.String(), nil, nil
+}
+
+func (p *Processor) categoryMappingError(
+	ctx context.Context,
+	runID, storeID int32,
+	storeName string,
+	index int,
+	original string,
+	code string,
+) httpx.FieldError {
+	if strings.TrimSpace(storeName) == "" {
+		storeName = fmt.Sprintf("ID %d", storeID)
+	}
+	p.logger.WarnContext(ctx, "ingestion_category_unmapped",
+		slog.Int("run_id", int(runID)),
+		slog.Int("index", index),
+		slog.String("store", storeName),
+		slog.Int("store_id", int(storeID)),
+		slog.String("category_original", original))
+	return httpx.FieldError{
+		Field: "product.categorySlug",
+		Code:  code,
+		Message: fmt.Sprintf(
+			"la categoría de origen %q de la tienda %q (ID %d) no tiene correspondencia con el catálogo",
+			original, storeName, storeID),
+	}
 }
 
 // validateItem normaliza el ítem y aplica las reglas de campos de Product y

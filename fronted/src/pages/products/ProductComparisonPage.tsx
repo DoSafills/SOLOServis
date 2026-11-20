@@ -250,6 +250,7 @@ export default function ProductComparisonPage({
   const [comparisonCategory, setComparisonCategory] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasMissingProducts, setHasMissingProducts] = useState(false);
   const [attributeRows, setAttributeRows] = useState<ApiProductAttributeRow[]>([]);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [addingProductIds, setAddingProductIds] = useState<Set<string>>(() => new Set());
@@ -275,18 +276,32 @@ export default function ProductComparisonPage({
     let cancelled = false;
 
     async function loadProducts() {
-      if (productIds.length === 0) {
+      if (productIds.length < 2) {
         setSelected([]);
         setAttributeRows([]);
+        setHasMissingProducts(false);
+        setError(null);
         setLoading(false);
         return;
       }
 
       setLoading(true);
       setError(null);
+      setHasMissingProducts(false);
       try {
-        const [results, matrix, offerUpdates] = await Promise.all([
-          Promise.all(productIds.map((id) => getProductById(id))),
+        const results = await Promise.all(productIds.map((id) => getProductById(id)));
+        if (cancelled) return;
+
+        const valid = results.filter((product): product is Product => product !== null);
+        if (valid.length !== results.length) {
+          setHasMissingProducts(true);
+          setSelected([]);
+          setAttributeRows([]);
+          setComparisonCategory(undefined);
+          return;
+        }
+
+        const [matrix, offerUpdates] = await Promise.all([
           compareProducts(productIds),
           Promise.all(
             productIds.map(async (id) => {
@@ -303,7 +318,6 @@ export default function ProductComparisonPage({
           ),
         ]);
         if (cancelled) return;
-        const valid = results.filter((p: Product | null): p is Product => p !== null);
         const validWithOfferUpdates = valid.map((product) => {
           const productIndex = productIds.indexOf(product.id);
           const updatesByOfferId = new Map<number, string>();
@@ -375,7 +389,11 @@ export default function ProductComparisonPage({
   if (selected.length < 2) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <p className="mb-4 text-slate-300">Selecciona al menos 2 productos para comparar.</p>
+        <p className="mb-4 text-slate-300" role={hasMissingProducts ? "alert" : undefined}>
+          {hasMissingProducts
+            ? "Uno o más productos seleccionados no existen o ya no están disponibles. Busca y selecciona otros productos."
+            : "Selecciona al menos 2 productos para comparar."}
+        </p>
         <button
           onClick={() =>
             navigate({

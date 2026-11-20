@@ -106,7 +106,12 @@ func (h *Handler) AddItems(w http.ResponseWriter, r *http.Request) {
 		h.writeRunError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, h.processor.Process(r.Context(), id, storeID, request.Items))
+	run, err := h.runs.GetRun(r.Context(), id)
+	if err != nil {
+		h.writeRunError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, h.processor.Process(r.Context(), id, storeID, run.Source, request.Items))
 }
 
 // FinishRun atiende POST /ingestion/runs/{id}/finish.

@@ -1,31 +1,60 @@
 # SOLOServis Frontend
 
-Aplicación web de SOLOServis para explorar y comparar productos, servicios y
-tiendas. Está construida con React 19, TypeScript, Vite 8, Tailwind CSS 4 y
-Recharts. Consume APIs REST; no se conecta directamente a PostgreSQL.
+Aplicación web de SOLOServis para explorar, comparar y administrar productos,
+servicios y tiendas. Está construida con React 19, TypeScript 5.9, Vite 8,
+Tailwind CSS 4 y Recharts. Consume las APIs REST del proyecto y no accede
+directamente a PostgreSQL.
 
 ## Requisitos
 
-- Node.js compatible con la versión de Vite declarada en `package.json`.
-- pnpm `11.24.0` (versión declarada en `package.json`).
-- Backend disponible para las funciones que cargan o guardan datos.
+- Node.js compatible con Vite 8.
+- pnpm `11.24.0`, declarado en `package.json`.
+- Las APIs requeridas disponibles para las funciones que cargan o persisten datos.
 
-## Instalación y desarrollo
-
-Desde esta carpeta (`fronted/`):
+Desde la raíz del repositorio puede instalarse y ejecutarse con:
 
 ```powershell
+cd fronted
 pnpm install
 pnpm dev
 ```
 
-El servidor escucha en `http://localhost:8443` por defecto. Se puede cambiar el
-puerto con `PORT`; Vite no selecciona otro puerto automáticamente si el
-configurado está ocupado.
+El servidor escucha en `http://localhost:8443`. El puerto puede reemplazarse con
+la variable `PORT`. Vite usa `strictPort: true`, por lo que no selecciona otro
+puerto automáticamente cuando el configurado está ocupado.
 
-En desarrollo, las peticiones del mismo origen se envían a las APIs locales
-mediante el proxy de Vite. Si no se configuran URLs `VITE_*`, los destinos del
-proxy son:
+Para la versión de producción:
+
+```powershell
+cd fronted
+pnpm build
+pnpm preview
+```
+
+## Arquitectura
+
+La aplicación usa una composición central en `src/App.tsx`, navegación basada en
+`history.pushState` y `popstate`, componentes de página en `src/pages/`, tipos
+compartidos en `src/types.ts` y clientes HTTP en `src/services/api/`.
+
+- `src/main.tsx` monta React y carga los estilos globales.
+- `src/App.tsx` conserva estado compartido y conecta autenticación, favoritos,
+  comparación, historial y carrito.
+- `src/pages/` contiene las vistas funcionales.
+- `src/components/` contiene encabezado, pie, tarjetas y controles reutilizables.
+- `src/services/api/config.ts` concentra las URLs base de las APIs.
+- `src/services/api/personalization.ts` contiene autenticación y persistencia
+  personalizada de favoritos, historial, carrito y comparaciones.
+- `src/services/pageRouting.ts` serializa y restaura vistas en la URL o mediante
+  `history.state`.
+- `src/hooks/` contiene persistencia auxiliar con `sessionStorage`.
+
+El alias `@` apunta a `src/`, definido en `vite.config.ts`.
+
+## Desarrollo local
+
+Si no se configuran variables `VITE_*`, las solicitudes relativas pasan por el
+proxy de Vite:
 
 | Prefijo                                           | Puerto local |
 | ------------------------------------------------- | -----------: |
@@ -40,14 +69,7 @@ proxy son:
 | `/reviews`                                        |         8091 |
 | `/watchlist`                                      |         8092 |
 
-Para compilar y servir la versión de producción localmente:
-
-```powershell
-pnpm build
-pnpm preview
-```
-
-## Funcionalidades
+## Funcionalidades implementadas
 
 ### Inicio y navegación
 
@@ -58,6 +80,7 @@ pnpm preview
 - Navegación con historial del navegador: las páginas se representan en la URL
   con parámetros y responden a Atrás/Adelante.
 - Preferencia de tema claro u oscuro.
+- Navegación a catálogo de categorías de productos y servicios.
 
 ### Productos
 
@@ -188,6 +211,17 @@ pnpm exec tsc -b     # Verificación de TypeScript
 ```
 
 No hay una suite de pruebas automatizadas del frontend configurada actualmente.
+
+Estado de la revisión realizada:
+
+- `pnpm lint`: pasa.
+- `pnpm format:check`: pasa.
+- `pnpm build`: pasa.
+- El build muestra una advertencia por el uso de `__dirname` y una importación
+  JSON sin atributos en `vite.config.ts`; no impide compilar con la
+  configuración actual.
+- El bundle principal supera el umbral visual de advertencia de 500 kB de Vite.
+  Es una advertencia de tamaño, no un error de compilación.
 
 ## Alcance no implementado
 
