@@ -795,6 +795,23 @@ internal/authz/
 
 Por ejemplo, enviar un `userId` diferente en una solicitud no debe permitir acceder a la información de otro usuario.
 
+## 13.3 Límite de solicitudes (TAL-201)
+
+Todos los límites responden **429** `rate_limited` en formato problem+json y con la cabecera `Retry-After` en segundos (`httpx.WriteRateLimited`).
+
+| Capa | Qué limita | Valor | Dónde |
+| --- | --- | --- | --- |
+| Gateway (nginx) | `POST /auth/login` y `/auth/register` por IP | 20 por minuto, ráfaga de 10 | `docker/frontend/default.conf.template` |
+| Gateway (nginx) | Resto de las APIs por IP | 30 por segundo, ráfaga de 60 | `docker/frontend/proxy.conf` |
+| Auth API | Logins fallidos por email (un email inexistente también cuenta) | 10 en 15 minutos; un login correcto reinicia la cuenta | `internal/features/auth.go` |
+| Auth API | Cálculos de PBKDF2 simultáneos (login y registro) | 2 a la vez; espera máxima de 2 s | `internal/features/auth.go` |
+| Search API | Búsquedas guardadas por usuario | 50; la siguiente responde 422 `name/max` | `internal/features/catalog.go` |
+| Search API | Historial de búsqueda por usuario | 100; al insertar se borran las más antiguas | `internal/features/catalog.go` |
+
+- Los contadores de la Auth API viven en memoria (`internal/ratelimit`): se reinician con el pod y suponen **una réplica** del dominio `usuarios`. Con más réplicas cada una contaría por su lado.
+- El gateway toma la IP del cliente de `X-Forwarded-For` solo si el salto anterior es de red privada (`real_ip_recursive`). Si el proxy de la plataforma no reenvía la IP real, todos los clientes comparten un cupo; por eso los límites del gateway son holgados y la Auth API cuenta además por email.
+- Llamar directo a `usuarios:8080` desde dentro del clúster se salta el gateway, pero no los límites de la Auth API.
+
 ---
 
 # 14. Integración con Ingestion y Scraper
