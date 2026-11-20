@@ -168,10 +168,16 @@ export function SkeletonGrid({
   );
 }
 
+/**
+ * Rejilla de esqueletos que replica la geometría vertical y compacta de
+ * `ProductCard` (imagen 4:3 arriba y bloque de texto/acciones abajo) mientras
+ * cargan los datos. Recibe la cantidad, si es la variante `compact` de una
+ * tienda y las clases de la grilla contenedora.
+ */
 export function ProductSkeletonGrid({
   count = 4,
   compact = false,
-  className = "grid grid-cols-1 gap-4 sm:grid-cols-2",
+  className = "grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4",
 }: {
   count?: number;
   compact?: boolean;
@@ -183,27 +189,25 @@ export function ProductSkeletonGrid({
         <article
           key={index}
           aria-hidden="true"
-          className={`flex ${
-            compact ? "min-h-[11rem] sm:min-h-[10.5rem]" : "min-h-[14.4rem] sm:min-h-[13.2rem]"
-          } overflow-hidden rounded-[1.75rem] border border-bd bg-surface`}
+          className="flex flex-col overflow-hidden rounded-2xl border border-bd bg-surface"
         >
+          <Skeleton className="aspect-[4/3] w-full rounded-none" />
           <div
-            className="h-full w-[58%] shrink-0"
-            style={{ clipPath: "polygon(0 0, 100% 0, 88% 100%, 0 100%)" }}
+            className={`flex flex-1 flex-col ${
+              compact ? "gap-1 px-2 pb-2 pt-1.5" : "gap-1.5 px-2.5 pb-2.5 pt-2"
+            }`}
           >
-            <Skeleton className="h-full w-full rounded-none" />
-          </div>
-          <div className="flex h-full min-w-0 flex-1 flex-col justify-center gap-1 bg-surface px-2 py-1.5">
-            <Skeleton className="h-2 w-12" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="h-4 w-20" />
-            <div className="flex flex-col gap-1.5">
-              <div className="grid grid-cols-2 gap-1.5">
-                <Skeleton className="h-8 rounded-lg" />
-                <Skeleton className="h-8 rounded-lg" />
+            <Skeleton className="h-2 w-10" />
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-2/3" />
+            <Skeleton className="h-2.5 w-2/5" />
+            <Skeleton className="mt-1 h-5 w-20" />
+            <div className="mt-0.5 flex flex-col gap-1">
+              <Skeleton className={`rounded-lg ${compact ? "h-6" : "h-7"}`} />
+              <div className="grid grid-cols-2 gap-1">
+                <Skeleton className={`rounded-lg ${compact ? "h-5" : "h-6"}`} />
+                <Skeleton className={`rounded-lg ${compact ? "h-5" : "h-6"}`} />
               </div>
-              <Skeleton className="h-8 rounded-lg" />
             </div>
           </div>
         </article>
@@ -212,9 +216,14 @@ export function ProductSkeletonGrid({
   );
 }
 
+/**
+ * Rejilla de esqueletos con la misma geometría vertical de `ServiceCard`
+ * (imagen 4:3, datos del proveedor/precio y acciones) para la carga de
+ * servicios. Recibe la cantidad y las clases de la grilla contenedora.
+ */
 export function ServiceSkeletonGrid({
   count = 4,
-  className = "grid grid-cols-1 gap-4 sm:grid-cols-2",
+  className = "grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4",
 }: {
   count?: number;
   className?: string;
@@ -225,25 +234,21 @@ export function ServiceSkeletonGrid({
         <article
           key={index}
           aria-hidden="true"
-          className="flex min-h-[14.4rem] overflow-hidden rounded-[1.75rem] border border-bd bg-surface sm:min-h-[13.2rem]"
+          className="flex flex-col overflow-hidden rounded-2xl border border-bd bg-surface"
         >
-          <div
-            className="h-full w-[58%] shrink-0"
-            style={{ clipPath: "polygon(0 0, 100% 0, 88% 100%, 0 100%)" }}
-          >
-            <Skeleton className="h-full w-full rounded-none" />
-          </div>
-          <div className="flex h-full min-w-0 flex-1 flex-col justify-center gap-1 bg-surface px-2 py-1.5">
+          <Skeleton className="aspect-[4/3] w-full rounded-none" />
+          <div className="flex flex-1 flex-col gap-1.5 px-2.5 pb-2.5 pt-2">
             <Skeleton className="h-2 w-14" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="h-4 w-20" />
-            <div className="flex flex-col gap-1.5">
-              <div className="grid grid-cols-2 gap-1.5">
-                <Skeleton className="h-8 rounded-lg" />
-                <Skeleton className="h-8 rounded-lg" />
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-2/3" />
+            <Skeleton className="h-2.5 w-2/5" />
+            <Skeleton className="mt-1 h-5 w-20" />
+            <div className="mt-0.5 flex flex-col gap-1">
+              <Skeleton className="h-7 rounded-lg" />
+              <div className="grid grid-cols-2 gap-1">
+                <Skeleton className="h-6 rounded-lg" />
+                <Skeleton className="h-6 rounded-lg" />
               </div>
-              <Skeleton className="h-8 rounded-lg" />
             </div>
           </div>
         </article>

@@ -441,7 +441,7 @@ function StoreDetail({
         <ProductSkeletonGrid
           count={4}
           compact
-          className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2"
+          className="mt-5 grid grid-cols-2 gap-4 lg:grid-cols-3"
         />
       </div>
     );
@@ -580,7 +580,7 @@ function StoreDetail({
           }
         />
       ) : (
-        <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="mb-10 grid grid-cols-2 gap-4 lg:grid-cols-3">
           {filteredProducts.map((product) => (
             <StoreProductCard
               key={product.offerId}

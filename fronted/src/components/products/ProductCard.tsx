@@ -21,6 +21,14 @@ interface Props {
   compact?: boolean;
 }
 
+/**
+ * Tarjeta de producto vertical y compacta: foto 4:3 sobre panel claro, marca,
+ * nombre, mejor oferta, precio destacado y acciones (cesta, ver, comparar).
+ * Reserva las mismas líneas en todas las tarjetas (rating, tienda, precio de
+ * lista y verificación) para que la grilla quede pareja. Recibe el producto,
+ * los estados de favorito/comparación/cesta y los callbacks de acciones;
+ * `compact` reduce tipografía y padding para el catálogo de una tienda.
+ */
 export default function ProductCard({
   product,
   navigate,
@@ -39,6 +47,7 @@ export default function ProductCard({
   const anomalousOfferIds = detectPriceAnomalies(product.offers, []).anomalousOfferIds;
   const bestOfferIsAnomalous = bestOffer !== undefined && anomalousOfferIds.has(bestOffer.offerId);
   const isInCart = cartProductIds.has(product.id);
+  const hasRating = product.rating > 0 || product.reviewCount > 0;
   const discountPercent =
     bestOffer?.price !== null &&
     bestOffer?.price !== undefined &&
@@ -48,6 +57,10 @@ export default function ProductCard({
       ? Math.round(((bestOffer.listPrice - bestOffer.price) / bestOffer.listPrice) * 100)
       : null;
 
+  /**
+   * Agrega la mejor oferta a la cesta evitando dobles clics con `addingRef`.
+   * Devuelve una promesa que se resuelve cuando el callback del padre termina.
+   */
   const addProductToCart = async () => {
     if (!bestOffer || isInCart || addingRef.current) return;
     addingRef.current = true;
@@ -61,34 +74,30 @@ export default function ProductCard({
   };
 
   return (
-    <div
-      className={`group relative isolate flex ${
-        compact ? "min-h-[11rem] sm:min-h-[10.5rem]" : "min-h-[14.4rem] sm:min-h-[13.2rem]"
-      } overflow-hidden rounded-[1.75rem] border bg-surface shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-black/30 ${
-        isComparing ? "z-[1] border-prime ring-1 ring-prime/20" : "border-bd hover:border-prime/50"
+    <article
+      className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-surface shadow-lg shadow-black/10 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-black/25 ${
+        isComparing ? "border-prime ring-1 ring-prime/30" : "border-bd hover:border-prime/50"
       }`}
     >
       <div
-        className="theme-media-panel relative w-[58%] shrink-0 cursor-pointer bg-slate-950/60"
-        style={{ clipPath: "polygon(0 0, 100% 0, 88% 100%, 0 100%)" }}
+        className="relative aspect-[4/3] w-full shrink-0 cursor-pointer overflow-hidden bg-white"
         onClick={() => navigate({ id: "product-detail", productId: product.id })}
       >
         {product.image ? (
           <img
             src={product.image}
             alt={product.name}
-            className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]"
+            loading="lazy"
+            className={`absolute inset-0 h-full w-full object-contain transition-transform duration-500 group-hover:scale-[1.04] ${
+              compact ? "p-2.5" : "p-3"
+            }`}
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-sm font-medium text-muted">
+          <div className="absolute inset-0 flex items-center justify-center bg-surface-2 text-[11px] font-medium text-muted">
             Sin imagen
           </div>
         )}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent to-slate-950/20"
-        />
-        <div className="absolute right-1 top-1 z-20 rounded-full border border-bd bg-surface/90 backdrop-blur-md">
+        <div className="absolute right-1 top-1 z-20 rounded-full bg-white/95 shadow-sm ring-1 ring-black/5">
           <FavoriteButton
             active={isFavorite}
             onClick={(e) => {
@@ -100,144 +109,153 @@ export default function ProductCard({
       </div>
 
       <div
-        className={`flex min-w-0 flex-1 flex-col justify-center bg-surface ${
-          compact ? "gap-0.5 px-2 py-1" : "gap-1 px-2 py-1.5"
+        className={`flex min-w-0 flex-1 flex-col ${
+          compact ? "gap-1 px-2 pb-2 pt-1.5" : "gap-1.5 px-2.5 pb-2.5 pt-2"
         }`}
       >
         <div>
-          <span className="block truncate text-[8px] font-bold uppercase tracking-[0.12em] text-prime sm:text-[9px]">
+          <span className="block truncate text-[9px] font-bold uppercase tracking-[0.12em] text-muted">
             {product.brand}
           </span>
           <h3
-            className="mt-0.5 line-clamp-2 cursor-pointer text-[11px] font-bold leading-tight text-text transition-colors group-hover:text-prime sm:text-xs"
+            className={`mt-0.5 line-clamp-2 min-h-[2.6em] cursor-pointer font-semibold leading-snug text-text transition-colors group-hover:text-prime ${
+              compact ? "text-[11px]" : "text-xs sm:text-[13px]"
+            }`}
             onClick={() => navigate({ id: "product-detail", productId: product.id })}
           >
             {product.name}
           </h3>
-        </div>
-
-        <div className="scale-[0.85] origin-left [&_span]:text-muted">
-          <Rating value={product.rating} count={product.reviewCount} />
-        </div>
-
-        <div className="border-t border-bd pt-1">
-          {bestOffer ? (
-            <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
-              {discountPercent !== null && (
-                <span className="text-[8px] font-medium text-muted line-through">
-                  {formatPrice(bestOffer.listPrice!)}
-                </span>
+          {!compact && (
+            <div className="mt-0.5 flex min-h-[1.15rem] items-center">
+              {hasRating ? (
+                <div className="origin-left scale-[0.8] [&_span]:text-muted">
+                  <Rating value={product.rating} count={product.reviewCount} />
+                </div>
+              ) : (
+                <span className="text-[10px] text-muted">Sin valoraciones</span>
               )}
-              <span className="text-xs font-bold tracking-tight text-prime sm:text-sm">
-                {formatPrice(bestOffer.price)}
+            </div>
+          )}
+          <p className="min-h-[1.1rem] truncate text-[10px] text-muted">
+            {bestOffer?.storeName && (
+              <>
+                Por <span className="font-semibold text-text">{bestOffer.storeName}</span>
+              </>
+            )}
+          </p>
+        </div>
+
+        <div className="mt-auto border-t border-bd pt-1.5">
+          {bestOffer ? (
+            <div className="flex flex-col">
+              <div className="flex flex-wrap items-baseline gap-x-1.5">
+                <span
+                  className={`font-extrabold tracking-tight text-rose-500 ${
+                    compact ? "text-sm" : "text-base sm:text-lg"
+                  }`}
+                >
+                  {formatPrice(bestOffer.price)}
+                </span>
+                {discountPercent !== null && (
+                  <span className="rounded bg-rose-600 px-1 py-px text-[9px] font-bold leading-tight text-white">
+                    -{discountPercent}%
+                  </span>
+                )}
+              </div>
+              <span className="min-h-[0.95rem] text-[10px] font-medium text-muted line-through">
+                {discountPercent !== null && formatPrice(bestOffer.listPrice!)}
               </span>
               {bestOfferIsAnomalous && (
                 <span
-                  className="rounded-full border border-amber-400 bg-amber-900 px-1.5 py-0.5 text-[8px] font-semibold text-amber-50 sm:text-[9px]"
+                  className="mt-0.5 w-fit rounded border border-amber-400 bg-amber-950 px-1 py-px text-[8px] font-semibold text-amber-100"
                   title="Menos de la mitad de la mediana de otras ofertas"
                 >
                   Precio inusual
                 </span>
               )}
-              {discountPercent !== null && (
+              {!compact && (
                 <span
-                  className={`rounded-full border px-1.5 py-0.5 text-[8px] font-bold shadow-sm sm:text-[9px] ${
-                    discountPercent >= 30
-                      ? "border-rose-400 bg-rose-900 text-rose-50 shadow-rose-900/20"
-                      : discountPercent >= 15
-                        ? "border-amber-400 bg-amber-900 text-amber-50 shadow-amber-900/20"
-                        : "border-emerald-400 bg-emerald-900 text-emerald-50 shadow-emerald-900/20"
-                  }`}
+                  className="min-h-[0.9rem] truncate text-[9px] text-muted"
+                  title={bestOfferUpdateDate}
                 >
-                  -{discountPercent}%
+                  {bestOfferUpdateDate
+                    ? `Verificado: ${formatPriceUpdate(bestOffer.lastUpdated)}`
+                    : ""}
                 </span>
               )}
             </div>
           ) : (
-            <div className="text-[9px] font-semibold text-muted">No disponible</div>
-          )}
-          {bestOffer && bestOfferUpdateDate && (
-            <span className="mt-0.5 block text-[8px] text-muted" title={bestOfferUpdateDate}>
-              Última verificación: {formatPriceUpdate(bestOffer.lastUpdated)}
-            </span>
+            <div className="min-h-[2.9rem] text-[11px] font-semibold text-muted">No disponible</div>
           )}
         </div>
 
-        <div className={`flex flex-col ${compact ? "gap-1" : "gap-1.5"}`}>
-          <div className={`grid grid-cols-2 ${compact ? "gap-1" : "gap-1.5"}`}>
-            <button
-              type="button"
-              disabled={!bestOffer || isInCart || adding}
-              aria-live="polite"
-              aria-label={
-                isInCart
-                  ? "Producto agregado en la cesta"
-                  : adding
-                    ? "Agregando producto a la cesta"
-                    : "Agregar producto al carrito"
-              }
-              title={
-                isInCart
-                  ? "Agregado en la cesta"
-                  : adding
-                    ? "Agregando a la cesta..."
-                    : "Agregar al carrito"
-              }
-              onClick={() => void addProductToCart()}
-              className={`truncate rounded-lg border px-1.5 ${
-                compact ? "py-1.5" : "py-2"
-              } text-[9px] font-semibold transition-colors sm:text-[10px] ${
-                isInCart
-                  ? "border-emerald-300/20 bg-emerald-900/70 text-emerald-200"
-                  : adding
-                    ? "border-emerald-300/20 bg-emerald-900/70 text-emerald-200"
-                    : "border-bd bg-surface-2 text-text hover:border-prime/40 hover:bg-prime-muted"
-              } disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800/70 disabled:text-slate-400`}
-            >
-              <span className="sm:hidden">{isInCart ? "En cesta" : adding ? "..." : "Cesta"}</span>
-              <span className="hidden sm:inline">
-                {isInCart ? "En cesta" : adding ? "Añadiendo" : "Agregar"}
-              </span>
-            </button>
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            disabled={!bestOffer || isInCart || adding}
+            aria-live="polite"
+            aria-label={
+              isInCart
+                ? "Producto agregado en la cesta"
+                : adding
+                  ? "Agregando producto a la cesta"
+                  : "Agregar producto al carrito"
+            }
+            title={
+              isInCart
+                ? "Agregado en la cesta"
+                : adding
+                  ? "Agregando a la cesta..."
+                  : "Agregar al carrito"
+            }
+            onClick={() => void addProductToCart()}
+            className={`w-full truncate rounded-lg px-2 font-bold shadow-md shadow-black/15 transition-all hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 ${
+              compact ? "py-1 text-[10px]" : "py-1.5 text-[11px] sm:text-xs"
+            } ${
+              isInCart || adding
+                ? "cursor-default bg-emerald-700 text-emerald-50"
+                : "bg-prime text-[#181714] hover:bg-prime-dark"
+            } disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300 disabled:shadow-none`}
+          >
+            {isInCart
+              ? "En cesta"
+              : adding
+                ? "Añadiendo..."
+                : compact
+                  ? "Agregar"
+                  : "Agregar al carro"}
+          </button>
+          <div className="grid grid-cols-2 gap-1">
             <button
               type="button"
               title="Ver producto"
               aria-label={`Ver ${product.name}`}
               onClick={() => navigate({ id: "product-detail", productId: product.id })}
-              className={`flex min-w-0 items-center justify-center gap-0.5 truncate rounded-lg bg-prime px-1.5 ${
-                compact ? "py-1.5" : "py-2"
-              } text-[9px] font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime sm:text-[10px]`}
+              className={`truncate rounded-lg border border-bd bg-surface-2 px-1.5 font-semibold text-text transition-colors hover:border-prime/50 hover:bg-prime-muted ${
+                compact ? "py-1 text-[9px]" : "py-1.5 text-[10px] sm:text-[11px]"
+              }`}
             >
               Ver
-              <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
-                <path
-                  d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+            </button>
+            <button
+              type="button"
+              title={isComparing ? "Quitar de comparación" : "Comparar"}
+              aria-label={isComparing ? "Quitar producto de comparación" : "Comparar producto"}
+              onClick={() => onToggleCompare(product.id, product.category)}
+              aria-pressed={isComparing}
+              className={`truncate rounded-lg border px-1.5 font-semibold transition-colors ${
+                compact ? "py-1 text-[9px]" : "py-1.5 text-[10px] sm:text-[11px]"
+              } ${
+                isComparing
+                  ? "border-prime/60 bg-prime-muted text-prime"
+                  : "border-bd bg-transparent text-muted hover:border-prime/50 hover:text-text"
+              }`}
+            >
+              {isComparing ? "Comparando" : "Comparar"}
             </button>
           </div>
-          <button
-            type="button"
-            title={isComparing ? "Quitar de comparación" : "Comparar"}
-            aria-label={isComparing ? "Quitar producto de comparación" : "Comparar producto"}
-            onClick={() => onToggleCompare(product.id, product.category)}
-            aria-pressed={isComparing}
-            className={`w-full truncate rounded-lg border px-2 ${
-              compact ? "py-1.5" : "py-2"
-            } text-[9px] font-semibold transition-colors sm:text-[10px] ${
-              isComparing
-                ? "border-prime/60 bg-prime-muted text-prime"
-                : "border-bd bg-transparent text-muted hover:border-prime/50 hover:text-text"
-            }`}
-          >
-            {isComparing ? "En comparación" : "Comparar"}
-          </button>
         </div>
       </div>
-    </div>
+    </article>
   );
 }

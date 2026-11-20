@@ -1143,7 +1143,7 @@ export default function SearchResultsPage({
             </>
           ) : (
             <>
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3">
                 {paginated.map((p) => (
                   <ProductCard
                     key={p.id}
