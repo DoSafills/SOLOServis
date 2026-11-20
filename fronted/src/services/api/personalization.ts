@@ -2,9 +2,10 @@ import type { AnyCartItem, Product, Service } from "../../types";
 import { getProductById, getServiceById } from "../../services/api/api";
 import { API_URLS } from "./config";
 
-const AUTH_SESSION_KEY = "soloservice.auth-session";
+export const AUTH_SESSION_KEY = "soloservice.auth-session";
 const COMPARISON_ID_KEY = "soloservice.product-comparison-id";
 const SERVICE_COMPARISON_ID_KEY = "soloservice.service-comparison-id";
+export const AUTH_SESSION_EXPIRED_EVENT = "soloservice:auth-session-expired";
 let authRefreshInFlight: {
   userId: number;
   refreshToken: string;
@@ -123,12 +124,16 @@ export async function request<T>(
       currentSession.accessToken === session.accessToken &&
       currentSession.refreshToken === session.refreshToken
     ) {
-      localStorage.removeItem(AUTH_SESSION_KEY);
+      expireStoredAuthSession();
     }
   }
 
   if (!response.ok) {
-    let message = `${apiName}: error HTTP ${response.status} al consultar ${path}`;
+    const forbiddenMessage = "No tienes permiso para realizar esta acción";
+    let message =
+      response.status === 403
+        ? forbiddenMessage
+        : `${apiName}: error HTTP ${response.status} al consultar ${path}`;
     let fieldErrors: ApiFieldError[] = [];
     try {
       // problem+json (estándar TAL-78) trae el mensaje en detail.
@@ -138,7 +143,9 @@ export async function request<T>(
         message?: string;
         errors?: ApiFieldError[];
       };
-      message = `${apiName}: ${body.detail ?? body.error ?? body.message ?? `error HTTP ${response.status}`}`;
+      if (response.status !== 403) {
+        message = `${apiName}: ${body.detail ?? body.error ?? body.message ?? `error HTTP ${response.status}`}`;
+      }
       fieldErrors = Array.isArray(body.errors)
         ? body.errors.filter(
             (item) =>
@@ -250,6 +257,11 @@ function storeAuthSession(session: AuthSession): void {
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
 }
 
+function expireStoredAuthSession(): void {
+  localStorage.removeItem(AUTH_SESSION_KEY);
+  window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
+}
+
 async function refreshAuthSession(session: AuthSession): Promise<AuthSession | null> {
   const currentSession = getStoredAuthSession();
   if (!currentSession || currentSession.userId !== session.userId) return null;
@@ -283,7 +295,7 @@ async function refreshAuthSession(session: AuthSession): Promise<AuthSession | n
             latestSession?.userId === session.userId &&
             latestSession.refreshToken === session.refreshToken
           ) {
-            localStorage.removeItem(AUTH_SESSION_KEY);
+            expireStoredAuthSession();
           }
         }
         return null;
@@ -392,7 +404,7 @@ export async function restoreAuthSession(): Promise<AuthSession | null> {
     return createSession(tokens);
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
-      localStorage.removeItem(AUTH_SESSION_KEY);
+      expireStoredAuthSession();
       return null;
     }
     throw error;
