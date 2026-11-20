@@ -17,6 +17,7 @@ Los hallazgos alimentan cuatro tareas:
 | TAL-199 | Gestión de secretos | H3, H8, H9, H10, H11 |
 | TAL-200 | Control de sesiones | H2, H5, H6, H15 |
 | TAL-201 | Solicitudes excesivas | H1, H13 |
+| chore (backend) | Dependencias de Go | H16 |
 
 ---
 
@@ -36,7 +37,7 @@ Los hallazgos alimentan cuatro tareas:
    enmascararon al revisar; ninguno se copia en este documento.
 6. **Gateway y frontend:** cabeceras, CORS y sumideros XSS
    (`dangerouslySetInnerHTML`, `href` con datos externos).
-7. **Dependencias:** `pnpm audit`.
+7. **Dependencias:** `pnpm audit`, `govulncheck ./...` y `pip-audit`.
 8. **Kubernetes:** `securityContext`, montaje de Secrets, Services y NetworkPolicy.
 
 ---
@@ -263,6 +264,31 @@ trae `crypto/pbkdf2`, y mantener código criptográfico propio es un riesgo.
 **Recomendación:** reemplazarlo por `crypto/pbkdf2` sin cambiar el formato del
 hash, así no hace falta migrar contraseñas.
 
+### H16 — Dependencias de Go con vulnerabilidades alcanzables · Media · chore (backend)
+
+`govulncheck ./...` (v1.10.0, base al 2026-11-11) informa **13
+vulnerabilidades alcanzables** desde el código: 11 de la librería estándar
+(Go 1.27.1) y 2 de `golang.org/x/text v0.29.0`. Además hay 4 que no se llaman.
+
+| ID | Paquete | Qué permite | Corregido en | Alcance real |
+|---|---|---|---|---|
+| GO-2026-6859 | `net/http` | Caída del servidor HTTP/1 por una carrera en `MaxBytesReader` | go1.27.4 | **Alcanzable:** `httpx.DecodeJSON` usa `MaxBytesReader` en todas las escrituras |
+| GO-2026-6613, 6605 | `net/http` | Desincronización HTTP/1 tras `CONNECT` | go1.27.2 | Bajo: nginx no reenvía `CONNECT` |
+| GO-2026-6608 | `net/textproto` | Saltarse el límite de memoria al parsear cabeceras MIME | go1.27.2 | Alcanzable en cualquier request |
+| GO-2026-6617, 6612, 6611, 6610, 6603 | `net/http` (HTTP/2) | Caída, consumo de CPU y memoria en HTTP/2 | go1.27.2 | Bajo: las APIs hablan HTTP/1.1 sin TLS detrás de nginx (`proxy_http_version 1.1`) |
+| GO-2026-6809, 6607 | `crypto/x509`, `crypto/tls` | Certificados intermedios comprometidos, ECH malformado | go1.27.3 / go1.27.2 | Bajo: solo en la conexión TLS a PostgreSQL externo |
+| GO-2026-6629, 5970 | `golang.org/x/text` | Pánico o bucle infinito con entrada manipulada | v0.41.0 / v0.39.0 | Medio: `CanonicalCategorySlug` normaliza categorías que vienen de tiendas externas vía ingestion (`ingestion/processor.go:261`) |
+
+**Matiz sobre la librería estándar:** `go.mod` declara `go 1.27.1`. La imagen
+`golang:1.27-alpine` compila con el último parche 1.27.x **del momento del
+build**, así que una imagen reconstruida probablemente ya esté corregida. El CI
+(`go-version-file`) y cualquier build local con 1.27.1 no lo están, y la imagen
+desplegada hoy depende de cuándo se construyó: no se verificó en el clúster.
+
+**Recomendación:** subir `go.mod` a `go 1.27.4` (eso fija el mínimo también en
+el CI) y `golang.org/x/text` a `v0.41.0` o superior; luego `go mod tidy`,
+`go test ./...` y redeploy. Es un cambio de dependencias, sin código propio.
+
 ---
 
 ## 4. Controles verificados (positivos)
@@ -286,6 +312,13 @@ hash, así no hace falta migrar contraseñas.
 | Scraper sin SSRF: solo URLs que reclama una spec | `api/manager.py:414` |
 | Pods sin root, `readOnlyRootFilesystem`, sin escalada, sin token de SA | `k8s/base/**`, `k8s/components/**` |
 | Dependencias del frontend | `pnpm audit`: «No known vulnerabilities found» |
+| Dependencias de Python | `pip-audit 2.10.1`: «No known vulnerabilities found» en `scraper/` (proyecto), `crawler/` (proyecto) y `crawler/requirements.txt` |
+| chi v5.3.2 y pgx v5.10.0 | `govulncheck`: sin vulnerabilidades propias |
+
+**Nota sobre el scraper:** `scraper/pyproject.toml` no fija versiones
+(`scrapling[fetchers]>=0.4`) y la imagen instala lo último en cada build.
+`pip-audit` auditó esa misma resolución de hoy, pero el build no es
+reproducible: una imagen futura puede traer una versión distinta.
 
 ---
 
@@ -293,8 +326,7 @@ hash, así no hace falta migrar contraseñas.
 
 | Verificación | Motivo |
 |---|---|
-| `govulncheck` (Go) | No está instalado en la máquina; queda pendiente. Versiones: Go 1.27.1, chi v5.3.2, pgx v5.10.0 |
-| `pip-audit` (scraper) | No está instalado |
+| Versión de Go del binario desplegado | Requiere el clúster o la imagen publicada (H16) |
 | Pruebas contra el clúster (`salud.py`, ráfaga real de logins) | La auditoría fue estática; los números de H1 son una medición local más el límite de CPU del manifiesto |
 | Si la plataforma UCT admite NetworkPolicy | Requiere consultar el clúster (H4) |
 
@@ -330,4 +362,6 @@ grep -n localStorage fronted/src/services/api/personalization.ts
 
 # Dependencias
 cd fronted && pnpm audit
+cd backend && govulncheck ./...
+pip-audit scraper && pip-audit crawler && pip-audit -r crawler/requirements.txt
 ```
