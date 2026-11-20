@@ -36,6 +36,7 @@ interface Props {
   productGroup?: string;
   categoryId?: number;
   categoryIds?: number[];
+  resetFilters?: boolean;
   pageSize: number;
   onPageSizeChange: (pageSize: number) => void;
   navigate: (page: Page) => void;
@@ -142,6 +143,7 @@ export default function SearchResultsPage({
   productGroup,
   categoryId,
   categoryIds,
+  resetFilters,
   pageSize,
   onPageSizeChange,
   navigate,
@@ -160,6 +162,11 @@ export default function SearchResultsPage({
     categoryId,
     categoryIds,
   ])}`;
+  // Con resetFilters se usa una clave de filtros nueva en cada apertura desde
+  // el catálogo, para no heredar precio ni disponibilidad guardados antes.
+  const [filtersSessionSuffix] = useState(() =>
+    resetFilters ? `:${Date.now()}-${Math.random().toString(36).slice(2)}` : "",
+  );
   const [sort, setSort] = useSessionStorageState<SortOption>(
     `${sessionKey}:sort`,
     () => "name",
@@ -169,7 +176,7 @@ export default function SearchResultsPage({
   const isMultiCategoryView = Boolean(categoryIds?.length);
   const [filtersByGroup, setFiltersByGroup] = useSessionStorageState<
     Record<string, ProductFilterState>
-  >(`${sessionKey}:filters`, () => ({}), productFiltersSessionCodec);
+  >(`${sessionKey}:filters${filtersSessionSuffix}`, () => ({}), productFiltersSessionCodec);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useSessionStorageState(
     `${sessionKey}:page`,
@@ -1143,7 +1150,7 @@ export default function SearchResultsPage({
             </>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {paginated.map((p) => (
                   <ProductCard
                     key={p.id}

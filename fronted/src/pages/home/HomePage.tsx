@@ -599,7 +599,7 @@ export default function HomePage({
                 navigate({ id: "search-products", query: "", productGroup: category.id }),
             }))}
           />
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {productsError && (
               <div
                 className="col-span-full rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200"
@@ -621,7 +621,7 @@ export default function HomePage({
             )}
             {productsLoading && (
               <div className="col-span-full">
-                <ProductSkeletonGrid count={4} />
+                <ProductSkeletonGrid count={2} />
               </div>
             )}
             {!productsLoading && !productsError && featuredProducts.length === 0 && (
@@ -667,7 +667,7 @@ export default function HomePage({
               onClick: () => navigate({ id: "search-services", query: category.name }),
             }))}
           />
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {servicesError && (
               <div
                 className="col-span-full rounded-xl border border-rose-300/20 bg-rose-950/30 p-4 text-sm text-rose-200"
@@ -689,7 +689,7 @@ export default function HomePage({
             )}
             {servicesLoading && (
               <div className="col-span-full">
-                <ServiceSkeletonGrid count={4} />
+                <ServiceSkeletonGrid count={2} />
               </div>
             )}
             {!servicesLoading && !servicesError && featuredServices.length === 0 && (

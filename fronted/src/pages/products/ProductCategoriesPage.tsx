@@ -11,6 +11,7 @@ import {
   getProductCategoryGroup,
   getProductSubtype,
   getSubtypeQueryForProducts,
+  productMatchesSearchQuery,
 } from "../../constants/productCatalog";
 
 interface Props {
@@ -160,6 +161,24 @@ export default function ProductCategoriesPage({ navigate }: Props) {
     );
 
     /**
+     * Categorías con las que se abre una tarjeta. Si todos sus productos
+     * pertenecen a una misma categoría se navega con esa categoría, para que
+     * la búsqueda devuelva el mismo conjunto que cuenta la tarjeta. En
+     * tarjetas que unen varias categorías se mantiene el filtro recibido.
+     * @param items Productos que cuenta la tarjeta.
+     * @param fallback Categorías actuales de la tarjeta.
+     * @returns Las categorías para la búsqueda.
+     */
+    const categoryIdsForItems = (items: Product[], fallback: number[]) => {
+      const ids = new Set(
+        items
+          .map((product) => product.categoryId)
+          .filter((categoryId): categoryId is number => categoryId !== undefined),
+      );
+      return ids.size === 1 ? [...ids] : fallback;
+    };
+
+    /**
      * Arma los datos de una tarjeta del catálogo.
      * @param name Nombre visible de la tarjeta.
      * @param items Productos que cuenta.
@@ -229,7 +248,7 @@ export default function ProductCategoriesPage({ navigate }: Props) {
       const query = subtreeProducts.every((product) => getProductSubtype(product) === subtype)
         ? ""
         : getSubtypeQueryForProducts(subtype, items);
-      return [makeCard(subtype, items, root, [root.id], query)];
+      return [makeCard(subtype, items, root, categoryIdsForItems(items, [root.id]), query)];
     });
     const cardsByKey = new Map<string, (typeof categoryCards)[number]>();
     for (const card of [...categoryCards, ...inferredCards]) {
@@ -251,7 +270,6 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         )
         .sort((first, second) => first - second);
       existing.productIds = new Set([...existing.productIds, ...card.productIds]);
-      existing.count = existing.productIds.size;
       existing.isSubtype = existing.isSubtype || card.isSubtype;
       if (existing.isSubtype) {
         const categoryProducts = existing.categoryIds.flatMap(
@@ -266,6 +284,18 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                 products.filter((product) => existing.productIds.has(product.id)),
               );
       }
+    }
+    // El contador refleja lo que listará la búsqueda al abrir la tarjeta: los
+    // productos de sus categorías (con subcategorías) filtrados por su texto.
+    // Sin esto, una tarjeta fusionada contaba menos de lo que el buscador muestra.
+    for (const card of cardsByKey.values()) {
+      const categoryProducts = card.categoryIds.flatMap(
+        (categoryId) => productsByCategory.get(categoryId) ?? [],
+      );
+      const searchable = card.query
+        ? categoryProducts.filter((product) => productMatchesSearchQuery(product, card.query))
+        : categoryProducts;
+      card.count = new Set(searchable.map((product) => product.id)).size;
     }
     const displayCards = [...cardsByKey.values()].sort((first, second) =>
       first.name.localeCompare(second.name, "es"),
@@ -469,6 +499,7 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                                 query: category.query,
                                 categoryContext: category.name,
                                 categoryIds: category.categoryIds,
+                                resetFilters: true,
                               });
 
                             return (

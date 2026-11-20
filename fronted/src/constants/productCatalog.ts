@@ -238,6 +238,30 @@ export const getProductSubtype = (product: Product): string => {
 export const productMatchesSubtype = (product: Product, subtype: string): boolean =>
   getProductSubtype(product) === subtype;
 
+// Claves normalizadas con `normalize`: el tipo se compara sin tildes ni
+// mayúsculas, así "Camaras" y "Cámaras" encuentran la misma raíz.
+const SUBTYPE_SEARCH_QUERIES: Record<string, string> = {
+  televisores: "televisor",
+  notebooks: "notebook",
+  "consolas y gaming": "consola",
+  monitores: "monitor",
+  camaras: "camara",
+  "relojes inteligentes": "smartwatch",
+  "freidoras de aire": "freidora",
+  refrigeradores: "refrigerador",
+  microondas: "microondas",
+  lavadoras: "lavadora",
+  secadoras: "secadora",
+  lavavajillas: "lavavajilla",
+  "hornos y cocinas": "horno",
+  aspiradoras: "aspiradora",
+  cafeteras: "cafetera",
+  licuadoras: "licuadora",
+  "tostadores y hervidores": "hervidor",
+  "aire acondicionado": "aire",
+  "ventiladores y calefactores": "ventilador",
+};
+
 /**
  * Devuelve el texto de búsqueda que acota una tarjeta de tipo dentro de su
  * categoría. Es una raíz de palabra que aparece en el nombre de los productos
@@ -250,30 +274,8 @@ export const productMatchesSubtype = (product: Product, subtype: string): boolea
  * @param subtype Nombre del tipo, como lo devuelve getProductSubtype.
  * @returns La raíz de búsqueda, o "" si el tipo no tiene una confiable.
  */
-export const getProductSubtypeSearchQuery = (subtype: string): string => {
-  const queries: Record<string, string> = {
-    Televisores: "televisor",
-    Notebooks: "notebook",
-    "Consolas y gaming": "consola",
-    Monitores: "monitor",
-    Cámaras: "camara",
-    "Relojes inteligentes": "smartwatch",
-    "Freidoras de aire": "freidora",
-    Refrigeradores: "refrigerador",
-    Microondas: "microondas",
-    Lavadoras: "lavadora",
-    Secadoras: "secadora",
-    Lavavajillas: "lavavajilla",
-    "Hornos y cocinas": "horno",
-    Aspiradoras: "aspiradora",
-    Cafeteras: "cafetera",
-    Licuadoras: "licuadora",
-    "Tostadores y hervidores": "hervidor",
-    "Aire acondicionado": "aire",
-    "Ventiladores y calefactores": "ventilador",
-  };
-  return queries[subtype] ?? "";
-};
+export const getProductSubtypeSearchQuery = (subtype: string): string =>
+  SUBTYPE_SEARCH_QUERIES[normalize(subtype.trim())] ?? "";
 
 /**
  * Indica si un producto aparecería al buscar el texto en el backend: cada
