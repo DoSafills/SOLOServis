@@ -154,7 +154,16 @@ def test_pipeline_sends_items_end_to_end(settings, spec_by_slug):
         assert item["offer"]["price"]
 
     assert fake.opened[0]["storeId"] == spec.store_id
-    assert fake.finished == [{"status": "success"}]
+    # TAL-211: el cierre lleva los contadores para que ingestion pueda avisar.
+    assert fake.finished == [
+        {
+            "status": "success",
+            "itemsFound": 3,
+            "itemsSent": 3,
+            "itemsRejected": 0,
+            "pagesFailed": 0,
+        }
+    ]
 
     # The local records agree with what was sent.
     record = repo.get_run(settings.db_path, result.run_id)
