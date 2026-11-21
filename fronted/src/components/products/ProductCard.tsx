@@ -21,6 +21,12 @@ interface Props {
   compact?: boolean;
 }
 
+/**
+ * Tarjeta de producto horizontal: imagen a la izquierda y datos de la mejor
+ * oferta a la derecha. Recibe el producto, los estados de favorito,
+ * comparación y cesta, y los callbacks de acciones; `compact` reduce los
+ * tamaños mínimos para el catálogo de una tienda.
+ */
 export default function ProductCard({
   product,
   navigate,
@@ -48,6 +54,10 @@ export default function ProductCard({
       ? Math.round(((bestOffer.listPrice - bestOffer.price) / bestOffer.listPrice) * 100)
       : null;
 
+  /**
+   * Agrega la mejor oferta a la cesta evitando dobles clics con `addingRef`.
+   * Devuelve una promesa que se resuelve al terminar el callback del padre.
+   */
   const addProductToCart = async () => {
     if (!bestOffer || isInCart || addingRef.current) return;
     addingRef.current = true;
@@ -69,7 +79,7 @@ export default function ProductCard({
       }`}
     >
       <div
-        className="theme-media-panel relative w-[58%] shrink-0 cursor-pointer bg-slate-950/60"
+        className="relative w-[58%] shrink-0 cursor-pointer bg-white"
         style={{ clipPath: "polygon(0 0, 100% 0, 88% 100%, 0 100%)" }}
         onClick={() => navigate({ id: "product-detail", productId: product.id })}
       >
@@ -77,17 +87,13 @@ export default function ProductCard({
           <img
             src={product.image}
             alt={product.name}
-            className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]"
+            className="absolute inset-0 h-full w-full object-contain object-center p-2 transition-transform duration-500 group-hover:scale-[1.03] sm:p-3"
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-sm font-medium text-muted">
+          <div className="absolute inset-0 flex items-center justify-center text-sm font-medium text-slate-500">
             Sin imagen
           </div>
         )}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent to-slate-950/20"
-        />
         <div className="absolute right-1 top-1 z-20 rounded-full border border-bd bg-surface/90 backdrop-blur-md">
           <FavoriteButton
             active={isFavorite}

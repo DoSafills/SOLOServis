@@ -433,25 +433,30 @@ export default function HomePage({
                     aria-label={`Producto ${popularProductIndex + 1} de ${popularProducts.length}: ${activePopularProduct.name}`}
                     className="relative isolate h-[90vw] max-h-[360px] w-full overflow-hidden rounded-[2rem] border border-bd bg-surface shadow-2xl shadow-black/30 ring-1 ring-white/5 sm:h-[320px] lg:h-[360px]"
                   >
-                    <div aria-hidden="true" className="absolute inset-0 bg-surface-2">
-                      <span className="absolute inset-0 flex items-center justify-center text-5xl">
-                        🛍️
-                      </span>
-                      {activePopularProduct.imageUrl &&
-                      failedPopularImageId !== activePopularProduct.id ? (
-                        <img
-                          src={activePopularProduct.imageUrl}
-                          alt=""
-                          loading="lazy"
-                          onError={() => setFailedPopularImageId(activePopularProduct.id)}
-                          className="absolute inset-0 h-full w-full object-cover object-center md:w-[88%]"
-                        />
-                      ) : null}
-                      <div className="absolute inset-0 bg-gradient-to-tr from-slate-950/20 via-transparent to-slate-950/10" />
+                    <div aria-hidden="true" className="absolute inset-0 bg-white">
+                      <div className="absolute inset-x-0 top-0 h-[60%] md:inset-y-0 md:right-[40%] md:h-auto">
+                        {(!activePopularProduct.imageUrl ||
+                          failedPopularImageId === activePopularProduct.id) && (
+                          <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-muted">
+                            <span className="text-5xl">🛍️</span>
+                            <span className="text-[11px] font-medium">Sin imagen</span>
+                          </span>
+                        )}
+                        {activePopularProduct.imageUrl &&
+                        failedPopularImageId !== activePopularProduct.id ? (
+                          <img
+                            src={activePopularProduct.imageUrl}
+                            alt=""
+                            loading="lazy"
+                            onError={() => setFailedPopularImageId(activePopularProduct.id)}
+                            className="absolute inset-0 h-full w-full object-contain object-center p-2 md:p-4"
+                          />
+                        ) : null}
+                      </div>
                     </div>
                     <div
                       aria-hidden="true"
-                      className="absolute inset-x-0 bottom-0 h-[54%] md:hidden"
+                      className="absolute inset-x-0 bottom-0 h-[40%] md:hidden"
                       style={{
                         background:
                           "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
@@ -467,7 +472,7 @@ export default function HomePage({
                         clipPath: "polygon(6% 0, 100% 0, 100% 100%, 0 100%)",
                       }}
                     />
-                    <div className="absolute inset-x-10 bottom-4 z-10 flex flex-col items-center gap-1.5 text-center sm:inset-x-12 md:inset-x-auto md:right-10 md:top-1/2 md:bottom-auto md:w-[36%] md:-translate-y-1/2 md:items-start md:text-left">
+                    <div className="absolute inset-x-8 bottom-3 z-10 flex flex-col items-center gap-1 text-center sm:inset-x-12 md:inset-x-auto md:right-10 md:top-1/2 md:bottom-auto md:w-[36%] md:-translate-y-1/2 md:items-start md:gap-1.5 md:text-left">
                       <span className="inline-flex items-center gap-1.5 rounded-full border border-prime/40 bg-prime-muted px-2 py-0.5 text-[8px] font-bold uppercase tracking-[0.16em] text-prime backdrop-blur-sm">
                         <span className="h-1.5 w-1.5 rounded-full bg-prime shadow-[0_0_10px_rgba(209,168,90,0.6)]" />
                         Más buscado
@@ -483,7 +488,7 @@ export default function HomePage({
                         onClick={() =>
                           navigate({ id: "product-detail", productId: activePopularProduct.id })
                         }
-                        className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-prime px-4 py-2 text-xs font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+                        className="mt-0.5 inline-flex items-center gap-1.5 rounded-lg bg-prime px-3 py-1.5 text-xs font-semibold text-[#181714] shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-prime-dark hover:shadow-xl active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime md:mt-1 md:px-4 md:py-2"
                       >
                         Ver producto
                         <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">

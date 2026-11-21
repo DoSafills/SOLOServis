@@ -14,6 +14,11 @@ interface Props {
   onToggleCompare: (id: string) => void;
 }
 
+/**
+ * Tarjeta de servicio horizontal: imagen a la izquierda y datos del proveedor
+ * y la mensualidad a la derecha. Recibe el servicio, los estados de favorito,
+ * comparación y cesta, y los callbacks de acciones.
+ */
 export default function ServiceCard({
   service,
   navigate,
@@ -27,6 +32,10 @@ export default function ServiceCard({
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
 
+  /**
+   * Agrega el servicio a la cesta evitando dobles clics con `addingRef`.
+   * Devuelve una promesa que se resuelve al terminar el callback del padre.
+   */
   const addServiceToCart = async () => {
     if (addingRef.current || isInCart) return;
     addingRef.current = true;
@@ -46,7 +55,7 @@ export default function ServiceCard({
       }`}
     >
       <div
-        className="theme-media-panel relative w-[58%] shrink-0 cursor-pointer bg-slate-950/60"
+        className="relative w-[58%] shrink-0 cursor-pointer bg-white"
         style={{ clipPath: "polygon(0 0, 100% 0, 88% 100%, 0 100%)" }}
         onClick={() => navigate({ id: "service-detail", serviceId: service.id })}
       >
@@ -54,17 +63,13 @@ export default function ServiceCard({
           <img
             src={service.image}
             alt={service.name}
-            className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]"
+            className="absolute inset-0 h-full w-full object-contain object-center p-2 transition-transform duration-500 group-hover:scale-[1.03] sm:p-3"
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-sm font-medium text-muted">
+          <div className="absolute inset-0 flex items-center justify-center text-sm font-medium text-slate-500">
             Sin imagen
           </div>
         )}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent to-slate-950/20"
-        />
         <div className="absolute right-1 top-1 z-20 rounded-full border border-bd bg-surface/90 backdrop-blur-md">
           <FavoriteButton
             active={isFavorite}

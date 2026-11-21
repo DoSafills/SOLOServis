@@ -108,12 +108,22 @@ const PRODUCT_SUBTYPES = [
   },
 ];
 
+/**
+ * Normaliza un texto para compararlo: quita tildes y lo pasa a minúsculas.
+ * @param value Texto original.
+ * @returns El texto sin diacríticos y en minúsculas.
+ */
 const normalize = (value: string): string =>
   value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase();
 
+/**
+ * Elige el ícono de una categoría de servicio a partir de su nombre.
+ * @param name Nombre de la categoría de servicio.
+ * @returns Nombre del ícono; "grid" si no reconoce el nombre.
+ */
 export const getServiceCategoryIcon = (name: string): CategoryIconName => {
   const normalized = normalize(name);
   if (/internet|telefon|telecom/.test(normalized)) return SERVICE_CATEGORY_ICONS.internet;
@@ -125,6 +135,11 @@ export const getServiceCategoryIcon = (name: string): CategoryIconName => {
   return SERVICE_CATEGORY_ICONS.other;
 };
 
+/**
+ * Elige el ícono de una categoría de producto a partir de su nombre.
+ * @param name Nombre de la categoría o del tipo de producto.
+ * @returns Nombre del ícono; "grid" si no reconoce el nombre.
+ */
 export const getProductCategoryIcon = (name: string): CategoryIconName => {
   const normalized = normalize(name);
   if (/refriger|nevera|freezer|congel/.test(normalized)) return "refrigerator";
@@ -159,6 +174,11 @@ export const getProductCategoryIcon = (name: string): CategoryIconName => {
 
 export type ProductCategoryGroup = "home" | "technology" | "other";
 
+/**
+ * Ubica una categoría raíz en una de las secciones de la página de categorías.
+ * @param name Nombre de la categoría.
+ * @returns "home", "technology" u "other".
+ */
 export const getProductCategoryGroup = (name: string): ProductCategoryGroup => {
   const normalized = normalize(name);
   if (
@@ -178,6 +198,13 @@ export const getProductCategoryGroup = (name: string): ProductCategoryGroup => {
   return "other";
 };
 
+/**
+ * Indica si un producto pertenece a un tipo amplio (Electrodomésticos,
+ * Tecnología…) según su categoría, nombre y modelo.
+ * @param product Producto a revisar.
+ * @param typeId Id del tipo en PRODUCT_TYPES; si no existe, acepta todo.
+ * @returns true si el producto calza con el tipo.
+ */
 export const productMatchesType = (product: Product, typeId: string): boolean => {
   const type = PRODUCT_TYPES.find((candidate) => candidate.id === typeId);
   if (!type) return true;
@@ -187,6 +214,12 @@ export const productMatchesType = (product: Product, typeId: string): boolean =>
   );
 };
 
+/**
+ * Infiere el tipo concreto de un producto (Televisores, Notebooks…) con los
+ * patrones de PRODUCT_SUBTYPES. Se usa para nombrar las tarjetas del catálogo.
+ * @param product Producto a clasificar.
+ * @returns Nombre del tipo; si ninguno calza, la categoría o "Otros productos".
+ */
 export const getProductSubtype = (product: Product): string => {
   const searchableText = normalize(
     `${product.category} ${product.subcategory} ${product.name} ${product.model}`,
@@ -196,24 +229,82 @@ export const getProductSubtype = (product: Product): string => {
   return subtype?.name ?? (product.category.trim() || "Otros productos");
 };
 
+/**
+ * Indica si un producto es del tipo indicado.
+ * @param product Producto a revisar.
+ * @param subtype Nombre del tipo, como lo devuelve getProductSubtype.
+ * @returns true si getProductSubtype(product) es ese tipo.
+ */
 export const productMatchesSubtype = (product: Product, subtype: string): boolean =>
   getProductSubtype(product) === subtype;
 
-export const getProductSubtypeSearchQuery = (subtype: string): string => {
-  const queries: Record<string, string> = {
-    "Freidoras de aire": "freidora",
-    Refrigeradores: "refrigerador",
-    Microondas: "microondas",
-    Lavadoras: "lavadora",
-    Secadoras: "secadora",
-    Lavavajillas: "lavavajilla",
-    "Hornos y cocinas": "horno",
-    Aspiradoras: "aspiradora",
-    Cafeteras: "cafetera",
-    Licuadoras: "licuadora",
-    "Tostadores y hervidores": "hervidor",
-    "Aire acondicionado": "aire",
-    "Ventiladores y calefactores": "ventilador",
-  };
-  return queries[subtype] ?? subtype;
+// Claves normalizadas con `normalize`: el tipo se compara sin tildes ni
+// mayúsculas, así "Camaras" y "Cámaras" encuentran la misma raíz.
+const SUBTYPE_SEARCH_QUERIES: Record<string, string> = {
+  televisores: "televisor",
+  notebooks: "notebook",
+  "consolas y gaming": "consola",
+  monitores: "monitor",
+  camaras: "camara",
+  "relojes inteligentes": "smartwatch",
+  "freidoras de aire": "freidora",
+  refrigeradores: "refrigerador",
+  microondas: "microondas",
+  lavadoras: "lavadora",
+  secadoras: "secadora",
+  lavavajillas: "lavavajilla",
+  "hornos y cocinas": "horno",
+  aspiradoras: "aspiradora",
+  cafeteras: "cafetera",
+  licuadoras: "licuadora",
+  "tostadores y hervidores": "hervidor",
+  "aire acondicionado": "aire",
+  "ventiladores y calefactores": "ventilador",
+};
+
+/**
+ * Devuelve el texto de búsqueda que acota una tarjeta de tipo dentro de su
+ * categoría. Es una raíz de palabra que aparece en el nombre de los productos
+ * de ese tipo ("televisor" encuentra "Televisor LG…").
+ *
+ * La búsqueda del backend exige que cada palabra aparezca en el producto, así
+ * que mandar el nombre de la tarjeta ("Consolas y gaming") devolvía 0
+ * resultados (TAL-244). Los tipos sin una palabra común en sus productos
+ * (Celulares, Audífonos y audio, Muebles…) no tienen entrada.
+ * @param subtype Nombre del tipo, como lo devuelve getProductSubtype.
+ * @returns La raíz de búsqueda, o "" si el tipo no tiene una confiable.
+ */
+export const getProductSubtypeSearchQuery = (subtype: string): string =>
+  SUBTYPE_SEARCH_QUERIES[normalize(subtype.trim())] ?? "";
+
+/**
+ * Indica si un producto aparecería al buscar el texto en el backend: cada
+ * palabra debe estar en el nombre, el modelo o la marca, sin distinguir
+ * tildes ni mayúsculas (igual que la Search API; el SKU no llega al frontend,
+ * así que esta comprobación es igual o más estricta).
+ * @param product Producto a revisar.
+ * @param query Texto de búsqueda; vacío calza con todo.
+ * @returns true si todas las palabras aparecen en el producto.
+ */
+export const productMatchesSearchQuery = (product: Product, query: string): boolean => {
+  const searchable = normalize(`${product.name} ${product.model} ${product.brand}`);
+  return normalize(query)
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => searchable.includes(word));
+};
+
+/**
+ * Elige el texto de búsqueda de una tarjeta de tipo: la raíz de
+ * getProductSubtypeSearchQuery solo si todos los productos de la tarjeta la
+ * contienen. Si alguno no la tiene, devuelve "" y la tarjeta filtra solo por
+ * categoría, para que nunca muestre 0 resultados teniendo productos (TAL-244).
+ * @param subtype Nombre del tipo de la tarjeta.
+ * @param products Productos que cuenta la tarjeta.
+ * @returns El texto de búsqueda o "".
+ */
+export const getSubtypeQueryForProducts = (subtype: string, products: Product[]): string => {
+  const query = getProductSubtypeSearchQuery(subtype);
+  if (!query || products.length === 0) return "";
+  return products.every((product) => productMatchesSearchQuery(product, query)) ? query : "";
 };
