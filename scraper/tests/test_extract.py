@@ -32,7 +32,8 @@ def test_falabella_reads_template_url_and_money(spec_by_slug):
     assert not result.rejected
 
     first = result.items[0]
-    assert first.external_id == "testId-pod-15267403"
+    # TAL-172: la clave es el SKU (data-key), no el id de test del DOM.
+    assert first.external_id == "15267403"
     assert first.external_url == (
         "https://www.falabella.com/falabella-cl/product/15267403/refrigerador-no-frost-samsung"
     )
@@ -312,3 +313,38 @@ def test_tal170_invalid_money_is_rejected_with_reason(
 
 def test_tal170_integer_coercion_remains_separate_from_money():
     assert coerce("300", "integer") == (300, None)
+
+
+# ------------------------------------------------------------------ TAL-172
+
+
+def test_tal172_external_id_sale_del_data_key_y_no_del_contador_del_dom(spec_by_slug):
+    """En el listado real el id del DOM es un contador; el SKU vive en data-key.
+
+    El fixture reproduce la página de producción: ``id="testId-pod-151021732"``
+    con ``data-key="151021731"``. La clave del ítem debe ser el SKU.
+    """
+    spec = spec_by_slug["falabella-cl"]
+
+    result = _extract(
+        spec, fixture_html("falabella-cl", "listing-tarjetas-repetidas.html")
+    )
+
+    assert [item.external_id for item in result.items] == ["151021731", "151021731"]
+    assert not any(
+        str(item.external_id).startswith("testId-pod-") for item in result.items
+    )
+
+
+def test_tal172_tarjeta_sin_clave_se_rechaza_con_razon(spec_by_slug):
+    """Sin ``data-key`` la tarjeta se rechaza con su razón, no desaparece."""
+    spec = spec_by_slug["falabella-cl"]
+
+    result = _extract(
+        spec, fixture_html("falabella-cl", "listing-tarjetas-repetidas.html")
+    )
+
+    assert len(result.rejected) == 1
+    assert any(
+        reason.startswith("externalId:") for reason in result.rejected[0].reasons
+    )

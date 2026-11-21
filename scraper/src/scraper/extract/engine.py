@@ -345,6 +345,9 @@ def _extract_card(
     ]
     if not external_url:
         missing.append("externalUrl")
+    if not external_id and "externalId" in reject_paths:
+        # TAL-172: sin clave el ítem se descartaba en silencio al deduplicar.
+        missing.append("externalId")
     for path in missing:
         reasons.append(f"{path}: required value not found")
 

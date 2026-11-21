@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es-CL">
+  <body>
+    <!-- TAL-172: en el listado real el id del DOM es un contador de posición
+         (aquí 151021732) y el SKU vive en data-key (151021731). La misma
+         tarjeta aparece dos veces, como en producción. -->
+    <div data-pod="catalyst-pod" data-key="151021731" id="testId-pod-151021732">
+      <div class="pod-head">
+        <img src="//cdn.falabella.com/falabella-cl/product/151021731/principal.jpg" alt="">
+      </div>
+      <div class="pod-details">
+        <span class="title1">Mademsa</span>
+        <span class="copy2 primary">Refrigerador No Frost 320 L</span>
+      </div>
+      <div class="pod-summary">
+        <ul class="prices">
+          <li class="prices-0"><span>$429.990</span></li>
+        </ul>
+        <span class="availability">Disponible</span>
+      </div>
+    </div>
+    <div data-pod="catalyst-pod" data-key="151021731" id="testId-pod-99999999">
+      <div class="pod-head">
+        <img src="//cdn.falabella.com/falabella-cl/product/151021731/principal.jpg" alt="">
+      </div>
+      <div class="pod-details">
+        <span class="title1">Mademsa</span>
+        <span class="copy2 primary">Refrigerador No Frost 320 L</span>
+      </div>
+      <div class="pod-summary">
+        <ul class="prices">
+          <li class="prices-0"><span>$429.990</span></li>
+        </ul>
+        <span class="availability">Disponible</span>
+      </div>
+    </div>
+    <!-- Tarjeta sin la clave: debe rechazarse con razón, no desaparecer. -->
+    <div data-pod="catalyst-pod" id="testId-pod-123456">
+      <div class="pod-head">
+        <img src="//cdn.falabella.com/falabella-cl/product/123456/principal.jpg" alt="">
+      </div>
+      <div class="pod-details">
+        <span class="title1">LG</span>
+        <span class="copy2 primary">Refrigerador Top Freezer 250 L</span>
+      </div>
+      <div class="pod-summary">
+        <ul class="prices">
+          <li class="prices-0"><span>$319.990</span></li>
+        </ul>
+        <span class="availability">Disponible</span>
+      </div>
+    </div>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "item": {
+              "@type": "Product",
+              "url": "https://www.falabella.com/falabella-cl/product/151021731/refrigerador-no-frost-mademsa",
+              "image": "https://media.falabella.com/falabellaCL/151021731_1/public"
+            }
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "item": {
+              "@type": "Product",
+              "url": "https://www.falabella.com/falabella-cl/product/123456/refrigerador-top-freezer-lg",
+              "image": "https://media.falabella.com/falabellaCL/123456_1/public"
+            }
+          }
+        ]
+      }
+    </script>
+  </body>
+</html>
