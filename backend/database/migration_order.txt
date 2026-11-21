@@ -42,3 +42,7 @@
 # 028: reparenta Computación/Celulares/Gaming bajo Tecnología, repone las
 # hijas de Computación y agrega las subcategorías de Electrodomésticos.
 028_reparent_and_expand_category_tree.sql
+# 029: indices de FK faltantes tras 016/026 (ejecucion de scraping y fuente).
+029_fk_indexes_scrape_run_data_source.sql
+# 030: unicidad (padre, nombre sin tildes) en product_category; complementa 011.
+030_product_category_unique_normalized_name.sql
