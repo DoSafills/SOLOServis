@@ -95,6 +95,9 @@ func registerRoutes(r chi.Router, name string, h *Handler, admin func(http.Handl
 		})
 	case "notification-api":
 		r.With(admin).Post("/notifications", h.CreateNotification)
+		// Aviso masivo a administradores; lo usa Ingestion para las alertas de
+		// extracción degradada (TAL-211). Mismo control que el alta individual.
+		r.With(admin).Post("/notifications/admins", h.CreateAdminNotification)
 		r.Group(func(r chi.Router) {
 			r.Use(h.requireSession)
 			r.Get("/notifications", h.GetNotifications)

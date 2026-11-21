@@ -60,14 +60,16 @@ type fakeRuns struct {
 	addImageErr        error
 	saveBatchErr       error // error del INSERT por lote de scraped_data
 
-	imageCalls []string // "id|url" de cada llamada a AddImageIfMissing
-	opened     []any
-	counters   []int
-	saved      []string // external_id de cada fila guardada, en orden
-	batches    int      // llamadas a SaveScrapedBatch
-	singles    int      // llamadas a SaveScraped (respaldo)
-	brands     []string
-	finished   []any
+	imageCalls  []string // "id|url" de cada llamada a AddImageIfMissing
+	opened      []any
+	counters    []int
+	saved       []string // external_id de cada fila guardada, en orden
+	batches     int      // llamadas a SaveScrapedBatch
+	singles     int      // llamadas a SaveScraped (respaldo)
+	brands      []string
+	finished    []any
+	baseline    []int32
+	baselineErr error
 }
 
 func (f *fakeRuns) OpenRun(_ context.Context, name string, baseURL *string, storeID int32, scraperType string) (int32, error) {
@@ -86,6 +88,11 @@ func (f *fakeRuns) ItemsTarget(context.Context, int32) (int32, error) { return f
 func (f *fakeRuns) AddCounters(_ context.Context, _ int32, found, processed, failed int) error {
 	f.counters = []int{found, processed, failed}
 	return nil
+}
+
+// RecentFound devuelve el historial que dejó el test en `baseline`.
+func (f *fakeRuns) RecentFound(_ context.Context, _, _ int32, _ int) ([]int32, error) {
+	return f.baseline, f.baselineErr
 }
 
 // SaveScraped simula el guardado de una fila de scraped_data (el respaldo
@@ -210,11 +217,24 @@ func (n *fakeNotifier) Notify(_ context.Context, notification pricing.Notificati
 	return nil
 }
 
+// fakeAdminNotifier registra los avisos de extracción degradada (TAL-211).
+type fakeAdminNotifier struct {
+	sent []AdminNotification
+	err  error
+}
+
+// NotifyAdmins acumula el aviso y devuelve el error que el test configure.
+func (n *fakeAdminNotifier) NotifyAdmins(_ context.Context, notification AdminNotification) error {
+	n.sent = append(n.sent, notification)
+	return n.err
+}
+
 type env struct {
 	runs     *fakeRuns
 	catalog  *fakeCatalog
 	offers   *fakeOffers
 	notifier *fakeNotifier
+	alerts   *fakeAdminNotifier
 	logs     *bytes.Buffer
 }
 
@@ -224,6 +244,7 @@ func newEnv() *env {
 		catalog:  &fakeCatalog{category: refrigeradores},
 		offers:   &fakeOffers{},
 		notifier: &fakeNotifier{},
+		alerts:   &fakeAdminNotifier{},
 		logs:     &bytes.Buffer{},
 	}
 }
@@ -232,7 +253,7 @@ func (e *env) serve(t *testing.T, method, target, body string) *httptest.Respons
 	t.Helper()
 	logger := slog.New(slog.NewJSONHandler(e.logs, nil))
 	processor := NewProcessor(e.runs, e.catalog, e.offers, e.notifier, logger)
-	h := NewHandler(e.runs, processor, logger)
+	h := NewHandler(e.runs, processor, e.alerts, logger)
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
 	r.Post("/ingestion/runs", h.OpenRun)
@@ -363,6 +384,116 @@ func TestFinishGetList(t *testing.T) {
 		t.Fatalf("X-Total-Count = %s", rec.Header().Get("X-Total-Count"))
 	}
 	requireStatus(t, newEnv().serve(t, http.MethodGet, "/ingestion/runs?limit=101", ""), http.StatusBadRequest)
+}
+
+// ------------------------------------------------------------------ TAL-211
+
+// withStore deja la corrida del test asociada a una tienda, que es lo que la
+// alerta necesita para encontrar el historial.
+func withStore(e *env) *env {
+	storeID := int32(2)
+	e.runs.run.StoreID = &storeID
+	return e
+}
+
+// TestFinishRunAlertsWhenDegraded comprueba el camino completo: el scraper
+// manda contadores, ingestion los evalúa y avisa a los administradores.
+func TestFinishRunAlertsWhenDegraded(t *testing.T) {
+	e := withStore(newEnv())
+	e.runs.baseline = []int32{30, 30, 30, 30, 30}
+
+	body := `{"status":"success","itemsFound":30,"itemsSent":6,"itemsRejected":1,"pagesFailed":0}`
+	requireStatus(t, e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", body), http.StatusOK)
+
+	if len(e.alerts.sent) != 1 {
+		t.Fatalf("avisos = %d; quiero 1 (log: %s)", len(e.alerts.sent), e.logs.String())
+	}
+	alert := e.alerts.sent[0]
+	if alert.Type != NotificationTypeDegraded {
+		t.Fatalf("type = %q", alert.Type)
+	}
+	if !strings.Contains(alert.Title, "Ripley scraper") {
+		t.Fatalf("title = %q", alert.Title)
+	}
+	if !strings.Contains(alert.Message, "mediana de 30") {
+		t.Fatalf("message = %q", alert.Message)
+	}
+	if alert.Data["runId"] != int32(3) {
+		t.Fatalf("data.runId = %v", alert.Data["runId"])
+	}
+}
+
+// TestFinishRunWithoutCountersDoesNotAlert deja claro que el contrato viejo
+// sigue funcionando: sin contadores no se evalúa nada.
+func TestFinishRunWithoutCountersDoesNotAlert(t *testing.T) {
+	e := withStore(newEnv())
+	e.runs.baseline = []int32{30}
+
+	requireStatus(t, e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", `{"status":"success"}`), http.StatusOK)
+
+	if len(e.alerts.sent) != 0 {
+		t.Fatalf("avisos = %d; quiero 0", len(e.alerts.sent))
+	}
+}
+
+// TestFinishRunHealthyRunDoesNotAlert evita alertar por una corrida normal.
+func TestFinishRunHealthyRunDoesNotAlert(t *testing.T) {
+	e := withStore(newEnv())
+	e.runs.baseline = []int32{28, 29, 30}
+
+	body := `{"status":"success","itemsFound":30,"itemsSent":29,"itemsRejected":1,"pagesFailed":1}`
+	requireStatus(t, e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", body), http.StatusOK)
+
+	if len(e.alerts.sent) != 0 {
+		t.Fatalf("avisos = %d; quiero 0", len(e.alerts.sent))
+	}
+}
+
+// TestFinishRunRejectsInvalidCounters valida los contadores opcionales: un
+// negativo o un valor absurdo es 422 con el campo culpable, no 500.
+func TestFinishRunRejectsInvalidCounters(t *testing.T) {
+	tests := []struct {
+		body  string
+		field string
+	}{
+		{`{"status":"success","itemsSent":-1}`, "itemsSent/min"},
+		{`{"status":"success","itemsFound":1000001}`, "itemsFound/max"},
+	}
+	for _, test := range tests {
+		t.Run(test.field, func(t *testing.T) {
+			rec := withStore(newEnv()).serve(t, http.MethodPost, "/ingestion/runs/3/finish", test.body)
+			requireStatus(t, rec, http.StatusUnprocessableEntity)
+			if got := problemFields(t, rec); !reflect.DeepEqual(got, []string{test.field}) {
+				t.Fatalf("errores = %v; quiero %v", got, test.field)
+			}
+		})
+	}
+}
+
+// TestFinishRunSurvivesNotificationFailure comprueba que una alerta que no se
+// puede entregar deja un warning y no cambia la respuesta del cierre.
+func TestFinishRunSurvivesNotificationFailure(t *testing.T) {
+	e := withStore(newEnv())
+	e.alerts.err = errors.New("notification caída")
+
+	body := `{"status":"success","itemsFound":10,"itemsSent":0}`
+	requireStatus(t, e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", body), http.StatusOK)
+
+	if !strings.Contains(e.logs.String(), "ingestion_degradation_notification_failed") {
+		t.Fatalf("log = %s", e.logs.String())
+	}
+}
+
+// TestFinishRunWithoutStoreSkipsAlert no puede avisar si la fuente no tiene
+// tienda: no hay historial que comparar y la corrida se cierra igual.
+func TestFinishRunWithoutStoreSkipsAlert(t *testing.T) {
+	e := newEnv()
+	body := `{"status":"success","itemsFound":10,"itemsSent":0}`
+	requireStatus(t, e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", body), http.StatusOK)
+
+	if len(e.alerts.sent) != 0 {
+		t.Fatalf("avisos = %d; quiero 0", len(e.alerts.sent))
+	}
 }
 
 // ------------------------------------------------------------------ lotes
