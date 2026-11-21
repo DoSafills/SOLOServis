@@ -391,16 +391,16 @@ func TestAddItems_CategoriasVigentesYNueva(t *testing.T) {
 		attributes string
 	}{
 		{"refrigeradores", products.WriteCategory{ID: int32p(1), CategoryID: int32p(11), Slug: strp("refrigeradores"),
-			ItemType: categories.ItemTypeProduct,
+			ItemType:   categories.ItemTypeProduct,
 			Attributes: refrigeradores.Attributes}, `{"capacidad_litros":350}`},
 		{"notebooks", products.WriteCategory{ID: int32p(2), CategoryID: int32p(12), Slug: strp("notebooks"),
-			ItemType: categories.ItemTypeProduct,
+			ItemType:   categories.ItemTypeProduct,
 			Attributes: []categories.Attribute{}}, `{}`},
 		{"televisores", products.WriteCategory{ID: int32p(3), CategoryID: int32p(13), Slug: strp("televisores"),
-			ItemType: categories.ItemTypeProduct,
+			ItemType:   categories.ItemTypeProduct,
 			Attributes: []categories.Attribute{}}, `{}`},
 		{"celulares", products.WriteCategory{ID: int32p(4), CategoryID: int32p(14), Slug: strp("celulares"),
-			ItemType: categories.ItemTypeProduct,
+			ItemType:   categories.ItemTypeProduct,
 			Attributes: []categories.Attribute{}}, `{}`},
 		{"lavadoras", products.WriteCategory{ID: int32p(9), CategoryID: int32p(20), Slug: strp("lavadoras"),
 			ItemType: categories.ItemTypeProduct,
@@ -745,8 +745,8 @@ func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
 
 // TestAddItems_ClasificaComputacionPorNombre verifica que un ítem de la
 // categoría computacion termine en notebooks, en computadores de escritorio o
-// en computacion según las palabras de su nombre, que es lo que resuelve
-// ResolveCategory.
+// en accesorios-de-computacion según las palabras de su nombre, que es lo que
+// resuelve ResolveCategory.
 func TestAddItems_ClasificaComputacionPorNombre(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -758,8 +758,8 @@ func TestAddItems_ClasificaComputacionPorNombre(t *testing.T) {
 		{name: "laptop gamer", product: "Laptop gamer ASUS TUF", wantSlug: "notebooks"},
 		{name: "PC gamer", product: "PC Gamer Ryzen 5 RTX 4060", wantSlug: "computadores-de-escritorio"},
 		{name: "iMac", product: "iMac 24\" M3", wantSlug: "computadores-de-escritorio"},
-		{name: "mochila para notebook", product: "Mochila para notebook 15.6\"", wantSlug: "computacion"},
-		{name: "monitor portátil", product: "Monitor portátil 15.6\"", wantSlug: "computacion"},
+		{name: "mochila para notebook", product: "Mochila para notebook 15.6\"", wantSlug: "accesorios-de-computacion"},
+		{name: "monitor portátil", product: "Monitor portátil 15.6\"", wantSlug: "accesorios-de-computacion"},
 		{name: "sin palabras clave", product: "Armado de equipo Ryzen 7", wantSlug: "computadores-de-escritorio"},
 	}
 

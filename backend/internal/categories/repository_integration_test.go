@@ -37,7 +37,13 @@ func TestIntegration_SeedsCumplenRestricciones(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT array_agg(slug ORDER BY slug) FROM categories`).Scan(&slugs); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"celulares", "computacion", "computadores-de-escritorio", "internet-fibra-optica", "notebooks", "refrigeradores", "televisores"}
+	want := []string{
+		"accesorios-de-computacion", "audio", "camas", "celulares", "climatizacion",
+		"closets-y-armarios", "cocina", "computacion", "computadores-de-escritorio",
+		"cuidado-personal", "decoracion", "gaming", "internet-fibra-optica",
+		"lavadoras", "limpieza-del-hogar", "mesas-de-comedor", "mesitas-de-noche",
+		"notebooks", "refrigeradores", "sofas", "televisores",
+	}
 	if !reflect.DeepEqual(slugs, want) {
 		t.Fatalf("slugs = %v, quiero %v", slugs, want)
 	}
@@ -60,14 +66,16 @@ func TestIntegration_SeedsCumplenRestricciones(t *testing.T) {
 	}
 
 	// Sobre una base limpia, cada seed queda enlazado con su categoría antigua.
+	// Única excepción: computacion es un alias sin hoja (039); la Ingestion API
+	// la convierte en una hoja antes de resolverla contra el catálogo.
 	var unlinked []string
 	if err := pool.QueryRow(ctx, `
-		SELECT coalesce(array_agg(slug), '{}') FROM categories
+		SELECT coalesce(array_agg(slug ORDER BY slug), '{}') FROM categories
 		WHERE legacy_product_category_id IS NULL AND legacy_service_category_id IS NULL`).Scan(&unlinked); err != nil {
 		t.Fatal(err)
 	}
-	if len(unlinked) > 0 {
-		t.Fatalf("categorías sin enlace legado: %v", unlinked)
+	if !reflect.DeepEqual(unlinked, []string{"computacion"}) {
+		t.Fatalf("categorías sin enlace legado = %v, quiero solo computacion", unlinked)
 	}
 
 	// Reglas que la BD no puede expresar con CHECK: valores de enum no vacíos
@@ -158,9 +166,9 @@ func TestIntegration_RepositoryList(t *testing.T) {
 		wantSlugs []string
 		wantTotal int64
 	}{
-		{"primera página", ListParams{Limit: 2}, []string{"celulares", "computacion"}, 7},
-		{"segunda página", ListParams{Limit: 2, Offset: 2}, []string{"computadores-de-escritorio", "internet-fibra-optica"}, 7},
-		{"offset fuera de rango", ListParams{Limit: 20, Offset: 10}, []string{}, 7},
+		{"primera página", ListParams{Limit: 2}, []string{"accesorios-de-computacion", "audio"}, 21},
+		{"segunda página", ListParams{Limit: 2, Offset: 2}, []string{"camas", "celulares"}, 21},
+		{"offset fuera de rango", ListParams{Limit: 20, Offset: 25}, []string{}, 21},
 		{"filtro servicio", ListParams{ItemType: &service, Limit: 20}, []string{"internet-fibra-optica"}, 1},
 	}
 
@@ -180,7 +188,7 @@ func TestIntegration_RepositoryList(t *testing.T) {
 		})
 	}
 
-	items, _, err := repo.List(ctx, ListParams{Limit: 1, Offset: 5})
+	items, _, err := repo.List(ctx, ListParams{Limit: 1, Offset: 18})
 	if err != nil {
 		t.Fatal(err)
 	}

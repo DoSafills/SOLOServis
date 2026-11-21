@@ -165,6 +165,24 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		t.Fatal("Ingestion no debe modificar productos existentes")
 	}
 
+	// 2b. Una hoja sembrada por 040 se ingiere por slug sin atributos.
+	hoja := items(run.ID, map[string]any{"externalId": "e-lav",
+		"product": map[string]any{"sku": tag + "-lav", "name": "Lavadora " + tag, "brand": brand,
+			"categorySlug": "lavadoras"},
+		"offer": map[string]any{"price": 450000, "productUrl": "https://tienda.example.test/p/lav"}})
+	if hoja.Results[0].Status != ItemCreated {
+		t.Fatalf("hoja nueva = %+v", hoja.Results[0])
+	}
+	var hojaSlug string
+	must(pool.QueryRow(ctx, `
+		SELECT c.slug FROM product p
+		JOIN categories c ON c.id = p.category_ref
+		JOIN product_category pc ON pc.id = p.category_id
+		WHERE p.sku = $1 AND c.legacy_product_category_id = pc.id`, tag+"-lav").Scan(&hojaSlug), "hoja nueva")
+	if hojaSlug != "lavadoras" {
+		t.Fatalf("hoja nueva quedó en %q, quiero lavadoras", hojaSlug)
+	}
+
 	// 3. Segundo lote: bajada de precio del producto creado, con aviso.
 	var productID int32
 	must(pool.QueryRow(ctx, `SELECT id FROM product WHERE sku = $1`, tag+"-1").Scan(&productID), "id")
@@ -222,13 +240,13 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	// 4. Contadores, auditoría y cierre.
 	rec = do(http.MethodGet, fmt.Sprintf("/ingestion/runs/%d", run.ID), nil)
 	_ = json.Unmarshal(rec.Body.Bytes(), &run)
-	if run.RecordsFound != 7 || run.RecordsProcessed != 5 || run.RecordsFailed != 2 {
+	if run.RecordsFound != 8 || run.RecordsProcessed != 6 || run.RecordsFailed != 2 {
 		t.Fatalf("contadores = %d/%d/%d", run.RecordsFound, run.RecordsProcessed, run.RecordsFailed)
 	}
 	var scraped int
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM scraped_data WHERE scrape_run_id = $1`, run.ID).Scan(&scraped), "scraped_data")
-	if scraped != 7 {
-		t.Fatalf("scraped_data = %d, quiero 7", scraped)
+	if scraped != 8 {
+		t.Fatalf("scraped_data = %d, quiero 8", scraped)
 	}
 
 	if rec := do(http.MethodPost, fmt.Sprintf("/ingestion/runs/%d/finish", run.ID), map[string]any{"status": "success"}); rec.Code != http.StatusOK ||

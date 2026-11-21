@@ -33,6 +33,21 @@ func (r *Repository) ListCategories(ctx context.Context) ([]generated.ListProduc
 	return r.queries.ListProductCategories(ctx)
 }
 
+// ListCategoryCounts devuelve los productos activos de cada nodo (hoja y
+// descendientes) indexados por id de product_category.
+func (r *Repository) ListCategoryCounts(ctx context.Context) (map[int32]int64, error) {
+	rows, err := r.queries.ListProductCategoryCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	counts := make(map[int32]int64, len(rows))
+	for _, row := range rows {
+		counts[row.CategoryID] = row.ProductCount
+	}
+	return counts, nil
+}
+
 func (r *Repository) GetByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.Product, error) {
 	return r.queries.GetProductByPublicID(ctx, publicID)
 }

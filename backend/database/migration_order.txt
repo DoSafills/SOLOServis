@@ -63,3 +63,20 @@
 # 036: unifica el árbol en product_category (slug + level), absorbe el nivel 4
 # y retira categories_nv1/nv2/nv3 y product.category_nv3_id.
 036_unify_product_category_tree.sql
+
+# 037: reubica la aspiradora demo en limpieza-del-hogar y la freidora demo en cocina.
+037_move_misclassified_products.sql
+
+# 038: hojas de nivel 3 bajo Muebles (Sofás, Mesas de comedor, Mesitas de
+# noche, Camas, Closets y armarios) y la hoja única pasa a Decoración.
+038_muebles_subcategories.sql
+
+# 039: computacion queda sin hoja; accesorios-de-computacion recibe su fila y
+# se realinea product.category_ref de la hoja Notebooks.
+039_realign_categories.sql
+
+# 040: una fila de categories por hoja activa y relleno de product.category_ref NULL.
+040_seed_leaf_categories.sql
+
+# 041: valida las CHECK NOT VALID de product_category (level, slug y padre).
+041_validate_category_constraints.sql

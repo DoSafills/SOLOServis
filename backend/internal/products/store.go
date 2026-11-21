@@ -75,5 +75,6 @@ type Store interface {
 	Update(ctx context.Context, publicID pgtype.UUID, product ProductWrite) error
 	Deactivate(ctx context.Context, publicID pgtype.UUID) error
 	ListCategories(ctx context.Context) ([]generated.ListProductCategoriesRow, error)
+	ListCategoryCounts(ctx context.Context) (map[int32]int64, error)
 	ListReviewsByPublicID(ctx context.Context, publicID pgtype.UUID) ([]generated.ListProductReviewsRow, error)
 }

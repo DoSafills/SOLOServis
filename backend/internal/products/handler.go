@@ -418,8 +418,26 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, detail)
 }
 
-// ListCategories atiende GET /product-categories (árbol del modelo anterior).
+// ListCategories atiende GET /product-categories. Con ?counts=true agrega
+// productCount por nodo (productos activos de la hoja y sus descendientes).
 func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
+	var counts map[int32]int64
+	if raw := r.URL.Query().Get("counts"); raw != "" {
+		withCounts, err := strconv.ParseBool(raw)
+		if err != nil {
+			httpx.WriteProblem(w, r, http.StatusBadRequest, httpx.CodeInvalidParameter,
+				"El parámetro counts debe ser true o false.")
+			return
+		}
+		if withCounts {
+			counts, err = h.repository.ListCategoryCounts(r.Context())
+			if err != nil {
+				httpx.WriteInternal(w, r, h.logger, err)
+				return
+			}
+		}
+	}
+
 	rows, err := h.repository.ListCategories(r.Context())
 	if err != nil {
 		httpx.WriteInternal(w, r, h.logger, err)
@@ -428,7 +446,7 @@ func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
 
 	result := make([]dto.ProductCategory, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, dto.FromProductCategory(row))
+		result = append(result, dto.FromProductCategory(row, counts))
 	}
 	writeJSON(w, http.StatusOK, result)
 }

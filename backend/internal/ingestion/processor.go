@@ -306,8 +306,9 @@ func prefixErrors(prefix string, errs []httpx.FieldError) []httpx.FieldError {
 // contra el catálogo y deja los demás slugs intactos.
 //
 // El orden importa: un accesorio (mochila, monitor, tablet…) que mencione
-// "notebook" sigue en Computación; un portátil (notebook, laptop, macbook…)
-// va a la hija Notebooks; el resto se asume Computadores de escritorio.
+// "notebook" sigue en Accesorios de computación; un portátil (notebook,
+// laptop, macbook…) va a la hija Notebooks; el resto se asume Computadores
+// de escritorio.
 func classifyComputacion(slug string, item ItemProduct) string {
 	if slug != "computacion" {
 		return slug
@@ -322,7 +323,7 @@ func classifyComputacion(slug string, item ItemProduct) string {
 		switch word {
 		case "mochila", "funda", "maletin", "soporte", "base", "cargador",
 			"adaptador", "mouse", "teclado", "monitor", "tablet", "ipad":
-			return "computacion"
+			return "accesorios-de-computacion"
 		}
 	}
 	for _, word := range words {

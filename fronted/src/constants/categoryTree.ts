@@ -47,7 +47,12 @@ export const PRODUCT_CATEGORY_TREE: ProductCategorySection[] = [
         name: "Muebles",
         icon: "furniture",
         children: [
-          { slug: "muebles-y-decoracion", name: "Muebles y decoración", icon: "furniture" },
+          { slug: "sofas", name: "Sofás", icon: "furniture" },
+          { slug: "mesas-de-comedor", name: "Mesas de comedor", icon: "furniture" },
+          { slug: "mesitas-de-noche", name: "Mesitas de noche", icon: "furniture" },
+          { slug: "camas", name: "Camas", icon: "furniture" },
+          { slug: "closets-y-armarios", name: "Closets y armarios", icon: "furniture" },
+          { slug: "decoracion", name: "Decoración", icon: "grid" },
         ],
       },
     ],

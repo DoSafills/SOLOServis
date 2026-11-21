@@ -50,6 +50,8 @@ type fakeStore struct {
 	duplicateErr error
 	scope        categories.Scope
 	scopeErr     error
+	counts       map[int32]int64
+	countsErr    error
 
 	listErr, detailErr, resolveErr, writeErr error
 
@@ -123,7 +125,16 @@ func (f *fakeStore) Deactivate(_ context.Context, id pgtype.UUID) error {
 }
 
 func (f *fakeStore) ListCategories(context.Context) ([]generated.ListProductCategoriesRow, error) {
-	return []generated.ListProductCategoriesRow{{ID: 5, Name: "Refrigeracion"}}, f.listErr
+	return []generated.ListProductCategoriesRow{{
+		ID:    5,
+		Name:  "Refrigeracion",
+		Slug:  pgtype.Text{String: "refrigeradores", Valid: true},
+		Level: pgtype.Int2{Int16: 3, Valid: true},
+	}}, f.listErr
+}
+
+func (f *fakeStore) ListCategoryCounts(context.Context) (map[int32]int64, error) {
+	return f.counts, f.countsErr
 }
 
 func (f *fakeStore) ListReviewsByPublicID(context.Context, pgtype.UUID) ([]generated.ListProductReviewsRow, error) {
@@ -729,9 +740,26 @@ func TestDeactivate(t *testing.T) {
 func TestListCategoriesYReviews(t *testing.T) {
 	rec, _ := serve(t, &fakeStore{}, http.MethodGet, "/product-categories", "")
 	requireStatus(t, rec, http.StatusOK)
-	if !strings.Contains(rec.Body.String(), `"name":"Refrigeracion"`) {
+	if !strings.Contains(rec.Body.String(), `"name":"Refrigeracion"`) ||
+		!strings.Contains(rec.Body.String(), `"slug":"refrigeradores"`) ||
+		!strings.Contains(rec.Body.String(), `"level":3`) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
+	if strings.Contains(rec.Body.String(), "productCount") {
+		t.Fatalf("sin counts=true no debe venir productCount: %s", rec.Body.String())
+	}
+
+	rec, _ = serve(t, &fakeStore{counts: map[int32]int64{5: 4}}, http.MethodGet, "/product-categories?counts=true", "")
+	requireStatus(t, rec, http.StatusOK)
+	if !strings.Contains(rec.Body.String(), `"productCount":4`) {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+
+	rec, _ = serve(t, &fakeStore{}, http.MethodGet, "/product-categories?counts=quizas", "")
+	requireStatus(t, rec, http.StatusBadRequest)
+
+	rec, _ = serve(t, &fakeStore{countsErr: errBoom}, http.MethodGet, "/product-categories?counts=true", "")
+	requireStatus(t, rec, http.StatusInternalServerError)
 
 	rec, _ = serve(t, &fakeStore{listErr: errBoom}, http.MethodGet, "/product-categories", "")
 	requireStatus(t, rec, http.StatusInternalServerError)

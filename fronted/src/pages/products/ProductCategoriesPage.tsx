@@ -39,7 +39,7 @@ const LEGACY_NAME_TO_NV3: Record<string, string> = {
   climatizacion: "climatizacion",
   "limpieza del hogar": "limpieza-del-hogar",
   "cuidado personal": "cuidado-personal",
-  "hogar y mueble": "muebles-y-decoracion",
+  "hogar y mueble": "decoracion",
   notebooks: "notebooks",
   "computadores de escritorio": "computadores-de-escritorio",
   "accesorios de computacion": "accesorios-de-computacion",
