@@ -123,3 +123,18 @@ Pruebas nuevas:
   en la misma fase, así que no hay ventana.
 - **No notifica si la fuente no tiene tienda**: no hay historial que comparar y
   la corrida se cierra igual.
+
+## 9. Extensión de TAL-172
+
+TAL-172 agregó un quinto contador, `itemsDuplicated`, y ajustó dos criterios de
+esta regla. Ambos cambios están en el mismo PR porque son parte del mismo
+contrato backend–scraper:
+
+- **Los duplicados cuentan como entrega.** La caída contra la mediana se mide
+  con `itemsSent + itemsDuplicated`: un listado que repite tarjetas no es una
+  tienda caída. Si aun así la corrida cae, la razón nombra cuántas tarjetas
+  repetidas se descartaron.
+- **`RecentFound` ignora las corridas exitosas con `records_found = 0`.** Una
+  corrida vacía no puede bajar la mediana y esconder la caída siguiente.
+
+Evidencia y medición completa en `docs/auditorias/TAL-172-errores-extraccion.md`.
