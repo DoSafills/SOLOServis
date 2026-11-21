@@ -79,6 +79,8 @@ def test_pipeline_paginates_dedupes_and_persists(settings, spec_by_slug):
     assert result.counters.pages_found == 2
     assert result.counters.pages_processed == 2
     assert result.counters.items_found == 3  # RIP-2001 is deduped
+    # TAL-172: el descarte queda contado, no desaparece del informe.
+    assert result.counters.items_duplicated == 1
     assert result.catalog is not None
     assert result.catalog.added == 3
 
@@ -164,6 +166,59 @@ class _ZeroIngestion:
 
     async def finish_run(self, *_args, **_kwargs):
         return None
+
+
+class _RecordingIngestion:
+    """Registra lo que el pipeline le reporta a Ingestion, sin enviar nada."""
+
+    def __init__(self) -> None:
+        self.opened: list[tuple[str, int]] = []
+        self.finished: list[dict] = []
+
+    async def open_run(self, name, base_url, store_id, scraper_type):
+        self.opened.append((name, store_id))
+        return SimpleNamespace(id=77)
+
+    async def finish_run(self, run_id, status, error_message=None, counters=None):
+        self.finished.append(
+            {
+                "runId": run_id,
+                "status": status,
+                "error": error_message,
+                "counters": counters,
+            }
+        )
+        return None
+
+
+def test_tal172_failed_run_is_reported_to_ingestion(settings, spec_by_slug):
+    """Una tienda que no responde deja corrida y contadores en Ingestion.
+
+    Antes del cambio la corrida fallida sólo existía en el SQLite del scraper:
+    la caída era invisible para el catálogo y para las alertas.
+    """
+    spec = spec_by_slug["ripley-cl"]
+    ingestion = _RecordingIngestion()
+
+    result = _run(settings, spec, {}, ingestion=ingestion)
+
+    assert result.status == RUN_STATUS_FAILED
+    assert result.ingestion_run_id == 77
+    assert ingestion.opened == [(spec.name, spec.store_id)]
+    assert ingestion.finished == [
+        {
+            "runId": 77,
+            "status": "failed",
+            "error": result.error,
+            "counters": {
+                "itemsFound": 0,
+                "itemsSent": 0,
+                "itemsRejected": 0,
+                "itemsDuplicated": 0,
+                "pagesFailed": 1,
+            },
+        }
+    ]
 
 
 def test_zero_processed_items_are_reported_as_an_error(settings, spec_by_slug):

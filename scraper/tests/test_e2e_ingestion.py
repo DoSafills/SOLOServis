@@ -161,6 +161,8 @@ def test_pipeline_sends_items_end_to_end(settings, spec_by_slug):
             "itemsFound": 3,
             "itemsSent": 3,
             "itemsRejected": 0,
+            # TAL-172: el listado repite RIP-2001; el descarte viaja a Ingestion.
+            "itemsDuplicated": 1,
             "pagesFailed": 0,
         }
     ]
