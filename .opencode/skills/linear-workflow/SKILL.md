@@ -33,8 +33,9 @@ python3 scripts/linear/linear.py --help
 
 1. **Sólo se tocan las tareas propias.** El workspace es compartido con cuatro
    personas más; mover o comentar la tarea de otro es un error grave.
-2. **Una rama por tarea**, desde `develop`, con el identificador en el nombre:
-   `test/TAL-208-reintentos`, `docs/TAL-236-harness-agentes`.
+2. **Una rama por dominio**, desde `develop` (`feat/api`, `feat/backend`,
+   `feat/frontend`, `feat/test`…; ver AGENTS.md §6). El identificador va en
+   el commit: `test(TAL-208): reintentos`.
 3. **`In Review` al abrir el PR**, y el comentario lleva el enlace y qué se
    entregó.
 4. **`Done` sólo cuando el merge está confirmado**, no cuando el PR se abrió:
