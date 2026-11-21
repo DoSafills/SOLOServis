@@ -25,39 +25,42 @@ const (
 
 // ListParams son los filtros ya validados de GET /products.
 type ListParams struct {
-	LegacyCategoryID *int32  // product_category, incluye subcategorías
-	CategorySlug     *string // categories (TAL-71)
-	Limit            int
-	Offset           int
+	// CategoryIDs es el alcance de la categoría pedida: ids de las hojas
+	// (nivel 3) de su subárbol. nil = sin filtro; vacío = alcance sin hojas.
+	CategoryIDs []int32
+	Limit       int
+	Offset      int
 }
 
-// CategoryRef es la categoría tal como llega en el request: slug del modelo
-// nuevo o id de product_category (modelo anterior). Uno de los dos.
+// CategoryRef es la categoría tal como llega en el request: slug (vía
+// categories) o id de product_category. Uno de los dos.
 type CategoryRef struct {
-	Slug     string
-	LegacyID int32
+	Slug string
+	ID   int32
 }
 
-// WriteCategory es la categoría resuelta para guardar un producto.
+// WriteCategory es la categoría resuelta para guardar un producto. Una hoja
+// del árbol sin fila en categories se puede usar igual: se guarda solo el
+// árbol y no se aceptan atributos.
 type WriteCategory struct {
-	ID         *int32 // categories.id → product.category_ref; nil sin equivalente nuevo
 	Slug       *string
 	ItemType   string
-	LegacyID   *int32 // product_category.id → product.category_id (NOT NULL)
+	ID         *int32 // categories.id → product.category_ref; nil si no hay fila por slug
+	CategoryID *int32 // product_category.id de nivel 3 → product.category_id
 	Attributes []categories.Attribute
 }
 
 // ProductWrite son los datos validados de un alta o edición.
 type ProductWrite struct {
-	LegacyCategoryID int32
-	CategoryRef      *int32
-	BrandID          *int32
-	Name             string
-	Model            string
-	SKU              string
-	Description      string
-	ImageURL         string // solo en creación
-	Attributes       []categories.Value
+	CategoryID  int32
+	CategoryRef *int32
+	BrandID     *int32
+	Name        string
+	Model       string
+	SKU         string
+	Description string
+	ImageURL    string // solo en creación
+	Attributes  []categories.Value
 }
 
 // Store es lo que el handler necesita de la capa de datos; *Repository la
@@ -66,6 +69,7 @@ type Store interface {
 	List(ctx context.Context, params ListParams) ([]dto.ProductListItem, int64, error)
 	GetDetail(ctx context.Context, publicID pgtype.UUID) (dto.ProductDetail, error)
 	FindDuplicateCandidates(ctx context.Context, categoryID int32, brandID *int32, sku, model string, excludeID *pgtype.UUID) ([]dto.DuplicateCandidate, error)
+	ResolveScope(ctx context.Context, ref categories.Ref) (categories.Scope, error)
 	ResolveCategory(ctx context.Context, ref CategoryRef) (WriteCategory, error)
 	Create(ctx context.Context, product ProductWrite) (pgtype.UUID, error)
 	Update(ctx context.Context, publicID pgtype.UUID, product ProductWrite) error

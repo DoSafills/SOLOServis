@@ -6,11 +6,7 @@ package search
 
 import (
 	"encoding/json"
-	"errors"
 )
-
-// ErrCategoryNotFound indica que el slug de categoría no existe o está inactivo.
-var ErrCategoryNotFound = errors.New("category not found")
 
 // Límites de la búsqueda.
 const (
@@ -39,10 +35,11 @@ type AttributeFilter struct {
 }
 
 // Query son los filtros ya validados de /search/products y /search/facets.
+// CategoryIDs es el alcance de la categoría ya resuelto: nil = sin filtro y
+// arreglo vacío = alcance sin hojas (sin resultados).
 type Query struct {
 	Words            []string
-	LegacyCategoryID *int32
-	CategorySlug     *string
+	CategoryIDs           []int32
 	BrandIDs         []int32
 	StoreIDs         []int32
 	MinPrice         *string

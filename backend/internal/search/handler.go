@@ -23,6 +23,7 @@ import (
 // Searcher es lo que el handler necesita de la capa de datos; *Repository la
 // implementa y los tests usan un fake en memoria.
 type Searcher interface {
+	ResolveScope(ctx context.Context, ref categories.Ref) (categories.Scope, error)
 	CategoryDefinitions(ctx context.Context, slug string) ([]categories.Attribute, error)
 	SearchProducts(ctx context.Context, q Query) ([]ProductResult, int64, error)
 	PopularProducts(ctx context.Context, limit int) ([]ProductResult, error)
@@ -148,16 +149,16 @@ func (h *Handler) parseQuery(w http.ResponseWriter, r *http.Request, paginated b
 	q.Words = strings.Fields(text)
 	v.Check(len(q.Words) <= MaxWords, "q", "max", fmt.Sprintf("q admite hasta %d palabras", MaxWords))
 
+	var ref *categories.Ref
 	if query.Has("category") {
-		category := query.Get("category")
-		if id, err := strconv.ParseInt(category, 10, 32); err == nil {
-			legacyID := int32(id)
-			v.Check(legacyID > 0, "category", "min", "category debe ser mayor que 0")
-			q.LegacyCategoryID = &legacyID
-		} else if categories.ValidSlug(category) {
-			q.CategorySlug = &category
-		} else {
+		parsed, code := categories.ParseScopeParam(query.Get("category"))
+		switch code {
+		case "min":
+			v.Add("category", "min", "category debe ser mayor que 0")
+		case "format":
 			v.Add("category", "format", "category debe ser un id numérico o un slug de categoría")
+		default:
+			ref = &parsed
 		}
 	}
 
@@ -218,21 +219,32 @@ func (h *Handler) parseQuery(w http.ResponseWriter, r *http.Request, paginated b
 	}
 
 	attrKeys := attributeParams(query)
-	if (len(attrKeys) > 0 || q.SortAttributeKey != "") && q.CategorySlug == nil {
+	if (len(attrKeys) > 0 || q.SortAttributeKey != "") && (ref == nil || ref.Slug == nil) {
 		v.Add("category", "required", "los filtros y orden por atributo requieren category con el slug de la categoría")
 	}
 
-	// Las definiciones solo se cargan con los demás parámetros válidos.
+	// El alcance y las definiciones solo se consultan con el resto válido.
 	var defs []categories.Attribute
-	if v.Valid() && q.CategorySlug != nil {
-		var err error
-		defs, err = h.searcher.CategoryDefinitions(r.Context(), *q.CategorySlug)
-		if errors.Is(err, ErrCategoryNotFound) {
-			v.Add("category", "not_found", "category no existe")
-		} else if err != nil {
-			httpx.WriteInternal(w, r, h.logger, err)
-			return Query{}, nil, false
-		} else {
+	if v.Valid() {
+		if ref != nil {
+			scope, err := h.searcher.ResolveScope(r.Context(), *ref)
+			switch {
+			case errors.Is(err, categories.ErrNotFound):
+				v.Add("category", "not_found", "category no existe")
+			case err != nil:
+				httpx.WriteInternal(w, r, h.logger, err)
+				return Query{}, nil, false
+			default:
+				q.CategoryIDs = scope.CategoryIDs
+			}
+		}
+		if v.Valid() && ref != nil && ref.Slug != nil {
+			var err error
+			defs, err = h.searcher.CategoryDefinitions(r.Context(), *ref.Slug)
+			if err != nil {
+				httpx.WriteInternal(w, r, h.logger, err)
+				return Query{}, nil, false
+			}
 			q.Attributes = parseAttributeFilters(&v, query, attrKeys, defs)
 			if q.SortAttributeKey != "" {
 				sortable := false

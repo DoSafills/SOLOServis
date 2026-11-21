@@ -23,6 +23,12 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 	}
 }
 
+// ResolveScope traduce un id o slug de categoría (incluido un id legacy) a
+// las hojas (nivel 3) que abarca, con las reglas de categories.ResolveScope.
+func (r *Repository) ResolveScope(ctx context.Context, ref categories.Ref) (categories.Scope, error) {
+	return r.categories.ResolveScope(ctx, ref)
+}
+
 func (r *Repository) ListCategories(ctx context.Context) ([]generated.ListProductCategoriesRow, error) {
 	return r.queries.ListProductCategories(ctx)
 }

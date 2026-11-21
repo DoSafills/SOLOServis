@@ -11,8 +11,7 @@ SELECT
     active,
     created_at,
     updated_at,
-    category_ref,
-    category_nv3_id
+    category_ref
 FROM product
 WHERE id = $1;
 
@@ -65,8 +64,7 @@ SELECT
     active,
     created_at,
     updated_at,
-    category_ref,
-    category_nv3_id
+    category_ref
 FROM product
 WHERE public_id = $1;
 
@@ -338,8 +336,7 @@ RETURNING
     active,
     created_at,
     updated_at,
-    category_ref,
-    category_nv3_id;
+    category_ref;
 
 
 -- name: UpdateProduct :one
@@ -365,8 +362,7 @@ RETURNING
     active,
     created_at,
     updated_at,
-    category_ref,
-    category_nv3_id;
+    category_ref;
 
 
 -- name: DeactivateProduct :one
@@ -387,8 +383,7 @@ RETURNING
     active,
     created_at,
     updated_at,
-    category_ref,
-    category_nv3_id;
+    category_ref;
 -- name: UpdateProductByPublicID :one
 UPDATE product
 SET
@@ -413,8 +408,7 @@ RETURNING
     active,
     created_at,
     updated_at,
-    category_ref,
-    category_nv3_id;
+    category_ref;
 
 
 -- name: DeactivateProductByPublicID :one
@@ -436,8 +430,7 @@ RETURNING
     active,
     created_at,
     updated_at,
-    category_ref,
-    category_nv3_id;
+    category_ref;
 
 -- name: ListProductSpecifications :many
 SELECT

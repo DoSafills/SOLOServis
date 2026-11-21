@@ -56,3 +56,10 @@
 # 034: puente categories_nv3.legacy_product_category_id y backfill de los
 # productos que sigan sin category_nv3_id.
 034_category_nv3_bridge.sql
+# 035: puente de accesorios-de-computacion con la fila legacy Computación y
+# control de slugs repetidos entre categories_nv1, nv2 y nv3.
+035_accesorios_computacion_bridge.sql
+
+# 036: unifica el árbol en product_category (slug + level), absorbe el nivel 4
+# y retira categories_nv1/nv2/nv3 y product.category_nv3_id.
+036_unify_product_category_tree.sql

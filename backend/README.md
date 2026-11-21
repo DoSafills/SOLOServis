@@ -1371,7 +1371,7 @@ Se numeran 012 y 013 porque 009–011 son de TAL-67/68. Están registradas al fi
 | `category_attributes` | `key`, `label`, `data_type`, `unit`, `required`, `comparable`, `filterable`, `min_value`, `max_value`, `max_length`, `allowed_values`, `display_order` | FK a `categories` `ON DELETE CASCADE`; UNIQUE `(category_id, key)`; CHECK `key ^[a-z][a-z0-9_]{0,63}$`; `data_type` ∈ `string`, `integer`, `decimal`, `boolean`, `enum`; `allowed_values` solo y obligatorio en `enum`; `min`/`max` solo numéricos (enteros en `integer`, `min <= max`); `max_length` solo `string` (1–255); `unit` solo numéricos |
 | `category_artworks` | `artwork_key`, `svg_content`, `updated_at` | Clave primaria; contiene los SVG estáticos de las categorías |
 
-Las tablas antiguas (`product_category`, `service_category` y sus `*_specification`) se mantienen. La migración 019 vincula `refrigeradores` con la subcategoría `Refrigeradores` bajo `Electrodomésticos`, mueve allí los productos y sus valores de especificación, y deja inactiva la raíz antigua `Refrigeracion`.
+Las tablas antiguas (`service_category` y sus `*_specification`) se mantienen. `product_category` es ahora el **único árbol de productos**: 3 niveles por `parent_category_id` (1 raíz, 2 grupo, 3 hoja; solo las hojas reciben productos), con `slug` y `level` agregados en 036, que además absorbió las tablas `categories_nv1/2/3` y `product.category_nv3_id`. `categories.legacy_product_category_id` apunta a la hoja de nivel 3 (el `category_ref` del producto); los atributos siguen colgando de `categories` (`category_ref`), no del árbol. La migración 019 vincula `refrigeradores` con la subcategoría `Refrigeradores` bajo `Electrodomésticos`, mueve allí los productos y sus valores de especificación, y deja inactiva la raíz antigua `Refrigeracion`.
 
 Seeds: `refrigeradores`, `notebooks`, `televisores` (producto) e `internet-fibra-optica` (servicio), con atributos de los cinco `data_type`.
 
@@ -1662,12 +1662,12 @@ Nginx sigue bloqueando desde internet todo lo que no sea GET (`limit_except GET`
 
 | Campo | Regla |
 | --- | --- |
-| `categorySlug` / `categoryId` | **Exactamente uno**. `categorySlug` es el modelo nuevo (recomendado). `categoryId` (id de `product_category`) se mantiene para Ingestion API hasta TAL-77; si esa categoría tiene equivalente nueva, se aplican sus atributos. La categoría debe ser de tipo `product`, estar activa y tener equivalente en `product_category`. |
+| `categorySlug` / `categoryId` | **Exactamente uno**. `categorySlug` se resuelve contra `categories` (los alias de `slug.go` siguen vigentes) y se escribe en la hoja de nivel 3 enlazada por `legacy_product_category_id`; la escritura guarda `category_id` con esa hoja y `category_ref` con la fila de `categories`. `categoryId` es el id de `product_category`: se acepta cualquier nivel activo, se exige que sea una hoja de nivel 3 y `category_ref` queda `NULL` si no hay fila de `categories` enlazada. Si no existe o está inactivo: `not_found`; si no es una hoja de nivel 3 activa o es de servicios: `not_enabled`. |
 | `name` | obligatorio, máximo 255 caracteres |
 | `model` / `sku` / `description` | opcionales; máximo 150 / 100 / 5000 caracteres. `sku` es único. |
 | `brandId` | opcional, mayor que 0 y existente |
 | `imageUrl` | **obligatorio en POST**, URL http(s). En PUT no se acepta (las imágenes no se editan con PUT). |
-| `attributes` | se valida con `categories.ValidateAttributes` (sección 25.1): tipos sin conversión implícita, obligatorios, rangos, largos, enum y keys desconocidas. |
+| `attributes` | se valida con `categories.ValidateAttributes` (sección 25.1): tipos sin conversión implícita, obligatorios, rangos, largos, enum y keys desconocidas. Una hoja sin fila en `categories` no define atributos: el producto se acepta sin atributos y cualquier `attributes` responde `unknown_field`. |
 
 **PUT reemplaza el producto completo**: un campo opcional omitido queda vacío y los atributos se reemplazan por los enviados.
 
@@ -1675,7 +1675,7 @@ Orden de validación (TAL-78 §3): id de ruta (400) → decodificación (400/413
 
 ### Respuestas
 
-`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (`null` si la categoría antigua no tiene equivalente) y `attributes` con valores tipados. Respuesta real del `PUT` con el body de arriba:
+`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (el slug de la hoja de nivel 3; `null` si no tiene) y `attributes` con valores tipados. Respuesta real del `PUT` con el body de arriba:
 
 ```http
 PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
@@ -1718,7 +1718,7 @@ Cada punto de `priceHistory` y `offerPriceHistory` conserva `date` y `price`, y 
 
 | Parámetro | Regla |
 | --- | --- |
-| `category` | id numérico de `product_category` (incluye subcategorías) **o** slug de `categories` |
+| `category` | id numérico de `product_category` **o** su slug (niveles 1–3). El alcance incluye las hojas de nivel 3 de su subárbol. Si no existe o está inactivo: 400 `not_found`. |
 | `limit` | 1–100, por defecto 100 (el catálogo actual tiene 38 productos) |
 | `offset` | ≥ 0, por defecto 0 |
 
@@ -1746,11 +1746,13 @@ El total sin paginar va en el header `X-Total-Count`. El listado usa 6 consultas
 | --- | --- | --- |
 | `publicID` no es UUID | 400 | `invalid_parameter` / `publicID` `format` |
 | `category`, `limit` u `offset` inválidos | 400 | `invalid_parameter` / `format`, `min`, `max`, `invalid_type` |
+| `category` inexistente, inactiva o con slug ambiguo | 400 | `category` `not_found` / `ambiguous` |
 | JSON malformado, campo desconocido, tipo incorrecto | 400 | `malformed_json`, `unknown_field`, `invalid_type` |
 | `Content-Type` distinto de JSON | 415 | `unsupported_media_type` |
 | Sin token / sin rol admin | 401 / 403 | `unauthorized` / `forbidden` |
 | Reglas de campos | 422 | `name` `required`/`max_length`, `categorySlug` `required`/`format`, `categoryId` `one_of`/`min`, `imageUrl` `required`/`format`, `brandId` `min` |
-| Categoría inexistente, de servicios o sin equivalente | 422 | `categorySlug`/`categoryId` `not_found` o `one_of` |
+| Categoría inexistente o inactiva | 422 | `categorySlug`/`categoryId` `not_found` |
+| Categoría sin hoja de nivel 3 activa o de servicios | 422 | `categorySlug`/`categoryId` `not_enabled` |
 | Atributos inválidos | 422 | `attributes.<key>` con `required`, `invalid_type`, `min`, `max`, `max_length`, `one_of`, `unknown_field` |
 | Marca inexistente | 422 | `brandId` `not_found` |
 | SKU duplicado | 409 | `conflict` |
@@ -2158,7 +2160,7 @@ título y descripción, categoría sembrada, `sort` permitido, precios válidos 
 | Parámetro | Regla |
 | --- | --- |
 | `q` | hasta 5 palabras y 200 caracteres; **cada palabra** debe aparecer en nombre, modelo, SKU o marca. Sin distinguir tildes ni mayúsculas (`translate`, sin extensiones). `%` y `_` son literales. |
-| `category` | slug de `categories` **o** id de `product_category` (incluye subcategorías) |
+| `category` | slug (niveles 1–3) o id numérico de `product_category`; el alcance incluye las hojas de nivel 3 del subárbol. Una hoja sin fila en `categories` se acepta como alcance (sin atributos definidos). |
 | `brand` | ids de marca separados por coma (hasta 20) |
 | `minPrice` / `maxPrice` | sobre el **mejor precio total** (precio + envío) de las ofertas disponibles en tiendas activas; hasta 2 decimales; `minPrice` ≤ `maxPrice` |
 | `available` | `true`: solo productos con al menos una oferta disponible |
@@ -2250,6 +2252,7 @@ GET /search/categories?q=OPTICA
 | `q`, `category`, `brand`, precios, `available`, `sort`, `limit`, `offset` inválidos | 400 | `invalid_parameter` / `max_length`, `max`, `format`, `min`, `one_of`, `invalid_type` |
 | `attr.*` sin `category` con slug | 400 | `category` `required` |
 | Categoría inexistente | 400 | `category` `not_found` |
+| Categoría con slug ambiguo entre niveles | 400 | `category` `ambiguous` |
 | Atributo desconocido / no filtrable | 400 | `attr.<key>` `unknown_field` / `not_filterable` |
 | Valor que no cumple el tipo o el enum | 400 | `attr.<key>` `invalid_type` / `one_of` |
 | Error de base de datos | 500 | `internal_error` |

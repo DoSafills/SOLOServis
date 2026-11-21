@@ -119,8 +119,8 @@ func (r *Repository) BuildMatrix(ctx context.Context, ids []int32) (Matrix, erro
 
 	var (
 		category    CategoryInfo
-		legacyID    int32
-		legacyName  string
+		leafID      int32
+		leafName    string
 		categoryRef *int32
 		newName     *string
 	)
@@ -129,10 +129,10 @@ func (r *Repository) BuildMatrix(ctx context.Context, ids []int32) (Matrix, erro
 		FROM product p
 		JOIN product_category pc ON pc.id = p.category_id
 		LEFT JOIN categories c ON c.id = p.category_ref
-		WHERE p.id = $1`, ids[0]).Scan(&legacyID, &legacyName, &categoryRef, &category.Slug, &newName); err != nil {
+		WHERE p.id = $1`, ids[0]).Scan(&leafID, &leafName, &categoryRef, &category.Slug, &newName); err != nil {
 		return Matrix{}, err
 	}
-	category.Name = legacyName
+	category.Name = leafName
 	if newName != nil {
 		category.Name = *newName
 	}
@@ -148,7 +148,7 @@ func (r *Repository) BuildMatrix(ctx context.Context, ids []int32) (Matrix, erro
 			return Matrix{}, err
 		}
 	}
-	if matrix.Specifications, err = r.specificationRows(ctx, legacyID, ids, column); err != nil {
+	if matrix.Specifications, err = r.specificationRows(ctx, leafID, ids, column); err != nil {
 		return Matrix{}, err
 	}
 	return matrix, nil
@@ -213,14 +213,14 @@ func (r *Repository) attributeRows(ctx context.Context, categoryRef int32, ids [
 	return filtered, nil
 }
 
-func (r *Repository) specificationRows(ctx context.Context, legacyID int32, ids []int32, column map[int32]int) ([]SpecificationRow, error) {
+func (r *Repository) specificationRows(ctx context.Context, leafID int32, ids []int32, column map[int32]int) ([]SpecificationRow, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT pcs.id, pcs.name, pcs.unit, psv.product_id, psv.value
 		FROM product_category_specification pcs
 		LEFT JOIN product_specification_value psv
 		       ON psv.specification_id = pcs.id AND psv.product_id = ANY($2)
 		WHERE pcs.category_id = $1 AND pcs.comparable
-		ORDER BY pcs.display_order, pcs.id`, legacyID, ids)
+		ORDER BY pcs.display_order, pcs.id`, leafID, ids)
 	if err != nil {
 		return nil, err
 	}

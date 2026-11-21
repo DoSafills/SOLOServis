@@ -23,6 +23,7 @@ type searchFixture struct {
 	brandA, brandB int32
 	storeA, storeB int32
 	refrigeradores string
+	refriID       int32
 }
 
 func newSearchFixture(t *testing.T) searchFixture {
@@ -62,13 +63,18 @@ func newSearchFixture(t *testing.T) searchFixture {
 	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL75 A "+f.tag).Scan(&f.storeA), "tienda A")
 	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "TAL75 B "+f.tag).Scan(&f.storeB), "tienda B")
 	storeIDs = []int32{f.storeA, f.storeB}
+	// La búsqueda filtra por la hoja del árbol: el fixture la resuelve una vez.
+	must(pool.QueryRow(ctx, `SELECT id FROM product_category WHERE slug = 'refrigeradores' AND active`).Scan(&f.refriID),
+		"hoja refrigeradores")
 
 	product := func(name string, brand int32, active bool, attrs map[string]string) int32 {
 		var id int32
 		defer func() { productIDs = append(productIDs, id) }()
 		must(pool.QueryRow(ctx, `
 			INSERT INTO product (category_id, category_ref, brand_id, name, active)
-			SELECT c.legacy_product_category_id, c.id, $1, $2, $3 FROM categories c WHERE c.slug = 'refrigeradores'
+			SELECT c.legacy_product_category_id, c.id, $1, $2, $3
+			FROM categories c
+			WHERE c.slug = 'refrigeradores'
 			RETURNING id`, brand, name+" "+f.tag, active).Scan(&id), name)
 		for key, value := range attrs {
 			var numeric *string // value_numeric solo para integer/decimal, como en TAL-70
@@ -228,7 +234,7 @@ func TestSearchIntegration_FiltrosYOrden(t *testing.T) {
 	f := newSearchFixture(t)
 	min := "310000"
 	max := "400000"
-	slug := f.refrigeradores
+	refri := []int32{f.refriID}
 
 	tests := []struct {
 		name string
@@ -238,15 +244,15 @@ func TestSearchIntegration_FiltrosYOrden(t *testing.T) {
 		{"marca", Query{BrandIDs: []int32{f.brandA}}, "[Ártico Glaciar]"},
 		{"rango de precio total", Query{MinPrice: &min, MaxPrice: &max}, "[Ártico]"},
 		{"solo disponibles", Query{Available: true}, "[Ártico Polar]"},
-		{"capacidad mínima", Query{CategorySlug: &slug, Attributes: f.attrFilters(t, map[string][2]string{
+		{"capacidad mínima", Query{CategoryIDs: refri, Attributes: f.attrFilters(t, map[string][2]string{
 			"capacidad_litros": {OpMin, "300"}})}, "[Ártico Polar]"},
-		{"capacidad exacta", Query{CategorySlug: &slug, Attributes: f.attrFilters(t, map[string][2]string{
+		{"capacidad exacta", Query{CategoryIDs: refri, Attributes: f.attrFilters(t, map[string][2]string{
 			"capacidad_litros": {OpEqualNumeric, "350"}})}, "[Ártico]"},
-		{"enum", Query{CategorySlug: &slug, Attributes: f.attrFilters(t, map[string][2]string{
+		{"enum", Query{CategoryIDs: refri, Attributes: f.attrFilters(t, map[string][2]string{
 			"eficiencia_energetica": {OpEqual, "A++"}})}, "[Polar]"},
-		{"booleano y rango", Query{CategorySlug: &slug, Attributes: f.attrFilters(t, map[string][2]string{
+		{"booleano y rango", Query{CategoryIDs: refri, Attributes: f.attrFilters(t, map[string][2]string{
 			"no_frost": {OpEqual, "true"}, "capacidad_litros": {OpMax, "400"}})}, "[Ártico Glaciar]"},
-		{"texto sin mayúsculas", Query{CategorySlug: &slug, Attributes: f.attrFilters(t, map[string][2]string{
+		{"texto sin mayúsculas", Query{CategoryIDs: refri, Attributes: f.attrFilters(t, map[string][2]string{
 			"color": {OpEqualInsensitive, "gris"}})}, "[Ártico]"},
 		{"precio ascendente, sin precio al final", Query{Sort: "price_asc"}, "[Ártico Polar Glaciar]"},
 		{"precio descendente, sin precio al final", Query{Sort: "price_desc"}, "[Polar Ártico Glaciar]"},
@@ -278,12 +284,13 @@ func TestSearchIntegration_FiltrosYOrden(t *testing.T) {
 func TestSearchIntegration_Facetas(t *testing.T) {
 	f := newSearchFixture(t)
 	slug := f.refrigeradores
+	refri := []int32{f.refriID}
 	defs, err := f.repo.CategoryDefinitions(context.Background(), slug)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	facets, err := f.repo.SearchFacets(context.Background(), Query{Words: []string{f.tag}, CategorySlug: &slug}, defs)
+	facets, err := f.repo.SearchFacets(context.Background(), Query{Words: []string{f.tag}, CategoryIDs: refri}, defs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +332,7 @@ func TestSearchIntegration_Facetas(t *testing.T) {
 	}
 
 	// Los filtros también acotan las facetas.
-	filtered, err := f.repo.SearchFacets(context.Background(), Query{Words: []string{f.tag}, CategorySlug: &slug,
+	filtered, err := f.repo.SearchFacets(context.Background(), Query{Words: []string{f.tag}, CategoryIDs: refri,
 		Available: true}, defs)
 	if err != nil || filtered.Total != 2 {
 		t.Fatalf("facetas con available = %+v (%v)", filtered, err)

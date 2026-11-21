@@ -16,43 +16,29 @@ import (
 // Consultas de TAL-70. Todas parametrizadas; las piezas comunes son
 // constantes del paquete, nunca entrada del usuario.
 
-// productFilterSQL filtra productos activos por categoría antigua (con sus
-// subcategorías, $1) o por slug de la categoría nueva ($2). NULL = sin filtro.
-const productFilterSQL = `
-WITH RECURSIVE subtree AS (
-    SELECT c.id FROM product_category c
-    WHERE c.id = $1::int AND c.active
-    UNION ALL
-    SELECT child.id FROM product_category child
-    JOIN subtree s ON child.parent_category_id = s.id
-    WHERE child.active
-)
-`
-
+// productWhereSQL filtra por el alcance de categoría ya resuelto a ids de
+// hojas ($1::int[]): NULL = sin filtro y arreglo vacío = alcance sin hojas.
 const productWhereSQL = `
 WHERE p.active
-  AND ($1::int IS NULL OR p.category_id IN (SELECT id FROM subtree))
-  AND ($2::text IS NULL OR p.category_ref = (
-        SELECT id FROM categories WHERE slug = $2::text AND active))
+  AND ($1::int[] IS NULL OR p.category_id = ANY($1::int[]))
 `
 
-const countProductsSQL = productFilterSQL + `SELECT count(*) FROM product p` + productWhereSQL
+const countProductsSQL = `SELECT count(*) FROM product p` + productWhereSQL
 
-const listProductsPageSQL = productFilterSQL + `
+const listProductsPageSQL = `
 SELECT
     p.id, p.public_id, p.category_id, p.brand_id, p.name, p.model, p.sku,
     p.description, p.active, p.created_at, p.updated_at,
     b.name, pc.name, parent.name,
     COALESCE(prs.derived_average_rating, 0), COALESCE(prs.derived_review_count, 0),
-    cat.slug
+    pc.slug
 FROM product p
 LEFT JOIN brand b ON b.id = p.brand_id
 JOIN product_category pc ON pc.id = p.category_id
 LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
-LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
-LEFT JOIN categories cat ON cat.id = p.category_ref` + productWhereSQL + `
+LEFT JOIN product_rating_summary prs ON prs.product_id = p.id` + productWhereSQL + `
 ORDER BY p.id
-LIMIT $3 OFFSET $4`
+LIMIT $2 OFFSET $3`
 
 const listImagesByProductsSQL = `
 SELECT id, product_id, image_url, alt_text, sort_order, active
@@ -87,12 +73,11 @@ ORDER BY pav.product_id, ca.display_order, ca.id`
 // atributos. Usa 6 consultas fijas, sin importar el tamaño de la página.
 func (r *Repository) List(ctx context.Context, params ListParams) ([]dto.ProductListItem, int64, error) {
 	var total int64
-	if err := r.db.QueryRow(ctx, countProductsSQL, params.LegacyCategoryID, params.CategorySlug).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, countProductsSQL, params.CategoryIDs).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
-	rows, err := r.db.Query(ctx, listProductsPageSQL,
-		params.LegacyCategoryID, params.CategorySlug, params.Limit, params.Offset)
+	rows, err := r.db.Query(ctx, listProductsPageSQL, params.CategoryIDs, params.Limit, params.Offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -202,7 +187,7 @@ func (r *Repository) FindDuplicateCandidates(
 		  AND (
 		    ($1::text <> '' AND p.sku = $1::text)
 		    OR ($1::text = '' AND $2::int IS NOT NULL AND $3::text <> ''
-		        AND p.category_ref = $4::int AND p.brand_id = $2::int
+		        AND p.category_id = $4::int AND p.brand_id = $2::int
 		        AND regexp_replace(lower(btrim(COALESCE(p.model, ''))), '\s+', ' ', 'g') = $3::text)
 		  )
 		  AND ($5::uuid IS NULL OR p.public_id <> $5::uuid)
@@ -253,7 +238,7 @@ func (r *Repository) GetDetail(ctx context.Context, publicID pgtype.UUID) (dto.P
 	result := dto.FromProduct(product)
 
 	if err := r.db.QueryRow(ctx,
-		`SELECT c.slug FROM product p JOIN categories c ON c.id = p.category_ref WHERE p.id = $1`,
+		`SELECT pc.slug FROM product p JOIN product_category pc ON pc.id = p.category_id WHERE p.id = $1`,
 		product.ID).Scan(&result.CategorySlug); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return dto.ProductDetail{}, err
 	}
@@ -319,26 +304,33 @@ func (r *Repository) GetDetail(ctx context.Context, publicID pgtype.UUID) (dto.P
 	return result, nil
 }
 
-// ResolveCategory busca la categoría indicada en el request y sus definiciones
-// de atributos. Devuelve ErrCategoryNotFound si no existe o está inactiva.
+// ResolveCategory resuelve la categoría de un alta o edición. Por slug usa la
+// fila activa de categories y su hoja (nivel 3) enlazada; por id usa la fila
+// de product_category y, si esa hoja está enlazada a categories, también
+// hereda sus definiciones de atributos. Devuelve ErrCategoryNotFound si el slug o el
+// id no existen o están inactivos. Una categoría de servicio o una hoja sin
+// fila enlazada vuelve con CategoryID nil (o ItemType distinto de product)
+// para que el handler responda not_enabled.
 func (r *Repository) ResolveCategory(ctx context.Context, ref CategoryRef) (WriteCategory, error) {
-	var category WriteCategory
-	var err error
 	if ref.Slug != "" {
-		err = r.db.QueryRow(ctx, `
-			SELECT c.id, c.slug, c.item_type, pc.id
-			FROM categories c
-			LEFT JOIN product_category pc ON pc.id = c.legacy_product_category_id AND pc.active
-			WHERE c.slug = $1 AND c.active`, ref.Slug).
-			Scan(&category.ID, &category.Slug, &category.ItemType, &category.LegacyID)
-	} else {
-		err = r.db.QueryRow(ctx, `
-			SELECT c.id, c.slug, 'product', pc.id
-			FROM product_category pc
-			LEFT JOIN categories c ON c.legacy_product_category_id = pc.id AND c.active
-			WHERE pc.id = $1 AND pc.active`, ref.LegacyID).
-			Scan(&category.ID, &category.Slug, &category.ItemType, &category.LegacyID)
+		return r.resolveCategoryBySlug(ctx, ref.Slug)
 	}
+	return r.resolveCategoryByID(ctx, ref.ID)
+}
+
+// resolveCategoryBySlug busca la fila de categories y comprueba que su hoja
+// enlazada siga activa y sea de nivel 3.
+func (r *Repository) resolveCategoryBySlug(ctx context.Context, slug string) (WriteCategory, error) {
+	var (
+		id       int32
+		itemType string
+		leafID   *int32
+		category WriteCategory
+		err      error
+	)
+	err = r.db.QueryRow(ctx,
+		`SELECT id, item_type, legacy_product_category_id FROM categories WHERE slug = $1 AND active`,
+		slug).Scan(&id, &itemType, &leafID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return WriteCategory{}, ErrCategoryNotFound
 	}
@@ -346,12 +338,72 @@ func (r *Repository) ResolveCategory(ctx context.Context, ref CategoryRef) (Writ
 		return WriteCategory{}, err
 	}
 
-	category.Attributes = []categories.Attribute{}
-	if category.ID != nil {
-		category.Attributes, err = r.categories.AttributesByCategoryID(ctx, *category.ID)
-		if err != nil {
-			return WriteCategory{}, err
-		}
+	category = WriteCategory{Slug: &slug, ID: &id, ItemType: itemType}
+	if itemType != categories.ItemTypeProduct || leafID == nil {
+		return category, nil
+	}
+
+	var level *int16
+	err = r.db.QueryRow(ctx,
+		`SELECT level FROM product_category WHERE id = $1 AND active`, *leafID).Scan(&level)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (level == nil || *level != int16(categories.Level3))) {
+		return category, nil
+	}
+	if err != nil {
+		return WriteCategory{}, err
+	}
+
+	category.CategoryID = leafID
+	category.Attributes, err = r.categories.AttributesByCategoryID(ctx, id)
+	if err != nil {
+		return WriteCategory{}, err
+	}
+	return category, nil
+}
+
+// resolveCategoryByID busca la fila de product_category por id y exige nivel 3
+// activo. Si hay una fila de categories enlazada, hereda sus atributos.
+func (r *Repository) resolveCategoryByID(ctx context.Context, categoryID int32) (WriteCategory, error) {
+	var (
+		slug  *string
+		level *int16
+	)
+	err := r.db.QueryRow(ctx,
+		`SELECT slug, level FROM product_category WHERE id = $1 AND active`,
+		categoryID).Scan(&slug, &level)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return WriteCategory{}, ErrCategoryNotFound
+	}
+	if err != nil {
+		return WriteCategory{}, err
+	}
+
+	category := WriteCategory{Slug: slug, ItemType: categories.ItemTypeProduct,
+		Attributes: []categories.Attribute{}}
+	if level == nil || *level != int16(categories.Level3) {
+		return category, nil
+	}
+	id := categoryID
+	category.CategoryID = &id
+
+	var (
+		refID    int32
+		itemType string
+	)
+	err = r.db.QueryRow(ctx,
+		`SELECT id, item_type FROM categories WHERE legacy_product_category_id = $1 AND active`,
+		categoryID).Scan(&refID, &itemType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return category, nil
+	}
+	if err != nil {
+		return WriteCategory{}, err
+	}
+	category.ID = &refID
+	category.ItemType = itemType
+	category.Attributes, err = r.categories.AttributesByCategoryID(ctx, refID)
+	if err != nil {
+		return WriteCategory{}, err
 	}
 	return category, nil
 }
@@ -370,7 +422,7 @@ func (r *Repository) Create(ctx context.Context, product ProductWrite) (pgtype.U
 		INSERT INTO product (category_id, category_ref, brand_id, name, model, sku, description)
 		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''))
 		RETURNING id, public_id`,
-		product.LegacyCategoryID, product.CategoryRef, product.BrandID, product.Name,
+		product.CategoryID, product.CategoryRef, product.BrandID, product.Name,
 		product.Model, product.SKU, product.Description).Scan(&id, &publicID)
 	if err != nil {
 		return pgtype.UUID{}, err
@@ -416,7 +468,7 @@ func (r *Repository) Update(ctx context.Context, publicID pgtype.UUID, product P
 		    updated_at = now()
 		WHERE public_id = $1 AND active
 		RETURNING id`,
-		publicID, product.LegacyCategoryID, product.CategoryRef, product.BrandID, product.Name,
+		publicID, product.CategoryID, product.CategoryRef, product.BrandID, product.Name,
 		product.Model, product.SKU, product.Description).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound

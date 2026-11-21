@@ -188,18 +188,20 @@ func (p *Processor) createProduct(
 	if err != nil {
 		return 0, "", nil, err
 	}
-	if category.ItemType != categories.ItemTypeProduct || category.LegacyID == nil {
+	if category.ItemType != categories.ItemTypeProduct || category.CategoryID == nil {
 		return 0, "", []httpx.FieldError{{Field: "product.categorySlug", Code: "not_enabled",
 			Message: "product.categorySlug no está habilitada para productos"}}, nil
 	}
 
+	// Sin fila en categories no hay atributos definidos: los que lleguen
+	// responden unknown_field y un producto sin atributos se acepta.
 	values, attrErrs := categories.ValidateAttributes(category.Attributes, item.Attributes)
 	if len(attrErrs) > 0 {
 		return 0, "", prefixErrors("product.", attrErrs), nil
 	}
 
 	write := products.ProductWrite{
-		LegacyCategoryID: *category.LegacyID, CategoryRef: category.ID, Name: item.Name,
+		CategoryID: *category.CategoryID, CategoryRef: category.ID, Name: item.Name,
 		Model: item.Model, SKU: item.SKU, Description: item.Description, ImageURL: item.ImageURL,
 		Attributes: values,
 	}

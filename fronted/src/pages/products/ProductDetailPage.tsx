@@ -16,11 +16,8 @@ import {
 } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 import PriceOfferComparison from "./PriceOfferComparison";
-import {
-  getProductCategoryGroup,
-  getProductSubtype,
-  getProductSubtypeSearchQuery,
-} from "../../constants/productCatalog";
+import { getProductSubtype, getProductSubtypeSearchQuery } from "../../constants/productCatalog";
+import { findProductCategoryPath } from "../../constants/categoryTree";
 
 interface Props {
   productId: string;
@@ -256,10 +253,18 @@ export default function ProductDetailPage({
   const primarySpecifications = getPrimarySpecifications(product.specs);
   const specificationGroups = groupProductSpecifications(product.specs);
   const productImages = [...new Set([product.image, ...product.images].filter(Boolean))];
-  const isHomeProduct = getProductCategoryGroup(product.category) === "home";
+  // Ruta NV (Hogar > Electrodomésticos > Refrigeradores) desde el slug que
+  // entrega el backend; si el producto aún no tiene slug, se cae al nombre legacy.
+  const categoryPath = product.categorySlug
+    ? (findProductCategoryPath(product.categorySlug) ?? [])
+    : [];
   const productSubcategory = product.subcategory.trim() || getProductSubtype(product);
+  const lastCategoryPathName = categoryPath.at(-1)?.name ?? "";
+  // La ruta NV ya termina en la subcategoría, así que solo se agrega un tramo
+  // extra cuando la subcategoría aporta un nombre distinto.
   const hasDistinctSubcategory =
-    productSubcategory.toLocaleLowerCase("es") !== product.category.toLocaleLowerCase("es");
+    productSubcategory.toLocaleLowerCase("es") !== product.category.toLocaleLowerCase("es") &&
+    productSubcategory.toLocaleLowerCase("es") !== lastCategoryPathName.toLocaleLowerCase("es");
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -270,17 +275,33 @@ export default function ProductDetailPage({
             label: "Productos",
             onClick: () => navigate({ id: "search-products", query: "" }),
           },
-          {
-            label: isHomeProduct ? "Hogar" : product.category,
-            onClick: () =>
-              isHomeProduct
-                ? navigate({ id: "search-products", query: "", productGroup: "home" })
-                : navigate({
-                    id: "search-products",
-                    query: "",
-                    category: product.category,
-                  }),
-          },
+          ...(categoryPath.length > 0
+            ? categoryPath.map((node, index) => ({
+                label: node.name,
+                ...(index < categoryPath.length - 1
+                  ? {
+                      onClick: () =>
+                        navigate({
+                          id: "search-products",
+                          query: "",
+                          category: node.slug,
+                          categoryContext: node.name,
+                          resetFilters: true,
+                        }),
+                    }
+                  : {}),
+              }))
+            : [
+                {
+                  label: product.category,
+                  onClick: () =>
+                    navigate({
+                      id: "search-products",
+                      query: "",
+                      category: product.category,
+                    }),
+                },
+              ]),
           ...(hasDistinctSubcategory
             ? [
                 {

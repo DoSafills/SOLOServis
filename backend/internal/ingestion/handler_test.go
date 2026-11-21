@@ -39,9 +39,9 @@ func mustJSON(t *testing.T, value string) string {
 	return string(encoded)
 }
 
-// refrigeradores: categoría nueva enlazada a la anterior, con un requerido.
+// refrigeradores: fila en categories con su hoja de nivel 3 y un requerido.
 var refrigeradores = products.WriteCategory{
-	ID: int32p(1), Slug: strp("refrigeradores"), ItemType: categories.ItemTypeProduct, LegacyID: int32p(5),
+	ID: int32p(1), CategoryID: int32p(5), Slug: strp("refrigeradores"), ItemType: categories.ItemTypeProduct,
 	Attributes: []categories.Attribute{
 		{ID: 10, Key: "capacidad_litros", DataType: "integer", Required: true, Min: floatp(50), Max: floatp(1500)},
 	},
@@ -367,7 +367,7 @@ func TestAddItems_ProductoNuevo(t *testing.T) {
 		t.Fatalf("resultado = %+v", result)
 	}
 	created := e.catalog.created[0]
-	if created.LegacyCategoryID != 5 || *created.CategoryRef != 1 || *created.BrandID != 77 || created.SKU != "LG-1" ||
+	if created.CategoryID != 5 || *created.CategoryRef != 1 || *created.BrandID != 77 || created.SKU != "LG-1" ||
 		len(created.Attributes) != 1 || created.Attributes[0].Text != "350" {
 		t.Fatalf("producto creado = %+v", created)
 	}
@@ -378,6 +378,56 @@ func TestAddItems_ProductoNuevo(t *testing.T) {
 	if !reflect.DeepEqual(e.runs.counters, []int{1, 1, 0}) || !reflect.DeepEqual(e.runs.saved, []string{"rip-1"}) ||
 		!reflect.DeepEqual(e.runs.brands, []string{"LG"}) {
 		t.Fatalf("contadores = %v guardados = %v marcas = %v", e.runs.counters, e.runs.saved, e.runs.brands)
+	}
+}
+
+// TestAddItems_CategoriasVigentesYNueva comprueba que los cuatro slugs que ya
+// enviaba el scraper sigan ingresando y que un slug nuevo con fila en
+// categories (lavadoras) también cree el producto en su hoja.
+func TestAddItems_CategoriasVigentesYNueva(t *testing.T) {
+	casos := []struct {
+		slug       string
+		category   products.WriteCategory
+		attributes string
+	}{
+		{"refrigeradores", products.WriteCategory{ID: int32p(1), CategoryID: int32p(11), Slug: strp("refrigeradores"),
+			ItemType: categories.ItemTypeProduct,
+			Attributes: refrigeradores.Attributes}, `{"capacidad_litros":350}`},
+		{"notebooks", products.WriteCategory{ID: int32p(2), CategoryID: int32p(12), Slug: strp("notebooks"),
+			ItemType: categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{}}, `{}`},
+		{"televisores", products.WriteCategory{ID: int32p(3), CategoryID: int32p(13), Slug: strp("televisores"),
+			ItemType: categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{}}, `{}`},
+		{"celulares", products.WriteCategory{ID: int32p(4), CategoryID: int32p(14), Slug: strp("celulares"),
+			ItemType: categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{}}, `{}`},
+		{"lavadoras", products.WriteCategory{ID: int32p(9), CategoryID: int32p(20), Slug: strp("lavadoras"),
+			ItemType: categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{
+				{ID: 40, Key: "capacidad_kg", DataType: "integer", Required: true, Min: floatp(5), Max: floatp(30)},
+			}}, `{"capacidad_kg":12}`},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.slug, func(t *testing.T) {
+			e := newEnv()
+			e.catalog.category = caso.category
+
+			item := fmt.Sprintf(`{"product":{"name":"Producto","categorySlug":%q,"attributes":%s},"offer":{"price":1}}`,
+				caso.slug, caso.attributes)
+			result := batch(t, e, item)
+
+			if result.Results[0].Status != ItemCreated || len(e.catalog.created) != 1 {
+				t.Fatalf("resultado = %+v, quiero producto creado", result.Results[0])
+			}
+			created := e.catalog.created[0]
+			if created.CategoryID != *caso.category.CategoryID ||
+				created.CategoryRef == nil || *created.CategoryRef != *caso.category.ID {
+				t.Fatalf("producto creado = %+v, quiero hoja %d ref %d",
+					created, *caso.category.CategoryID, *caso.category.ID)
+			}
+		})
 	}
 }
 
@@ -559,7 +609,7 @@ func TestAddItems_ErroresDeCategoriaYBaseDeDatos(t *testing.T) {
 		{"categoría de servicios", func(e *env) {
 			e.catalog.category = products.WriteCategory{ID: int32p(4), ItemType: categories.ItemTypeService}
 		}, []string{"product.categorySlug/not_enabled"}},
-		{"categoría sin vínculo legado", func(e *env) {
+		{"categoría sin hoja de nivel 3", func(e *env) {
 			e.catalog.category = products.WriteCategory{ID: int32p(7), Slug: strp("celulares"),
 				ItemType: categories.ItemTypeProduct}
 		}, []string{"product.categorySlug/not_enabled"}},
@@ -600,7 +650,7 @@ func TestAddItems_CodigosDeCategoria(t *testing.T) {
 		{name: "desconocida", slug: "categoria-inexistente", setup: func(e *env) {
 			e.catalog.resolveErrors = map[string]error{"categoria-inexistente": products.ErrCategoryNotFound}
 		}, want: "product.categorySlug/not_found"},
-		{name: "sin vínculo legado", slug: "celulares", setup: func(e *env) {
+		{name: "sin hoja de nivel 3", slug: "celulares", setup: func(e *env) {
 			e.catalog.category = products.WriteCategory{ID: int32p(7), Slug: strp("celulares"),
 				ItemType: categories.ItemTypeProduct}
 		}, want: "product.categorySlug/not_enabled"},

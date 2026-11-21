@@ -87,39 +87,6 @@ type CartItem struct {
 	ServiceOfferID    pgtype.Int4      `json:"service_offer_id"`
 }
 
-type CategoriesNv1 struct {
-	ID          int32              `json:"id"`
-	Name        string             `json:"name"`
-	Slug        string             `json:"slug"`
-	Description pgtype.Text        `json:"description"`
-	IsActive    bool               `json:"is_active"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
-type CategoriesNv2 struct {
-	ID          int32              `json:"id"`
-	Nv1ID       int32              `json:"nv1_id"`
-	Name        string             `json:"name"`
-	Slug        string             `json:"slug"`
-	Description pgtype.Text        `json:"description"`
-	IsActive    bool               `json:"is_active"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-}
-
-type CategoriesNv3 struct {
-	ID                      int32              `json:"id"`
-	Nv2ID                   int32              `json:"nv2_id"`
-	Name                    string             `json:"name"`
-	Slug                    string             `json:"slug"`
-	Description             pgtype.Text        `json:"description"`
-	IsActive                bool               `json:"is_active"`
-	CreatedAt               pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
-	LegacyProductCategoryID pgtype.Int4        `json:"legacy_product_category_id"`
-}
-
 type Category struct {
 	ID                      int32              `json:"id"`
 	Slug                    string             `json:"slug"`
@@ -198,19 +165,18 @@ type Notification struct {
 }
 
 type Product struct {
-	ID            int32            `json:"id"`
-	PublicID      pgtype.UUID      `json:"public_id"`
-	CategoryID    int32            `json:"category_id"`
-	BrandID       pgtype.Int4      `json:"brand_id"`
-	Name          string           `json:"name"`
-	Model         pgtype.Text      `json:"model"`
-	Sku           pgtype.Text      `json:"sku"`
-	Description   pgtype.Text      `json:"description"`
-	Active        bool             `json:"active"`
-	CreatedAt     pgtype.Timestamp `json:"created_at"`
-	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
-	CategoryRef   pgtype.Int4      `json:"category_ref"`
-	CategoryNv3ID pgtype.Int4      `json:"category_nv3_id"`
+	ID          int32            `json:"id"`
+	PublicID    pgtype.UUID      `json:"public_id"`
+	CategoryID  int32            `json:"category_id"`
+	BrandID     pgtype.Int4      `json:"brand_id"`
+	Name        string           `json:"name"`
+	Model       pgtype.Text      `json:"model"`
+	Sku         pgtype.Text      `json:"sku"`
+	Description pgtype.Text      `json:"description"`
+	Active      bool             `json:"active"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	CategoryRef pgtype.Int4      `json:"category_ref"`
 }
 
 type ProductAttributeValue struct {
@@ -229,6 +195,8 @@ type ProductCategory struct {
 	Active           bool             `json:"active"`
 	CreatedAt        pgtype.Timestamp `json:"created_at"`
 	UpdatedAt        pgtype.Timestamp `json:"updated_at"`
+	Slug             pgtype.Text      `json:"slug"`
+	Level            pgtype.Int2      `json:"level"`
 }
 
 type ProductCategorySpecification struct {
@@ -584,6 +552,11 @@ type StoreReview struct {
 	Content   pgtype.Text      `json:"content"`
 	CreatedAt pgtype.Timestamp `json:"created_at"`
 	UpdatedAt pgtype.Timestamp `json:"updated_at"`
+}
+
+type Tal036CategoryMap struct {
+	NodeID     int32 `json:"node_id"`
+	AncestorID int32 `json:"ancestor_id"`
 }
 
 type Tal231FinalCategoryPlan struct {

@@ -6,212 +6,79 @@ import (
 	"reflect"
 	"sort"
 	"testing"
-
-	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// fakeNV1 es una fila de categories_nv1 en el fake.
-type fakeNV1 struct {
-	id   int32
-	name string
-	slug string
-}
-
-// fakeNV2 es una fila de categories_nv2 en el fake.
-type fakeNV2 struct {
-	id    int32
-	nv1ID int32
-	name  string
-	slug  string
-}
-
-// fakeNV3 es una fila de categories_nv3 en el fake; legacyID es el puente.
-type fakeNV3 struct {
-	id       int32
-	nv2ID    int32
-	name     string
-	slug     string
-	legacyID *int32
-}
-
-// fakeLegacy es una fila de product_category en el fake.
-type fakeLegacy struct {
+// fakeNode es una fila activa de product_category en el fake.
+type fakeNode struct {
 	id       int32
 	parentID *int32
 	name     string
+	slug     string
+	level    Level
 }
 
-// fakeScopeStore imita las dos consultas de alcance sobre un árbol en memoria.
+// fakeScopeStore imita la consulta de CategoryScope sobre un árbol en memoria.
 type fakeScopeStore struct {
-	nv1    []fakeNV1
-	nv2    []fakeNV2
-	nv3    []fakeNV3
-	legacy []fakeLegacy
+	nodes []fakeNode
 }
 
-// newFakeScopeStore arma el árbol de prueba: Hogar > Electrodomésticos >
-// Refrigeradores, Cocina; Tecnología > Computación > Notebooks, Accesorios
-// (sin puente) y Tecnología > Pantallas (sin NV3). El legacy espeja esas
-// ramas con una hoja extra Microondas bajo Cocina.
+// newFakeScopeStore arma el árbol de prueba de tres niveles: Hogar >
+// Electrodomésticos > Refrigeradores; Tecnología > Computación > Notebooks,
+// Accesorios de computación; Tecnología > Pantallas sin hojas; y un nivel 2
+// con un nivel 2 intermedio (Audio > Parlantes) para comprobar la recursión.
 func newFakeScopeStore() *fakeScopeStore {
-	legacyID := func(id int32) *int32 { return &id }
-	parentID := func(id int32) *int32 { return &id }
-	return &fakeScopeStore{
-		nv1: []fakeNV1{
-			{id: 1, name: "Hogar", slug: "hogar"},
-			{id: 2, name: "Tecnología", slug: "tecnologia"},
-		},
-		nv2: []fakeNV2{
-			{id: 101, nv1ID: 1, name: "Electrodomésticos", slug: "electrodomesticos"},
-			{id: 102, nv1ID: 2, name: "Computación", slug: "computacion"},
-			{id: 103, nv1ID: 2, name: "Pantallas", slug: "pantallas"},
-			{id: 104, nv1ID: 1, name: "Computación (duplicado)", slug: "computacion"},
-		},
-		nv3: []fakeNV3{
-			{id: 201, nv2ID: 101, name: "Refrigeradores", slug: "refrigeradores", legacyID: legacyID(11)},
-			{id: 202, nv2ID: 101, name: "Cocina", slug: "cocina", legacyID: legacyID(12)},
-			{id: 203, nv2ID: 102, name: "Notebooks", slug: "notebooks", legacyID: legacyID(22)},
-			{id: 204, nv2ID: 102, name: "Accesorios de computación", slug: "accesorios-de-computacion"},
-		},
-		legacy: []fakeLegacy{
-			{id: 10, name: "Electrodomesticos"},
-			{id: 11, parentID: parentID(10), name: "Refrigeradores"},
-			{id: 12, parentID: parentID(10), name: "Cocina"},
-			{id: 13, parentID: parentID(12), name: "Microondas"},
-			{id: 20, name: "Tecnología"},
-			{id: 21, parentID: parentID(20), name: "Computación"},
-			{id: 22, parentID: parentID(21), name: "Notebooks"},
-		},
-	}
+	parent := func(id int32) *int32 { return &id }
+	return &fakeScopeStore{nodes: []fakeNode{
+		{id: 1, name: "Hogar", slug: "hogar", level: Level1},
+		{id: 2, name: "Tecnología", slug: "tecnologia", level: Level1},
+		{id: 10, parentID: parent(1), name: "Electrodomésticos", slug: "electrodomesticos", level: Level2},
+		{id: 11, parentID: parent(10), name: "Refrigeradores", slug: "refrigeradores", level: Level3},
+		{id: 12, parentID: parent(10), name: "Cocina", slug: "cocina", level: Level3},
+		{id: 20, parentID: parent(2), name: "Computación", slug: "computacion", level: Level2},
+		{id: 21, parentID: parent(20), name: "Notebooks", slug: "notebooks", level: Level3},
+		{id: 22, parentID: parent(20), name: "Accesorios de computación", slug: "accesorios-de-computacion", level: Level3},
+		{id: 30, parentID: parent(2), name: "Pantallas", slug: "pantallas", level: Level2},
+		{id: 40, parentID: parent(2), name: "Audio", slug: "audio", level: Level2},
+		{id: 41, parentID: parent(40), name: "Parlantes", slug: "parlantes", level: Level2},
+		{id: 42, parentID: parent(41), name: "Parlantes portátiles", slug: "parlantes-portatiles", level: Level3},
+	}}
 }
 
-// ResolveCategoryNVScope imita la consulta NV: busca por id o slug en los
-// tres niveles y devuelve una fila por NV3 descendiente.
-func (f *fakeScopeStore) ResolveCategoryNVScope(_ context.Context, params generated.ResolveCategoryNVScopeParams) ([]generated.ResolveCategoryNVScopeRow, error) {
-	var rows []generated.ResolveCategoryNVScopeRow
-	for _, node := range f.nv1 {
-		if matchesScope(params, node.id, node.slug) {
-			rows = append(rows, f.scopeRows(LevelNV1, node.id, node.name)...)
-		}
-	}
-	for _, node := range f.nv2 {
-		if matchesScope(params, node.id, node.slug) {
-			rows = append(rows, f.scopeRows(LevelNV2, node.id, node.name)...)
-		}
-	}
-	for _, node := range f.nv3 {
-		if matchesScope(params, node.id, node.slug) {
-			rows = append(rows, f.scopeRows(LevelNV3, node.id, node.name)...)
-		}
-	}
-	return rows, nil
-}
-
-// ResolveCategoryNVScopeByLegacy imita la consulta legacy: recorre el
-// subárbol y devuelve una fila por NV3 enlazada por el puente.
-func (f *fakeScopeStore) ResolveCategoryNVScopeByLegacy(_ context.Context, legacyID int32) ([]generated.ResolveCategoryNVScopeByLegacyRow, error) {
-	var name string
-	found := false
-	for _, node := range f.legacy {
-		if node.id == legacyID {
-			name = node.name
-			found = true
+// CategoryScope imita la consulta real: busca el nodo activo por id o slug,
+// recorre su subárbol y devuelve los ids de las hojas (nivel 3) ordenados.
+func (f *fakeScopeStore) CategoryScope(_ context.Context, ref Ref) (Scope, error) {
+	var root *fakeNode
+	for i := range f.nodes {
+		node := &f.nodes[i]
+		if (ref.ID != nil && node.id == *ref.ID) || (ref.Slug != nil && node.slug == *ref.Slug) {
+			root = node
 			break
 		}
 	}
-	if !found {
-		return nil, nil
+	if root == nil {
+		return Scope{}, ErrNotFound
 	}
 
-	subtree := f.legacySubtree(legacyID)
-	var leaves []fakeNV3
-	for _, leaf := range f.nv3 {
-		if leaf.legacyID != nil && subtree[*leaf.legacyID] {
-			leaves = append(leaves, leaf)
-		}
-	}
-	sort.Slice(leaves, func(i, j int) bool { return leaves[i].id < leaves[j].id })
-
-	if len(leaves) == 0 {
-		return []generated.ResolveCategoryNVScopeByLegacyRow{{Level: string(LevelLegacy), RefName: name}}, nil
-	}
-	rows := make([]generated.ResolveCategoryNVScopeByLegacyRow, 0, len(leaves))
-	for _, leaf := range leaves {
-		rows = append(rows, generated.ResolveCategoryNVScopeByLegacyRow{
-			Level:   string(LevelLegacy),
-			RefName: name,
-			Nv3ID:   pgtype.Int4{Int32: leaf.id, Valid: true},
-			Nv3Name: pgtype.Text{String: leaf.name, Valid: true},
-		})
-	}
-	return rows, nil
-}
-
-// scopeRows devuelve las NV3 del alcance de un nodo; sin descendientes
-// activos devuelve una fila con nv3_id NULL, igual que la consulta real.
-func (f *fakeScopeStore) scopeRows(level Level, refID int32, refName string) []generated.ResolveCategoryNVScopeRow {
-	var leaves []fakeNV3
-	for _, leaf := range f.nv3 {
-		switch level {
-		case LevelNV1:
-			for _, parent := range f.nv2 {
-				if parent.id == leaf.nv2ID && parent.nv1ID == refID {
-					leaves = append(leaves, leaf)
-				}
-			}
-		case LevelNV2:
-			if leaf.nv2ID == refID {
-				leaves = append(leaves, leaf)
-			}
-		case LevelNV3:
-			if leaf.id == refID {
-				leaves = append(leaves, leaf)
-			}
-		}
-	}
-	sort.Slice(leaves, func(i, j int) bool { return leaves[i].id < leaves[j].id })
-
-	if len(leaves) == 0 {
-		return []generated.ResolveCategoryNVScopeRow{{
-			Level: string(level), RefID: refID, RefName: refName,
-		}}
-	}
-	rows := make([]generated.ResolveCategoryNVScopeRow, 0, len(leaves))
-	for _, leaf := range leaves {
-		rows = append(rows, generated.ResolveCategoryNVScopeRow{
-			Level:   string(level),
-			RefID:   refID,
-			RefName: refName,
-			Nv3ID:   pgtype.Int4{Int32: leaf.id, Valid: true},
-			Nv3Name: pgtype.Text{String: leaf.name, Valid: true},
-		})
-	}
-	return rows
-}
-
-// legacySubtree junta el id pedido y todos sus descendientes legacy.
-func (f *fakeScopeStore) legacySubtree(root int32) map[int32]bool {
-	subtree := map[int32]bool{root: true}
+	inSubtree := map[int32]bool{root.id: true}
 	changed := true
 	for changed {
 		changed = false
-		for _, node := range f.legacy {
-			if node.parentID != nil && subtree[*node.parentID] && !subtree[node.id] {
-				subtree[node.id] = true
+		for _, node := range f.nodes {
+			if node.parentID != nil && inSubtree[*node.parentID] && !inSubtree[node.id] {
+				inSubtree[node.id] = true
 				changed = true
 			}
 		}
 	}
-	return subtree
-}
 
-// matchesScope indica si el nodo coincide con el id o el slug consultados.
-func matchesScope(params generated.ResolveCategoryNVScopeParams, id int32, slug string) bool {
-	if params.ID.Valid && params.ID.Int32 == id {
-		return true
+	ids := []int32{}
+	for _, node := range f.nodes {
+		if node.level == Level3 && inSubtree[node.id] {
+			ids = append(ids, node.id)
+		}
 	}
-	return params.Slug.Valid && params.Slug.String == slug
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return Scope{Level: root.level, Name: root.name, CategoryIDs: ids}, nil
 }
 
 // int32Ptr devuelve el puntero a un int32 del fixture.
@@ -219,8 +86,8 @@ func int32Ptr(value int32) *int32 {
 	return &value
 }
 
-// TestResolveScope cubre slug de cada nivel, id legacy de raíz, hoja y fila
-// con hijas, slug inexistente, NV3 sin puente y refs inválidos o ambiguos.
+// TestResolveScope cubre slug e id de cada nivel, hojas sin productos, un
+// nivel 2 intermedio, categorías inexistentes y refs inválidos.
 func TestResolveScope(t *testing.T) {
 	store := newFakeScopeStore()
 
@@ -231,54 +98,34 @@ func TestResolveScope(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "slug de NV1 devuelve todas sus NV3",
+			name: "slug de nivel 1 devuelve todas sus hojas",
 			ref:  Ref{Slug: strPtr("hogar")},
-			want: Scope{Level: LevelNV1, Name: "Hogar", NV3IDs: []int32{201, 202}},
+			want: Scope{Level: Level1, Name: "Hogar", CategoryIDs: []int32{11, 12}},
 		},
 		{
-			name: "slug de NV2 devuelve sus NV3",
+			name: "slug de nivel 2 devuelve sus hojas",
 			ref:  Ref{Slug: strPtr("electrodomesticos")},
-			want: Scope{Level: LevelNV2, Name: "Electrodomésticos", NV3IDs: []int32{201, 202}},
+			want: Scope{Level: Level2, Name: "Electrodomésticos", CategoryIDs: []int32{11, 12}},
 		},
 		{
-			name: "slug de NV3 devuelve solo ella misma",
+			name: "slug de nivel 3 devuelve solo ella misma",
 			ref:  Ref{Slug: strPtr("notebooks")},
-			want: Scope{Level: LevelNV3, Name: "Notebooks", NV3IDs: []int32{203}},
+			want: Scope{Level: Level3, Name: "Notebooks", CategoryIDs: []int32{21}},
 		},
 		{
-			name: "id de NV1 devuelve sus NV3",
+			name: "id de nivel 1 devuelve sus hojas",
 			ref:  Ref{ID: int32Ptr(2)},
-			want: Scope{Level: LevelNV1, Name: "Tecnología", NV3IDs: []int32{203, 204}},
+			want: Scope{Level: Level1, Name: "Tecnología", CategoryIDs: []int32{21, 22, 42}},
 		},
 		{
-			name: "NV2 sin NV3 activas devuelve alcance vacío, no error",
+			name: "id de nivel 2 intermedio baja hasta las hojas",
+			ref:  Ref{ID: int32Ptr(41)},
+			want: Scope{Level: Level2, Name: "Parlantes", CategoryIDs: []int32{42}},
+		},
+		{
+			name: "nivel 2 sin hojas devuelve alcance vacío, no error",
 			ref:  Ref{Slug: strPtr("pantallas")},
-			want: Scope{Level: LevelNV2, Name: "Pantallas", NV3IDs: []int32{}},
-		},
-		{
-			name: "NV3 sin puente sigue siendo su propio alcance",
-			ref:  Ref{ID: int32Ptr(204)},
-			want: Scope{Level: LevelNV3, Name: "Accesorios de computación", NV3IDs: []int32{204}},
-		},
-		{
-			name: "id legacy de raíz con hijas",
-			ref:  Ref{LegacyID: int32Ptr(10)},
-			want: Scope{Level: LevelLegacy, Name: "Electrodomesticos", NV3IDs: []int32{201, 202}},
-		},
-		{
-			name: "id legacy de hoja",
-			ref:  Ref{LegacyID: int32Ptr(22)},
-			want: Scope{Level: LevelLegacy, Name: "Notebooks", NV3IDs: []int32{203}},
-		},
-		{
-			name: "id legacy con hija sin puente",
-			ref:  Ref{LegacyID: int32Ptr(12)},
-			want: Scope{Level: LevelLegacy, Name: "Cocina", NV3IDs: []int32{202}},
-		},
-		{
-			name: "id legacy de NV2 cuyas NV3 incluyen una sin puente",
-			ref:  Ref{LegacyID: int32Ptr(21)},
-			want: Scope{Level: LevelLegacy, Name: "Computación", NV3IDs: []int32{203}},
+			want: Scope{Level: Level2, Name: "Pantallas", CategoryIDs: []int32{}},
 		},
 		{
 			name:    "slug inexistente",
@@ -291,23 +138,13 @@ func TestResolveScope(t *testing.T) {
 			wantErr: ErrNotFound,
 		},
 		{
-			name:    "id legacy inexistente",
-			ref:     Ref{LegacyID: int32Ptr(99)},
-			wantErr: ErrNotFound,
-		},
-		{
-			name:    "slug de NV2 repetido en dos padres",
-			ref:     Ref{Slug: strPtr("computacion")},
-			wantErr: ErrAmbiguousScopeRef,
-		},
-		{
 			name:    "ref sin identificador",
 			ref:     Ref{},
 			wantErr: ErrInvalidScopeRef,
 		},
 		{
 			name:    "ref con dos identificadores",
-			ref:     Ref{ID: int32Ptr(1), LegacyID: int32Ptr(10)},
+			ref:     Ref{ID: int32Ptr(1), Slug: strPtr("hogar")},
 			wantErr: ErrInvalidScopeRef,
 		},
 	}

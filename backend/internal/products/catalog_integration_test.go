@@ -44,12 +44,12 @@ func TestCatalogIntegration_CicloDeVidaConAtributos(t *testing.T) {
 
 	fridge, fridgeValues := resolveAndValidate(t, repo, "refrigeradores",
 		`{"capacidad_litros": 350, "eficiencia_energetica": "A+", "no_frost": true, "peso_kg": 65.5, "color": "Gris"}`)
-	if fridge.ID == nil || fridge.LegacyID == nil || len(fridge.Attributes) != 5 {
+	if fridge.ID == nil || fridge.CategoryID == nil || len(fridge.Attributes) != 5 {
 		t.Fatalf("categoría resuelta = %+v", fridge)
 	}
 
 	publicID, err := repo.Create(ctx, ProductWrite{
-		LegacyCategoryID: *fridge.LegacyID, CategoryRef: fridge.ID,
+		CategoryID: *fridge.CategoryID, CategoryRef: fridge.ID,
 		Name: "Refrigerador TAL-70", SKU: uniqueSKU("tal70"),
 		ImageURL: "https://example.test/tal70.png", Attributes: fridgeValues,
 	})
@@ -89,7 +89,7 @@ func TestCatalogIntegration_CicloDeVidaConAtributos(t *testing.T) {
 	notebook, notebookValues := resolveAndValidate(t, repo, "notebooks",
 		`{"memoria_ram_gb": 16, "almacenamiento_gb": 512, "pantalla_pulgadas": 14}`)
 	if err := repo.Update(ctx, publicID, ProductWrite{
-		LegacyCategoryID: *notebook.LegacyID, CategoryRef: notebook.ID,
+		CategoryID: *notebook.CategoryID, CategoryRef: notebook.ID,
 		Name: "Notebook TAL-70", Attributes: notebookValues,
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -104,8 +104,8 @@ func TestCatalogIntegration_CicloDeVidaConAtributos(t *testing.T) {
 		t.Fatalf("detalle tras Update = %s %s %s", *detail.CategorySlug, detail.Name, encoded)
 	}
 
-	// Filtro por slug nuevo.
-	items, total, err := repo.List(ctx, ListParams{CategorySlug: strp("notebooks"), Limit: 100})
+	// Filtro por la hoja del árbol (nivel 3) donde quedó el producto.
+	items, total, err := repo.List(ctx, ListParams{CategoryIDs: []int32{*notebook.CategoryID}, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,8 @@ func TestCatalogIntegration_CicloDeVidaConAtributos(t *testing.T) {
 	if err := repo.Deactivate(ctx, publicID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("segunda baja: %v, quiero ErrNotFound", err)
 	}
-	if err := repo.Update(ctx, publicID, ProductWrite{LegacyCategoryID: *notebook.LegacyID, Name: "x"}); !errors.Is(err, ErrNotFound) {
+	if err := repo.Update(ctx, publicID, ProductWrite{CategoryID: *notebook.CategoryID,
+		Name: "x"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Update tras la baja: %v, quiero ErrNotFound", err)
 	}
 }
@@ -142,14 +143,21 @@ func TestCatalogIntegration_ResolveCategory(t *testing.T) {
 	repo := NewRepository(pool)
 	ctx := context.Background()
 
-	var lavadoID int32
-	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Lavado'`).Scan(&lavadoID); err != nil {
+	// Una hoja activa sin fila en categories se puede usar: el producto guarda
+	// solo el árbol y no acepta atributos.
+	var sinFilaID int32
+	if err := pool.QueryRow(ctx, `
+		SELECT pc.id FROM product_category pc
+		WHERE pc.active AND pc.level = 3
+		  AND NOT EXISTS (SELECT 1 FROM categories c WHERE c.legacy_product_category_id = pc.id)
+		  AND NOT EXISTS (SELECT 1 FROM product_category child WHERE child.parent_category_id = pc.id AND child.active)
+		ORDER BY pc.id LIMIT 1`).Scan(&sinFilaID); err != nil {
 		t.Fatal(err)
 	}
-	lavado, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: lavadoID})
-	if err != nil || lavado.ID != nil || lavado.LegacyID == nil || *lavado.LegacyID != lavadoID ||
-		lavado.ItemType != categories.ItemTypeProduct || len(lavado.Attributes) != 0 {
-		t.Fatalf("categoría antigua sin equivalente = %+v (%v)", lavado, err)
+	sinFila, err := repo.ResolveCategory(ctx, CategoryRef{ID: sinFilaID})
+	if err != nil || sinFila.ID != nil || sinFila.CategoryID == nil || *sinFila.CategoryID != sinFilaID ||
+		sinFila.ItemType != categories.ItemTypeProduct || len(sinFila.Attributes) != 0 {
+		t.Fatalf("hoja sin fila en categories = %+v (%v)", sinFila, err)
 	}
 
 	var refrigeradoresID int32
@@ -161,28 +169,28 @@ func TestCatalogIntegration_ResolveCategory(t *testing.T) {
 		ORDER BY child.id LIMIT 1`).Scan(&refrigeradoresID); err != nil {
 		t.Fatal(err)
 	}
-	fridge, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: refrigeradoresID})
+	fridge, err := repo.ResolveCategory(ctx, CategoryRef{ID: refrigeradoresID})
 	if err != nil || fridge.Slug == nil || *fridge.Slug != "refrigeradores" || len(fridge.Attributes) != 5 {
-		t.Fatalf("categoría antigua enlazada = %+v (%v)", fridge, err)
+		t.Fatalf("hoja enlazada = %+v (%v)", fridge, err)
 	}
-	if fridge.LegacyID == nil || *fridge.LegacyID != refrigeradoresID {
-		t.Fatalf("categoría unificada usa legacy id %v, quiero %d", fridge.LegacyID, refrigeradoresID)
+	if fridge.CategoryID == nil || *fridge.CategoryID != refrigeradoresID {
+		t.Fatalf("categoría unificada usa id de hoja %v, quiero %d", fridge.CategoryID, refrigeradoresID)
 	}
 
 	var oldRefrigeracionID int32
 	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Refrigeracion'`).Scan(&oldRefrigeracionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: oldRefrigeracionID}); !errors.Is(err, ErrCategoryNotFound) {
-		t.Fatalf("categoría legacy retirada = %v, quiero ErrCategoryNotFound", err)
+	if _, err := repo.ResolveCategory(ctx, CategoryRef{ID: oldRefrigeracionID}); !errors.Is(err, ErrCategoryNotFound) {
+		t.Fatalf("categoría retirada = %v, quiero ErrCategoryNotFound", err)
 	}
 
 	service, err := repo.ResolveCategory(ctx, CategoryRef{Slug: "internet-fibra-optica"})
-	if err != nil || service.ItemType != categories.ItemTypeService || service.LegacyID != nil {
+	if err != nil || service.ItemType != categories.ItemTypeService || service.CategoryID != nil {
 		t.Fatalf("categoría de servicio = %+v (%v)", service, err)
 	}
 
-	for _, ref := range []CategoryRef{{Slug: "no-existe"}, {LegacyID: 999999}} {
+	for _, ref := range []CategoryRef{{Slug: "no-existe"}, {ID: 999999}} {
 		if _, err := repo.ResolveCategory(ctx, ref); !errors.Is(err, ErrCategoryNotFound) {
 			t.Fatalf("ResolveCategory(%+v) = %v, quiero ErrCategoryNotFound", ref, err)
 		}
@@ -245,12 +253,12 @@ func TestCatalogIntegration_RefrigeradoresConsolidadosEnElectrodomesticos(t *tes
 			misplaced, wrongUnifiedRef, oldSpecValues)
 	}
 
-	var linkedLegacyID int32
-	if err := pool.QueryRow(ctx, `SELECT legacy_product_category_id FROM categories WHERE id = $1`, unifiedID).Scan(&linkedLegacyID); err != nil {
+	var linkedCategoryID int32
+	if err := pool.QueryRow(ctx, `SELECT legacy_product_category_id FROM categories WHERE id = $1`, unifiedID).Scan(&linkedCategoryID); err != nil {
 		t.Fatal(err)
 	}
-	if linkedLegacyID != refrigeratorID {
-		t.Fatalf("legacy_product_category_id = %d, quiero %d", linkedLegacyID, refrigeratorID)
+	if linkedCategoryID != refrigeratorID {
+		t.Fatalf("legacy_product_category_id = %d, quiero %d", linkedCategoryID, refrigeratorID)
 	}
 }
 
@@ -286,23 +294,30 @@ func TestCatalogIntegration_ListPaginaYFiltroAntiguo(t *testing.T) {
 		}
 	}
 
-	// El filtro antiguo incluye subcategorías: Computacion → Computadores.
-	var computacionID int32
-	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Computacion'`).Scan(&computacionID); err != nil {
-		t.Fatal(err)
+	// El alcance por slug baja por el árbol: Computación abarca notebooks,
+	// computadores de escritorio y accesorios.
+	scope, err := repo.ResolveScope(ctx, categories.Ref{Slug: strp("computacion")})
+	if err != nil || scope.Level != categories.Level2 || len(scope.CategoryIDs) < 2 {
+		t.Fatalf("alcance de Computación = %+v (%v)", scope, err)
 	}
 	var wantSubtree int64
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM product p JOIN product_category c ON c.id = p.category_id
-		WHERE p.active AND (c.id = $1 OR c.parent_category_id = $1)`, computacionID).Scan(&wantSubtree); err != nil {
+		SELECT count(*) FROM product p
+		WHERE p.active AND p.category_id = ANY($1::int[])`, scope.CategoryIDs).Scan(&wantSubtree); err != nil {
 		t.Fatal(err)
 	}
-	items, total, err := repo.List(ctx, ListParams{LegacyCategoryID: &computacionID, Limit: 100})
+	items, total, err := repo.List(ctx, ListParams{CategoryIDs: scope.CategoryIDs, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total != wantSubtree || int64(len(items)) != wantSubtree || wantSubtree == 0 {
-		t.Fatalf("filtro Computacion = %d (total %d), quiero %d", len(items), total, wantSubtree)
+	if wantSubtree == 0 || total != wantSubtree || int64(len(items)) != wantSubtree {
+		t.Fatalf("filtro Computación = %d (total %d), quiero %d", len(items), total, wantSubtree)
+	}
+
+	// La hoja notebooks devuelve solo su propio id.
+	byLeaf, err := repo.ResolveScope(ctx, categories.Ref{Slug: strp("notebooks")})
+	if err != nil || byLeaf.Level != categories.Level3 || len(byLeaf.CategoryIDs) != 1 {
+		t.Fatalf("alcance por slug notebooks = %+v (%v)", byLeaf, err)
 	}
 
 	// Página fuera de rango: arreglo vacío, total real.
@@ -319,7 +334,7 @@ func TestCatalogIntegration_BaseDeDatosProtegeLosAtributos(t *testing.T) {
 
 	fridge, values := resolveAndValidate(t, repo, "refrigeradores", `{"capacidad_litros": 200}`)
 	sku := uniqueSKU("tal70-fk")
-	publicID, err := repo.Create(ctx, ProductWrite{LegacyCategoryID: *fridge.LegacyID, CategoryRef: fridge.ID,
+	publicID, err := repo.Create(ctx, ProductWrite{CategoryID: *fridge.CategoryID, CategoryRef: fridge.ID,
 		Name: "FK TAL-70", SKU: sku, Attributes: values})
 	if err != nil {
 		t.Fatal(err)
@@ -337,7 +352,7 @@ func TestCatalogIntegration_BaseDeDatosProtegeLosAtributos(t *testing.T) {
 	}
 
 	t.Run("sku duplicado", func(t *testing.T) {
-		_, err := repo.Create(ctx, ProductWrite{LegacyCategoryID: *fridge.LegacyID, Name: "dup", SKU: sku})
+		_, err := repo.Create(ctx, ProductWrite{CategoryID: *fridge.CategoryID, Name: "dup", SKU: sku})
 		expectCode(t, err, "23505")
 	})
 
@@ -373,7 +388,12 @@ func TestCatalogIntegration_BaseDeDatosProtegeLosAtributos(t *testing.T) {
 		}
 		defer tx.Rollback(ctx)
 		_, err = tx.Exec(ctx, `DELETE FROM category_attributes WHERE id = $1`, values[0].AttributeID)
-		expectCode(t, err, "23001") // restrict_violation (ON DELETE RESTRICT)
+		// ON DELETE RESTRICT se reporta como 23001 en algunas versiones de
+		// PostgreSQL y como 23503 en otras; ambas significan lo mismo aquí.
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || (pgErr.Code != "23001" && pgErr.Code != "23503") {
+			t.Fatalf("error = %v, quiero SQLSTATE 23001 o 23503", err)
+		}
 	})
 
 	t.Run("valor vacío", func(t *testing.T) {
@@ -401,7 +421,7 @@ func TestCatalogIntegration_HistorialConOfertaMonedaYHora(t *testing.T) {
 	fridge, values := resolveAndValidate(t, repo, "refrigeradores",
 		`{"capacidad_litros": 350, "eficiencia_energetica": "A+", "no_frost": true}`)
 	publicID, err := repo.Create(ctx, ProductWrite{
-		LegacyCategoryID: *fridge.LegacyID, CategoryRef: fridge.ID,
+		CategoryID: *fridge.CategoryID, CategoryRef: fridge.ID,
 		Name: "Refrigerador TAL-238", SKU: uniqueSKU("tal238"), Attributes: values,
 	})
 	if err != nil {

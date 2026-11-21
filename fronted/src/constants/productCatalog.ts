@@ -1,21 +1,6 @@
 import type { Product } from "../types";
 import type { CategoryIconName } from "../components/common/CategoryIcon";
 
-export const PRODUCT_TYPE_ICONS = {
-  appliances: "refrigerator",
-  technology: "bolt",
-  computing: "laptop",
-  phones: "phone",
-  gaming: "gamepad",
-  home: "house",
-} as const;
-
-export const CATEGORY_SECTION_ICONS = {
-  home: "house",
-  technology: "bolt",
-  other: "grid",
-} as const;
-
 export const SERVICE_CATEGORY_ICONS = {
   internet: "wifi",
   security: "shield",
@@ -23,56 +8,6 @@ export const SERVICE_CATEGORY_ICONS = {
   technicians: "wrench",
   other: "grid",
 } as const;
-
-export const PRODUCT_TYPES = [
-  {
-    id: "appliances",
-    name: "Electrodomésticos",
-    icon: PRODUCT_TYPE_ICONS.appliances,
-    color: "#FB923C",
-    pattern:
-      /electrodomest|refriger|nevera|freezer|congelador|microonda|lavador|secador|lavavajilla|horno|cocina|aspirador|cafetera|licuadora|freidora|batidora|tostador|hervidor|plancha|ventilador|calefactor|aire acondicionado/,
-  },
-  {
-    id: "technology",
-    name: "Tecnología",
-    icon: PRODUCT_TYPE_ICONS.technology,
-    color: "#E8001B",
-    pattern:
-      /televisor|television|\btv\b|reloj|smartwatch|audif|auricular|headphone|parlante|speaker|camara|proyector|audio|microfono/,
-  },
-  {
-    id: "computing",
-    name: "Computación",
-    icon: PRODUCT_TYPE_ICONS.computing,
-    color: "#818CF8",
-    pattern: /notebook|laptop|computador|computadora|desktop|impresora|monitor|tablet/,
-  },
-  {
-    id: "phones",
-    name: "Celulares",
-    icon: PRODUCT_TYPE_ICONS.phones,
-    color: "#F472B6",
-    pattern: /celular|smartphone|iphone|telefono movil|telefono celular/,
-  },
-  {
-    id: "gaming",
-    name: "Gaming",
-    icon: PRODUCT_TYPE_ICONS.gaming,
-    color: "#A78BFA",
-    pattern: /gaming|gamer|consola|playstation|xbox|nintendo|videojuego|gamepad/,
-  },
-  {
-    id: "home",
-    name: "Hogar y muebles",
-    icon: PRODUCT_TYPE_ICONS.home,
-    color: "#34D399",
-    pattern:
-      /electrodomest|refriger|nevera|freezer|congelador|microonda|lavador|secador|lavavajilla|horno|cocina|aspirador|cafetera|licuadora|freidora|batidora|tostador|hervidor|plancha|ventilador|calefactor|aire acondicionado|mueble|mesa|silla|sofa|cama|escritorio|colchon|decoracion|alfombra|ropero|estante/,
-  },
-] as const;
-
-export type ProductTypeId = (typeof PRODUCT_TYPES)[number]["id"];
 
 const PRODUCT_SUBTYPES = [
   { name: "Televisores", pattern: /televisor|television|\btv\b/ },
@@ -172,48 +107,6 @@ export const getProductCategoryIcon = (name: string): CategoryIconName => {
   return "grid";
 };
 
-export type ProductCategoryGroup = "home" | "technology" | "other";
-
-/**
- * Ubica una categoría raíz en una de las secciones de la página de categorías.
- * @param name Nombre de la categoría.
- * @returns "home", "technology" u "other".
- */
-export const getProductCategoryGroup = (name: string): ProductCategoryGroup => {
-  const normalized = normalize(name);
-  if (
-    /hogar|mueble|mesa|silla|sofa|cama|electrodom|refriger|lavado|lavadora|secadora|cocina|microonda|horno|aspirador|freidora|cafetera|licuadora|batidora|lavavajilla|tostador|hervidor|ventilador|calefactor/.test(
-      normalized,
-    )
-  ) {
-    return "home";
-  }
-  if (
-    /tecnolog|electron|televisor|television|\btv\b|videojuego|computacion|computador|notebook|telefon|audio|gaming|consola|celular|smartphone/.test(
-      normalized,
-    )
-  ) {
-    return "technology";
-  }
-  return "other";
-};
-
-/**
- * Indica si un producto pertenece a un tipo amplio (Electrodomésticos,
- * Tecnología…) según su categoría, nombre y modelo.
- * @param product Producto a revisar.
- * @param typeId Id del tipo en PRODUCT_TYPES; si no existe, acepta todo.
- * @returns true si el producto calza con el tipo.
- */
-export const productMatchesType = (product: Product, typeId: string): boolean => {
-  const type = PRODUCT_TYPES.find((candidate) => candidate.id === typeId);
-  if (!type) return true;
-
-  return type.pattern.test(
-    normalize(`${product.category} ${product.subcategory} ${product.name} ${product.model}`),
-  );
-};
-
 /**
  * Infiere el tipo concreto de un producto (Televisores, Notebooks…) con los
  * patrones de PRODUCT_SUBTYPES. Se usa para nombrar las tarjetas del catálogo.
@@ -228,15 +121,6 @@ export const getProductSubtype = (product: Product): string => {
 
   return subtype?.name ?? (product.category.trim() || "Otros productos");
 };
-
-/**
- * Indica si un producto es del tipo indicado.
- * @param product Producto a revisar.
- * @param subtype Nombre del tipo, como lo devuelve getProductSubtype.
- * @returns true si getProductSubtype(product) es ese tipo.
- */
-export const productMatchesSubtype = (product: Product, subtype: string): boolean =>
-  getProductSubtype(product) === subtype;
 
 // Claves normalizadas con `normalize`: el tipo se compara sin tildes ni
 // mayúsculas, así "Camaras" y "Cámaras" encuentran la misma raíz.
@@ -276,35 +160,3 @@ const SUBTYPE_SEARCH_QUERIES: Record<string, string> = {
  */
 export const getProductSubtypeSearchQuery = (subtype: string): string =>
   SUBTYPE_SEARCH_QUERIES[normalize(subtype.trim())] ?? "";
-
-/**
- * Indica si un producto aparecería al buscar el texto en el backend: cada
- * palabra debe estar en el nombre, el modelo o la marca, sin distinguir
- * tildes ni mayúsculas (igual que la Search API; el SKU no llega al frontend,
- * así que esta comprobación es igual o más estricta).
- * @param product Producto a revisar.
- * @param query Texto de búsqueda; vacío calza con todo.
- * @returns true si todas las palabras aparecen en el producto.
- */
-export const productMatchesSearchQuery = (product: Product, query: string): boolean => {
-  const searchable = normalize(`${product.name} ${product.model} ${product.brand}`);
-  return normalize(query)
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((word) => searchable.includes(word));
-};
-
-/**
- * Elige el texto de búsqueda de una tarjeta de tipo: la raíz de
- * getProductSubtypeSearchQuery solo si todos los productos de la tarjeta la
- * contienen. Si alguno no la tiene, devuelve "" y la tarjeta filtra solo por
- * categoría, para que nunca muestre 0 resultados teniendo productos (TAL-244).
- * @param subtype Nombre del tipo de la tarjeta.
- * @param products Productos que cuenta la tarjeta.
- * @returns El texto de búsqueda o "".
- */
-export const getSubtypeQueryForProducts = (subtype: string, products: Product[]): string => {
-  const query = getProductSubtypeSearchQuery(subtype);
-  if (!query || products.length === 0) return "";
-  return products.every((product) => productMatchesSearchQuery(product, query)) ? query : "";
-};

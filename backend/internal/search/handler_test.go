@@ -34,6 +34,9 @@ var refrigeradores = []categories.Attribute{
 type fakeSearcher struct {
 	defs         []categories.Attribute
 	defsErr      error
+	scope        categories.Scope
+	scopeErr     error
+	gotScopeRef  *categories.Ref
 	results      []ProductResult
 	popular      []ProductResult
 	popularLimit int
@@ -45,10 +48,17 @@ type fakeSearcher struct {
 	gotText      string
 	gotType      *string
 	dbTouched    int
+	defsCalls    int
 }
 
+func (f *fakeSearcher) ResolveScope(_ context.Context, ref categories.Ref) (categories.Scope, error) {
+	f.dbTouched++
+	f.gotScopeRef = &ref
+	return f.scope, f.scopeErr
+}
 func (f *fakeSearcher) CategoryDefinitions(context.Context, string) ([]categories.Attribute, error) {
 	f.dbTouched++
+	f.defsCalls++
 	return f.defs, f.defsErr
 }
 func (f *fakeSearcher) SearchProducts(_ context.Context, q Query) ([]ProductResult, int64, error) {
@@ -164,7 +174,7 @@ func TestPopularProducts_CasoFelizYError(t *testing.T) {
 }
 
 func TestProducts_TodosLosFiltros(t *testing.T) {
-	s := &fakeSearcher{defs: refrigeradores}
+	s := &fakeSearcher{defs: refrigeradores, scope: categories.Scope{CategoryIDs: []int32{1, 2}}}
 
 	rec, _ := serve(t, s, "/search/products?q=+lg++no%20frost+&category=refrigeradores&brand=1,%202&store=3,%204"+
 		"&minPrice=100000&maxPrice=500000.50&available=true&sort=price_asc&limit=50&offset=10"+
@@ -173,7 +183,11 @@ func TestProducts_TodosLosFiltros(t *testing.T) {
 
 	requireStatus(t, rec, http.StatusOK)
 	q := *s.gotQuery
-	if !reflect.DeepEqual(q.Words, []string{"lg", "no", "frost"}) || *q.CategorySlug != "refrigeradores" ||
+	if s.gotScopeRef == nil || s.gotScopeRef.Slug == nil || *s.gotScopeRef.Slug != "refrigeradores" ||
+		!reflect.DeepEqual(q.CategoryIDs, []int32{1, 2}) {
+		t.Fatalf("alcance = %+v, categorías = %v", s.gotScopeRef, q.CategoryIDs)
+	}
+	if !reflect.DeepEqual(q.Words, []string{"lg", "no", "frost"}) ||
 		!reflect.DeepEqual(q.BrandIDs, []int32{1, 2}) || !reflect.DeepEqual(q.StoreIDs, []int32{3, 4}) ||
 		*q.MinPrice != "100000" || *q.MaxPrice != "500000.50" ||
 		!q.Available || q.Sort != "price_asc" || q.Limit != 50 || q.Offset != 10 {
@@ -192,18 +206,19 @@ func TestProducts_TodosLosFiltros(t *testing.T) {
 	}
 }
 
-func TestProducts_IgualdadNumericaYCategoriaAntigua(t *testing.T) {
+func TestProducts_IgualdadNumericaYCategoriaPorID(t *testing.T) {
 	s := &fakeSearcher{defs: refrigeradores}
 	rec, _ := serve(t, s, "/search/products?category=refrigeradores&attr.capacidad_litros=350")
 	requireStatus(t, rec, http.StatusOK)
 	if !reflect.DeepEqual(s.gotQuery.Attributes, []AttributeFilter{{AttributeID: 10, Op: OpEqualNumeric, Value: "350"}}) {
 		t.Fatalf("filtros = %+v", s.gotQuery.Attributes)
 	}
-	s = &fakeSearcher{}
+	s = &fakeSearcher{scope: categories.Scope{CategoryIDs: []int32{7}}}
 	rec, _ = serve(t, s, "/search/products?category=5")
 	requireStatus(t, rec, http.StatusOK)
-	if *s.gotQuery.LegacyCategoryID != 5 || s.dbTouched != 1 {
-		t.Fatalf("una categoría antigua no carga definiciones: %+v (%d)", *s.gotQuery, s.dbTouched)
+	if s.gotScopeRef == nil || s.gotScopeRef.ID == nil || *s.gotScopeRef.ID != 5 ||
+		!reflect.DeepEqual(s.gotQuery.CategoryIDs, []int32{7}) || s.defsCalls != 0 {
+		t.Fatalf("una categoría por id resuelve su alcance: %+v (%d defs)", s.gotScopeRef, s.defsCalls)
 	}
 }
 
@@ -301,16 +316,22 @@ func TestProducts_FiltrosDeAtributoInvalidos(t *testing.T) {
 }
 
 func TestProducts_CategoriaInexistenteYErrores(t *testing.T) {
-	rec, _ := serve(t, &fakeSearcher{defsErr: ErrCategoryNotFound}, "/search/products?category=no-existe")
+	rec, _ := serve(t, &fakeSearcher{scopeErr: categories.ErrNotFound}, "/search/products?category=no-existe")
 	requireStatus(t, rec, http.StatusBadRequest)
 	if got := fieldCodes(t, rec); !reflect.DeepEqual(got, []string{"category/not_found"}) {
 		t.Fatalf("errores = %v", got)
 	}
 
-	rec, logs := serve(t, &fakeSearcher{defsErr: errBoom}, "/search/products?category=refrigeradores")
+	rec, logs := serve(t, &fakeSearcher{scopeErr: errBoom}, "/search/products?category=refrigeradores")
 	requireStatus(t, rec, http.StatusInternalServerError)
 	if strings.Contains(rec.Body.String(), "relation") || !strings.Contains(logs, "relation") {
 		t.Fatalf("el detalle debe ir solo al log: %s", rec.Body.String())
+	}
+
+	rec, logs = serve(t, &fakeSearcher{defsErr: errBoom}, "/search/products?category=refrigeradores")
+	requireStatus(t, rec, http.StatusInternalServerError)
+	if !strings.Contains(logs, "relation") {
+		t.Fatalf("el error de definiciones debe registrarse: %s", logs)
 	}
 
 	rec, _ = serve(t, &fakeSearcher{err: errBoom}, "/search/products")
