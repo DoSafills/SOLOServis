@@ -638,8 +638,8 @@ func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
 			wantSlug: "refrigeradores",
 		},
 		{name: "telefonía se enruta a celulares", slug: "telefonía", wantSlug: "celulares"},
-		{name: "computación se enruta a notebooks", slug: "computación", wantSlug: "notebooks"},
-		{name: "computadores se enruta a notebooks", slug: "computadores", wantSlug: "notebooks"},
+		{name: "computación sin palabra clave va a computadores de escritorio", slug: "computación", wantSlug: "computadores-de-escritorio"},
+		{name: "computadores va a computadores de escritorio", slug: "computadores", wantSlug: "computadores-de-escritorio"},
 		{
 			name:       "desconocido",
 			slug:       "desconocida",
@@ -685,6 +685,42 @@ func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
 					t.Fatalf("se llamó a ResolveCategory con slug vacío: %+v", e.catalog.resolved)
 				}
 				return
+			}
+			if len(e.catalog.resolved) != 1 || e.catalog.resolved[0].Slug != tc.wantSlug {
+				t.Fatalf("slugs enviados a ResolveCategory = %+v, quiero %q", e.catalog.resolved, tc.wantSlug)
+			}
+		})
+	}
+}
+
+// TestAddItems_ClasificaComputacionPorNombre verifica que un ítem de la
+// categoría computacion termine en notebooks, en computadores de escritorio o
+// en computacion según las palabras de su nombre, que es lo que resuelve
+// ResolveCategory.
+func TestAddItems_ClasificaComputacionPorNombre(t *testing.T) {
+	tests := []struct {
+		name     string
+		product  string
+		wantSlug string
+	}{
+		{name: "MacBook Air", product: "MacBook Air M2 13\"", wantSlug: "notebooks"},
+		{name: "notebook", product: "Notebook Lenovo IdeaPad 3", wantSlug: "notebooks"},
+		{name: "laptop gamer", product: "Laptop gamer ASUS TUF", wantSlug: "notebooks"},
+		{name: "PC gamer", product: "PC Gamer Ryzen 5 RTX 4060", wantSlug: "computadores-de-escritorio"},
+		{name: "iMac", product: "iMac 24\" M3", wantSlug: "computadores-de-escritorio"},
+		{name: "mochila para notebook", product: "Mochila para notebook 15.6\"", wantSlug: "computacion"},
+		{name: "monitor portátil", product: "Monitor portátil 15.6\"", wantSlug: "computacion"},
+		{name: "sin palabras clave", product: "Armado de equipo Ryzen 7", wantSlug: "computadores-de-escritorio"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			item := `{"product":{"name":` + mustJSON(t, tc.product) +
+				`,"categorySlug":"computacion","attributes":{"capacidad_litros":200}},"offer":{"price":1}}`
+			result := batch(t, e, item)
+			if result.Results[0].Status != ItemCreated {
+				t.Fatalf("resultado = %+v, quiero producto creado", result.Results[0])
 			}
 			if len(e.catalog.resolved) != 1 || e.catalog.resolved[0].Slug != tc.wantSlug {
 				t.Fatalf("slugs enviados a ResolveCategory = %+v, quiero %q", e.catalog.resolved, tc.wantSlug)

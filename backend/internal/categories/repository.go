@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,11 +18,13 @@ var ErrArtworkNotFound = errors.New("category artwork not found")
 // PostgresRepository lee categorías y atributos desde PostgreSQL.
 // Todas las consultas son parametrizadas.
 type PostgresRepository struct {
-	db *pgxpool.Pool
+	db      *pgxpool.Pool
+	queries *generated.Queries
 }
 
+// NewRepository crea el repositorio sobre el pool de PostgreSQL.
 func NewRepository(db *pgxpool.Pool) *PostgresRepository {
-	return &PostgresRepository{db: db}
+	return &PostgresRepository{db: db, queries: generated.New(db)}
 }
 
 const countCategoriesSQL = `

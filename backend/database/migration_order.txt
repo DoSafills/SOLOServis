@@ -46,3 +46,13 @@
 029_fk_indexes_scrape_run_data_source.sql
 # 030: unicidad (padre, nombre sin tildes) en product_category; complementa 011.
 030_product_category_unique_normalized_name.sql
+# TAL-231 (ajuste): hijas Notebooks y Computadores de escritorio de Computación; categories computacion y computadores-de-escritorio.
+031_computacion_subcategories.sql
+# 032: árbol de exactamente 3 niveles (categories_nv1/nv2/nv3) y
+# product.category_nv3_id; aditiva e idempotente.
+032_category_tree_nv.sql
+# 033: siembra del árbol NV1/NV2/NV3 y backfill de product.category_nv3_id.
+033_backfill_category_tree_nv.sql
+# 034: puente categories_nv3.legacy_product_category_id y backfill de los
+# productos que sigan sin category_nv3_id.
+034_category_nv3_bridge.sql

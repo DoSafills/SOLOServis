@@ -39,7 +39,9 @@ RETURNING
     description,
     active,
     created_at,
-    updated_at
+    updated_at,
+    category_ref,
+    category_nv3_id
 `
 
 type CreateProductParams struct {
@@ -73,6 +75,8 @@ func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (P
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CategoryRef,
+		&i.CategoryNv3ID,
 	)
 	return i, err
 }
@@ -94,7 +98,9 @@ RETURNING
     description,
     active,
     created_at,
-    updated_at
+    updated_at,
+    category_ref,
+    category_nv3_id
 `
 
 func (q *Queries) DeactivateProduct(ctx context.Context, id int32) (Product, error) {
@@ -112,6 +118,8 @@ func (q *Queries) DeactivateProduct(ctx context.Context, id int32) (Product, err
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CategoryRef,
+		&i.CategoryNv3ID,
 	)
 	return i, err
 }
@@ -134,7 +142,9 @@ RETURNING
     description,
     active,
     created_at,
-    updated_at
+    updated_at,
+    category_ref,
+    category_nv3_id
 `
 
 func (q *Queries) DeactivateProductByPublicID(ctx context.Context, publicID pgtype.UUID) (Product, error) {
@@ -152,6 +162,8 @@ func (q *Queries) DeactivateProductByPublicID(ctx context.Context, publicID pgty
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CategoryRef,
+		&i.CategoryNv3ID,
 	)
 	return i, err
 }
@@ -208,7 +220,9 @@ SELECT
     description,
     active,
     created_at,
-    updated_at
+    updated_at,
+    category_ref,
+    category_nv3_id
 FROM product
 WHERE id = $1
 `
@@ -228,6 +242,8 @@ func (q *Queries) GetProductByID(ctx context.Context, id int32) (Product, error)
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CategoryRef,
+		&i.CategoryNv3ID,
 	)
 	return i, err
 }
@@ -244,7 +260,9 @@ SELECT
     description,
     active,
     created_at,
-    updated_at
+    updated_at,
+    category_ref,
+    category_nv3_id
 FROM product
 WHERE public_id = $1
 `
@@ -264,6 +282,8 @@ func (q *Queries) GetProductByPublicID(ctx context.Context, publicID pgtype.UUID
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CategoryRef,
+		&i.CategoryNv3ID,
 	)
 	return i, err
 }
@@ -926,7 +946,9 @@ RETURNING
     description,
     active,
     created_at,
-    updated_at
+    updated_at,
+    category_ref,
+    category_nv3_id
 `
 
 type UpdateProductParams struct {
@@ -962,6 +984,8 @@ func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (P
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CategoryRef,
+		&i.CategoryNv3ID,
 	)
 	return i, err
 }
@@ -989,7 +1013,9 @@ RETURNING
     description,
     active,
     created_at,
-    updated_at
+    updated_at,
+    category_ref,
+    category_nv3_id
 `
 
 type UpdateProductByPublicIDParams struct {
@@ -1025,6 +1051,8 @@ func (q *Queries) UpdateProductByPublicID(ctx context.Context, arg UpdateProduct
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CategoryRef,
+		&i.CategoryNv3ID,
 	)
 	return i, err
 }

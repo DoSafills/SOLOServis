@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"unicode"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
@@ -178,6 +179,7 @@ func (p *Processor) createProduct(
 		return 0, "", []httpx.FieldError{p.categoryMappingError(
 			ctx, runID, storeID, storeName, index, originalCategory, "required")}, nil
 	}
+	item.CategorySlug = classifyComputacion(item.CategorySlug, item)
 	category, err := p.catalog.ResolveCategory(ctx, products.CategoryRef{Slug: item.CategorySlug})
 	if errors.Is(err, products.ErrCategoryNotFound) {
 		return 0, "", []httpx.FieldError{p.categoryMappingError(
@@ -294,6 +296,40 @@ func prefixErrors(prefix string, errs []httpx.FieldError) []httpx.FieldError {
 		out = append(out, e)
 	}
 	return out
+}
+
+// classifyComputacion elige la categoría final de un producto cuyo slug
+// canónico es computacion, según las palabras de su nombre. Recibe el slug ya
+// canónico y el ítem con el nombre original; devuelve el slug que se resuelve
+// contra el catálogo y deja los demás slugs intactos.
+//
+// El orden importa: un accesorio (mochila, monitor, tablet…) que mencione
+// "notebook" sigue en Computación; un portátil (notebook, laptop, macbook…)
+// va a la hija Notebooks; el resto se asume Computadores de escritorio.
+func classifyComputacion(slug string, item ItemProduct) string {
+	if slug != "computacion" {
+		return slug
+	}
+	words := strings.Split(categories.NormalizeSlug(item.Name), "-")
+	for i, word := range words {
+		words[i] = strings.TrimFunc(word, func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		})
+	}
+	for _, word := range words {
+		switch word {
+		case "mochila", "funda", "maletin", "soporte", "base", "cargador",
+			"adaptador", "mouse", "teclado", "monitor", "tablet", "ipad":
+			return "computacion"
+		}
+	}
+	for _, word := range words {
+		switch word {
+		case "macbook", "notebook", "laptop", "ultrabook", "chromebook", "portatil":
+			return "notebooks"
+		}
+	}
+	return "computadores-de-escritorio"
 }
 
 // save guarda el ítem tal como llegó (normalizado por el scraper) en
