@@ -90,8 +90,9 @@ Pedidos hechos desde dentro del clúster (`kubectl exec deploy/frontend`) contra
 | `/services` | comercial | 200 |
 | `/search/products?q=refrigerador` | comercial | 200 |
 | `/search/products?category=refrigeradores&limit=1` | comercial | 200, con `attributes.capacidad_litros` |
-| `/products/27e2b77f-8c21-4629-9bbf-18939badeab3` | comercial | 200 |
-| `/offers/92/price-history` | comercial | 200 |
+| `/products/27e2b77f-8c21-4629-9bbf-18939badeab3` | comercial | 200, con el historial de precios (`priceHistory`) |
+
+> **Corrección (TAL-184):** la primera versión de esta tabla incluía `/offers/92/price-history` con respuesta 200. Ese 200 era la página HTML de la app, no la API: el gateway no publica `/offers` porque Pricing es una API interna (ver `k8s/README.md`). El frontend lee el historial desde el detalle del producto.
 
 Salud de cada proceso:
 
@@ -110,7 +111,7 @@ El detalle de producto devuelve cada punto del historial con la oferta, la tiend
 {"date": "2026-11-16", "price": "159990.00", "offerId": 92, "storeId": 4, "currency": "CLP", "recordedAt": "2026-11-16T06:00:11.918602Z"}
 ```
 
-`GET /offers/92/price-history` y `GET /offers/product/{id}/price-history` también incluyen `currency`.
+`GET /offers/92/price-history` y `GET /offers/product/{id}/price-history` también incluyen `currency`. Se consultaron directo contra el Service `comercial`, porque el gateway no publica `/offers`.
 
 ---
 
