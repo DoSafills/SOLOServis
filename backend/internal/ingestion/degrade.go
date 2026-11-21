@@ -19,6 +19,11 @@ type Counters struct {
 	// Rejected es cuántas tarjetas descartó el motor por no cumplir el
 	// contrato (atributo obligatorio, URL, precio).
 	Rejected int
+	// Duplicated es cuántas tarjetas se descartaron por repetir un producto
+	// ya visto en la misma corrida. No son un fallo: el listado muestra el
+	// mismo producto dos veces, pero sin este número la caída de `Sent`
+	// parecería una tienda rota (TAL-172).
+	Duplicated int
 	// PagesFailed es cuántas páginas del listado no se pudieron leer.
 	PagesFailed int
 }
@@ -70,8 +75,10 @@ type Degradation struct {
 //
 // Compara los contadores del scraper contra sí mismos (nada encontrado, nada
 // enviado, demasiados rechazos) y contra la mediana de las últimas corridas
-// exitosas de la misma tienda. Nunca inventa una alerta: sin contadores, con
-// `Found` en cero o sin historial suficiente la respuesta es «no degradada».
+// exitosas de la misma tienda. Los duplicados descartados cuentan como
+// entrega: un listado que repite tarjetas no es una tienda caída (TAL-172).
+// Nunca inventa una alerta: sin contadores, con `Found` en cero o sin
+// historial suficiente la respuesta es «no degradada».
 // Devuelve el veredicto con las razones que lo sostienen.
 func EvaluateDegradation(counters Counters, baseline []int32, thresholds Thresholds) Degradation {
 	if counters.Found <= 0 {
@@ -90,11 +97,18 @@ func EvaluateDegradation(counters Counters, baseline []int32, thresholds Thresho
 		// Con envíos reales sólo se compara contra el historial; una página
 		// caída de veinte no justifica una alerta si el catálogo llegó igual.
 		if reference := median(baseline); reference > 0 {
-			if limit := int(float64(reference) * thresholds.DropRatio); counters.Sent < limit {
-				reasons = append(reasons, fmt.Sprintf(
+			// Los duplicados no son una pérdida: si el listado trajo el mismo
+			// producto dos veces, `Sent` cae sin que la tienda esté rota.
+			effective := counters.Sent + counters.Duplicated
+			if limit := int(float64(reference) * thresholds.DropRatio); effective < limit {
+				reason := fmt.Sprintf(
 					"envió %d ítems contra una mediana de %d en las últimas corridas",
 					counters.Sent, reference,
-				))
+				)
+				if counters.Duplicated > 0 {
+					reason += fmt.Sprintf(" (%d tarjetas repetidas descartadas)", counters.Duplicated)
+				}
+				reasons = append(reasons, reason)
 			}
 		}
 	}

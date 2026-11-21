@@ -173,8 +173,11 @@ func (r *Repository) AddCounters(ctx context.Context, id int32, found, processed
 // una tienda, sin contar la corrida actual.
 //
 // Es la referencia con la que se mide si la corrida de hoy entregó mucho menos
-// que lo habitual (TAL-211). Devuelve una lista vacía cuando la tienda no tiene
-// historial, que el evaluador interpreta como «sin base de comparación».
+// que lo habitual (TAL-211). Una corrida exitosa que no encontró nada no sirve
+// de referencia: se excluye para que un vacío puntual no baje la mediana y
+// esconda la próxima caída (TAL-172). Devuelve una lista vacía cuando la tienda
+// no tiene historial, que el evaluador interpreta como «sin base de
+// comparación».
 func (r *Repository) RecentFound(ctx context.Context, storeID, excludeRunID int32, limit int) ([]int32, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT COALESCE(r.records_found, 0)
@@ -182,6 +185,7 @@ func (r *Repository) RecentFound(ctx context.Context, storeID, excludeRunID int3
 		JOIN scraper_config sc ON sc.id = r.scraper_config_id
 		JOIN data_source ds ON ds.id = sc.data_source_id
 		WHERE ds.store_id = $1 AND r.id <> $2 AND r.status = 'success'
+		  AND COALESCE(r.records_found, 0) > 0
 		ORDER BY r.started_at DESC, r.id DESC
 		LIMIT $3`, storeID, excludeRunID, limit)
 	if err != nil {

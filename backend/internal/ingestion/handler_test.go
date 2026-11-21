@@ -458,6 +458,8 @@ func TestFinishRunRejectsInvalidCounters(t *testing.T) {
 	}{
 		{`{"status":"success","itemsSent":-1}`, "itemsSent/min"},
 		{`{"status":"success","itemsFound":1000001}`, "itemsFound/max"},
+		{`{"status":"success","itemsDuplicated":-1}`, "itemsDuplicated/min"},
+		{`{"status":"success","itemsDuplicated":1000001}`, "itemsDuplicated/max"},
 	}
 	for _, test := range tests {
 		t.Run(test.field, func(t *testing.T) {

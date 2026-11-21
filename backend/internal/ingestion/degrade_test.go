@@ -67,6 +67,24 @@ func TestEvaluateDegradation(t *testing.T) {
 			counters: Counters{Found: 5, Sent: 5},
 			baseline: []int32{0, 0, 0},
 		},
+		{
+			name:     "los duplicados explican la caída",
+			counters: Counters{Found: 12, Sent: 12, Duplicated: 18},
+			baseline: []int32{30, 30, 30},
+		},
+		{
+			name:     "los duplicados no alcanzan y se nombran",
+			counters: Counters{Found: 6, Sent: 6, Duplicated: 2},
+			baseline: []int32{30, 30, 30},
+			degraded: true,
+			contains: "6 ítems contra una mediana de 30",
+		},
+		{
+			name:     "los duplicados no evitan alertar por rechazos",
+			counters: Counters{Found: 20, Sent: 10, Rejected: 10, Duplicated: 10},
+			degraded: true,
+			contains: "10 de 20 tarjetas rechazadas",
+		},
 	}
 
 	for _, test := range tests {

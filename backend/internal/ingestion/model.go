@@ -91,16 +91,18 @@ type SourceInput struct {
 
 // FinishRequest es el body de POST /ingestion/runs/{id}/finish.
 //
-// Los cuatro contadores son opcionales: un scraper que no los envíe sigue
-// cerrando la corrida como antes. Cuando llegan, ingestion evalúa si la
-// corrida quedó degradada (TAL-211) y avisa a los administradores.
+// Los contadores son opcionales: un scraper que no los envíe sigue cerrando la
+// corrida como antes. Cuando llegan, ingestion evalúa si la corrida quedó
+// degradada (TAL-211) y avisa a los administradores. `itemsDuplicated` (TAL-172)
+// explica una caída que en realidad fue un listado con tarjetas repetidas.
 type FinishRequest struct {
-	Status        string `json:"status"`
-	ErrorMessage  string `json:"errorMessage"`
-	ItemsFound    *int   `json:"itemsFound"`
-	ItemsSent     *int   `json:"itemsSent"`
-	ItemsRejected *int   `json:"itemsRejected"`
-	PagesFailed   *int   `json:"pagesFailed"`
+	Status          string `json:"status"`
+	ErrorMessage    string `json:"errorMessage"`
+	ItemsFound      *int   `json:"itemsFound"`
+	ItemsSent       *int   `json:"itemsSent"`
+	ItemsRejected   *int   `json:"itemsRejected"`
+	ItemsDuplicated *int   `json:"itemsDuplicated"`
+	PagesFailed     *int   `json:"pagesFailed"`
 }
 
 // ItemsRequest es el body de POST /ingestion/runs/{id}/items.

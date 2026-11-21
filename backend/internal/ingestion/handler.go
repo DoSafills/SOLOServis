@@ -218,6 +218,7 @@ func finishCounters(v *httpx.Validator, request FinishRequest) (Counters, bool) 
 		{"itemsFound", request.ItemsFound, &counters.Found},
 		{"itemsSent", request.ItemsSent, &counters.Sent},
 		{"itemsRejected", request.ItemsRejected, &counters.Rejected},
+		{"itemsDuplicated", request.ItemsDuplicated, &counters.Duplicated},
 		{"pagesFailed", request.PagesFailed, &counters.PagesFailed},
 	}
 	provided := false
