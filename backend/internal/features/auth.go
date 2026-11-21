@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/mail"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -26,6 +28,28 @@ const (
 // minPasswordLength es el largo mínimo de contraseña al registrarse.
 const minPasswordLength = 10
 
+// Límites de la Auth API contra solicitudes excesivas (TAL-201, hallazgo H1
+// de TAL-195). Cada PBKDF2 cuesta ~59 ms de CPU (benchmark de checkPassword)
+// y el pod usuarios tiene un límite de 200m: sin tope, unos 3 logins por
+// segundo lo saturan.
+const (
+	// maxLoginFailures intentos fallidos por email dentro de
+	// loginFailureWindow bloquean los siguientes hasta que la ventana vence.
+	maxLoginFailures   = 10
+	loginFailureWindow = 15 * time.Minute
+	// maxConcurrentPasswordHashes cálculos de PBKDF2 a la vez; el resto espera
+	// hasta passwordSlotWait y, si no hay cupo, recibe 429.
+	maxConcurrentPasswordHashes = 2
+	passwordSlotWait            = 2 * time.Second
+	// passwordBusyRetry es el Retry-After cuando no hubo cupo para PBKDF2.
+	passwordBusyRetry = 2 * time.Second
+)
+
+const (
+	loginBlockedDetail = "Demasiados intentos fallidos para este email. Espera antes de reintentar."
+	passwordBusyDetail = "El servicio está ocupado. Reintenta en unos segundos."
+)
+
 type authInput struct {
 	Name         string `json:"name"`
 	Email        string `json:"email"`
@@ -33,6 +57,10 @@ type authInput struct {
 	RefreshToken string `json:"refreshToken"`
 }
 
+// Register atiende POST /auth/register: crea la cuenta y emite tokens.
+// Recibe name, email y password; responde 201 con la sesión, 422 si no
+// cumplen las reglas, 409 si el email ya existe y 429 si no hay cupo para
+// calcular el hash de la contraseña (TAL-201).
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var input authInput
 	if !decodeAuth(w, r, &input) {
@@ -53,7 +81,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.passwordSlots.Acquire(r.Context()) {
+		httpx.WriteRateLimited(w, r, passwordBusyRetry, passwordBusyDetail)
+		return
+	}
 	hash, err := passwordHash(input.Password)
+	h.passwordSlots.Release()
 	if err != nil {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
@@ -68,6 +101,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	h.issueTokens(w, r, userID, http.StatusCreated)
 }
 
+// Login atiende POST /auth/login: valida email y password y emite tokens.
+// Responde 200 con la sesión, 422 si faltan datos, 401 si las credenciales no
+// coinciden y 429 si el email acumuló maxLoginFailures fallos en la ventana o
+// si no hay cupo para PBKDF2 (TAL-201). Un email inexistente cuenta como
+// fallo, para que el bloqueo no revele qué cuentas existen; un login exitoso
+// reinicia la cuenta de fallos.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var input authInput
 	if !decodeAuth(w, r, &input) {
@@ -86,21 +125,40 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	if !valid(w, r, &v) {
 		return
 	}
+	if blocked, retryAfter := h.loginFailures.Blocked(input.Email); blocked {
+		httpx.WriteRateLimited(w, r, retryAfter, loginBlockedDetail)
+		return
+	}
 	var userID int32
 	var hash string
 	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE email=$1 AND active`,
 		input.Email).Scan(&userID, &hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		h.loginFailures.Fail(input.Email)
+	}
 	if err != nil {
 		h.dbError(w, r, err, http.StatusUnauthorized, "Credenciales inválidas.")
 		return
 	}
-	if !checkPassword(hash, input.Password) {
+	if !h.passwordSlots.Acquire(r.Context()) {
+		httpx.WriteRateLimited(w, r, passwordBusyRetry, passwordBusyDetail)
+		return
+	}
+	ok := checkPassword(hash, input.Password)
+	h.passwordSlots.Release()
+	if !ok {
+		h.loginFailures.Fail(input.Email)
 		writeError(w, r, http.StatusUnauthorized, "Credenciales inválidas.")
 		return
 	}
+	h.loginFailures.Reset(input.Email)
 	h.issueTokens(w, r, userID, http.StatusOK)
 }
 
+// issueTokens crea una sesión para userID y responde con status los tokens
+// (access de 15 minutos, refresh de 30 días) y el perfil. Guarda solo el
+// SHA-256 de cada token. Responde 404 si el usuario ya no está activo y 500
+// si falla la base o el generador aleatorio.
 func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int32, status int) {
 	var name, email string
 	if err := h.db.QueryRow(r.Context(), `SELECT name,email FROM user_account WHERE id=$1 AND active`,
@@ -134,6 +192,9 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 		"refreshExpiresAt": refreshExpiry})
 }
 
+// Refresh atiende POST /auth/refresh: canjea un refresh token vigente por un
+// par nuevo y borra la sesión anterior (rotación). Responde 200 con la
+// sesión nueva, 422 si falta refreshToken y 401 si no es válido o venció.
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var input authInput
 	if !decodeAuth(w, r, &input) {
@@ -184,6 +245,8 @@ func decodeAuth(w http.ResponseWriter, r *http.Request, input *authInput) bool {
 	return true
 }
 
+// validEmail indica si value es un correo con formato válido, sin nombre
+// visible ni espacios y de largo dentro de maxEmailLength.
 func validEmail(value string) bool {
 	if len(value) == 0 || len(value) > maxEmailLength {
 		return false
@@ -192,6 +255,8 @@ func validEmail(value string) bool {
 	return err == nil && address.Address == value && !strings.ContainsAny(value, " \t\r\n")
 }
 
+// ValidateToken atiende GET /auth/validate: responde 200 con el userId si el
+// bearer token es un access token vigente, o 401 si falta, no existe o venció.
 func (h *Handler) ValidateToken(w http.ResponseWriter, r *http.Request) {
 	token := bearerToken(r)
 	if token == "" {
@@ -207,6 +272,8 @@ func (h *Handler) ValidateToken(w http.ResponseWriter, r *http.Request) {
 	apiutil.WriteJSON(w, http.StatusOK, map[string]any{"valid": true, "userId": userID})
 }
 
+// bearerToken devuelve el token del header "Authorization: Bearer <token>",
+// o "" si el header falta o usa otro esquema.
 func bearerToken(r *http.Request) string {
 	value := r.Header.Get("Authorization")
 	if len(value) > 7 && strings.EqualFold(value[:7], "Bearer ") {
@@ -215,6 +282,8 @@ func bearerToken(r *http.Request) string {
 	return ""
 }
 
+// newToken genera un token opaco de 32 bytes aleatorios en base64 URL.
+// Devuelve error solo si falla el generador del sistema.
 func newToken() (string, error) {
 	data := make([]byte, 32)
 	if _, err := rand.Read(data); err != nil {
@@ -223,11 +292,16 @@ func newToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
+// tokenHash devuelve el SHA-256 del token: es lo único que se guarda en
+// user_session, así una fuga de la base no expone sesiones usables.
 func tokenHash(token string) []byte {
 	hash := sha256.Sum256([]byte(token))
 	return hash[:]
 }
 
+// passwordHash deriva el hash de password con PBKDF2-SHA256, sal aleatoria
+// de 16 bytes y passwordIterations iteraciones. Devuelve el texto
+// "pbkdf2-sha256$<iteraciones>$<sal>$<hash>" que se guarda en user_account.
 func passwordHash(password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -238,6 +312,9 @@ func passwordHash(password string) (string, error) {
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(derived)), nil
 }
 
+// checkPassword indica si password corresponde al hash encoded (formato de
+// passwordHash). Rechaza formatos desconocidos e iteraciones fuera de
+// [100000, 1000000], y compara en tiempo constante.
 func checkPassword(encoded, password string) bool {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 4 || parts[0] != "pbkdf2-sha256" {
@@ -259,6 +336,8 @@ func checkPassword(encoded, password string) bool {
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
+// pbkdf2 implementa PBKDF2 (RFC 8018) con HMAC-SHA256: deriva keyLength
+// bytes de password y salt con iterations rondas. Ver H15 de TAL-195.
 func pbkdf2(password, salt []byte, iterations, keyLength int) []byte {
 	result := make([]byte, 0, keyLength)
 	for block := uint32(1); len(result) < keyLength; block++ {
@@ -276,6 +355,8 @@ func pbkdf2(password, salt []byte, iterations, keyLength int) []byte {
 	return result[:keyLength]
 }
 
+// hmacSHA256 calcula HMAC-SHA256 (RFC 2104) de data con key; es la función
+// pseudoaleatoria de pbkdf2.
 func hmacSHA256(key, data []byte) []byte {
 	block := make([]byte, 64)
 	if len(key) > len(block) {
