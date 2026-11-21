@@ -30,6 +30,8 @@ const (
 	CodeValidationFailed     = "validation_failed"
 	CodeInternalError        = "internal_error"
 	CodeServiceUnavailable   = "service_unavailable"
+	CodeAIUnavailable        = "ai_unavailable"
+	CodeTooManyRequests      = "too_many_requests"
 )
 
 const (

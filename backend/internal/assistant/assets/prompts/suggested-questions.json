@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "questions": [
+    {
+      "id": "capacity",
+      "text": "¿Cuál tiene más capacidad?"
+    },
+    {
+      "id": "materials",
+      "text": "¿Cuál tiene mejores materiales?"
+    },
+    {
+      "id": "technical",
+      "text": "¿Qué diferencias técnicas importan?"
+    },
+    {
+      "id": "recommendation",
+      "text": "¿Cuál me recomiendas y por qué?"
+    }
+  ]
+}

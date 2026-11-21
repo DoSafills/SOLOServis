@@ -66,6 +66,7 @@ Proyecto del curso Taller de Integración III (UCT). Las tareas viven en Linear 
 | Contenedores | Docker (imágenes multi-etapa, sin root), Docker Compose |
 | Orquestación | Kubernetes con Kustomize (clúster UCT), scripts `deploy.ps1` / `deploy.sh` |
 | Autenticación | Sesiones con tokens opacos (se guarda su SHA-256), contraseñas con PBKDF2-SHA256; token de servicio `INTERNAL_API_TOKEN` |
+| Asistente de comparación (IA) | Gemini (`gemini-3.5-flash`) desde `backend/internal/assistant/`; contexto cerrado a 2–5 productos, guardrails, caché en memoria y auditoría en `ai_comparison_query`. `AI_PROVIDER=auto` usa Gemini con `AI_API_KEY`; sin clave responde 503 `ai_unavailable` (no hay respuestas de plantilla). Config y prompt en `assistant/`. |
 | Herramientas git | husky + lint-staged |
 
 ### **No** implementado (figuró en versiones antiguas del README)
@@ -76,7 +77,6 @@ No hay rastro en el código de: **Redis**, **Scrapy**, **Playwright** (directo),
 
 | Qué | Estado |
 | --- | --- |
-| IA / NLP para consultas | Solo existe la tabla `ai_query_process`; no hay código |
 | Caché (Redis) | Prevista; sin implementar |
 | Documentación OpenAPI | Prevista; hoy los endpoints están en `backend/README.md` |
 | Pantallas de seguimiento de precios y notificaciones | Las APIs `watchlist` y `notification` existen; el frontend no las usa |
@@ -99,6 +99,7 @@ backend/            API en Go
 fronted/            frontend React (la carpeta se llama "fronted", sin la n)
 scraper/            scraper v2: specs por tienda en stores/<slug>/spec.json
 crawler/            crawler v1
+assistant/          asistente de comparación: config, prompt y allowlist (fuente de assets)
 docker/             Dockerfiles, compose.yml (3 dominios) y compose.microservicios.yml
 k8s/                base/, components/{dominios,consolidado,espera-postgres}, tests/
 scripts/k8s/        deploy.ps1, deploy.sh
@@ -228,6 +229,7 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 - Docker Compose con los 3 procesos (TAL-109).
 - Despliegue validado, 29 de 29 en el pod de test (TAL-110). Evidencia: `docs/auditorias/TAL-110-despliegue-y-validacion.md`.
 - Scraper v2 entregando productos reales de Falabella y Ripley de punta a punta.
+- Asistente de comparación (IA) conectado: `POST /comparisons/assistant` con Gemini (`gemini-3.5-flash`), contexto cerrado, guardrails, caché y auditoría. La respuesta es siempre la del modelo: sin `AI_API_KEY` responde 503 `ai_unavailable` y el backend no arma texto por su cuenta. El camino de Gemini se prueba con un servidor simulado (payload, errores y reintentos), no contra la API real porque no hay clave en el repo.
 
 **Pendiente:**
 - Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra fallas: 2 tests del crawler en Windows (conexión SQLite sin cerrar) y `pnpm format:check` (archivos con CRLF).
@@ -251,3 +253,4 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 | Rutas y dependencias entre APIs | `docs/auditorias/TAL-105-rutas-y-dependencias.md` |
 | Modelo de datos | `docs/database/modelo-relacional.md` |
 | Scraper | `scraper/README.md` |
+| Asistente de comparación (IA) | `assistant/README.md` |
