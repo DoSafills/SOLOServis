@@ -127,6 +127,23 @@ class FieldSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class Supplement:
+    """A second source for one item value, read once per page.
+
+    ``path`` is ``externalUrl`` or a declared field path. ``match_by`` reads the
+    product id out of the card and ``value_path`` is the dotted path inside the
+    page entry (for example ``image`` inside a JSON-LD ``ListItem``). A
+    supplement only fills a value the card did not provide; it never overwrites
+    one. It exists because some listings render the images and links in the
+    browser while publishing them as structured data in the same HTML.
+    """
+
+    path: str
+    match_by: ValueSpec
+    value_path: str
+
+
+@dataclass(frozen=True, slots=True)
 class CrawlRules:
     """Spec-declared link discovery.
 
@@ -169,8 +186,9 @@ class StoreSpec:
     match: MatchRules
     listing: Listing
     external_id: ValueSpec | None
-    external_url: ValueSpec
+    external_url: ValueSpec | None
     fields: tuple[FieldSpec, ...]
+    supplements: tuple[Supplement, ...] = ()
     dedupe_by: str = "externalId"
     reject_if_missing: tuple[str, ...] = ()
     crawl: CrawlRules | None = None

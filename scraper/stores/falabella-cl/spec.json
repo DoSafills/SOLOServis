@@ -22,9 +22,6 @@
   },
   "item": {
     "externalId": { "attribute": "id" },
-    "externalUrl": {
-      "template": "https://www.falabella.com/falabella-cl/product/{externalId}"
-    },
     "fields": {
       "product.name": {
         "selector": ".pod-details .copy2.primary",
@@ -62,6 +59,18 @@
         "selector": ".pod-summary .availability",
         "type": "boolean",
         "default": true
+      }
+    },
+    "supplements": {
+      "externalUrl": {
+        "from": "jsonld",
+        "matchBy": { "attribute": "data-key" },
+        "valuePath": "url"
+      },
+      "product.imageUrl": {
+        "from": "jsonld",
+        "matchBy": { "attribute": "data-key" },
+        "valuePath": "image"
       }
     }
   },
