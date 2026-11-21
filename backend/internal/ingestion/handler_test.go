@@ -58,11 +58,14 @@ type fakeRuns struct {
 	findErr            error
 	images             map[int32]string // imagen activa por id de producto
 	addImageErr        error
+	saveBatchErr       error // error del INSERT por lote de scraped_data
 
 	imageCalls []string // "id|url" de cada llamada a AddImageIfMissing
 	opened     []any
 	counters   []int
-	saved      []string
+	saved      []string // external_id de cada fila guardada, en orden
+	batches    int      // llamadas a SaveScrapedBatch
+	singles    int      // llamadas a SaveScraped (respaldo)
 	brands     []string
 	finished   []any
 }
@@ -84,12 +87,33 @@ func (f *fakeRuns) AddCounters(_ context.Context, _ int32, found, processed, fai
 	f.counters = []int{found, processed, failed}
 	return nil
 }
+
+// SaveScraped simula el guardado de una fila de scraped_data (el respaldo
+// cuando falla el lote): cuenta la llamada y anota su external_id.
 func (f *fakeRuns) SaveScraped(_ context.Context, _ int32, externalID, _ *string, _ json.RawMessage) error {
+	f.singles++
 	id := ""
 	if externalID != nil {
 		id = *externalID
 	}
 	f.saved = append(f.saved, id)
+	return nil
+}
+
+// SaveScrapedBatch simula el INSERT por lote: cuenta la llamada y, si
+// saveBatchErr no está definido, anota el external_id de cada fila en orden.
+func (f *fakeRuns) SaveScrapedBatch(_ context.Context, _ int32, items []ScrapedItem) error {
+	f.batches++
+	if f.saveBatchErr != nil {
+		return f.saveBatchErr
+	}
+	for _, item := range items {
+		id := ""
+		if item.ExternalID != nil {
+			id = *item.ExternalID
+		}
+		f.saved = append(f.saved, id)
+	}
 	return nil
 }
 func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error) {
@@ -154,20 +178,28 @@ func (c *fakeCatalog) Create(_ context.Context, w products.ProductWrite) (pgtype
 }
 
 type fakeOffers struct {
-	previous  *string
-	upsertErr error
-	watchers  []pricing.Watcher
-	written   []pricing.OfferWrite
+	previous     *string
+	upsertErr    error
+	watchers     []pricing.Watcher
+	written      []pricing.OfferWrite
+	getCalls     int // llamadas a GetOffer
+	watcherCalls int // llamadas a PriceDropWatchers
 }
 
 func (o *fakeOffers) UpsertOffer(_ context.Context, w pricing.OfferWrite) (int32, bool, *string, error) {
 	o.written = append(o.written, w)
 	return int32(40 + len(o.written)), o.previous == nil, o.previous, o.upsertErr
 }
+
+// GetOffer simula la lectura de la oferta guardada y cuenta la llamada.
 func (o *fakeOffers) GetOffer(_ context.Context, id int32) (pricing.Offer, error) {
+	o.getCalls++
 	return pricing.Offer{ID: id, Price: "90.00"}, nil
 }
+
+// PriceDropWatchers simula la consulta de usuarios a avisar y cuenta la llamada.
 func (o *fakeOffers) PriceDropWatchers(context.Context, int32, string, string) ([]pricing.Watcher, error) {
+	o.watcherCalls++
 	return o.watchers, nil
 }
 
@@ -761,5 +793,93 @@ func TestAddItems_RechazaSeparadoresDeSlugInvalidos(t *testing.T) {
 				t.Fatalf("no debe buscar un slug inválido: %+v", e.catalog.resolved)
 			}
 		})
+	}
+}
+
+// TAL-205: solo una bajada de precio consulta la oferta y los usuarios a
+// avisar. Si el precio sube o queda igual (lo habitual en cada corrida), el
+// ítem se ahorra esas dos consultas y no se envía ningún aviso.
+func TestAddItems_AvisoSoloSiElPrecioBaja(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		previous  string
+		price     string
+		wantCalls int
+	}{
+		{"baja", "100.00", "90", 1},
+		{"baja en centavos", "90.01", "90", 1},
+		{"igual", "90.00", "90", 0},
+		{"sube", "80.00", "90", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			e.runs.existing["LG-1"] = ExistingProduct{ID: 8, PublicID: "existente", Active: true}
+			e.offers.previous = strp(tc.previous)
+			e.offers.watchers = []pricing.Watcher{{UserID: 4, ProductName: "Refri"}}
+
+			result := batch(t, e, `{"product":{"sku":"LG-1","name":"x"},"offer":{"price":`+tc.price+`}}`)
+
+			if result.Results[0].Status != ItemUpdated {
+				t.Fatalf("resultado = %+v", result.Results[0])
+			}
+			if e.offers.getCalls != tc.wantCalls || e.offers.watcherCalls != tc.wantCalls || len(e.notifier.sent) != tc.wantCalls {
+				t.Fatalf("GetOffer = %d, PriceDropWatchers = %d, avisos = %d; quiero %d de cada uno",
+					e.offers.getCalls, e.offers.watcherCalls, len(e.notifier.sent), tc.wantCalls)
+			}
+		})
+	}
+}
+
+// TAL-205: scraped_data se guarda con un solo INSERT por lote y en el orden
+// recibido, incluidos los ítems fallidos. Si ese INSERT falla, se guarda ítem
+// por ítem para no perder los demás, y el lote responde igual.
+func TestAddItems_ScrapedDataEnUnSoloInsert(t *testing.T) {
+	items := `{"externalId":"a","product":{"name":""},"offer":{"price":1}},
+		{"externalId":"b","product":{"name":"Bueno","categorySlug":"refrigeradores","attributes":{"capacidad_litros":200}},"offer":{"price":1}},
+		{"externalId":"c","product":{"name":"Sin categoría"},"offer":{"price":1}}`
+	for _, tc := range []struct {
+		name        string
+		batchErr    error
+		wantSingles int
+	}{
+		{"lote", nil, 0},
+		{"respaldo ítem por ítem", errBoom, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			e.runs.saveBatchErr = tc.batchErr
+
+			result := batch(t, e, items)
+
+			if result.Received != 3 || result.Processed != 1 || result.Failed != 2 {
+				t.Fatalf("resumen = %+v", result)
+			}
+			if e.runs.batches != 1 || e.runs.singles != tc.wantSingles || !reflect.DeepEqual(e.runs.saved, []string{"a", "b", "c"}) {
+				t.Fatalf("lotes = %d, sueltos = %d, guardados = %v", e.runs.batches, e.runs.singles, e.runs.saved)
+			}
+			if tc.batchErr != nil && !strings.Contains(e.logs.String(), "ingestion_save_scraped_batch_failed") {
+				t.Fatal("el fallo del lote debe quedar en el log")
+			}
+		})
+	}
+}
+
+// TestPriceDropped compara precios decimales sin redondeo y, si alguno no se
+// puede leer, deja que la consulta de avisos decida (devuelve true).
+func TestPriceDropped(t *testing.T) {
+	for _, tc := range []struct {
+		previous, current string
+		want              bool
+	}{
+		{"100.00", "99.99", true},
+		{"100.00", "100", false},
+		{"100", "100.01", false},
+		{"1234567890.99", "1234567890.98", true},
+		{"no-es-numero", "10", true},
+		{"10", "", true},
+	} {
+		if got := priceDropped(tc.previous, tc.current); got != tc.want {
+			t.Errorf("priceDropped(%q, %q) = %v, quiero %v", tc.previous, tc.current, got, tc.want)
+		}
 	}
 }

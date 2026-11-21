@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
@@ -33,13 +35,33 @@ type Searcher interface {
 
 const popularProductsLimit = 12
 
+// popularProductsTTL es cuánto se reutiliza la lista de productos populares
+// (TAL-205). La página de inicio la pide en cada visita y la consulta recorre
+// todo el catálogo; la popularidad cambia lento, así que 5 minutos de retraso
+// no se notan.
+const popularProductsTTL = 5 * time.Minute
+
+// popularCache guarda en memoria la última lista de productos populares y
+// cuándo vence. Es por proceso: comercial corre en una sola réplica, así que
+// no hace falta invalidarlo entre instancias.
+type popularCache struct {
+	mu        sync.Mutex
+	results   []ProductResult
+	expiresAt time.Time
+}
+
+// Handler atiende las rutas /search/* con el Searcher que recibe.
 type Handler struct {
 	searcher Searcher
 	logger   *slog.Logger
+	popular  popularCache
+	now      func() time.Time // reloj; los tests lo reemplazan
 }
 
+// NewHandler crea el handler de búsqueda sobre searcher, que registra los
+// errores internos en logger.
 func NewHandler(searcher Searcher, logger *slog.Logger) *Handler {
-	return &Handler{searcher: searcher, logger: logger}
+	return &Handler{searcher: searcher, logger: logger, now: time.Now}
 }
 
 // moneyPattern replica NUMERIC(12,2): hasta 10 enteros y 2 decimales.
@@ -63,17 +85,37 @@ func (h *Handler) Products(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, results)
 }
 
-// PopularProducts atiende GET /search/popular-products.
+// PopularProducts atiende GET /search/popular-products. Responde con la lista
+// guardada si tiene menos de popularProductsTTL; si no, la consulta y la
+// guarda. Un error no se guarda: la próxima petición vuelve a consultar.
 func (h *Handler) PopularProducts(w http.ResponseWriter, r *http.Request) {
-	results, err := h.searcher.PopularProducts(r.Context(), popularProductsLimit)
+	results, err := h.popularProducts(r.Context())
 	if err != nil {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
+	writeJSON(w, results)
+}
+
+// popularProducts devuelve los productos populares desde el caché o desde la
+// base (nunca nil). El mutex se mantiene durante la consulta para que varias
+// peticiones que llegan con el caché vencido hagan una sola consulta.
+func (h *Handler) popularProducts(ctx context.Context) ([]ProductResult, error) {
+	h.popular.mu.Lock()
+	defer h.popular.mu.Unlock()
+	now := h.now()
+	if h.popular.results != nil && now.Before(h.popular.expiresAt) {
+		return h.popular.results, nil
+	}
+	results, err := h.searcher.PopularProducts(ctx, popularProductsLimit)
+	if err != nil {
+		return nil, err
+	}
 	if results == nil {
 		results = []ProductResult{}
 	}
-	writeJSON(w, results)
+	h.popular.results, h.popular.expiresAt = results, now.Add(popularProductsTTL)
+	return results, nil
 }
 
 // Facets atiende GET /search/facets: total, precios, marcas y atributos

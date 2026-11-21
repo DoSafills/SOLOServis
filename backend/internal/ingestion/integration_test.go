@@ -18,6 +18,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -388,5 +389,72 @@ func TestIngestionIntegration_ImagenDeProductoExistente(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM product WHERE name = $1`, name).Scan(&copies), "copias")
 	if copies != 1 {
 		t.Fatalf("productos = %d, quiero 1 (sin duplicados)", copies)
+	}
+}
+
+// Integración TAL-205: SaveScrapedBatch guarda todas las filas del lote con
+// un solo INSERT, en el orden recibido y con NULL donde no hay identificador.
+// Si una fila no es jsonb válido (\u0000), no guarda ninguna: el procesador
+// cae al guardado ítem por ítem. Se omite sin TEST_DATABASE_URL.
+func TestIngestionIntegration_ScrapedDataPorLote(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL no definida: se omite el test de integración")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	tag := "tal205-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	var storeID int32
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM data_source WHERE name = $1`, "Scraper "+tag)
+		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = $1`, storeID)
+	})
+	if err := pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda "+tag).Scan(&storeID); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool)
+	runID, err := repo.OpenRun(ctx, "Scraper "+tag, nil, storeID, "perf")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows := []ScrapedItem{
+		{ExternalID: strp("a"), ExternalURL: strp("https://t.test/a"), Raw: json.RawMessage(`{"n":1}`)},
+		{Raw: json.RawMessage(`{"n":2}`)},
+		{ExternalID: strp("c"), Raw: json.RawMessage(`{"n":3}`)},
+	}
+	if err := repo.SaveScrapedBatch(ctx, runID, rows); err != nil {
+		t.Fatalf("guardar lote: %v", err)
+	}
+	saved := func() []string {
+		t.Helper()
+		result, err := pool.Query(ctx, `
+			SELECT COALESCE(external_id, '-') || '|' || COALESCE(external_url, '-') || '|' || (raw_data->>'n')
+			FROM scraped_data WHERE scrape_run_id = $1 ORDER BY id`, runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := pgx.CollectRows(result, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if got, want := saved(), []string{"a|https://t.test/a|1", "-|-|2", "c|-|3"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("scraped_data = %v, quiero %v", got, want)
+	}
+
+	bad := []ScrapedItem{{Raw: json.RawMessage(`{"n":4}`)}, {Raw: json.RawMessage(`{"n":"\u0000"}`)}}
+	if err := repo.SaveScrapedBatch(ctx, runID, bad); err == nil {
+		t.Fatal("un \\u0000 debe hacer fallar el lote")
+	}
+	if got := saved(); len(got) != 3 {
+		t.Fatalf("un lote fallido no debe dejar filas: %v", got)
 	}
 }

@@ -35,3 +35,8 @@
 023_consolidate_computacion_category.sql
 024_celulares_category.sql
 025_merge_refrigeradores_duplicates.sql
+# TAL-244: 022-024 movieron productos sin actualizar category_ref.
+026_backfill_product_category_ref.sql
+# TAL-189: índices de las búsquedas de Ingestion y texto de búsqueda normalizado.
+027_ingestion_lookup_indexes.sql
+028_product_search_text.sql

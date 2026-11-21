@@ -136,7 +136,7 @@ func TestIntegration_ProductAPIEscrituraConAtributos(t *testing.T) {
 
 	t.Run("token de servicio con categoryId antiguo (Ingestion)", func(t *testing.T) {
 		var lavadoID int32
-		if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Lavado'`).Scan(&lavadoID); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Lavadoras' AND active`).Scan(&lavadoID); err != nil {
 			t.Fatal(err)
 		}
 		rec := do(http.MethodPost, "/products", serviceToken, fmt.Sprintf(

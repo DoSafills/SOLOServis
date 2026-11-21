@@ -36,6 +36,8 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 //
 // strpos (no ILIKE) evita que '%' o '_' del usuario actúen como comodines, y
 // translate (nativo, sin la extensión unaccent) ignora tildes y mayúsculas.
+// Nombre, modelo y SKU llegan ya normalizados en p.search_text (columna
+// generada, migración 028, TAL-189); solo la marca se normaliza aquí.
 const matchedSQL = `
 WITH RECURSIVE subtree AS (
     SELECT c.id FROM product_category c WHERE c.id = $2::int AND c.active
@@ -60,8 +62,8 @@ matched AS (
       AND NOT EXISTS (
           SELECT 1 FROM unnest($1::text[]) AS w(word)
           WHERE strpos(
-              translate(lower(p.name || ' ' || COALESCE(p.model, '') || ' ' || COALESCE(p.sku, '') || ' ' || COALESCE(b.name, '')),
-                        'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc'),
+              p.search_text || ' ' ||
+              translate(lower(COALESCE(b.name, '')), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc'),
               translate(lower(w.word), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc')) = 0)
       AND ($2::int IS NULL OR p.category_id IN (SELECT id FROM subtree))
       AND ($3::text IS NULL OR p.category_ref = (SELECT id FROM categories WHERE slug = $3::text AND active))
@@ -213,6 +215,9 @@ func (r *Repository) SearchProducts(ctx context.Context, q Query) ([]ProductResu
 	return results, total, attrRows.Err()
 }
 
+// popularProductsSQL puntúa cada producto activo por las búsquedas históricas
+// cuyos términos aparecen en su texto (p.search_text más la marca) y devuelve
+// los $1 primeros con su mejor precio, ofertas e imagen principal.
 const popularProductsSQL = `
 WITH popular_queries AS (
     SELECT translate(lower(regexp_replace(btrim(raw_query), '\s+', ' ', 'g')),
@@ -225,8 +230,8 @@ WITH popular_queries AS (
 ),
 product_text AS (
     SELECT p.id,
-           translate(lower(concat_ws(' ', p.name, p.model, p.sku, b.name)),
-                     'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc') AS normalized_text
+           p.search_text || ' ' ||
+           translate(lower(COALESCE(b.name, '')), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc') AS normalized_text
     FROM product p
     LEFT JOIN brand b ON b.id = p.brand_id
     WHERE p.active
@@ -270,6 +275,9 @@ LIMIT $1`
 
 // PopularProducts ordena los productos activos según la frecuencia histórica
 // de términos de búsquedas de producto que coinciden con su nombre, modelo, SKU o marca.
+// Recibe cuántos productos devolver (limit) y devuelve los resultados con su
+// mejor precio y cantidad de ofertas. El texto de cada producto sale de
+// p.search_text (migración 028, TAL-189) más la marca normalizada.
 func (r *Repository) PopularProducts(ctx context.Context, limit int) ([]ProductResult, error) {
 	rows, err := r.db.Query(ctx, popularProductsSQL, limit)
 	if err != nil {

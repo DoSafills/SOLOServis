@@ -37,7 +37,7 @@ func TestIntegration_SeedsCumplenRestricciones(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT array_agg(slug ORDER BY slug) FROM categories`).Scan(&slugs); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"internet-fibra-optica", "notebooks", "refrigeradores", "televisores"}
+	want := []string{"celulares", "internet-fibra-optica", "notebooks", "refrigeradores", "televisores"}
 	if !reflect.DeepEqual(slugs, want) {
 		t.Fatalf("slugs = %v, quiero %v", slugs, want)
 	}
@@ -158,9 +158,9 @@ func TestIntegration_RepositoryList(t *testing.T) {
 		wantSlugs []string
 		wantTotal int64
 	}{
-		{"primera página", ListParams{Limit: 2}, []string{"internet-fibra-optica", "notebooks"}, 4},
-		{"segunda página", ListParams{Limit: 2, Offset: 2}, []string{"refrigeradores", "televisores"}, 4},
-		{"offset fuera de rango", ListParams{Limit: 20, Offset: 10}, []string{}, 4},
+		{"primera página", ListParams{Limit: 2}, []string{"celulares", "internet-fibra-optica"}, 5},
+		{"segunda página", ListParams{Limit: 2, Offset: 2}, []string{"notebooks", "refrigeradores"}, 5},
+		{"offset fuera de rango", ListParams{Limit: 20, Offset: 10}, []string{}, 5},
 		{"filtro servicio", ListParams{ItemType: &service, Limit: 20}, []string{"internet-fibra-optica"}, 1},
 	}
 
@@ -180,7 +180,7 @@ func TestIntegration_RepositoryList(t *testing.T) {
 		})
 	}
 
-	items, _, err := repo.List(ctx, ListParams{Limit: 1, Offset: 2})
+	items, _, err := repo.List(ctx, ListParams{Limit: 1, Offset: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
