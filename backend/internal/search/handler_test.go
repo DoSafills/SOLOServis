@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
@@ -374,4 +376,43 @@ func TestCategoriesYBrands(t *testing.T) {
 	requireStatus(t, rec, http.StatusInternalServerError)
 	rec, _ = serve(t, &fakeSearcher{err: errBoom}, "/search/categories")
 	requireStatus(t, rec, http.StatusInternalServerError)
+}
+
+// TAL-205: la lista de productos populares se reutiliza durante
+// popularProductsTTL; al vencer se vuelve a consultar. Un error no queda
+// guardado: la petición siguiente consulta otra vez.
+func TestPopularProducts_Cache(t *testing.T) {
+	s := &fakeSearcher{popular: []ProductResult{{ID: "x", Name: "Refrigerador"}}}
+	h := NewHandler(s, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	clock := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	h.now = func() time.Time { return clock }
+	get := func(want int) string {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/search/popular-products", nil)
+		h.PopularProducts(rec, req.WithContext(context.Background()))
+		requireStatus(t, rec, want)
+		return rec.Body.String()
+	}
+
+	first := get(http.StatusOK)
+	clock = clock.Add(popularProductsTTL - time.Second)
+	s.popular = []ProductResult{{ID: "y", Name: "Lavadora"}}
+	if body := get(http.StatusOK); body != first || s.dbTouched != 1 {
+		t.Fatalf("dentro del TTL: consultas = %d, respuesta = %s", s.dbTouched, body)
+	}
+
+	clock = clock.Add(time.Second)
+	if body := get(http.StatusOK); !strings.Contains(body, `"y"`) || s.dbTouched != 2 {
+		t.Fatalf("al vencer: consultas = %d, respuesta = %s", s.dbTouched, body)
+	}
+
+	clock = clock.Add(popularProductsTTL)
+	s.err = errBoom
+	get(http.StatusInternalServerError)
+	s.err = nil
+	get(http.StatusOK)
+	if s.dbTouched != 4 {
+		t.Fatalf("tras un error debe volver a consultar: consultas = %d", s.dbTouched)
+	}
 }

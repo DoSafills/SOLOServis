@@ -177,6 +177,34 @@ func (r *Repository) SaveScraped(ctx context.Context, runID int32, externalID, e
 	return err
 }
 
+// ScrapedItem es una fila de scraped_data: el ítem recibido como JSON y sus
+// identificadores en la tienda (nil si no vinieron).
+type ScrapedItem struct {
+	ExternalID  *string
+	ExternalURL *string
+	Raw         json.RawMessage
+}
+
+// SaveScrapedBatch guarda los ítems de un lote en scraped_data con un solo
+// INSERT (TAL-205), en el orden recibido. Recibe la ejecución y las filas;
+// devuelve el error de la base si el INSERT falla, y entonces no guarda
+// ninguna. El JSON viaja como texto y se convierte a jsonb en la consulta.
+func (r *Repository) SaveScrapedBatch(ctx context.Context, runID int32, items []ScrapedItem) error {
+	externalIDs := make([]*string, len(items))
+	externalURLs := make([]*string, len(items))
+	raws := make([]string, len(items))
+	for i, item := range items {
+		externalIDs[i], externalURLs[i], raws[i] = item.ExternalID, item.ExternalURL, string(item.Raw)
+	}
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO scraped_data (scrape_run_id, external_id, external_url, entity_type, raw_data)
+		SELECT $1, t.external_id, t.external_url, 'product', t.raw::jsonb
+		FROM unnest($2::text[], $3::text[], $4::text[]) WITH ORDINALITY
+		     AS t(external_id, external_url, raw, position)
+		ORDER BY t.position`, runID, externalIDs, externalURLs, raws)
+	return err
+}
+
 // FindProduct busca un producto ya catalogado: primero por SKU y, si no lo
 // encuentra (o no hay SKU), por marca + modelo sin distinguir mayúsculas. Así
 // un SKU propio de la tienda no duplica un producto que ya existe con otro SKU.
@@ -240,7 +268,22 @@ func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string, 
 // Bloquea la fila del producto (FOR NO KEY UPDATE, que no choca con las
 // ofertas que lo referencian) para que dos lotes simultáneos no inserten la
 // imagen dos veces: product_image no tiene una restricción única que lo evite.
+//
+// Antes de abrir la transacción pregunta, sin bloquear, si el producto ya
+// tiene una imagen activa (TAL-205). Es el caso de casi todos los ítems de
+// cada corrida y así se ahorran la transacción y el bloqueo. Si la respuesta
+// es "no", la transacción vuelve a comprobarlo con la fila bloqueada.
 func (r *Repository) AddImageIfMissing(ctx context.Context, productID int32, imageURL string) (bool, error) {
+	var hasImage bool
+	if err := r.db.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM product_image WHERE product_id = $1 AND active)`,
+		productID).Scan(&hasImage); err != nil {
+		return false, err
+	}
+	if hasImage {
+		return false, nil
+	}
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return false, err
