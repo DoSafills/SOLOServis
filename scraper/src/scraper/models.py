@@ -440,6 +440,13 @@ class RunRecord:
 
 @dataclass(slots=True)
 class Counters:
+    """Números de una corrida: páginas, ítems enviados, rechazados y duplicados.
+
+    ``items_duplicated`` cuenta las tarjetas que se descartaron porque repetían
+    un producto ya visto en la misma corrida (TAL-172): así un listado que
+    repite tarjetas se distingue de una tienda que dejó de entregar datos.
+    """
+
     pages_found: int = 0
     pages_processed: int = 0
     pages_failed: int = 0
@@ -447,8 +454,10 @@ class Counters:
     items_sent: int = 0
     items_failed: int = 0
     items_rejected: int = 0
+    items_duplicated: int = 0
 
     def to_dict(self) -> dict[str, int]:
+        """Devuelve los contadores con los nombres que usa el contrato JSON."""
         return {
             "pagesFound": self.pages_found,
             "pagesProcessed": self.pages_processed,
@@ -457,6 +466,7 @@ class Counters:
             "itemsSent": self.items_sent,
             "itemsFailed": self.items_failed,
             "itemsRejected": self.items_rejected,
+            "itemsDuplicated": self.items_duplicated,
         }
 
 
