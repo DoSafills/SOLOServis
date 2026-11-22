@@ -5,6 +5,7 @@ import {
   ApiError,
   changeAccountPassword,
   formatSearchHistoryQuery,
+  logoutAllAccounts,
   updateAccountName,
   uploadAccountAvatar,
   type AuthUser,
@@ -53,6 +54,7 @@ export default function UserPage({
   const [submitting, setSubmitting] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [loggingOutAll, setLoggingOutAll] = useState(false);
   const [profile, setProfile] = useState<AuthUser | null>(user);
   const [profileName, setProfileName] = useState(user?.name ?? "");
   const [syncedUser, setSyncedUser] = useState(user);
@@ -391,6 +393,24 @@ export default function UserPage({
                 className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-300 transition hover:bg-rose-400/10"
               >
                 {loggingOut ? "Cerrando sesión..." : "Cerrar sesión"}
+              </button>
+              <button
+                disabled={loggingOutAll}
+                onClick={() => {
+                  setLogoutError(null);
+                  setLoggingOutAll(true);
+                  void logoutAllAccounts()
+                    .then(() => onLogout())
+                    .catch((error: unknown) =>
+                      setLogoutError(
+                        error instanceof Error ? error.message : "No se pudo cerrar la sesión.",
+                      ),
+                    )
+                    .finally(() => setLoggingOutAll(false));
+                }}
+                className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-300 transition hover:bg-rose-400/10"
+              >
+                {loggingOutAll ? "Cerrando todas las sesiones..." : "Cerrar todas mis sesiones"}
               </button>
             </nav>
             {logoutError && (

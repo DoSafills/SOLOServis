@@ -145,6 +145,14 @@ func TestAuthAPI(t *testing.T) {
 			rules:      []rule{qFail("DELETE FROM user_session", errBoom)},
 			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 
+		// POST /auth/logout-all
+		{name: "logout-all/feliz", method: http.MethodPost, target: "/auth/logout-all",
+			rules:         []rule{qExec("DELETE FROM user_session WHERE user_id", 1)},
+			wantStatus:    http.StatusNoContent,
+			wantSetCookie: expiredRefreshCookieSet},
+		{name: "logout-all/sin sesión", method: http.MethodPost, target: "/auth/logout-all", token: "-",
+			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
+
 		// POST /auth/change-password
 		{name: "change-password/feliz", method: http.MethodPost, target: "/auth/change-password",
 			body: `{"currentPassword":"` + testPassword + `","newPassword":"NuevaClave123"}`,

@@ -357,6 +357,16 @@ export async function logoutAccount(): Promise<void> {
   }
 }
 
+// logoutAllAccounts cierra todas las sesiones del usuario en el servidor y
+// limpia la sesión en memoria.
+export async function logoutAllAccounts(): Promise<void> {
+  try {
+    await request<void>(API_URLS.auth, "/auth/logout-all", { method: "POST" });
+  } finally {
+    setAuthSession(null);
+  }
+}
+
 // updateAccountName cambia el nombre con PATCH /users/me y lo sincroniza en la
 // sesión guardada. Devuelve el perfil que respondió el backend.
 export async function updateAccountName(name: string): Promise<AuthUser> {

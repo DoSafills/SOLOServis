@@ -349,6 +349,25 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// LogoutAll atiende POST /auth/logout-all: cierra todas las sesiones del
+// usuario de la sesión, cuyo id sale del token y nunca del body, vence la
+// cookie del refresh token y responde 204. Sin sesión responde 401.
+func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
+	session, ok := authz.SessionFrom(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized,
+			"Se requiere un token de acceso válido (Authorization: Bearer <token>).")
+		return
+	}
+	if _, err := h.db.Exec(r.Context(), `DELETE FROM user_session WHERE user_id=$1`,
+		session.UserID); err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // decodeAuth es decode con un límite de body menor (16 KiB): los endpoints de
 // auth son públicos y no necesitan más.
 func decodeAuth(w http.ResponseWriter, r *http.Request, input *authInput) bool {
