@@ -104,3 +104,6 @@
 # TAL-188: fusiona proveedores duplicados, índice único por nombre normalizado
 # y enlaza "Falabella Scraper" con su tienda; idempotente.
 044_data_integrity.sql
+
+# TAL-194: función manual cleanup_obsolete_data(meses, dry_run); no se ejecuta sola.
+045_cleanup_obsolete_data.sql
