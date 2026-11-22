@@ -55,6 +55,12 @@ export default function UserPage({
   const [loggingOut, setLoggingOut] = useState(false);
   const [profile, setProfile] = useState<AuthUser | null>(user);
   const [profileName, setProfileName] = useState(user?.name ?? "");
+  const [syncedUser, setSyncedUser] = useState(user);
+  if (user !== syncedUser) {
+    setSyncedUser(user);
+    setProfile(user);
+    setProfileName(user?.name ?? "");
+  }
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
@@ -66,11 +72,6 @@ export default function UserPage({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
-
-  useEffect(() => {
-    setProfile(user);
-    setProfileName(user?.name ?? "");
-  }, [user]);
 
   useEffect(
     () => () => {
