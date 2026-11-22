@@ -2,14 +2,12 @@ import type { AnyCartItem, Product, Service } from "../../types";
 import { getProductById, getServiceById } from "../../services/api/api";
 import { API_URLS } from "./config";
 
-const AUTH_SESSION_KEY = "soloservice.auth-session";
+const LEGACY_AUTH_SESSION_KEY = "soloservice.auth-session";
 const COMPARISON_ID_KEY = "soloservice.product-comparison-id";
 const SERVICE_COMPARISON_ID_KEY = "soloservice.service-comparison-id";
-let authRefreshInFlight: {
-  userId: number;
-  refreshToken: string;
-  promise: Promise<AuthSession | null>;
-} | null = null;
+let authSession: AuthSession | null = null;
+let authRefreshInFlight: Promise<AuthSession | null> | null = null;
+let authRestoreInFlight: Promise<AuthSession | null> | null = null;
 
 export interface AuthUser {
   userId: number;
@@ -20,7 +18,6 @@ export interface AuthUser {
 
 export interface AuthSession extends AuthUser {
   accessToken: string;
-  refreshToken: string;
   accessTokenExpiresAt: number;
 }
 
@@ -97,7 +94,7 @@ export async function request<T>(
   init?: RequestInit,
   retryWithRefresh = true,
 ): Promise<T> {
-  const session = getStoredAuthSession();
+  const session = getAuthSession();
   const apiName = getApiName(baseUrl, path);
   const response = await fetchWithServiceError(
     `${baseUrl}${path}`,
@@ -120,14 +117,7 @@ export async function request<T>(
   }
 
   if (response.status === 401 && !retryWithRefresh && baseUrl !== API_URLS.auth && session) {
-    const currentSession = getStoredAuthSession();
-    if (
-      currentSession?.userId === session.userId &&
-      currentSession.accessToken === session.accessToken &&
-      currentSession.refreshToken === session.refreshToken
-    ) {
-      localStorage.removeItem(AUTH_SESSION_KEY);
-    }
+    if (authSession === session) setAuthSession(null);
   }
 
   if (!response.ok) {
@@ -211,142 +201,86 @@ interface TokenResponse {
   userId: number;
   name: string;
   email: string;
+  avatarUrl?: string | null;
   accessToken: string;
-  refreshToken: string;
   expiresIn: number;
 }
 
-function getStoredAuthSession(): AuthSession | null {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) ?? "null");
-    if (typeof value !== "object" || value === null) return null;
-    const session = value as Partial<AuthSession>;
-    if (
-      typeof session.userId === "number" &&
-      Number.isInteger(session.userId) &&
-      session.userId > 0 &&
-      typeof session.name === "string" &&
-      typeof session.email === "string" &&
-      typeof session.accessToken === "string" &&
-      typeof session.refreshToken === "string" &&
-      typeof session.accessTokenExpiresAt === "number"
-    ) {
-      return session as AuthSession;
-    }
-  } catch {
-    localStorage.removeItem(AUTH_SESSION_KEY);
-  }
-
-  return null;
+// getAuthSession devuelve la sesión en memoria; nunca se guarda en localStorage.
+function getAuthSession(): AuthSession | null {
+  return authSession;
 }
 
+// hasStoredAuthSession indica si la sesión en memoria corresponde a userId y
+// tiene un access token utilizable.
 export function hasStoredAuthSession(userId: number): boolean {
-  const session = getStoredAuthSession();
-  return Boolean(
-    session &&
-    session.userId === userId &&
-    session.accessToken.trim() &&
-    session.refreshToken.trim(),
-  );
+  return Boolean(authSession && authSession.userId === userId && authSession.accessToken.trim());
 }
 
-function storeAuthSession(session: AuthSession): void {
-  localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+// setAuthSession reemplaza la sesión en memoria.
+function setAuthSession(session: AuthSession | null): void {
+  authSession = session;
 }
 
-// updateStoredAuthUser mezcla los campos editables del perfil en la sesión
-// guardada, para que el nombre y la foto sigan ahí tras recargar la página.
-function updateStoredAuthUser(patch: Partial<Pick<AuthUser, "name" | "avatarUrl">>): void {
-  const session = getStoredAuthSession();
-  if (!session) return;
-  storeAuthSession({ ...session, ...patch });
+// updateAuthUser mezcla los campos editables del perfil en la sesión en
+// memoria, para que el nombre y la foto sigan vigentes en esta pestaña.
+function updateAuthUser(patch: Partial<Pick<AuthUser, "name" | "avatarUrl">>): void {
+  if (!authSession) return;
+  authSession = { ...authSession, ...patch };
 }
 
+// refreshAuthSession renueva el access token con la cookie del refresh token
+// (POST /auth/refresh sin body). Un 401 cierra la sesión en memoria; las
+// llamadas simultáneas comparten el mismo refresh.
 async function refreshAuthSession(session: AuthSession): Promise<AuthSession | null> {
-  const currentSession = getStoredAuthSession();
-  if (!currentSession || currentSession.userId !== session.userId) return null;
-  if (
-    currentSession.accessToken !== session.accessToken ||
-    currentSession.refreshToken !== session.refreshToken
-  ) {
-    return currentSession;
-  }
+  if (!authSession || authSession.userId !== session.userId) return null;
+  if (authSession !== session) return authSession;
+  if (authRefreshInFlight) return authRefreshInFlight;
 
-  if (
-    !authRefreshInFlight ||
-    authRefreshInFlight.userId !== session.userId ||
-    authRefreshInFlight.refreshToken !== session.refreshToken
-  ) {
-    const promise = (async () => {
-      const refreshResponse = await fetchWithServiceError(
-        `${API_URLS.auth}/auth/refresh`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refreshToken: session.refreshToken }),
-        },
-        "Auth API",
-      );
+  const promise = (async () => {
+    const refreshResponse = await fetchWithServiceError(
+      `${API_URLS.auth}/auth/refresh`,
+      { method: "POST" },
+      "Auth API",
+    );
 
-      if (!refreshResponse.ok) {
-        if (refreshResponse.status === 401) {
-          const latestSession = getStoredAuthSession();
-          if (
-            latestSession?.userId === session.userId &&
-            latestSession.refreshToken === session.refreshToken
-          ) {
-            localStorage.removeItem(AUTH_SESSION_KEY);
-          }
-        }
-        return null;
-      }
+    if (!refreshResponse.ok) {
+      if (refreshResponse.status === 401 && authSession === session) setAuthSession(null);
+      return null;
+    }
 
-      const tokens = (await refreshResponse.json()) as TokenResponse;
-      if (!tokens.accessToken || !tokens.refreshToken) return null;
+    const tokens = (await refreshResponse.json()) as TokenResponse;
+    if (!tokens.accessToken) return null;
+    if (authSession !== session) return authSession;
 
-      const latestSession = getStoredAuthSession();
-      if (
-        !latestSession ||
-        latestSession.userId !== session.userId ||
-        latestSession.refreshToken !== session.refreshToken
-      ) {
-        return null;
-      }
-
-      const refreshedSession: AuthSession = {
-        ...latestSession,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        accessTokenExpiresAt: Date.now() + tokens.expiresIn * 1000,
-      };
-      storeAuthSession(refreshedSession);
-      return refreshedSession;
-    })();
-
-    authRefreshInFlight = {
-      userId: session.userId,
-      refreshToken: session.refreshToken,
-      promise,
+    const refreshedSession: AuthSession = {
+      ...session,
+      name: tokens.name || session.name,
+      email: tokens.email || session.email,
+      accessToken: tokens.accessToken,
+      accessTokenExpiresAt: Date.now() + tokens.expiresIn * 1000,
     };
-  }
+    setAuthSession(refreshedSession);
+    return refreshedSession;
+  })();
 
-  const inFlight = authRefreshInFlight;
-  if (!inFlight) return null;
+  authRefreshInFlight = promise;
   try {
-    return await inFlight.promise;
+    return await promise;
   } finally {
-    if (authRefreshInFlight === inFlight) authRefreshInFlight = null;
+    if (authRefreshInFlight === promise) authRefreshInFlight = null;
   }
 }
 
+// createSession valida la respuesta de login, register o refresh y deja la
+// sesión en memoria.
 async function createSession(tokens: TokenResponse): Promise<AuthSession> {
   if (
     !Number.isInteger(tokens.userId) ||
     tokens.userId <= 0 ||
     !tokens.name ||
     !tokens.email ||
-    !tokens.accessToken ||
-    !tokens.refreshToken
+    !tokens.accessToken
   ) {
     throw new Error("La API de autenticación devolvió una sesión inválida.");
   }
@@ -355,11 +289,11 @@ async function createSession(tokens: TokenResponse): Promise<AuthSession> {
     userId: tokens.userId,
     name: tokens.name,
     email: tokens.email,
+    avatarUrl: tokens.avatarUrl ?? null,
     accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
     accessTokenExpiresAt: Date.now() + tokens.expiresIn * 1000,
   };
-  storeAuthSession(session);
+  setAuthSession(session);
   return session;
 }
 
@@ -383,45 +317,43 @@ export async function registerAccount(
   return createSession(tokens);
 }
 
+// restoreAuthSession borra la clave de sesión antigua de localStorage y
+// recupera la sesión con POST /auth/refresh sin body: el refresh token viaja
+// solo en la cookie. Un 401 significa que no hay sesión y devuelve null. Las
+// llamadas simultáneas comparten la misma promesa y hacen un solo refresh.
 export async function restoreAuthSession(): Promise<AuthSession | null> {
-  const session = getStoredAuthSession();
-  if (!session) return null;
+  if (authRestoreInFlight) return authRestoreInFlight;
 
-  if (session.accessTokenExpiresAt > Date.now()) {
+  const promise = (async () => {
+    setAuthSession(null);
+    localStorage.removeItem(LEGACY_AUTH_SESSION_KEY);
+
     try {
-      await request<{ valid: boolean }>(API_URLS.auth, "/auth/validate");
-      return session;
+      const tokens = await request<TokenResponse>(API_URLS.auth, "/auth/refresh", {
+        method: "POST",
+      });
+      return createSession(tokens);
     } catch (error) {
-      if (!(error instanceof ApiError) || error.status !== 401) throw error;
+      if (error instanceof ApiError && error.status === 401) return null;
+      throw error;
     }
-  }
+  })();
 
+  authRestoreInFlight = promise;
   try {
-    const tokens = await request<TokenResponse>(API_URLS.auth, "/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ refreshToken: session.refreshToken }),
-    });
-    return createSession(tokens);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      localStorage.removeItem(AUTH_SESSION_KEY);
-      return null;
-    }
-    throw error;
+    return await promise;
+  } finally {
+    if (authRestoreInFlight === promise) authRestoreInFlight = null;
   }
 }
 
+// logoutAccount cierra la sesión en el servidor (el backend vence la cookie
+// del refresh token) y limpia la sesión en memoria.
 export async function logoutAccount(): Promise<void> {
-  const session = getStoredAuthSession();
   try {
-    if (session) {
-      await request<void>(API_URLS.auth, "/auth/logout", {
-        method: "POST",
-        body: JSON.stringify({ refreshToken: session.refreshToken }),
-      });
-    }
+    await request<void>(API_URLS.auth, "/auth/logout", { method: "POST" });
   } finally {
-    localStorage.removeItem(AUTH_SESSION_KEY);
+    setAuthSession(null);
   }
 }
 
@@ -440,7 +372,7 @@ export async function updateAccountName(name: string): Promise<AuthUser> {
     email: profile.email,
     avatarUrl: profile.avatarUrl,
   };
-  updateStoredAuthUser({ name: updated.name, avatarUrl: updated.avatarUrl });
+  updateAuthUser({ name: updated.name, avatarUrl: updated.avatarUrl });
   return updated;
 }
 
@@ -453,7 +385,7 @@ export async function uploadAccountAvatar(file: File): Promise<string> {
     method: "POST",
     body: form,
   });
-  updateStoredAuthUser({ avatarUrl: body.avatarUrl });
+  updateAuthUser({ avatarUrl: body.avatarUrl });
   return body.avatarUrl;
 }
 

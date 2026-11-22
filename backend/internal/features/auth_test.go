@@ -24,7 +24,8 @@ var testPasswordHash = func() string {
 
 // Reglas de issueTokens: lee el usuario y guarda la sesión.
 var (
-	userProfile = qRow("SELECT name,email FROM user_account", "Ana", "ana@mail.cl")
+	userProfile = qRow("SELECT name,email,public_id::text,avatar_mime IS NOT NULL",
+		"Ana", "ana@mail.cl", "00000000-0000-0000-0000-000000000007", true)
 	saveSession = qExec("INSERT INTO user_session", 1)
 )
 
@@ -71,7 +72,7 @@ func TestAuthAPI(t *testing.T) {
 		{name: "login/feliz", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
 			rules:         []rule{qRow(findUser, int32(7), testPasswordHash), userProfile, saveSession},
 			wantStatus:    http.StatusOK,
-			wantBody:      `"accessToken"`,
+			wantBody:      `"avatarUrl":"/users/00000000-0000-0000-0000-000000000007/avatar"`,
 			wantBodyNot:   `"refreshToken"`,
 			wantSetCookie: refreshCookieSet},
 		{name: "login/refreshToken en el body", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
@@ -94,7 +95,7 @@ func TestAuthAPI(t *testing.T) {
 			rules:      []rule{qFail(findUser, errBoom)},
 			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 		{name: "login/usuario desactivado al emitir tokens", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
-			rules:      []rule{qRow(findUser, int32(7), testPasswordHash), qNoRows("SELECT name,email FROM user_account")},
+			rules:      []rule{qRow(findUser, int32(7), testPasswordHash), qNoRows("SELECT name,email,public_id")},
 			wantStatus: http.StatusNotFound, wantCode: httpx.CodeNotFound},
 		{name: "login/falla al guardar la sesión", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
 			rules:      []rule{qRow(findUser, int32(7), testPasswordHash), userProfile, qFail("INSERT INTO user_session", errBoom)},

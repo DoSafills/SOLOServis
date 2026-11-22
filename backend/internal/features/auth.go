@@ -250,9 +250,15 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 // reemplaza al anterior. Guarda solo el SHA-256 de cada token. Responde 404 si
 // el usuario ya no está activo y 500 si falla la base o el generador aleatorio.
 func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int32, status int) {
-	var name, email string
-	if err := h.db.QueryRow(r.Context(), `SELECT name,email FROM user_account WHERE id=$1 AND active`,
-		userID).Scan(&name, &email); err != nil {
+	var (
+		name      string
+		email     string
+		publicID  string
+		hasAvatar bool
+	)
+	if err := h.db.QueryRow(r.Context(), `SELECT name,email,public_id::text,avatar_mime IS NOT NULL
+		FROM user_account WHERE id=$1 AND active`,
+		userID).Scan(&name, &email, &publicID, &hasAvatar); err != nil {
 		h.dbError(w, r, err, http.StatusNotFound, "Usuario no encontrado.")
 		return
 	}
@@ -278,8 +284,9 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 		return
 	}
 	setRefreshCookie(w, refresh)
+	avatarPath := avatarURL(publicID, hasAvatar)
 	payload := map[string]any{"userId": userID, "accessToken": access,
-		"name": name, "email": email, "tokenType": "Bearer", "expiresIn": 900,
+		"name": name, "email": email, "avatarUrl": avatarPath, "tokenType": "Bearer", "expiresIn": 900,
 		"refreshExpiresAt": refreshExpiry}
 	if wantsRefreshInBody(r) {
 		payload["refreshToken"] = refresh
@@ -350,6 +357,16 @@ func decodeAuth(w http.ResponseWriter, r *http.Request, input *authInput) bool {
 		return false
 	}
 	return true
+}
+
+// avatarURL devuelve la ruta pública de la foto del usuario, o nil si no
+// subió una.
+func avatarURL(publicID string, hasAvatar bool) *string {
+	if !hasAvatar {
+		return nil
+	}
+	url := "/users/" + publicID + "/avatar"
+	return &url
 }
 
 // refreshCookieToken devuelve el refresh token de la cookie refresh_token, o
