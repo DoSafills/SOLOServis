@@ -93,7 +93,7 @@ func TestLoginBloqueoPorFallos(t *testing.T) {
 // TestLoginExitoReiniciaFallos: un login correcto borra la cuenta de fallos
 // del email, así los fallos anteriores no se suman a los siguientes.
 func TestLoginExitoReiniciaFallos(t *testing.T) {
-	db := &fakeDB{t: t, rules: []rule{qRow(findUserSQL, int32(7), testPasswordHash), userProfile, saveSession}}
+	db := &fakeDB{t: t, rules: []rule{qRow(findUserSQL, int32(7), testPasswordHash), userProfile, pruneSessions, saveSession}}
 	h, r := newAuthTestRouter(db)
 	h.loginFailures = ratelimit.NewFailures(2, time.Minute)
 
@@ -158,7 +158,7 @@ func TestPasswordSinCupo(t *testing.T) {
 	wantRateLimited(t, postAuth(r, "/auth/register", register), 2, 2)
 
 	h.passwordSlots.Release()
-	db.rules = []rule{qRow(findUserSQL, int32(7), testPasswordHash), userProfile, saveSession}
+	db.rules = []rule{qRow(findUserSQL, int32(7), testPasswordHash), userProfile, pruneSessions, saveSession}
 	if rec := postAuth(r, "/auth/login", loginBody("ana@mail.cl", testPassword)); rec.Code != http.StatusOK {
 		t.Fatalf("con el cupo libre: status = %d, quiero 200 (%s)", rec.Code, rec.Body.String())
 	}

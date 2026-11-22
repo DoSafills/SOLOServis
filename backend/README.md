@@ -783,7 +783,7 @@ internal/authz/
 
 | Componente | Responsabilidad |
 |---|---|
-| Auth API | Registro, login, refresh y logout. |
+| Auth API | Registro, login, refresh, logout y cierre de todas las sesiones. |
 | Authz | Validación de sesiones y permisos. |
 | User API | Información asociada a los usuarios. |
 | INTERNAL_API_TOKEN | Autorización de operaciones internas. |
@@ -815,6 +815,16 @@ Todos los límites responden **429** `rate_limited` en formato problem+json y co
 - Los contadores de la Auth API viven en memoria (`internal/ratelimit`): se reinician con el pod y suponen **una réplica** del dominio `usuarios`. Con más réplicas cada una contaría por su lado.
 - El gateway toma la IP del cliente de `X-Forwarded-For` solo si el salto anterior es de red privada (`real_ip_recursive`). Si el proxy de la plataforma no reenvía la IP real, todos los clientes comparten un cupo; por eso los límites del gateway son holgados y la Auth API cuenta además por email.
 - Llamar directo a `usuarios:8080` desde dentro del clúster se salta el gateway, pero no los límites de la Auth API.
+
+## 13.4 Sesiones (TAL-200)
+
+- El access token dura 15 minutos y la sesión 30 días **desde el login o el registro**. `POST /auth/refresh` rota los dos tokens, pero la sesión nueva hereda el vencimiento de la anterior: refrescar no la extiende. Si a la sesión le quedan menos de 15 minutos, el access token vence con ella (`expiresIn` lo refleja).
+- Cada login, registro o refresh borra las sesiones vencidas del usuario y deja como máximo 10 vigentes; salen primero las que llevan más tiempo sin rotarse.
+- `POST /auth/logout` cierra la sesión del bearer o del `refreshToken` del body. `POST /auth/logout-all` (requiere sesión) cierra todas las del usuario y responde 204.
+- Una cuenta desactivada no puede validar ni refrescar sus tokens (401).
+- El login responde el mismo 401 «Credenciales inválidas.» y calcula PBKDF2 igual si el email no existe o la cuenta está inactiva, para no revelar qué cuentas existen. El registro mantiene el 409 de email duplicado; lo limita el gateway (20 por minuto por IP).
+- Las contraseñas usan `crypto/pbkdf2` con el mismo formato `pbkdf2-sha256$<iteraciones>$<sal>$<hash>`: los hashes guardados siguen sirviendo.
+- Las reseñas de `/reviews/*` muestran `author` y `authorVerified`, como `GET /products/{id}/reviews`, y no el `userId` interno.
 
 ---
 
