@@ -1703,7 +1703,7 @@ Orden de validación (TAL-78 §3): id de ruta (400) → decodificación (400/413
 
 ### Respuestas
 
-`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (el slug de la hoja de nivel 3; `null` si no tiene) y `attributes` con valores tipados. Respuesta real del `PUT` con el body de arriba:
+`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (`null` si la categoría antigua no tiene equivalente) y `attributes` con valores tipados. Desde TAL-237 también viajan `updatedAt` (producto) y `lastUpdated` (cada oferta), ambos en RFC 3339 UTC: sin ellos la ficha no podía decir cuándo se verificó el precio. Respuesta real del `PUT` con el body de arriba:
 
 ```http
 PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
@@ -1732,7 +1732,8 @@ PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
     "eficiencia_energetica": "A++",
     "no_frost": true,
     "peso_kg": 65.5
-  }
+  },
+  "updatedAt": "2026-11-22T15:43:49Z"
 }
 ```
 
@@ -2366,7 +2367,9 @@ Ya no llama a Product API ni a Pricing API: el mejor precio se calcula en SQL co
 
 ### La matriz
 
-- `products`: columnas en el orden pedido, con `bestPrice` (precio total), `bestStore` y `offerCount`.
+- `products`: columnas en el orden pedido, con `bestPrice` (precio total), `bestStore`, `offerCount` y
+  `lastUpdated` (TAL-223): fecha de la última verificación de esa mejor oferta, RFC 3339 UTC, o
+  `null` si el producto no tiene ofertas. Es lo que permite decir si el precio es de hoy.
 - `attributes`: atributos **`comparable`** de la categoría (TAL-71), en `displayOrder`, con valores tipados alineados con `products` (`null` si el producto no lo tiene).
 - `specifications`: especificaciones anteriores comparables (`product_category_specification`), como texto. Se incluyen porque los productos existentes todavía no tienen atributos (TAL-70 no los migró).
 - Solo aparecen filas con al menos un valor. `differs` indica si los valores difieren (un `null` cuenta como distinto), para mostrar "solo diferencias".
@@ -2383,10 +2386,12 @@ GET /comparisons/products/compare?ids=c5b9f86a-703b-4569-9902-0ccadfcdab60,bb0aa
     { "id": "c5b9f86a-703b-4569-9902-0ccadfcdab60", "name": "Refrigerador Midea Side by Side No Frost 555 L",
       "brand": "Midea", "model": "MDRS710FGE50IN",
       "imageUrl": "https://rimage.ripley.cl/home.ripley/Attachment/WOP/1/2000406824253/full_image-2000406824253",
-      "bestPrice": "332991.00", "bestStore": "Ripley", "offerCount": 3 },
+      "bestPrice": "332991.00", "bestStore": "Ripley", "offerCount": 3,
+      "lastUpdated": "2026-11-22T15:43:48Z" },
     { "id": "bb0aa9e9-1ca2-4aff-bd18-f8fc01666b7c", "name": "Refrigerador LG French Door 530 L",
       "brand": "LG", "model": "GM53", "imageUrl": "https://placehold.co/640x640?text=DEMO-LG-FRIDGE-530",
-      "bestPrice": "899990.00", "bestStore": "Paris", "offerCount": 2 }
+      "bestPrice": "899990.00", "bestStore": "Paris", "offerCount": 2,
+      "lastUpdated": "2026-11-22T15:43:48Z" }
   ],
   "attributes": [
     { "key": "capacidad_litros", "label": "Capacidad", "dataType": "integer", "unit": "L", "values": [555, 530], "differs": true },
@@ -2449,8 +2454,9 @@ Content-Type: application/json
 
 - El cliente manda **solo** `productIds` (2 a 5, misma categoría, sin repetidos) y
   `question` (1 a 300 caracteres, texto plano). El contexto (precio, tienda,
-  atributos y especificaciones) lo arma el servidor desde PostgreSQL con la matriz
-  de `/compare`; nunca llegan imágenes, URLs, descripciones ni datos de usuario.
+  fecha de verificación de la oferta, atributos y especificaciones) lo arma el
+  servidor desde PostgreSQL con la matriz de `/compare`; nunca llegan imágenes,
+  URLs, descripciones ni datos de usuario.
 - Errores: `400` al decodificar, `422 validation_failed` al incumplir reglas
   (incluida `incompatible_category`), `404 not_found` si un producto no existe,
   `429 rate_limited` con `Retry-After` al superar 10/min o 100/día por IP y `503
