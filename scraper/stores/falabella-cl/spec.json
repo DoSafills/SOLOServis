@@ -21,7 +21,7 @@
     "allowEmpty": false
   },
   "item": {
-    "externalId": { "attribute": "id" },
+    "externalId": { "attribute": "data-key" },
     "fields": {
       "product.name": {
         "selector": ".pod-details .copy2.primary",
@@ -77,6 +77,7 @@
   "rules": {
     "dedupeBy": "externalId",
     "rejectIfMissing": [
+      "externalId",
       "externalUrl",
       "product.name",
       "offer.price",
