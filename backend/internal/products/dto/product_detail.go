@@ -26,6 +26,8 @@ type ProductDetail struct {
 	// TAL-70: ver ProductListItem.
 	CategorySlug *string                    `json:"categorySlug"`
 	Attributes   map[string]json.RawMessage `json:"attributes"`
+	// UpdatedAt es la última modificación del producto (TAL-237), RFC 3339 UTC.
+	UpdatedAt string `json:"updatedAt"`
 }
 
 // PricePoint es un registro del historial de precios dentro del detalle de un
@@ -63,6 +65,10 @@ type ProductOffer struct {
 	Stock        *int32 `json:"stock"`
 	Condition    string `json:"condition"`
 	ProductURL   string `json:"productUrl"`
+	// LastUpdated es la última vez que el scraper verificó esta oferta
+	// (TAL-237), RFC 3339 UTC. El frontend lo usa para no mostrar un precio
+	// viejo como si fuera de hoy.
+	LastUpdated string `json:"lastUpdated"`
 }
 
 func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail {
@@ -113,6 +119,7 @@ func FromProduct(product generated.GetProductDetailByPublicIDRow) ProductDetail 
 		PriceHistory:      []PricePoint{},
 		OfferPriceHistory: []PricePoint{},
 		Attributes:        make(map[string]json.RawMessage),
+		UpdatedAt:         formatTime(product.UpdatedAt.Time, product.UpdatedAt.Valid),
 	}
 }
 
