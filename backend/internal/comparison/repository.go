@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/products/dto"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -62,12 +64,14 @@ SELECT p.id, p.public_id::text, p.name, COALESCE(b.name, ''), COALESCE(p.model, 
          ORDER BY i.sort_order, i.id LIMIT 1),
        best.total::text, best.store,
        (SELECT count(*) FROM product_offer o JOIN store s ON s.id = o.store_id AND s.active
-         WHERE o.product_id = p.id AND o.available)
+         WHERE o.product_id = p.id AND o.available),
+       best.last_updated
 FROM product p
 LEFT JOIN brand b ON b.id = p.brand_id
 LEFT JOIN LATERAL (
     SELECT o.price + CASE WHEN o.shipping_free THEN 0 ELSE COALESCE(o.shipping_cost, 0) END AS total,
-           s.name AS store
+           s.name AS store,
+           o.last_updated
     FROM product_offer o JOIN store s ON s.id = o.store_id AND s.active
     WHERE o.product_id = p.id AND o.available
     ORDER BY total, o.price, o.id
@@ -86,9 +90,14 @@ func (r *Repository) summaries(ctx context.Context, ids []int32) ([]ProductSumma
 	for rows.Next() {
 		var id int32
 		var s ProductSummary
+		var lastUpdated pgtype.Timestamp
 		if err := rows.Scan(&id, &s.ID, &s.Name, &s.Brand, &s.Model, &s.ImageURL, &s.BestPrice,
-			&s.BestStore, &s.OfferCount); err != nil {
+			&s.BestStore, &s.OfferCount, &lastUpdated); err != nil {
 			return nil, err
+		}
+		if lastUpdated.Valid {
+			value := lastUpdated.Time.UTC().Format(time.RFC3339)
+			s.LastUpdated = &value
 		}
 		byID[id] = s
 	}
