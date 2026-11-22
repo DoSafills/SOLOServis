@@ -176,11 +176,64 @@ func (r *Repository) AddCounters(ctx context.Context, id int32, found, processed
 	return err
 }
 
+// RecentFound devuelve los `records_found` de las últimas corridas exitosas de
+// una tienda, sin contar la corrida actual.
+//
+// Es la referencia con la que se mide si la corrida de hoy entregó mucho menos
+// que lo habitual (TAL-211). Una corrida exitosa que no encontró nada no sirve
+// de referencia: se excluye para que un vacío puntual no baje la mediana y
+// esconda la próxima caída (TAL-172). Devuelve una lista vacía cuando la tienda
+// no tiene historial, que el evaluador interpreta como «sin base de
+// comparación».
+func (r *Repository) RecentFound(ctx context.Context, storeID, excludeRunID int32, limit int) ([]int32, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT COALESCE(r.records_found, 0)
+		FROM scrape_run r
+		JOIN scraper_config sc ON sc.id = r.scraper_config_id
+		JOIN data_source ds ON ds.id = sc.data_source_id
+		WHERE ds.store_id = $1 AND r.id <> $2 AND r.status = 'success'
+		  AND COALESCE(r.records_found, 0) > 0
+		ORDER BY r.started_at DESC, r.id DESC
+		LIMIT $3`, storeID, excludeRunID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[int32])
+}
+
 // SaveScraped guarda el ítem recibido (JSON normalizado) para auditoría.
 func (r *Repository) SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, raw json.RawMessage) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO scraped_data (scrape_run_id, external_id, external_url, entity_type, raw_data)
 		VALUES ($1, $2, $3, 'product', $4)`, runID, externalID, externalURL, raw)
+	return err
+}
+
+// ScrapedItem es una fila de scraped_data: el ítem recibido como JSON y sus
+// identificadores en la tienda (nil si no vinieron).
+type ScrapedItem struct {
+	ExternalID  *string
+	ExternalURL *string
+	Raw         json.RawMessage
+}
+
+// SaveScrapedBatch guarda los ítems de un lote en scraped_data con un solo
+// INSERT (TAL-205), en el orden recibido. Recibe la ejecución y las filas;
+// devuelve el error de la base si el INSERT falla, y entonces no guarda
+// ninguna. El JSON viaja como texto y se convierte a jsonb en la consulta.
+func (r *Repository) SaveScrapedBatch(ctx context.Context, runID int32, items []ScrapedItem) error {
+	externalIDs := make([]*string, len(items))
+	externalURLs := make([]*string, len(items))
+	raws := make([]string, len(items))
+	for i, item := range items {
+		externalIDs[i], externalURLs[i], raws[i] = item.ExternalID, item.ExternalURL, string(item.Raw)
+	}
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO scraped_data (scrape_run_id, external_id, external_url, entity_type, raw_data)
+		SELECT $1, t.external_id, t.external_url, 'product', t.raw::jsonb
+		FROM unnest($2::text[], $3::text[], $4::text[]) WITH ORDINALITY
+		     AS t(external_id, external_url, raw, position)
+		ORDER BY t.position`, runID, externalIDs, externalURLs, raws)
 	return err
 }
 

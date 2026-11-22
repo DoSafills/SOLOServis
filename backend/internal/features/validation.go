@@ -20,6 +20,13 @@ const (
 	defaultComparisonName = "Comparación de servicios"
 )
 
+// Topes por usuario contra el crecimiento sin límite de las tablas (TAL-201,
+// hallazgo H13 de TAL-195).
+const (
+	maxSavedSearches = 50  // búsquedas guardadas por usuario; la siguiente responde 422
+	maxSearchHistory = 100 // historial por usuario; al insertar se borran las más antiguas
+)
+
 // searchTypes son los valores aceptados en el type del historial de búsqueda
 // (search_query.search_type).
 var searchTypes = map[string]bool{"product": true, "service": true, "mixed": true}

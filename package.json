@@ -19,6 +19,12 @@
   "lint-staged": {
     "fronted/src/**/*.{ts,tsx}": [
       "pnpm --dir fronted exec oxfmt"
+    ],
+    "assistant/**/*": [
+      "bash scripts/check-assistant.sh"
+    ],
+    "backend/internal/assistant/**/*": [
+      "bash scripts/check-assistant.sh"
     ]
   },
   "scripts": {

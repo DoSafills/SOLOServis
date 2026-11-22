@@ -12,6 +12,7 @@ import {
 } from "../../services/utils/productUtils";
 import { Breadcrumb, Skeleton } from "../../components/common/ui";
 import { areProductCategoriesCompatible } from "./productComparisonUtils";
+import ComparisonAssistantCard from "./ComparisonAssistantCard";
 
 interface Props {
   productIds: string[];
@@ -449,6 +450,7 @@ export default function ProductComparisonPage({
     : [];
   const lowestProductPrice =
     comparableProductPrices.length > 0 ? Math.min(...comparableProductPrices) : null;
+  const assistantProductIds = selected.map((product) => product.id);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
@@ -760,6 +762,11 @@ export default function ProductComparisonPage({
           </table>
         </div>
       </div>
+
+      <ComparisonAssistantCard
+        key={assistantProductIds.join(",")}
+        productIds={assistantProductIds}
+      />
     </div>
   );
 }

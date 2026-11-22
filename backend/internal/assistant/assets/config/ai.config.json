@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "enabled": true,
+  "scope": "compared-products-only",
+  "provider": "auto",
+  "model": "gemini-3.5-flash",
+  "language": "es-CL",
+  "temperature": 0.2,
+  "topP": 0.9,
+  "maxOutputTokens": 400,
+  "apiKeyEnv": "AI_API_KEY",
+  "notes": [
+    "provider=auto: usa Gemini si AI_API_KEY está definida. Sin clave no hay respuesta de respaldo: POST /comparisons/assistant devuelve 503 ai_unavailable.",
+    "AI_PROVIDER=gemini | pollinations | compatible | off permite fijar o desactivar el proveedor sin tocar código.",
+    "AI_BASE_URL apunta a otro endpoint compatible (Gemini o API compatible OpenAI) sin cambiar código.",
+    "El modelo se configura aquí y no en el código: los modelos gratuitos rotan.",
+    "gemini-3.5-flash está deprecado por Google y se enruta a gemini-3.6-flash; para fijar otro usa AI_MODEL (por ejemplo gemini-3.6-flash o gemini-3.5-flash-lite).",
+    "Solo se envían datos públicos de catálogo (nombre, precio, atributos); nunca datos de usuario."
+  ]
+}

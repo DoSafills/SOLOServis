@@ -458,6 +458,39 @@ ensure_postgres_secret() {
   return 1
 }
 
+# El asistente de comparación (IA) necesita una clave que emite el proveedor:
+# no se puede generar al azar como las otras. Se reutiliza el Secret si ya
+# existe; si no, se crea a partir de AI_API_KEY en el entorno del despliegue.
+# Sin clave no se detiene el despliegue: el asistente responde 503
+# ai_unavailable y el resto del sitio funciona igual.
+# La clave nunca se imprime ni se pasa por la linea de comandos: va por un
+# archivo temporal con permisos 600 que se borra en el mismo paso.
+ensure_ai_secret() {
+  if k get secret soloservis-ai -o name >/dev/null 2>&1; then
+    echo "OK (Secret soloservis-ai existente)"
+    return 0
+  fi
+  local key tmp
+  key="${AI_API_KEY:-}"
+  if [ -z "$key" ]; then
+    echo "AVISO (sin AI_API_KEY: el asistente respondera 503 hasta crear el Secret soloservis-ai)"
+    return 0
+  fi
+  tmp="$(umask 077 && mktemp "${TMPDIR:-/tmp}/soloservis-ai.XXXXXX")" || {
+    echo "AVISO (no se pudo crear el archivo temporal para la clave)"
+    return 0
+  }
+  printf '%s' "$key" >"$tmp"
+  if k create secret generic soloservis-ai --from-file=AI_API_KEY="$tmp" >/dev/null 2>&1; then
+    rm -f "$tmp"
+    echo "OK (Secret soloservis-ai creado con AI_API_KEY)"
+    return 0
+  fi
+  rm -f "$tmp"
+  echo "AVISO (no se pudo crear soloservis-ai: el asistente respondera 503)"
+  return 0
+}
+
 phase4() {
   cp_reset
   local err
@@ -481,6 +514,8 @@ phase4() {
     2) stop_phase 4 "el PVC de PostgreSQL ya tiene datos y falta postgres-secret: recrealo con la contrasena anterior (k8s/README.md) o borra el PVC si no necesitas los datos" ;;
     *) stop_phase 4 "kubectl create secret postgres-secret fallo" ;;
   esac
+  # Clave del proveedor de IA (TAL-247). Nunca detiene el despliegue.
+  cp_set "Clave IA" "$(ensure_ai_secret)"
   step "Aplicando Services y StatefulSet de PostgreSQL"
   apply_selector app.kubernetes.io/component=database || stop_phase 4 "kubectl apply fallo"
   step "Esperando rollout de postgres (max 5 min)"
