@@ -80,3 +80,6 @@
 
 # 041: valida las CHECK NOT VALID de product_category (level, slug y padre).
 041_validate_category_constraints.sql
+
+# 042: fusiona productos activos duplicados (TAL-191); idempotente.
+042_merge_duplicate_products.sql
