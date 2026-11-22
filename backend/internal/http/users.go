@@ -219,7 +219,9 @@ func (h *profileHandler) GetAvatar(w http.ResponseWriter, r *http.Request) {
 
 	etag := avatarETag(data)
 	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	// La URL no cambia al subir otra foto: el navegador debe revalidar siempre
+	// con el ETag. Con max-age servia la foto anterior hasta 5 minutos.
+	w.Header().Set("Cache-Control", "public, no-cache")
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return
