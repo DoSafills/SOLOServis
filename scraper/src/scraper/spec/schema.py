@@ -23,6 +23,7 @@ from scraper.models import (
     MatchRules,
     Pagination,
     StoreSpec,
+    Supplement,
     ValueSpec,
 )
 
@@ -87,7 +88,12 @@ _MATCH_KEYS = frozenset({"hosts", "pathPrefixes", "detect"})
 _DETECT_KEYS = frozenset({"selector", "minMatches"})
 _LISTING_KEYS = frozenset({"url", "root", "pagination", "allowEmpty"})
 _PAGINATION_KEYS = frozenset({"mode", "selector", "template", "maxPages"})
-_ITEM_KEYS = frozenset({"externalId", "externalUrl", "fields"})
+_ITEM_KEYS = frozenset({"externalId", "externalUrl", "fields", "supplements"})
+_SUPPLEMENT_KEYS = frozenset({"from", "matchBy", "valuePath"})
+#: Structured-data sources a supplement may read. Only JSON-LD for now: it is
+#: the one format storefronts publish next to the markup this scraper reads.
+SUPPLEMENT_SOURCES = frozenset({"jsonld"})
+_VALUE_PATH_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z_][A-Za-z0-9_-]*)*$")
 _VALUE_KEYS = frozenset(
     {"selector", "mode", "attribute", "transform", "regex", "value", "template"}
 )
@@ -125,10 +131,12 @@ MAX_CRAWL_DEPTH = 10
 
 
 def _fail(path: str, where: str, message: str) -> SpecError:
+    """Build a ``SpecError`` that names the spec path and the offending key."""
     return SpecError(path, f"{where}: {message}")
 
 
 def _object(path: str, where: str, raw: Any, allowed: frozenset[str]) -> dict[str, Any]:
+    """Check that ``raw`` is a JSON object and reject keys the schema does not know."""
     if not isinstance(raw, dict):
         raise _fail(path, where, "must be a JSON object")
     unknown = set(raw) - allowed
@@ -147,6 +155,7 @@ def _string(
     pattern: re.Pattern[str] | None = None,
     choices: frozenset[str] | None = None,
 ) -> str | None:
+    """Read a string, trimmed and optional or required, with an optional pattern and choices."""
     if value is None:
         if required:
             raise _fail(path, where, "is required")
@@ -164,6 +173,7 @@ def _string(
 
 
 def _bool(path: str, where: str, value: Any, default: bool = False) -> bool:
+    """Read a boolean, falling back to ``default`` when the key is absent."""
     if value is None:
         return default
     if not isinstance(value, bool):
@@ -172,6 +182,7 @@ def _bool(path: str, where: str, value: Any, default: bool = False) -> bool:
 
 
 def _int(path: str, where: str, value: Any, *, minimum: int = 1) -> int:
+    """Read an integer with a minimum; a boolean is rejected on purpose."""
     if isinstance(value, bool) or not isinstance(value, int):
         raise _fail(path, where, "must be an integer")
     if value < minimum:
@@ -180,6 +191,7 @@ def _int(path: str, where: str, value: Any, *, minimum: int = 1) -> int:
 
 
 def _string_list(path: str, where: str, value: Any) -> tuple[str, ...]:
+    """Read a non-empty array of non-empty strings and return it as a tuple."""
     if not isinstance(value, list) or not value:
         raise _fail(path, where, "must be a non-empty array of strings")
     result: list[str] = []
@@ -192,6 +204,7 @@ def _string_list(path: str, where: str, value: Any) -> tuple[str, ...]:
 def _value_spec(
     path: str, where: str, raw: Any, *, allow_value: bool, allow_template: bool = True
 ) -> ValueSpec:
+    """Parse a ``ValueSpec`` and enforce that it declares exactly one source."""
     obj = _object(path, where, raw, _VALUE_KEYS)
     selector = _string(path, f"{where}.selector", obj.get("selector"), required=False)
     has_value = "value" in obj
@@ -245,10 +258,12 @@ _PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z0-9_.]+)\}")
 
 
 def _template_placeholders(template: str) -> set[str]:
+    """Return the ``{placeholder}`` names used by a template."""
     return set(_PLACEHOLDER_RE.findall(template))
 
 
 def _check_template(path: str, where: str, template: str, known: set[str]) -> None:
+    """Reject a template that references a value not readable at that point."""
     for placeholder in _template_placeholders(template):
         if placeholder not in known:
             raise _fail(
@@ -260,6 +275,7 @@ def _check_template(path: str, where: str, template: str, known: set[str]) -> No
 
 
 def _field_path(path: str, where: str, raw: Any) -> str:
+    """Validate a contract path: a product field, an offer field or an attribute."""
     name = _string(path, where, raw)
     assert name is not None
     if name in PRODUCT_FIELDS or name in OFFER_FIELDS:
@@ -279,6 +295,7 @@ def _field_path(path: str, where: str, raw: Any) -> str:
 
 
 def _field_spec(path: str, where: str, raw: Any) -> FieldSpec:
+    """Parse one field: type, source, required flag, default and currency."""
     obj = _object(path, where, raw, _FIELD_KEYS)
     field_type = _string(path, f"{where}.type", obj.get("type"), choices=FIELD_TYPES)
     assert field_type is not None
@@ -324,6 +341,7 @@ def _prefix_list(path: str, where: str, value: Any) -> tuple[str, ...]:
 
 
 def _detect_rule(path: str, where: str, raw: Any) -> DetectRule | None:
+    """Parse ``match.detect`` as a selector or a ``{selector, minMatches}`` rule."""
     if raw is None:
         return None
     if isinstance(raw, str):
@@ -340,6 +358,7 @@ def _detect_rule(path: str, where: str, raw: Any) -> DetectRule | None:
 
 
 def _crawl_rules(path: str, raw: Any) -> CrawlRules:
+    """Parse ``crawl``: which links to follow, how deep and how many pages."""
     obj = _object(path, "spec.crawl", raw, _CRAWL_KEYS)
     link_selector = _string(
         path, "spec.crawl.linkSelector", obj.get("linkSelector"), required=False
@@ -380,7 +399,66 @@ def _crawl_rules(path: str, raw: Any) -> CrawlRules:
     )
 
 
+def _supplements(
+    path: str, raw: Any, field_paths: set[str]
+) -> tuple[Supplement, ...]:
+    """Parse ``item.supplements``: extra sources for values the card omits.
+
+    Each key is ``externalUrl`` or a declared field path, and each value says
+    where to read it (``from: jsonld``), how to join it to a card (``matchBy``,
+    a selector or attribute that yields the product id) and which dotted path
+    of the structured-data entry holds the value (``valuePath``).
+
+    Returns the supplements in declaration order, or an empty tuple when the
+    block is absent. Raises :class:`SpecError` on unknown keys, an unsupported
+    source, a path that is not a declared field, a duplicated target or a
+    malformed value path.
+    """
+    if raw is None:
+        return ()
+    if not isinstance(raw, dict) or not raw:
+        raise _fail(path, "spec.item.supplements", "must be a non-empty object")
+
+    supplements: list[Supplement] = []
+    seen: set[str] = set()
+    for target, supplement_raw in raw.items():
+        where = f"spec.item.supplements.{target}"
+        resolved = "externalUrl" if target == "externalUrl" else _field_path(path, where, target)
+        if resolved != "externalUrl" and resolved not in field_paths:
+            raise _fail(
+                path,
+                where,
+                f"targets {resolved!r}, which is not a declared field of item.fields",
+            )
+        if resolved in seen:
+            raise _fail(path, where, "declared twice")
+        seen.add(resolved)
+
+        obj = _object(path, where, supplement_raw, _SUPPLEMENT_KEYS)
+        # Sólo existe una fuente por ahora; el validador la exige y la limita.
+        _string(path, f"{where}.from", obj.get("from"), choices=SUPPLEMENT_SOURCES)
+        match_by = _value_spec(
+            path,
+            f"{where}.matchBy",
+            obj.get("matchBy"),
+            allow_value=False,
+            allow_template=False,
+        )
+        value_path = _string(
+            path,
+            f"{where}.valuePath",
+            obj.get("valuePath"),
+            pattern=_VALUE_PATH_RE,
+        )
+        assert value_path is not None
+        supplements.append(
+            Supplement(path=resolved, match_by=match_by, value_path=value_path)
+        )
+    return tuple(supplements)
+
+
 def _detail_spec(path: str, raw: Any) -> DetailSpec:
+    """Parse ``detail``: root, page detection, external id and enrichable fields."""
     obj = _object(path, "spec.detail", raw, _DETAIL_KEYS)
     root = _string(path, "spec.detail.root", obj.get("root"), required=False)
     detect = _string(path, "spec.detail.detect", obj.get("detect"), required=False)
@@ -553,9 +631,6 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
         if item_raw.get("externalId") is not None
         else None
     )
-    external_url = _value_spec(
-        label, "spec.item.externalUrl", item_raw.get("externalUrl"), allow_value=False
-    )
 
     fields_raw = item_raw.get("fields")
     if not isinstance(fields_raw, dict) or not fields_raw:
@@ -590,12 +665,37 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
             f"{REQUIRED_PATH} is required by the ingestion contract",
         )
 
+    supplements = _supplements(
+        label, item_raw.get("supplements"), {field.path for field in fields}
+    )
+    # ``externalUrl`` has exactly one source: the card/template or a supplement.
+    # Allowing both would leave a fallback nobody reads and hide a broken spec.
+    external_url_raw = item_raw.get("externalUrl")
+    supplied_url = any(item.path == "externalUrl" for item in supplements)
+    if external_url_raw is None and not supplied_url:
+        raise _fail(
+            label,
+            "spec.item.externalUrl",
+            "is required unless a supplement targets 'externalUrl'",
+        )
+    if external_url_raw is not None and supplied_url:
+        raise _fail(
+            label,
+            "spec.item.supplements.externalUrl",
+            "declare either 'item.externalUrl' or this supplement, not both",
+        )
+    external_url = (
+        _value_spec(label, "spec.item.externalUrl", external_url_raw, allow_value=False)
+        if external_url_raw is not None
+        else None
+    )
+
     # Templates may only reference values that already exist at extraction
     # time: ``externalId`` and the other fields. A typo would otherwise fail
     # on the first live page instead of at ``scraper validate``.
     known_placeholders = {"externalId"} | {field.path for field in fields}
     template_paths = {field.path for field in fields if field.source.template}
-    if external_url.template:
+    if external_url is not None and external_url.template:
         _check_template(
             label,
             "spec.item.externalUrl",
@@ -675,6 +775,7 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
         external_id=external_id,
         external_url=external_url,
         fields=tuple(fields),
+        supplements=supplements,
         dedupe_by=dedupe_by,
         reject_if_missing=missing,
         crawl=crawl,

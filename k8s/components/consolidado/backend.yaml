@@ -63,6 +63,18 @@ spec:
             - name: INTERNAL_API_TOKEN
               valueFrom:
                 secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+            # Asistente de comparación (IA). Mismo criterio que la topología por
+            # dominios: proveedor compatible con OpenAI (DeepSeek) y la clave en
+            # el Secret soloservis-ai, que crea la Fase 4 del deploy.
+            - name: AI_PROVIDER
+              value: compatible
+            - name: AI_BASE_URL
+              value: https://api.deepseek.com/v1
+            - name: AI_MODEL
+              value: deepseek-chat
+            - name: AI_API_KEY
+              valueFrom:
+                secretKeyRef: {name: soloservis-ai, key: AI_API_KEY, optional: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -7,6 +7,16 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 )
 
+// Reglas de los topes por usuario (TAL-201): el recorte del historial y la
+// cuenta de búsquedas guardadas que corren antes de cada INSERT.
+var (
+	trimHistory = qExec("DELETE FROM search_query WHERE user_id", 0)
+	savedCount  = qRow("SELECT COUNT(*)::int FROM saved_search", int32(3))
+)
+
+// TestSearchSessionAPI cubre historial y búsquedas guardadas (requieren
+// sesión): casos feliz, 400, 422, 404 y 500 de cada endpoint, más los topes
+// por usuario de TAL-201.
 func TestSearchSessionAPI(t *testing.T) {
 	insertHistory := "INSERT INTO search_query"
 	insertSaved := "INSERT INTO saved_search"
@@ -16,8 +26,11 @@ func TestSearchSessionAPI(t *testing.T) {
 	runCases(t, "search-api", []apiCase{
 		// POST /search/history
 		{name: "create history/feliz", method: http.MethodPost, target: "/search/history", body: `{"query":"tv"}`,
-			rules:      []rule{qRows(insertHistory, `{"id":1,"query":"tv","type":"product"}`)},
+			rules:      []rule{trimHistory, qRows(insertHistory, `{"id":1,"query":"tv","type":"product"}`)},
 			wantStatus: http.StatusCreated, wantBody: `"query":"tv"`},
+		{name: "create history/recorte falla", method: http.MethodPost, target: "/search/history", body: `{"query":"tv"}`,
+			rules:      []rule{qFail("DELETE FROM search_query WHERE user_id", errBoom)},
+			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 		{name: "create history/sin sesión", method: http.MethodPost, target: "/search/history", body: `{"query":"tv"}`, token: "-",
 			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
 		{name: "create history/json malformado", method: http.MethodPost, target: "/search/history", body: `{"query":}`,
@@ -25,10 +38,10 @@ func TestSearchSessionAPI(t *testing.T) {
 		{name: "create history/reglas", method: http.MethodPost, target: "/search/history", body: `{"query":"  "}`,
 			wantStatus: http.StatusUnprocessableEntity, wantCode: httpx.CodeValidationFailed, wantFields: []string{"query/required"}},
 		{name: "create history/error interno", method: http.MethodPost, target: "/search/history", body: `{"query":"tv"}`,
-			rules:      []rule{qFail(insertHistory, errBoom)},
+			rules:      []rule{trimHistory, qFail(insertHistory, errBoom)},
 			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 		{name: "create history/insert sin filas", method: http.MethodPost, target: "/search/history", body: `{"query":"tv"}`,
-			rules:      []rule{qRows(insertHistory)},
+			rules:      []rule{trimHistory, qRows(insertHistory)},
 			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 
 		// GET /search/history
@@ -41,14 +54,20 @@ func TestSearchSessionAPI(t *testing.T) {
 
 		// POST /search/saved
 		{name: "save/feliz", method: http.MethodPost, target: "/search/saved", body: saved,
-			rules:      []rule{qRows(insertSaved, `{"id":2,"name":"TVs"}`)},
+			rules:      []rule{savedCount, qRows(insertSaved, `{"id":2,"name":"TVs"}`)},
 			wantStatus: http.StatusCreated, wantBody: `"name":"TVs"`},
+		{name: "save/tope alcanzado", method: http.MethodPost, target: "/search/saved", body: saved,
+			rules:      []rule{qRow("SELECT COUNT(*)::int FROM saved_search", int32(maxSavedSearches))},
+			wantStatus: http.StatusUnprocessableEntity, wantCode: httpx.CodeValidationFailed, wantFields: []string{"name/max"}},
+		{name: "save/cuenta falla", method: http.MethodPost, target: "/search/saved", body: saved,
+			rules:      []rule{qFail("SELECT COUNT(*)::int FROM saved_search", errBoom)},
+			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 		{name: "save/campo desconocido", method: http.MethodPost, target: "/search/saved", body: `{"nombre":"TVs"}`,
 			wantStatus: http.StatusBadRequest, wantCode: httpx.CodeUnknownField, wantFields: []string{"nombre/unknown_field"}},
 		{name: "save/reglas", method: http.MethodPost, target: "/search/saved", body: `{"query":"tv"}`,
 			wantStatus: http.StatusUnprocessableEntity, wantCode: httpx.CodeValidationFailed, wantFields: []string{"name/required"}},
 		{name: "save/error interno", method: http.MethodPost, target: "/search/saved", body: saved,
-			rules:      []rule{qFail(insertSaved, errBoom)},
+			rules:      []rule{savedCount, qFail(insertSaved, errBoom)},
 			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 
 		// GET /search/saved

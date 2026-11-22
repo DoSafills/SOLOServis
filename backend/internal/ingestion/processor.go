@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net/url"
 	"strings"
 	"unicode"
@@ -26,7 +27,9 @@ type RunStore interface {
 	FinishRun(ctx context.Context, id int32, status string, message *string) error
 	ItemsTarget(ctx context.Context, id int32) (int32, error)
 	AddCounters(ctx context.Context, id int32, found, processed, failed int) error
+	RecentFound(ctx context.Context, storeID, excludeRunID int32, limit int) ([]int32, error)
 	SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, raw json.RawMessage) error
+	SaveScrapedBatch(ctx context.Context, runID int32, items []ScrapedItem) error
 	FindProduct(ctx context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error)
 	AddImageIfMissing(ctx context.Context, productID int32, imageURL string) (bool, error)
 	EnsureBrand(ctx context.Context, name string) (int32, error)
@@ -64,7 +67,9 @@ func NewProcessor(runs RunStore, catalog Catalog, offers Offers, notifier pricin
 }
 
 // Process aplica cada ítem por separado: un ítem inválido o con error no
-// detiene el lote. Guarda cada ítem en scraped_data y suma los contadores.
+// detiene el lote. Al final guarda todos los ítems en scraped_data de una vez
+// (TAL-205) y suma los contadores. Recibe la ejecución, la tienda y los ítems
+// del lote; devuelve el resultado de cada ítem y los totales.
 func (p *Processor) Process(ctx context.Context, runID, storeID int32, storeName string, items []Item) BatchResult {
 	result := BatchResult{RunID: runID, Received: len(items), Results: make([]ItemResult, 0, len(items))}
 	for i, item := range items {
@@ -75,8 +80,8 @@ func (p *Processor) Process(ctx context.Context, runID, storeID int32, storeName
 			result.Processed++
 		}
 		result.Results = append(result.Results, r)
-		p.save(ctx, runID, item)
 	}
+	p.save(ctx, runID, items)
 	if err := p.runs.AddCounters(ctx, runID, result.Received, result.Processed, result.Failed); err != nil {
 		p.logger.ErrorContext(ctx, "ingestion_counters_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
 	}
@@ -156,7 +161,9 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, store
 		return internal("upsert_offer", err)
 	}
 	result.OfferID = offerID
-	if previous != nil {
+	// Solo una bajada de precio puede cruzar un precio objetivo: si el precio
+	// subió o quedó igual (lo habitual en cada corrida), no se consulta nada más.
+	if previous != nil && priceDropped(*previous, offer.Price) {
 		saved, err := p.offers.GetOffer(ctx, offerID)
 		if err != nil {
 			return internal("get_offer", err)
@@ -167,6 +174,8 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, store
 }
 
 // createProduct valida categoría y atributos con TAL-70/72 y crea el producto.
+// Devuelve el id interno y el UUID público del producto creado, o los errores
+// de campo si el ítem no cumple las reglas, o un error interno.
 func (p *Processor) createProduct(
 	ctx context.Context,
 	runID, storeID int32,
@@ -193,8 +202,6 @@ func (p *Processor) createProduct(
 			Message: "product.categorySlug no está habilitada para productos"}}, nil
 	}
 
-	// Sin fila en categories no hay atributos definidos: los que lleguen
-	// responden unknown_field y un producto sin atributos se acepta.
 	values, attrErrs := categories.ValidateAttributes(category.Attributes, item.Attributes)
 	if len(attrErrs) > 0 {
 		return 0, "", prefixErrors("product.", attrErrs), nil
@@ -228,6 +235,10 @@ func (p *Processor) createProduct(
 	return id, publicID.String(), nil, nil
 }
 
+// categoryMappingError registra en el log que la categoría de origen
+// original del ítem index (ejecución runID, tienda storeID/storeName) no tiene
+// correspondencia en el catálogo, y devuelve el error de campo con el código
+// code (required o not_found) que vuelve en el resultado del ítem.
 func (p *Processor) categoryMappingError(
 	ctx context.Context,
 	runID, storeID int32,
@@ -335,23 +346,56 @@ func classifyComputacion(slug string, item ItemProduct) string {
 	return "computadores-de-escritorio"
 }
 
-// save guarda el ítem tal como llegó (normalizado por el scraper) en
-// scraped_data; un fallo aquí solo se registra en el log.
-func (p *Processor) save(ctx context.Context, runID int32, item Item) {
-	raw, err := json.Marshal(item)
-	if err == nil {
-		var externalID, externalURL *string
+// save guarda los ítems tal como llegaron (normalizados por el scraper) en
+// scraped_data, en el mismo orden y con un solo INSERT por lote (TAL-205).
+// Recibe la ejecución y los ítems del lote. Un ítem que no se puede convertir
+// a JSON se omite; un fallo al guardar solo se registra en el log, como antes.
+func (p *Processor) save(ctx context.Context, runID int32, items []Item) {
+	rows := make([]ScrapedItem, 0, len(items))
+	for _, item := range items {
+		raw, err := json.Marshal(item)
+		if err != nil {
+			p.logger.WarnContext(ctx, "ingestion_save_scraped_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
+			continue
+		}
+		row := ScrapedItem{Raw: raw}
 		if id := strings.TrimSpace(item.ExternalID); id != "" && len(id) <= MaxExternalID {
-			externalID = &id
+			row.ExternalID = &id
 		}
 		if u := strings.TrimSpace(item.Offer.ProductURL); u != "" {
-			externalURL = &u
+			row.ExternalURL = &u
 		}
-		err = p.runs.SaveScraped(ctx, runID, externalID, externalURL, raw)
+		rows = append(rows, row)
 	}
-	if err != nil {
-		p.logger.WarnContext(ctx, "ingestion_save_scraped_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
+	if len(rows) == 0 {
+		return
 	}
+	err := p.runs.SaveScrapedBatch(ctx, runID, rows)
+	if err == nil {
+		return
+	}
+	p.logger.WarnContext(ctx, "ingestion_save_scraped_batch_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
+	// Si el INSERT del lote falla (por ejemplo, un ítem que jsonb rechaza),
+	// se guarda ítem por ítem para no perder los demás, como antes de TAL-205.
+	for _, row := range rows {
+		if err := p.runs.SaveScraped(ctx, runID, row.ExternalID, row.ExternalURL, row.Raw); err != nil {
+			p.logger.WarnContext(ctx, "ingestion_save_scraped_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
+		}
+	}
+}
+
+// priceDropped indica si el precio nuevo es menor que el anterior. Recibe los
+// dos precios como texto decimal (el anterior viene de NUMERIC(12,2) y el
+// nuevo ya validado) y los compara como números exactos, sin redondeo. Si
+// alguno no se puede leer devuelve true, para que la consulta de avisos decida
+// como antes de TAL-205 en vez de perder un aviso.
+func priceDropped(previous, current string) bool {
+	old, okOld := new(big.Rat).SetString(strings.TrimSpace(previous))
+	now, okNow := new(big.Rat).SetString(strings.TrimSpace(current))
+	if !okOld || !okNow {
+		return true
+	}
+	return now.Cmp(old) < 0
 }
 
 // isHTTPURL indica si value es una URL http o https válida.

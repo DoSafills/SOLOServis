@@ -17,6 +17,7 @@ from scrapling import Selector
 
 from scraper.errors import ExtractionError
 from scraper.extract.fields import read_value, select
+from scraper.extract.jsonld import build_index, match_key, value_at
 from scraper.extract.transforms import (
     apply_regex,
     apply_transform,
@@ -32,6 +33,7 @@ from scraper.models import (
     Provenance,
     Source,
     StoreSpec,
+    Supplement,
     ValueSpec,
 )
 from scraper.validate import validate_item
@@ -205,6 +207,12 @@ def apply_detail(item: Item, values: dict[str, Any]) -> list[str]:
 
 
 def _set_path(item: Item, path: str, value: Any) -> None:
+    """Write ``value`` at a contract ``path`` on ``item``.
+
+    Accepts ``product.attributes.<key>``, a known product field or a known
+    offer field; anything else raises :class:`ExtractionError` because it would
+    silently change a shape ingestion does not understand.
+    """
     if path.startswith(ATTRIBUTE_PREFIX):
         key = path[len(ATTRIBUTE_PREFIX) :]
         item.product.attributes[key] = value
@@ -240,6 +248,13 @@ def extract_page(
     if not cards:
         return result
 
+    # El JSON-LD describe el listado completo, no cada tarjeta, así que se
+    # indexa una sola vez por página y lo comparten todos los ítems.
+    jsonld: dict[str, dict[str, Any]] = {}
+    if spec.supplements:
+        jsonld, warnings = build_index(html)
+        result.warnings.extend(warnings)
+
     for index, card in enumerate(cards):
         item, rejected = _extract_card(
             spec,
@@ -250,6 +265,7 @@ def extract_page(
             run_id=run_id,
             config_id=config_id,
             scraped_at=scraped_at,
+            jsonld=jsonld,
         )
         if item is not None:
             result.items.append(item)
@@ -268,12 +284,24 @@ def _extract_card(
     run_id: int | None,
     config_id: int | None,
     scraped_at: str,
+    jsonld: dict[str, dict[str, Any]],
 ) -> tuple[Item | None, RejectedItem | None]:
+    """Turn one listing card into an item, or into a rejected card.
+
+    Reads ``externalId``, ``externalUrl`` and every declared field, applies the
+    declared defaults, fills what is still empty from the page JSON-LD through
+    ``spec.supplements``, and only then checks ``rejectIfMissing`` and
+    ``validate_item``. Returns ``(item, None)`` or ``(None, rejected)``; a card
+    is never half-built.
+    """
     reasons: list[str] = []
     raw: dict[str, Any] = {}
 
     external_id = _read_scalar(card, spec.external_id, page_url, raw, "externalId", reasons)
-    external_url = _read_external_url(card, spec, page_url, raw, external_id, reasons)
+    if spec.external_url is not None:
+        external_url = _read_external_url(card, spec, page_url, raw, external_id, reasons)
+    else:
+        external_url = _read_supplemented_url(card, spec, page_url, raw, jsonld, reasons)
 
     values: dict[str, Any] = {}
     reject_paths = set(spec.reject_if_missing)
@@ -306,6 +334,10 @@ def _extract_card(
         if field_spec.path not in values and field_spec.default is not None:
             values[field_spec.path] = field_spec.default
 
+    _apply_field_supplements(
+        spec, card, page_url, raw, values, jsonld, reasons, reject_paths
+    )
+
     missing = [
         path
         for path in spec.reject_if_missing
@@ -313,6 +345,9 @@ def _extract_card(
     ]
     if not external_url:
         missing.append("externalUrl")
+    if not external_id and "externalId" in reject_paths:
+        # TAL-172: sin clave el ítem se descartaba en silencio al deduplicar.
+        missing.append("externalId")
     for path in missing:
         reasons.append(f"{path}: required value not found")
 
@@ -357,7 +392,17 @@ def _read_external_url(
     external_id: str | None,
     reasons: list[str],
 ) -> str | None:
+    """Read ``externalUrl`` from the card, a template or an attribute.
+
+    A template is rendered with ``externalId``; anything else is read as a
+    selector or an attribute and coerced to an absolute ``http(s)`` URL.
+    Returns the URL or ``None``, appending the reason when the template misses
+    a placeholder. ``None`` is expected when the spec supplies the URL through
+    ``item.supplements`` instead.
+    """
     source = spec.external_url
+    if source is None:
+        return None
     if source.template is not None:
         rendered, missing = _render_template(source.template, {"externalId": external_id})
         if missing:
@@ -373,6 +418,105 @@ def _read_external_url(
     return _read_scalar(card, source, page_url, raw, "externalUrl", reasons)
 
 
+def _read_supplemented_url(
+    card: Selector,
+    spec: StoreSpec,
+    page_url: str,
+    raw: dict[str, Any],
+    jsonld: dict[str, dict[str, Any]],
+    reasons: list[str],
+) -> str | None:
+    """Read ``externalUrl`` from the page JSON-LD when the spec declares no source.
+
+    Used by stores whose listing has no usable link in the card: the canonical
+    URL is published once per product in the structured data. Returns the URL
+    or ``None`` and records the coercion error in ``reasons`` when the JSON-LD
+    value is not a valid absolute URL.
+    """
+    supplement = next(
+        (item for item in spec.supplements if item.path == "externalUrl"), None
+    )
+    if supplement is None:
+        return None
+    provided = _supplement_value(card, supplement, page_url, jsonld)
+    if provided is None:
+        return None
+    raw["externalUrl"] = provided
+    url, error = coerce(provided, "url", page_url=page_url)
+    if error:
+        reasons.append(f"externalUrl: {error}")
+        return None
+    return url  # type: ignore[return-value]
+
+
+def _apply_field_supplements(
+    spec: StoreSpec,
+    card: Selector,
+    page_url: str,
+    raw: dict[str, Any],
+    values: dict[str, Any],
+    jsonld: dict[str, dict[str, Any]],
+    reasons: list[str],
+    reject_paths: set[str],
+) -> None:
+    """Fill the declared fields the card left empty from the page JSON-LD.
+
+    Never overwrites a value the card already produced, so the visible markup
+    keeps precedence. A JSON-LD value that does not coerce to the field type is
+    reported only when the field is required or listed in ``rejectIfMissing``,
+    matching how the card-level reader behaves.
+    """
+    for supplement in spec.supplements:
+        if supplement.path == "externalUrl":
+            continue
+        if values.get(supplement.path) not in (None, ""):
+            continue
+        field_spec = spec.field(supplement.path)
+        if field_spec is None:
+            continue
+        provided = _supplement_value(card, supplement, page_url, jsonld)
+        if provided is None:
+            continue
+        value, error = _coerce_field(field_spec, provided, page_url)
+        if error:
+            if field_spec.required or supplement.path in reject_paths:
+                reasons.append(f"{supplement.path}: {error}")
+            continue
+        raw[supplement.path] = provided
+        values[supplement.path] = value
+
+
+def _supplement_value(
+    card: Selector,
+    supplement: Supplement,
+    page_url: str,
+    jsonld: dict[str, dict[str, Any]],
+) -> str | None:
+    """Look up one supplement value for this card.
+
+    Reads the join key with ``supplement.match_by`` (an attribute such as
+    ``data-key``), normalizes it to its digits, finds the JSON-LD entry and
+    returns the string at ``supplement.value_path``. Returns ``None`` when the
+    page has no structured data, the card has no key, the entry is missing or
+    the value is not a non-empty string.
+    """
+    if not jsonld:
+        return None
+    key_value, error = read_value(card, supplement.match_by, page_url)
+    if error is not None or key_value is None:
+        return None
+    key = match_key(key_value)
+    if key is None:
+        return None
+    entry = jsonld.get(key)
+    if entry is None:
+        return None
+    raw_value = value_at(entry, supplement.value_path)
+    if isinstance(raw_value, str) and raw_value.strip():
+        return raw_value.strip()
+    return None
+
+
 def _read_scalar(
     card: Selector,
     spec: ValueSpec | None,
@@ -381,6 +525,12 @@ def _read_scalar(
     label: str,
     reasons: list[str],
 ) -> str | None:
+    """Read one optional scalar (``externalId``, a plain URL) from the card.
+
+    Applies the declared transform and regex, records the text in ``raw`` for
+    diagnostics and returns ``None`` when the spec, the value or the text is
+    empty. Read errors are appended to ``reasons``.
+    """
     if spec is None:
         return None
     value, error = read_value(card, spec, page_url)
@@ -406,6 +556,14 @@ def _read_field(
     *,
     reject_paths: set[str] | None = None,
 ) -> Any:
+    """Read and coerce one declared field from the card.
+
+    Handles the three sources of a :class:`FieldSpec`: a template (rendered
+    with ``externalId`` and the values already read), a page read (selector,
+    attribute, text or list) and a regex/transform pipeline. Returns the
+    coerced value, or ``None`` when it is absent; only required or rejected
+    paths add a reason.
+    """
     source = field_spec.source
     path = field_spec.path
 
@@ -447,6 +605,12 @@ def _read_field(
 def _coerce_field(
     field_spec: FieldSpec, text: str, page_url: str
 ) -> tuple[Any, str | None]:
+    """Coerce ``text`` to the type declared by ``field_spec``.
+
+    Condition and currency have their own parsers; everything else goes through
+    :func:`scraper.extract.transforms.coerce`. Returns ``(value, error)``, with
+    exactly one of them set.
+    """
     if field_spec.path == "offer.condition":
         return coerce_condition(text)
     if field_spec.path == "offer.currency":
@@ -455,6 +619,12 @@ def _coerce_field(
 
 
 def _render_template(template: str, context: dict[str, Any]) -> tuple[str, list[str]]:
+    """Replace ``{path}`` placeholders in ``template`` with ``context``.
+
+    Returns the rendered text and the list of placeholders that had no value,
+    so the caller decides whether a missing one rejects the card or just skips
+    the field.
+    """
     missing: list[str] = []
 
     def replace(match: re.Match[str]) -> str:
@@ -480,6 +650,13 @@ def _build_item(
     config_id: int | None,
     scraped_at: str,
 ) -> Item:
+    """Assemble the ``Item`` sent to ingestion from the extracted values.
+
+    Splits ``product.attributes.<key>`` into the attribute map, fills the offer
+    defaults the contract requires (currency, shipping, condition, product URL)
+    and records the provenance of the page that produced the card. Returns the
+    item; validation happens in the caller.
+    """
     attributes = {
         path[len(ATTRIBUTE_PREFIX) :]: value
         for path, value in values.items()
@@ -524,11 +701,21 @@ def _build_item(
 
 
 def _price_currency(spec: StoreSpec) -> str:
+    """Return the currency declared for ``offer.price``, or ``CLP``.
+
+    The price is required by the contract, but the currency field is optional;
+    this keeps the offer coherent when the spec omits it.
+    """
     price = spec.field("offer.price")
     return price.currency if price and price.currency else "CLP"
 
 
 def _unique(values: list[str]) -> list[str]:
+    """Drop duplicates from ``values`` keeping the first occurrence.
+
+    Reasons arrive from several readers and the same one can be produced twice;
+    the rejected card should list each cause once, in the order it was found.
+    """
     seen: set[str] = set()
     result: list[str] = []
     for value in values:

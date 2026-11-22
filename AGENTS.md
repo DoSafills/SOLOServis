@@ -32,7 +32,7 @@ No repitas en un skill lo que ya dice este archivo: aquí va **qué** se hace y 
 ## 1. Reglas que no se rompen
 
 1. **Propuesta antes de código.** Muestra el diseño (esquema, endpoints, contratos, archivos a tocar) y espera aprobación. Después muestra el diff antes del commit.
-2. **Una rama por tarea**, creada desde `develop`. Nunca hagas commit directo en `develop` ni en `main`.
+2. **Una rama por dominio**, creada desde `develop` (§6). Nunca hagas commit directo en `develop` ni en `main`.
 3. **Push y PR solo cuando la persona lo pide; nunca merge.** Sin un pedido explícito, deja los commits en la rama local y entrega el texto del PR para que la persona lo abra. El PR va contra **`develop`** (no `main`).
 4. **Commits sin atribución de IA:** nada de `Co-Authored-By` ni "Generated with…".
 5. **Migraciones:** las aplicadas no se editan. Todo cambio va en un archivo nuevo.
@@ -67,6 +67,7 @@ Proyecto del curso Taller de Integración III (UCT). Las tareas viven en Linear 
 | Contenedores | Docker (imágenes multi-etapa, sin root), Docker Compose |
 | Orquestación | Kubernetes con Kustomize (clúster UCT), scripts `deploy.ps1` / `deploy.sh` |
 | Autenticación | Sesiones con tokens opacos (se guarda su SHA-256), contraseñas con PBKDF2-SHA256; token de servicio `INTERNAL_API_TOKEN` |
+| Asistente de comparación (IA) | Proveedor agnóstico por configuración: `AI_PROVIDER`/`AI_MODEL`/`AI_BASE_URL`/`AI_API_KEY`, sin recompilar. En el clúster corre DeepSeek (`deepseek-chat`, camino `compatible`); Gemini y cualquier API compatible OpenAI entran cambiando esas variables. Código en `backend/internal/assistant/`; contexto cerrado a 2–5 productos, guardrails, caché en memoria y auditoría en `ai_comparison_query`. Sin clave responde 503 `ai_unavailable` (no hay respuestas de plantilla). Config y prompt en `assistant/`. |
 | Herramientas git | husky + lint-staged |
 
 ### **No** implementado (figuró en versiones antiguas del README)
@@ -77,7 +78,6 @@ No hay rastro en el código de: **Redis**, **Scrapy**, **Playwright** (directo),
 
 | Qué | Estado |
 | --- | --- |
-| IA / NLP para consultas | Solo existe la tabla `ai_query_process`; no hay código |
 | Caché (Redis) | Prevista; sin implementar |
 | Documentación OpenAPI | Prevista; hoy los endpoints están en `backend/README.md` |
 | Pantallas de seguimiento de precios y notificaciones | Las APIs `watchlist` y `notification` existen; el frontend no las usa |
@@ -100,6 +100,7 @@ backend/            API en Go
 fronted/            frontend React (la carpeta se llama "fronted", sin la n)
 scraper/            scraper v2: specs por tienda en stores/<slug>/spec.json
 crawler/            crawler v1
+assistant/          asistente de comparación: config, prompt y allowlist (fuente de assets)
 docker/             Dockerfiles, compose.yml (3 dominios) y compose.microservicios.yml
 k8s/                base/, components/{dominios,consolidado,espera-postgres}, tests/
 scripts/k8s/        deploy.ps1, deploy.sh
@@ -132,7 +133,7 @@ docs/               estandares/, auditorias/, database/, requirements/
 
 | Tema | Convención |
 | --- | --- |
-| Ramas | `feature/TAL-XX-descripcion`, `fix/…`, `docs/…`, `chore/…`, `test/TAL-XX-…`, desde `develop` |
+| Ramas | Desde 2026-11-20, **una rama por dominio**, no por tarea: `feat/api`, `feat/backend`, `feat/frontend`, `feat/test` u otra según el área (por ejemplo `feat/scraper`, `feat/k8s`, `docs/…`). Se crean desde `develop`, que sigue siendo la rama de integración. El ticket va en el commit, no en el nombre de la rama. Antes de empezar, actualiza la rama con `git merge origin/develop`: la comparten varias tareas y se desfasa rápido |
 | Commits | Pequeños, `tipo(TAL-XX): descripción` en español (`feat`, `fix`, `docs`, `test`, `chore`). Sin tarea: `tipo(área): …` |
 | PR | Contra `develop`. Descripción breve: qué cambia, cómo se validó, riesgos. No repitas el README |
 | Antes de afirmar que algo está en `develop` | Verifícalo (`git merge-base --is-ancestor`): ya hubo PR que quedaron en `main` por error |
@@ -198,7 +199,7 @@ Norma completa: `docs/estandares/TAL-78-estandar-api.md`. Lo esencial:
 - Los pods corren sin root, con `readOnlyRootFilesystem` y sin capabilities (Pod Security `restricted`).
 - Un Service inyecta variables `<NOMBRE>_PORT=tcp://…` en los pods: si chocan con una variable de la app, usa `enableServiceLinks: false`.
 - `k8s/overlays/` es generado y está ignorado por git.
-- Los Secrets `postgres-secret` y `soloservis-internal` los crea o reutiliza la fase 4 del script; no están en git.
+- Los Secrets `postgres-secret`, `soloservis-internal` y `soloservis-ai` los crea o reutiliza la fase 4 del script; no están en git. `soloservis-ai` no se puede generar al azar: la fase 4 la toma de `AI_API_KEY` en el entorno del despliegue, y sin ella avisa y sigue (el asistente responde 503).
 
 ---
 
@@ -231,6 +232,7 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 - Docker Compose con los 3 procesos (TAL-109).
 - Despliegue validado, 29 de 29 en el pod de test (TAL-110). Evidencia: `docs/auditorias/TAL-110-despliegue-y-validacion.md`.
 - Scraper v2 entregando productos reales de Falabella y Ripley de punta a punta.
+- Asistente de comparación (IA) conectado: `POST /comparisons/assistant` con DeepSeek (`deepseek-chat`) en el clúster, contexto cerrado, guardrails, caché y auditoría. La respuesta es siempre la del modelo: sin `AI_API_KEY` responde 503 `ai_unavailable` y el backend no arma texto por su cuenta. El proveedor se cambia por configuración (`AI_PROVIDER`, `AI_BASE_URL`, `AI_MODEL`) sin recompilar; el camino compatible-OpenAI se prueba con un servidor simulado.
 
 **Pendiente:**
 - Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra 2 tests del crawler que fallan en Windows (conexión SQLite sin cerrar).
@@ -254,3 +256,4 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 | Rutas y dependencias entre APIs | `docs/auditorias/TAL-105-rutas-y-dependencias.md` |
 | Modelo de datos | `docs/database/modelo-relacional.md` |
 | Scraper | `scraper/README.md` |
+| Asistente de comparación (IA) | `assistant/README.md` |

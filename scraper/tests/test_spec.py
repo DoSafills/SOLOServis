@@ -45,8 +45,60 @@ def test_required_field_must_be_marked_required():
 
 def test_template_placeholder_must_exist():
     raw = spec_raw("falabella-cl")
-    raw["item"]["externalUrl"]["template"] = "https://example.test/{nope}"
+    del raw["item"]["supplements"]["externalUrl"]
+    raw["item"]["externalUrl"] = {"template": "https://example.test/{nope}"}
     with pytest.raises(SpecError, match="unknown placeholder"):
+        parse_spec(raw, "inline")
+
+
+def test_external_url_needs_a_source():
+    raw = spec_raw("falabella-cl")
+    del raw["item"]["supplements"]["externalUrl"]
+    with pytest.raises(SpecError, match="externalUrl"):
+        parse_spec(raw, "inline")
+
+
+def test_external_url_cannot_be_declared_twice():
+    raw = spec_raw("falabella-cl")
+    raw["item"]["externalUrl"] = {"attribute": "href"}
+    with pytest.raises(SpecError, match="not both"):
+        parse_spec(raw, "inline")
+
+
+def test_supplement_requires_a_supported_source():
+    raw = spec_raw("falabella-cl")
+    raw["item"]["supplements"]["product.imageUrl"]["from"] = "microdata"
+    with pytest.raises(SpecError, match="from"):
+        parse_spec(raw, "inline")
+
+
+def test_supplement_requires_match_by_and_value_path():
+    raw = spec_raw("falabella-cl")
+    del raw["item"]["supplements"]["product.imageUrl"]["matchBy"]
+    with pytest.raises(SpecError, match="matchBy"):
+        parse_spec(raw, "inline")
+
+    raw = spec_raw("falabella-cl")
+    raw["item"]["supplements"]["product.imageUrl"]["valuePath"] = "image;alert(1)"
+    with pytest.raises(SpecError, match="valuePath"):
+        parse_spec(raw, "inline")
+
+
+def test_supplement_target_must_be_a_declared_field():
+    raw = spec_raw("falabella-cl")
+    raw["item"]["supplements"]["product.sku"] = {
+        "from": "jsonld",
+        "matchBy": {"attribute": "data-key"},
+        "valuePath": "sku",
+    }
+    with pytest.raises(SpecError, match="not a declared field"):
+        parse_spec(raw, "inline")
+
+
+def test_supplement_rejects_unknown_keys():
+    raw = spec_raw("falabella-cl")
+    raw["item"]["supplements"]["product.imageUrl"]["selector"] = "img"
+    with pytest.raises(SpecError, match="unknown key"):
         parse_spec(raw, "inline")
 
 

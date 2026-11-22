@@ -244,7 +244,7 @@ Requests por pod en `dominios`: comercial 50m/128Mi, usuarios 25m/64Mi, ingestio
 | 1 | Borra el despliegue anterior. **Conserva el PVC y los Secrets** | no quedan recursos `part-of=soloservis` |
 | 2 | Elige la StorageClass (prueba que un PVC quede Bound y escribible) y genera `k8s/overlays/uct` | `kubectl kustomize` compila |
 | 3 | `docker build` y `docker push` de las 3 imágenes (frontend, backend y scraper) | cada imagen OK |
-| 4 | Crea los Secrets `postgres-secret` (contraseña aleatoria) y `soloservis-internal` (token) si no existen y despliega PostgreSQL | `postgres-0` Ready |
+| 4 | Crea los Secrets `postgres-secret` (contraseña aleatoria), `soloservis-internal` (token) y `soloservis-ai` (desde `AI_API_KEY` del entorno) si no existen y despliega PostgreSQL | `postgres-0` Ready |
 | 5 | Job de migraciones (`migration_order.txt`) | `schema_migrations` = archivos del manifiesto |
 | 6 | APIs: `comercial`, `usuarios` e `ingestion` (o `backend`), más `scraper-api` | cada API Ready y con `/health` → `database: connected`; scraper Ready y `/health` → `ok` |
 | 7 | Frontend (nginx) | Ready y `/products` responde a través de nginx |
@@ -524,6 +524,32 @@ Remove-Variable pw, b
 
 Si borras `postgres-secret` pero conservas el PVC, la Fase 4 se detiene: una contraseña nueva no coincidiría con la del volumen. Recréalo con la contraseña anterior, o borra también el PVC si no necesitas los datos.
 
+### Clave del proveedor de IA
+
+El asistente de comparación necesita una clave que **emite un tercero** (DeepSeek en el clúster), así que la Fase 4 no puede generarla. Vive en el Secret `soloservis-ai`, fuera de git, y la lee el dominio `comercial`.
+
+Lo normal es exportarla antes de desplegar y dejar que la Fase 4 cree el Secret:
+
+```powershell
+$env:AI_API_KEY = 'sk-...'     # PowerShell
+```
+```bash
+export AI_API_KEY='sk-...'     # bash
+```
+
+Si el Secret ya existe, la Fase 4 lo reutiliza y **no** lee `AI_API_KEY`. Si no existe y la variable tampoco, el despliegue **no se detiene**: avisa y el asistente responde `503 ai_unavailable`; el resto del sitio funciona igual.
+
+Para crearlo o rotarlo a mano, sin dejar la clave en el historial:
+
+```bash
+read -rs AI_API_KEY && printf '%s' "$AI_API_KEY" > /tmp/ai.key
+kubectl create secret generic soloservis-ai --from-file=AI_API_KEY=/tmp/ai.key --dry-run=client -o yaml | kubectl apply -f -
+rm -f /tmp/ai.key && unset AI_API_KEY
+kubectl rollout restart deployment/comercial
+```
+
+Cambiar de proveedor (Gemini, Groq, Ollama) no exige recompilar: se editan `AI_PROVIDER`, `AI_BASE_URL` y `AI_MODEL` en `k8s/components/dominios/comercial.yaml`, se actualiza el Secret y se reinicia el deployment. Nunca imprimas el Secret: `kubectl get secret -o yaml` devuelve la clave en base64, que es reversible.
+
 ### Borrar todo
 
 En tu namespace no puedes borrar el namespace, así que se borran los recursos. ⚠️ Esto incluye la base de datos:
@@ -533,7 +559,7 @@ kubectl delete all,ingress,configmap,job,pvc -l app.kubernetes.io/part-of=solose
 ```
 
 ```bash
-kubectl delete secret postgres-secret soloservis-internal --ignore-not-found
+kubectl delete secret postgres-secret soloservis-internal soloservis-ai --ignore-not-found
 ```
 
 ---
