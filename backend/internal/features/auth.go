@@ -297,7 +297,8 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 // Refresh atiende POST /auth/refresh: canjea un refresh token vigente por un
 // par nuevo y borra la sesión anterior (rotación), dejando el token nuevo en
 // la cookie. Toma el token del body o, si no viene, de la cookie. Responde 200
-// con la sesión nueva, 422 si no hay token y 401 si no es válido o venció.
+// con la sesión nueva, 401 si no hay token (sin sesión), no es válido o venció
+// y 400/422 si el body viene mal formado.
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var input authInput
 	if r.Body != nil && r.ContentLength != 0 {
@@ -309,9 +310,8 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	if token == "" {
 		token = refreshCookieToken(r)
 	}
-	var v httpx.Validator
-	v.Required("refreshToken", token)
-	if !valid(w, r, &v) {
+	if token == "" {
+		writeError(w, r, http.StatusUnauthorized, "No hay una sesión activa.")
 		return
 	}
 	var userID int32
