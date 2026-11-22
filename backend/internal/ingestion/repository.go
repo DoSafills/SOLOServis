@@ -6,9 +6,16 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// rowQuerier son las operaciones que comparten el pool y una transacción.
+type rowQuerier interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 // Repository accede a las tablas de scraping y a lo que Ingestion necesita
 // del catálogo (marcas, búsqueda de productos). Consultas parametrizadas.
@@ -177,18 +184,37 @@ func (r *Repository) SaveScraped(ctx context.Context, runID int32, externalID, e
 	return err
 }
 
+// BeginTx abre la transacción con la que Processor aplica un ítem completo
+// (producto, imagen, oferta e historial) de forma atómica (TAL-191).
+func (r *Repository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	return r.db.Begin(ctx)
+}
+
 // FindProduct busca un producto ya catalogado: primero por SKU y, si no lo
-// encuentra (o no hay SKU), por marca + modelo sin distinguir mayúsculas. Así
-// un SKU propio de la tienda no duplica un producto que ya existe con otro SKU.
-// Si tampoco coincide, usa la identidad que el scraper siempre envía: una
-// oferta de la misma tienda con la misma URL (TAL-169). La URL se compara sin
-// parámetros ni fragmento, porque las tiendas agregan parámetros de
-// seguimiento que cambian en cada corrida (Ripley: pos, catPos, ps).
+// encuentra (o no hay SKU), por marca + modelo sin distinguir mayúsculas.
+// Luego usa la identidad que el scraper siempre envía: una oferta de la misma
+// tienda con la misma URL (TAL-169), comparada sin parámetros ni fragmento
+// porque las tiendas agregan parámetros de seguimiento que cambian en cada
+// corrida (Ripley: pos, catPos, ps). Por último, cuando el ítem no trae SKU ni
+// modelo (caso normal del scraper), reconoce el mismo producto por marca,
+// nombre normalizado y categoría, siempre dentro de la misma tienda: es el
+// caso de las variantes de color, que la tienda publica con otra URL (TAL-191).
 // Prefiere los activos.
-func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error) {
+func (r *Repository) FindProduct(ctx context.Context, sku, brand, model, name, categorySlug string, storeID int32, productURL string) (ExistingProduct, bool, error) {
+	return findProduct(ctx, r.db, sku, brand, model, name, categorySlug, storeID, productURL)
+}
+
+// FindProductTx es FindProduct dentro de la transacción del ítem (TAL-191):
+// la búsqueda y el alta ven el mismo estado de la base.
+func (r *Repository) FindProductTx(ctx context.Context, tx pgx.Tx, sku, brand, model, name, categorySlug string, storeID int32, productURL string) (ExistingProduct, bool, error) {
+	return findProduct(ctx, tx, sku, brand, model, name, categorySlug, storeID, productURL)
+}
+
+// findProduct ejecuta la búsqueda por identidad sobre q (pool o transacción).
+func findProduct(ctx context.Context, q rowQuerier, sku, brand, model, name, categorySlug string, storeID int32, productURL string) (ExistingProduct, bool, error) {
 	var p ExistingProduct
 	if sku != "" {
-		err := r.db.QueryRow(ctx, `SELECT id, public_id::text, active FROM product WHERE sku = $1`, sku).
+		err := q.QueryRow(ctx, `SELECT id, public_id::text, active FROM product WHERE sku = $1`, sku).
 			Scan(&p.ID, &p.PublicID, &p.Active)
 		if err == nil {
 			return p, true, nil
@@ -198,7 +224,7 @@ func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string, 
 		}
 	}
 	if brand != "" && model != "" {
-		err := r.db.QueryRow(ctx, `
+		err := q.QueryRow(ctx, `
 			SELECT p.id, p.public_id::text, p.active
 			FROM product p JOIN brand b ON b.id = p.brand_id
 			WHERE lower(b.name) = lower($1) AND lower(p.model) = lower($2)
@@ -210,23 +236,52 @@ func (r *Repository) FindProduct(ctx context.Context, sku, brand, model string, 
 			return ExistingProduct{}, false, err
 		}
 	}
-	if productURL == "" {
+	if productURL != "" {
+		// Misma normalización que el índice único de product_offer (migración 009),
+		// cortada en el "?". Una URL que no se puede normalizar da NULL y no
+		// coincide con nada. Se devuelve la URL guardada para reutilizar esa oferta.
+		err := q.QueryRow(ctx, `
+			SELECT p.id, p.public_id::text, p.active, o.product_url
+			FROM product_offer o JOIN product p ON p.id = o.product_id
+			WHERE o.store_id = $1
+			  AND split_part(normalize_product_offer_url(o.product_url), '?', 1) =
+			      split_part(normalize_product_offer_url($2), '?', 1)
+			ORDER BY p.active DESC, p.id, o.id LIMIT 1`, storeID, productURL).Scan(&p.ID, &p.PublicID, &p.Active, &p.OfferURL)
+		if err == nil {
+			return p, true, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return ExistingProduct{}, false, err
+		}
+	}
+	if brand == "" || name == "" || categorySlug == "" {
 		return ExistingProduct{}, false, nil
 	}
-	// Misma normalización que el índice único de product_offer (migración 009),
-	// cortada en el "?". Una URL que no se puede normalizar da NULL y no
-	// coincide con nada. Se devuelve la URL guardada para reutilizar esa oferta.
-	err := r.db.QueryRow(ctx, `
-		SELECT p.id, p.public_id::text, p.active, o.product_url
-		FROM product_offer o JOIN product p ON p.id = o.product_id
-		WHERE o.store_id = $1
-		  AND split_part(normalize_product_offer_url(o.product_url), '?', 1) =
-		      split_part(normalize_product_offer_url($2), '?', 1)
-		ORDER BY p.active DESC, p.id, o.id LIMIT 1`, storeID, productURL).Scan(&p.ID, &p.PublicID, &p.Active, &p.OfferURL)
-	if errors.Is(err, pgx.ErrNoRows) {
+	// Último recurso (TAL-191): misma tienda, misma marca, misma categoría y
+	// mismo nombre (sin distinguir mayúsculas ni espacios repetidos). Las
+	// variantes de color de un mismo producto comparten nombre y cambian la URL,
+	// así que sus ofertas quedan bajo un solo producto. Dos productos distintos
+	// de la misma marca y categoría tienen nombres distintos y no se unen.
+	var storeHasProduct bool
+	err := q.QueryRow(ctx, `
+		SELECT p.id, p.public_id::text, p.active, EXISTS (
+			SELECT 1 FROM product_offer o WHERE o.product_id = p.id AND o.store_id = $4)
+		FROM product p
+		JOIN brand b ON b.id = p.brand_id
+		JOIN categories c ON c.id = p.category_ref
+		WHERE lower(b.name) = lower($1)
+		  AND c.slug = $2
+		  AND lower(trim(regexp_replace(p.name, '[[:space:]]+', ' ', 'g'))) =
+		      lower(trim(regexp_replace($3, '[[:space:]]+', ' ', 'g')))
+		ORDER BY p.active DESC, p.id LIMIT 1`, brand, categorySlug, name, storeID).
+		Scan(&p.ID, &p.PublicID, &p.Active, &storeHasProduct)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !storeHasProduct) {
 		return ExistingProduct{}, false, nil
 	}
-	return p, err == nil, err
+	if err != nil {
+		return ExistingProduct{}, false, err
+	}
+	return p, true, nil
 }
 
 // AddImageIfMissing completa la imagen de un producto ya catalogado (TAL-243).
@@ -247,15 +302,32 @@ func (r *Repository) AddImageIfMissing(ctx context.Context, productID int32, ima
 	}
 	defer tx.Rollback(ctx)
 
+	saved, err := addImageIfMissing(ctx, tx, productID, imageURL)
+	if err != nil {
+		return false, err
+	}
+	return saved, tx.Commit(ctx)
+}
+
+// AddImageIfMissingTx es AddImageIfMissing dentro de la transacción del ítem
+// (TAL-191) y no hace commit: si la oferta falla, la imagen se revierte con el
+// resto del ítem. La fila del producto se bloquea igual que en la versión
+// independiente.
+func (r *Repository) AddImageIfMissingTx(ctx context.Context, tx pgx.Tx, productID int32, imageURL string) (bool, error) {
+	return addImageIfMissing(ctx, tx, productID, imageURL)
+}
+
+// addImageIfMissing ejecuta la inserción condicional sobre q (pool o transacción).
+func addImageIfMissing(ctx context.Context, q rowQuerier, productID int32, imageURL string) (bool, error) {
 	var name string
-	err = tx.QueryRow(ctx, `SELECT name FROM product WHERE id = $1 FOR NO KEY UPDATE`, productID).Scan(&name)
+	err := q.QueryRow(ctx, `SELECT name FROM product WHERE id = $1 FOR NO KEY UPDATE`, productID).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	tag, err := tx.Exec(ctx, `
+	tag, err := q.Exec(ctx, `
 		INSERT INTO product_image (product_id, image_url, alt_text, sort_order)
 		SELECT $1, $2, $3, 0
 		WHERE NOT EXISTS (SELECT 1 FROM product_image WHERE product_id = $1 AND active)
@@ -264,22 +336,30 @@ func (r *Repository) AddImageIfMissing(ctx context.Context, productID int32, ima
 	if err != nil {
 		return false, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return false, err
-	}
 	return tag.RowsAffected() == 1, nil
 }
 
 // EnsureBrand devuelve la marca con la misma clave normalizada o la crea.
 func (r *Repository) EnsureBrand(ctx context.Context, name string) (int32, error) {
+	return ensureBrand(ctx, r.db, name)
+}
+
+// EnsureBrandTx es EnsureBrand dentro de la transacción del ítem (TAL-191): si
+// el ítem falla, una marca creada para él no queda en la base.
+func (r *Repository) EnsureBrandTx(ctx context.Context, tx pgx.Tx, name string) (int32, error) {
+	return ensureBrand(ctx, tx, name)
+}
+
+// ensureBrand busca o crea la marca sobre q (pool o transacción).
+func ensureBrand(ctx context.Context, q rowQuerier, name string) (int32, error) {
 	var id int32
-	err := r.db.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT id FROM brand
 		WHERE lower(trim(regexp_replace(replace(name, '.', ''), '[[:space:]]+', ' ', 'g'))) =
 		      lower(trim(regexp_replace(replace($1, '.', ''), '[[:space:]]+', ' ', 'g')))
 		ORDER BY id LIMIT 1`, name).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		err = r.db.QueryRow(ctx, `
+		err = q.QueryRow(ctx, `
 			INSERT INTO brand (name) VALUES ($1)
 			ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
 			RETURNING id`, name).Scan(&id)
@@ -289,7 +369,18 @@ func (r *Repository) EnsureBrand(ctx context.Context, name string) (int32, error
 
 // ProductID devuelve el id interno de un producto por su UUID público.
 func (r *Repository) ProductID(ctx context.Context, publicID pgtype.UUID) (int32, error) {
+	return productID(ctx, r.db, publicID)
+}
+
+// ProductIDTx es ProductID dentro de la transacción del ítem (TAL-191), para
+// leer el id recién insertado antes del commit.
+func (r *Repository) ProductIDTx(ctx context.Context, tx pgx.Tx, publicID pgtype.UUID) (int32, error) {
+	return productID(ctx, tx, publicID)
+}
+
+// productID resuelve el UUID público a id interno sobre q (pool o transacción).
+func productID(ctx context.Context, q rowQuerier, publicID pgtype.UUID) (int32, error) {
 	var id int32
-	err := r.db.QueryRow(ctx, `SELECT id FROM product WHERE public_id = $1`, publicID).Scan(&id)
+	err := q.QueryRow(ctx, `SELECT id FROM product WHERE public_id = $1`, publicID).Scan(&id)
 	return id, err
 }

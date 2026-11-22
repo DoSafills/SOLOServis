@@ -3,6 +3,7 @@ package ingestion
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -406,5 +408,263 @@ func TestIngestionIntegration_ImagenDeProductoExistente(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM product WHERE name = $1`, name).Scan(&copies), "copias")
 	if copies != 1 {
 		t.Fatalf("productos = %d, quiero 1 (sin duplicados)", copies)
+	}
+}
+
+// offersQueFalla envuelve al repositorio real de Pricing y, con fail activo,
+// rechaza la oferta después de que el producto ya se insertó en la misma
+// transacción: simula un corte entre producto y oferta (TAL-191).
+type offersQueFalla struct {
+	*pricing.Repository
+	fail bool
+}
+
+// UpsertOfferTx falla a pedido o delega en el repositorio real dentro de la
+// transacción del ítem.
+func (o *offersQueFalla) UpsertOfferTx(ctx context.Context, tx pgx.Tx, w pricing.OfferWrite) (int32, bool, *string, error) {
+	if o.fail {
+		return 0, false, nil, errors.New("corte simulado entre producto y oferta")
+	}
+	return o.Repository.UpsertOfferTx(ctx, tx, w)
+}
+
+// Integración TAL-191: repetir el mismo lote, en la misma ejecución y en una
+// nueva, no duplica producto, oferta ni historial. Y si el proceso se corta
+// entre el alta del producto y la oferta, la transacción revierte completa: no
+// queda un producto huérfano y el reintento lo crea una sola vez. Se omite sin
+// TEST_DATABASE_URL.
+func TestIngestionIntegration_ReintentoYCorteNoDuplican(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL no definida: se omite el test de integración")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	tag := "tal191-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	source := "Scraper " + tag
+	brand := "Marca " + tag
+	name := "Refri reintento " + tag
+	cortada := "Refri cortada " + tag
+	var storeID int32
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM data_source WHERE name = $1`, source)
+		_, _ = pool.Exec(ctx, `DELETE FROM product WHERE name = ANY($1)`, []string{name, cortada})
+		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = $1`, storeID)
+		_, _ = pool.Exec(ctx, `DELETE FROM brand WHERE name = $1`, brand)
+	})
+	must := func(err error, what string) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+	}
+	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda "+tag).Scan(&storeID), "tienda")
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	runs := NewRepository(pool)
+	offers := &offersQueFalla{Repository: pricing.NewRepository(pool)}
+	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), offers, &fakeNotifier{}, logger), logger)
+	r := chi.NewRouter()
+	r.Use(httpx.RequestID)
+	r.Post("/ingestion/runs", h.OpenRun)
+	r.Post("/ingestion/runs/{id}/items", h.AddItems)
+	do := func(path string, body any) *httptest.ResponseRecorder {
+		encoded, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(encoded)))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec
+	}
+	open := func() Run {
+		t.Helper()
+		rec := do("/ingestion/runs", map[string]any{
+			"source": map[string]any{"name": source, "baseUrl": "https://tienda.example.test"}, "storeId": storeID})
+		var run Run
+		if err := json.Unmarshal(rec.Body.Bytes(), &run); err != nil || rec.Code != http.StatusCreated {
+			t.Fatalf("abrir = %d %s", rec.Code, rec.Body.String())
+		}
+		return run
+	}
+	// item arma un ítem como los del scraper: sin SKU ni modelo, identificado
+	// por tienda + URL, como los productos que se duplicaban.
+	item := func(productName, productURL string) map[string]any {
+		return map[string]any{"product": map[string]any{"name": productName, "brand": brand,
+			"categorySlug": "refrigeradores", "attributes": map[string]any{"capacidad_litros": 320}},
+			"offer": map[string]any{"price": 299990, "productUrl": productURL}}
+	}
+	send := func(runID int32, items ...map[string]any) BatchResult {
+		t.Helper()
+		rec := do(fmt.Sprintf("/ingestion/runs/%d/items", runID), map[string]any{"items": items})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("lote = %d %s", rec.Code, rec.Body.String())
+		}
+		var result BatchResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	// counts devuelve productos, ofertas e historial del producto indicado.
+	counts := func(productName string) (int, int, int) {
+		t.Helper()
+		var p, o, h int
+		must(pool.QueryRow(ctx, `SELECT count(DISTINCT p.id), count(DISTINCT o.id), count(DISTINCT h.id)
+			FROM product p
+			LEFT JOIN product_offer o ON o.product_id = p.id
+			LEFT JOIN product_price_history h ON h.product_offer_id = o.id
+			WHERE p.name = $1`, productName).Scan(&p, &o, &h), "contar "+productName)
+		return p, o, h
+	}
+
+	// 1. Doble corrida: el mismo producto dos veces en el mismo lote y luego
+	// en una nueva ejecución. Queda un solo producto y una sola oferta.
+	first := open()
+	result := send(first.ID, item(name, "https://tienda.example.test/p/reintento?pos=1"),
+		item(name, "https://tienda.example.test/p/reintento?pos=2"))
+	if result.Results[0].Status != ItemCreated || result.Results[1].Status != ItemUpdated ||
+		result.Results[0].ProductID != result.Results[1].ProductID {
+		t.Fatalf("mismo lote = %+v", result.Results)
+	}
+	second := open()
+	if r := send(second.ID, item(name, "https://tienda.example.test/p/reintento?pos=3")); r.Results[0].Status != ItemUpdated {
+		t.Fatalf("segunda corrida = %+v", r.Results[0])
+	}
+	if p, o, h := counts(name); p != 1 || o != 1 || h != 1 {
+		t.Fatalf("tras dos corridas: productos = %d, ofertas = %d, historial = %d; quiero 1/1/1", p, o, h)
+	}
+
+	// 2. Corte simulado entre el producto y la oferta: el ítem falla y no deja
+	// un producto huérfano. El reintento lo crea una sola vez.
+	third := open()
+	offers.fail = true
+	result = send(third.ID, item(cortada, "https://tienda.example.test/p/cortada"))
+	if result.Results[0].Status != ItemFailed || len(result.Results[0].Errors) != 1 ||
+		result.Results[0].Errors[0].Code != codeInternalError {
+		t.Fatalf("corte = %+v", result.Results[0])
+	}
+	if p, o, h := counts(cortada); p != 0 || o != 0 || h != 0 {
+		t.Fatalf("el corte dejó filas: productos = %d, ofertas = %d, historial = %d", p, o, h)
+	}
+	offers.fail = false
+	if r := send(third.ID, item(cortada, "https://tienda.example.test/p/cortada")); r.Results[0].Status != ItemCreated {
+		t.Fatalf("reintento = %+v", r.Results[0])
+	}
+	if r := send(third.ID, item(cortada, "https://tienda.example.test/p/cortada?pos=2")); r.Results[0].Status != ItemUpdated {
+		t.Fatalf("reintento repetido = %+v", r.Results[0])
+	}
+	if p, o, h := counts(cortada); p != 1 || o != 1 || h != 1 {
+		t.Fatalf("tras el reintento: productos = %d, ofertas = %d, historial = %d; quiero 1/1/1", p, o, h)
+	}
+}
+
+// Integración TAL-191: sin SKU ni modelo, la tienda publica variantes de color
+// del mismo producto con otra URL y el mismo nombre; deben quedar como ofertas
+// de un solo producto. Dos productos distintos de la misma marca y categoría
+// tienen nombres distintos y no se unen. Se omite sin TEST_DATABASE_URL.
+func TestIngestionIntegration_VariantesDeColorYFalsosPositivos(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL no definida: se omite el test de integración")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	tag := "tal191v-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	source := "Scraper " + tag
+	brand := "Marca color " + tag
+	baseName := "Refri Color " + tag
+	otherName := "Refri Distinto " + tag
+	var storeID int32
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM data_source WHERE name = $1`, source)
+		_, _ = pool.Exec(ctx, `DELETE FROM product WHERE name ILIKE $1`, "%"+tag)
+		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = $1`, storeID)
+		_, _ = pool.Exec(ctx, `DELETE FROM brand WHERE name = $1`, brand)
+	})
+	must := func(err error, what string) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+	}
+	must(pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda "+tag).Scan(&storeID), "tienda")
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	runs := NewRepository(pool)
+	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), &fakeNotifier{}, logger), logger)
+	r := chi.NewRouter()
+	r.Use(httpx.RequestID)
+	r.Post("/ingestion/runs", h.OpenRun)
+	r.Post("/ingestion/runs/{id}/items", h.AddItems)
+	do := func(path string, body any) *httptest.ResponseRecorder {
+		encoded, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(encoded)))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec
+	}
+	rec := do("/ingestion/runs", map[string]any{
+		"source": map[string]any{"name": source, "baseUrl": "https://tienda.example.test"}, "storeId": storeID})
+	var run Run
+	if err := json.Unmarshal(rec.Body.Bytes(), &run); err != nil || rec.Code != http.StatusCreated {
+		t.Fatalf("abrir = %d %s", rec.Code, rec.Body.String())
+	}
+	send := func(productName, productURL string) ItemResult {
+		t.Helper()
+		rec := do(fmt.Sprintf("/ingestion/runs/%d/items", run.ID), map[string]any{"items": []any{map[string]any{
+			"product": map[string]any{"name": productName, "brand": brand, "categorySlug": "refrigeradores",
+				"attributes": map[string]any{"capacidad_litros": 340}},
+			"offer": map[string]any{"price": 349990, "productUrl": productURL}}}})
+		var result BatchResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil || rec.Code != http.StatusOK || len(result.Results) != 1 {
+			t.Fatalf("lote = %d %s", rec.Code, rec.Body.String())
+		}
+		return result.Results[0]
+	}
+	offers := func(publicID string) int {
+		t.Helper()
+		var n int
+		must(pool.QueryRow(ctx, `SELECT count(*) FROM product_offer o
+			JOIN product p ON p.id = o.product_id WHERE p.public_id = $1::uuid`, publicID).Scan(&n), "ofertas")
+		return n
+	}
+
+	// 1. Dos variantes de color: mismo nombre (con mayúsculas y espacios de más)
+	// y URL distinta. Quedan como dos ofertas del mismo producto.
+	first := send(baseName, "https://tienda.example.test/p/color-blanco")
+	second := send("  "+strings.ToUpper("refri color "+tag)+"  ", "https://tienda.example.test/p/color-negro")
+	if first.Status != ItemCreated || second.Status != ItemUpdated || second.ProductID != first.ProductID {
+		t.Fatalf("variantes = %+v / %+v", first, second)
+	}
+	if got := offers(first.ProductID); got != 2 {
+		t.Fatalf("ofertas de la variante = %d, quiero 2", got)
+	}
+
+	// 2. Falso positivo: otro producto de la misma marca y categoría, con otro
+	// nombre, no se une al de las variantes.
+	other := send(otherName, "https://tienda.example.test/p/distinto")
+	if other.Status != ItemCreated || other.ProductID == first.ProductID {
+		t.Fatalf("producto distinto = %+v", other)
+	}
+	var total int
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM product p
+		JOIN brand b ON b.id = p.brand_id
+		JOIN categories c ON c.id = p.category_ref
+		WHERE lower(b.name) = lower($1) AND c.slug = 'refrigeradores'`, brand).Scan(&total), "productos")
+	if total != 2 {
+		t.Fatalf("productos de la marca = %d, quiero 2 (variantes juntas, distinto aparte)", total)
 	}
 }

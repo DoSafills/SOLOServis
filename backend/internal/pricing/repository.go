@@ -114,17 +114,34 @@ func (r *Repository) BestOffer(ctx context.Context, productID int32) (Offer, err
 	return offer, err
 }
 
+// txQuerier son las operaciones que comparten el pool y una transacción.
+type txQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // UpsertOffer registra el precio actual: crea la oferta o actualiza la que
 // tenga el mismo producto, tienda y URL normalizada (índice único de TAL-63/64).
 // Devuelve el precio anterior (nil si la oferta es nueva). El trigger de la
 // migración 010 agrega el historial solo si el precio cambió.
 func (r *Repository) UpsertOffer(ctx context.Context, w OfferWrite) (int32, bool, *string, error) {
+	return upsertOffer(ctx, r.db, w)
+}
+
+// UpsertOfferTx es UpsertOffer sobre una transacción ya abierta y no hace
+// commit: la usa Ingestion para aplicar producto y oferta en una sola
+// transacción (TAL-191). Devuelve lo mismo que UpsertOffer.
+func (r *Repository) UpsertOfferTx(ctx context.Context, tx pgx.Tx, w OfferWrite) (int32, bool, *string, error) {
+	return upsertOffer(ctx, tx, w)
+}
+
+// upsertOffer ejecuta el upsert de la oferta sobre q (pool o transacción).
+func upsertOffer(ctx context.Context, q txQuerier, w OfferWrite) (int32, bool, *string, error) {
 	var (
 		id       int32
 		inserted bool
 		previous *string
 	)
-	err := r.db.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		WITH previous AS (
 		    SELECT price FROM product_offer
 		    WHERE product_id = $1 AND store_id = $2

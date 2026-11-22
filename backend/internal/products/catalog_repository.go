@@ -416,9 +416,20 @@ func (r *Repository) Create(ctx context.Context, product ProductWrite) (pgtype.U
 	}
 	defer tx.Rollback(ctx)
 
+	publicID, err := r.CreateTx(ctx, tx, product)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	return publicID, tx.Commit(ctx)
+}
+
+// CreateTx guarda producto, imagen principal y atributos sobre una transacción
+// ya abierta y no hace commit: la usa Ingestion para aplicar el ítem completo
+// en una sola transacción (TAL-191). Devuelve el UUID público del producto.
+func (r *Repository) CreateTx(ctx context.Context, tx pgx.Tx, product ProductWrite) (pgtype.UUID, error) {
 	var id int32
 	var publicID pgtype.UUID
-	err = tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		INSERT INTO product (category_id, category_ref, brand_id, name, model, sku, description)
 		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''))
 		RETURNING id, public_id`,
@@ -440,7 +451,7 @@ func (r *Repository) Create(ctx context.Context, product ProductWrite) (pgtype.U
 		return pgtype.UUID{}, err
 	}
 
-	return publicID, tx.Commit(ctx)
+	return publicID, nil
 }
 
 // Update reemplaza datos y atributos de un producto activo, o ErrNotFound.

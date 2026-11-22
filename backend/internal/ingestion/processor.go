@@ -14,11 +14,14 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // RunStore es lo que Ingestion necesita de sus tablas; *Repository la implementa.
+// Las consultas del ítem van por la transacción del ítem (TAL-191): producto,
+// imagen y oferta se aplican juntos o no se aplica nada.
 type RunStore interface {
 	OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType string) (int32, error)
 	GetRun(ctx context.Context, id int32) (Run, error)
@@ -27,23 +30,24 @@ type RunStore interface {
 	ItemsTarget(ctx context.Context, id int32) (int32, error)
 	AddCounters(ctx context.Context, id int32, found, processed, failed int) error
 	SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, raw json.RawMessage) error
-	FindProduct(ctx context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error)
-	AddImageIfMissing(ctx context.Context, productID int32, imageURL string) (bool, error)
-	EnsureBrand(ctx context.Context, name string) (int32, error)
-	ProductID(ctx context.Context, publicID pgtype.UUID) (int32, error)
+	BeginTx(ctx context.Context) (pgx.Tx, error)
+	FindProductTx(ctx context.Context, tx pgx.Tx, sku, brand, model, name, categorySlug string, storeID int32, productURL string) (ExistingProduct, bool, error)
+	AddImageIfMissingTx(ctx context.Context, tx pgx.Tx, productID int32, imageURL string) (bool, error)
+	EnsureBrandTx(ctx context.Context, tx pgx.Tx, name string) (int32, error)
+	ProductIDTx(ctx context.Context, tx pgx.Tx, publicID pgtype.UUID) (int32, error)
 }
 
 // Catalog crea productos con las reglas de Product API (TAL-70);
 // *products.Repository la implementa.
 type Catalog interface {
 	ResolveCategory(ctx context.Context, ref products.CategoryRef) (products.WriteCategory, error)
-	Create(ctx context.Context, product products.ProductWrite) (pgtype.UUID, error)
+	CreateTx(ctx context.Context, tx pgx.Tx, product products.ProductWrite) (pgtype.UUID, error)
 }
 
 // Offers registra precios con las reglas de Pricing API (TAL-74);
 // *pricing.Repository la implementa.
 type Offers interface {
-	UpsertOffer(ctx context.Context, w pricing.OfferWrite) (int32, bool, *string, error)
+	UpsertOfferTx(ctx context.Context, tx pgx.Tx, w pricing.OfferWrite) (int32, bool, *string, error)
 	GetOffer(ctx context.Context, offerID int32) (pricing.Offer, error)
 	pricing.WatcherSource
 }
@@ -84,11 +88,14 @@ func (p *Processor) Process(ctx context.Context, runID, storeID int32, storeName
 }
 
 // processItem procesa el ítem número index del lote runID para la tienda
-// storeID: lo valida, busca si el producto ya existe (o lo crea), completa la
-// imagen de un producto existente que no tiene (TAL-243), registra la oferta y
-// avisa si el precio bajó. Devuelve el resultado del ítem; nunca detiene el
-// lote: un ítem con problemas vuelve como fallido con sus errores, y un error
-// interno, con el código internal_error y el detalle solo en el log.
+// storeID dentro de una sola transacción (TAL-191): busca si el producto ya
+// existe (o lo crea), completa la imagen de un producto existente que no tiene
+// (TAL-243) y registra la oferta con su historial de precios. Si algo falla,
+// la transacción se revierte completa: no quedan productos sin oferta ni
+// ofertas sin producto. El aviso de bajada de precio se envía después del
+// commit. Devuelve el resultado del ítem; nunca detiene el lote: un ítem con
+// problemas vuelve como fallido con sus errores, y un error interno, con el
+// código internal_error y el detalle solo en el log.
 func (p *Processor) processItem(ctx context.Context, runID, storeID int32, storeName string, index int, item Item) ItemResult {
 	result := ItemResult{Index: index, ExternalID: strings.TrimSpace(item.ExternalID)}
 	originalCategory := item.Product.CategorySlug
@@ -114,7 +121,27 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, store
 	if offer.ProductURL != nil {
 		productURL = strings.TrimSpace(*offer.ProductURL)
 	}
-	existing, found, err := p.runs.FindProduct(ctx, product.SKU, product.Brand, product.Model, storeID, productURL)
+	// La búsqueda por nombre usa la misma categoría con la que se crearía el
+	// producto, incluida la clasificación de Computación por nombre (TAL-191).
+	categorySlug := product.CategorySlug
+	if categorySlug != "" {
+		categorySlug = classifyComputacion(categorySlug, product)
+	}
+
+	// Un solo ítem, una sola transacción: producto, imagen, oferta e historial.
+	tx, err := p.runs.BeginTx(ctx)
+	if err != nil {
+		return internal("begin_tx", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	existing, found, err := p.runs.FindProductTx(ctx, tx, product.SKU, product.Brand, product.Model,
+		product.Name, categorySlug, storeID, productURL)
 	if err != nil {
 		return internal("find_product", err)
 	}
@@ -128,14 +155,14 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, store
 		// completar la imagen si el producto no tiene ninguna activa (TAL-243).
 		productID, result.ProductID, result.Status = existing.ID, existing.PublicID, ItemUpdated
 		if product.ImageURL != "" {
-			if _, err := p.runs.AddImageIfMissing(ctx, productID, product.ImageURL); err != nil {
+			if _, err := p.runs.AddImageIfMissingTx(ctx, tx, productID, product.ImageURL); err != nil {
 				return internal("add_image", err)
 			}
 		}
 	default:
 		var fieldErrs []httpx.FieldError
 		productID, result.ProductID, fieldErrs, err = p.createProduct(
-			ctx, runID, storeID, storeName, index, originalCategory, product)
+			ctx, tx, runID, storeID, storeName, index, originalCategory, product)
 		if err != nil {
 			return internal("create_product", err)
 		}
@@ -151,12 +178,18 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, store
 		// los parámetros de la URL: una sola oferta y un solo historial de precios.
 		offer.ProductURL = &existing.OfferURL
 	}
-	offerID, _, previous, err := p.offers.UpsertOffer(ctx, offer)
+	offerID, _, previous, err := p.offers.UpsertOfferTx(ctx, tx, offer)
 	if err != nil {
 		return internal("upsert_offer", err)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return internal("commit", err)
+	}
+	committed = true
+
 	result.OfferID = offerID
 	if previous != nil {
+		// El aviso se envía solo con la oferta ya guardada.
 		saved, err := p.offers.GetOffer(ctx, offerID)
 		if err != nil {
 			return internal("get_offer", err)
@@ -166,9 +199,12 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, store
 	return result
 }
 
-// createProduct valida categoría y atributos con TAL-70/72 y crea el producto.
+// createProduct valida categoría y atributos con TAL-70/72 y crea el producto
+// dentro de la transacción del ítem (tx): si la oferta falla, el producto y su
+// marca no quedan en la base.
 func (p *Processor) createProduct(
 	ctx context.Context,
+	tx pgx.Tx,
 	runID, storeID int32,
 	storeName string,
 	index int,
@@ -206,14 +242,14 @@ func (p *Processor) createProduct(
 		Attributes: values,
 	}
 	if item.Brand != "" {
-		brandID, err := p.runs.EnsureBrand(ctx, item.Brand)
+		brandID, err := p.runs.EnsureBrandTx(ctx, tx, item.Brand)
 		if err != nil {
 			return 0, "", nil, err
 		}
 		write.BrandID = &brandID
 	}
 
-	publicID, err := p.catalog.Create(ctx, write)
+	publicID, err := p.catalog.CreateTx(ctx, tx, write)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return 0, "", []httpx.FieldError{{Field: "product.sku", Code: "conflict", Message: "ya existe un producto con ese sku"}}, nil
@@ -221,7 +257,7 @@ func (p *Processor) createProduct(
 	if err != nil {
 		return 0, "", nil, err
 	}
-	id, err := p.runs.ProductID(ctx, publicID)
+	id, err := p.runs.ProductIDTx(ctx, tx, publicID)
 	if err != nil {
 		return 0, "", nil, err
 	}
