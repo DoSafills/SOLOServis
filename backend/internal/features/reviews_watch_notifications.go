@@ -324,6 +324,36 @@ func (h *Handler) CreateNotification(w http.ResponseWriter, r *http.Request) {
 		input.UserID, input.Type, input.Title, input.Message, rawJSON(input.Data))
 }
 
+// CreateAdminNotification atiende POST /notifications/admins (interno, con
+// token de servicio o admin). Copia el aviso a cada usuario admin y responde
+// 201 con cuántos se crearon.
+//
+// Existe para que Ingestion pueda avisar de una fuente degradada (TAL-211) sin
+// conocer los ids de los usuarios ni consultar la tabla de cuentas: el
+// destinatario lo resuelve Notification API, que es la dueña del dato.
+func (h *Handler) CreateAdminNotification(w http.ResponseWriter, r *http.Request) {
+	var input notificationInput
+	if !decode(w, r, &input) {
+		return
+	}
+	var v httpx.Validator
+	v.Required("type", input.Type)
+	v.MaxLength("type", input.Type, maxNotificationType)
+	v.Required("title", input.Title)
+	v.MaxLength("title", input.Title, maxNotificationTitle)
+	v.Required("message", input.Message)
+	v.Check(isJSONObject(input.Data), "data", "invalid_type", "data debe ser un objeto JSON")
+	if !valid(w, r, &v) {
+		return
+	}
+	h.created(w, r, `WITH inserted AS (
+			INSERT INTO notification(user_id,type,title,message,data)
+			SELECT u.id,$1,$2,$3,$4::jsonb FROM user_account u WHERE u.role = 'admin'
+			RETURNING id)
+		SELECT jsonb_build_object('created', (SELECT COUNT(*) FROM inserted))`,
+		input.Type, input.Title, input.Message, rawJSON(input.Data))
+}
+
 func (h *Handler) GetNotifications(w http.ResponseWriter, r *http.Request) {
 	h.listNotifications(w, r, false)
 }

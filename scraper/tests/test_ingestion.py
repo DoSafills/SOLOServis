@@ -95,3 +95,52 @@ def test_short_token_is_a_configuration_error():
                 "INGESTION_API_TOKEN": "too-short",
             }
         )
+
+
+def test_finish_run_sends_the_counters_when_given():
+    """TAL-211: el cierre adjunta los contadores que ingestion usa para alertar."""
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"id": 9, "status": "success"})
+
+    client = IngestionClient("http://ingest", "x" * 32, transport=httpx.MockTransport(handler))
+
+    asyncio.run(
+        client.finish_run(
+            9,
+            "success",
+            counters={
+                "itemsFound": 30,
+                "itemsSent": 28,
+                "itemsRejected": 2,
+                "pagesFailed": 1,
+            },
+        )
+    )
+
+    assert bodies == [
+        {
+            "status": "success",
+            "itemsFound": 30,
+            "itemsSent": 28,
+            "itemsRejected": 2,
+            "pagesFailed": 1,
+        }
+    ]
+
+
+def test_finish_run_without_counters_keeps_the_old_payload():
+    """Sin contadores el cuerpo no cambia: un backend anterior sigue igual."""
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"id": 9, "status": "failed"})
+
+    client = IngestionClient("http://ingest", "x" * 32, transport=httpx.MockTransport(handler))
+
+    asyncio.run(client.finish_run(9, "failed", "timeout"))
+
+    assert bodies == [{"status": "failed", "errorMessage": "timeout"}]

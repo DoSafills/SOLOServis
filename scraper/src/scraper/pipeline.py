@@ -248,9 +248,10 @@ async def execute(
 
     ingestion_run_id: int | None = None
     ingestion_error: str | None = None
+    counters.items_rejected = len(rejects)
     if status == RUN_STATUS_SUCCESS and ingestion is not None and items:
         ingestion_run_id, ingestion_error, sent, failed = await _ingest(
-            ingestion, source, config, list(items.values())
+            ingestion, source, config, list(items.values()), counters
         )
         counters.items_sent = sent
         counters.items_failed = failed
@@ -743,7 +744,15 @@ async def _ingest(
     source: DataSource,
     config: ScraperConfig,
     items: list[Item],
+    counters: Counters,
 ) -> tuple[int | None, str | None, int, int]:
+    """Envía los ítems y cierra la corrida en Ingestion con sus contadores.
+
+    Devuelve ``(run_id, error, procesados, fallidos)``. Al cerrar adjunta
+    ``itemsFound``, ``itemsSent``, ``itemsRejected`` y ``pagesFailed`` para que
+    ingestion pueda avisar cuando una tienda deja de entregar datos (TAL-211);
+    un backend anterior ignora esos campos.
+    """
     try:
         run = await client.open_run(
             source.name, source.base_url, source.store_id or 0, config.scraper_type or "http"
@@ -753,20 +762,43 @@ async def _ingest(
     try:
         batch = await client.send_items(run.id, items)
     except IngestionError as exc:
-        await _finish_ingestion(client, run.id, "failed", str(exc))
+        await _finish_ingestion(
+            client, run.id, "failed", str(exc), _ingestion_counters(counters, sent=0)
+        )
         return run.id, f"could not send items: {exc}", 0, len(items)
     try:
-        await client.finish_run(run.id, "success")
+        await client.finish_run(
+            run.id, "success", counters=_ingestion_counters(counters, sent=batch.received)
+        )
     except IngestionError as exc:
         return run.id, f"could not finish ingestion run: {exc}", batch.processed, batch.failed
     return run.id, None, batch.processed, batch.failed
 
 
+def _ingestion_counters(counters: Counters, *, sent: int) -> dict[str, int]:
+    """Traduce los contadores locales a los nombres del contrato de ingestion.
+
+    ``sent`` se recibe aparte porque es lo que el scraper acaba de enviar y el
+    contador local todavía no lo refleja en el momento de cerrar la corrida.
+    """
+    return {
+        "itemsFound": counters.items_found,
+        "itemsSent": sent,
+        "itemsRejected": counters.items_rejected,
+        "pagesFailed": counters.pages_failed,
+    }
+
+
 async def _finish_ingestion(
-    client: IngestionClient, run_id: int, status: str, reason: str
+    client: IngestionClient,
+    run_id: int,
+    status: str,
+    reason: str,
+    counters: dict[str, int] | None = None,
 ) -> None:
+    """Cierra una corrida que no llegó a enviar ítems, sin propagar el fallo."""
     try:
-        await client.finish_run(run_id, status, reason)
+        await client.finish_run(run_id, status, reason, counters=counters)
     except IngestionError:
         return
 

@@ -210,7 +210,7 @@ func registerIngestionRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger
 	runs := ingestion.NewRepository(db)
 	processor := ingestion.NewProcessor(runs, products.NewRepository(db), pricing.NewRepository(db),
 		pricing.NewHTTPNotifier(), logger)
-	handler := ingestion.NewHandler(runs, processor, logger)
+	handler := ingestion.NewHandler(runs, processor, ingestion.NewHTTPNotifier(), logger)
 
 	// Solo el scraper (INTERNAL_API_TOKEN) o un admin.
 	r.Group(func(r chi.Router) {

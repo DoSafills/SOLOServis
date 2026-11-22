@@ -42,6 +42,23 @@ const (
 	ItemUpdated       = "updated" // producto existente, oferta registrada
 	ItemFailed        = "failed"
 	codeInternalError = "internal_error"
+	// MaxCounterValue acota los contadores del scraper: más que esto es un
+	// error de programación del cliente, no una corrida real.
+	MaxCounterValue = 1_000_000
+)
+
+// Umbrales por defecto de la alerta de extracción (TAL-211).
+const (
+	// DefaultRejectRatio: proporción de tarjetas rechazadas sobre las
+	// encontradas a partir de la cual la corrida se considera degradada.
+	DefaultRejectRatio = 0.30
+	// DefaultDropRatio: caída de ítems enviados contra la mediana histórica.
+	DefaultDropRatio = 0.50
+	// DefaultBaselineRuns: corridas exitosas previas que forman la mediana.
+	DefaultBaselineRuns = 5
+	// NotificationTypeDegraded marca el aviso de una tienda que dejó de
+	// entregar datos; el frontend decide cómo mostrarlo por el `type`.
+	NotificationTypeDegraded = "scraper_degraded"
 )
 
 // Run es una ejecución del scraper (scrape_run) con su fuente.
@@ -73,9 +90,19 @@ type SourceInput struct {
 }
 
 // FinishRequest es el body de POST /ingestion/runs/{id}/finish.
+//
+// Los contadores son opcionales: un scraper que no los envíe sigue cerrando la
+// corrida como antes. Cuando llegan, ingestion evalúa si la corrida quedó
+// degradada (TAL-211) y avisa a los administradores. `itemsDuplicated` (TAL-172)
+// explica una caída que en realidad fue un listado con tarjetas repetidas.
 type FinishRequest struct {
-	Status       string `json:"status"`
-	ErrorMessage string `json:"errorMessage"`
+	Status          string `json:"status"`
+	ErrorMessage    string `json:"errorMessage"`
+	ItemsFound      *int   `json:"itemsFound"`
+	ItemsSent       *int   `json:"itemsSent"`
+	ItemsRejected   *int   `json:"itemsRejected"`
+	ItemsDuplicated *int   `json:"itemsDuplicated"`
+	PagesFailed     *int   `json:"pagesFailed"`
 }
 
 // ItemsRequest es el body de POST /ingestion/runs/{id}/items.

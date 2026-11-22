@@ -81,7 +81,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		t.Fatalf("EnsureBrand reescribió el nombre de marca: %q", storedBrandName)
 	}
 
-	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), notifier, logger), logger)
+	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), notifier, logger), nil, logger)
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
 	r.Post("/ingestion/runs", h.OpenRun)
@@ -296,7 +296,7 @@ func TestIngestionIntegration_ImagenDeProductoExistente(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	runs := NewRepository(pool)
-	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), &fakeNotifier{}, logger), logger)
+	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), &fakeNotifier{}, logger), nil, logger)
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
 	r.Post("/ingestion/runs", h.OpenRun)

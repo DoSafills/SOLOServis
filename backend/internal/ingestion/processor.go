@@ -26,6 +26,7 @@ type RunStore interface {
 	FinishRun(ctx context.Context, id int32, status string, message *string) error
 	ItemsTarget(ctx context.Context, id int32) (int32, error)
 	AddCounters(ctx context.Context, id int32, found, processed, failed int) error
+	RecentFound(ctx context.Context, storeID, excludeRunID int32, limit int) ([]int32, error)
 	SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, raw json.RawMessage) error
 	SaveScrapedBatch(ctx context.Context, runID int32, items []ScrapedItem) error
 	FindProduct(ctx context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error)
