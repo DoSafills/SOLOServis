@@ -635,6 +635,10 @@ Documentación complementaria:
 database/Readme.md
 ```
 
+## 10.5 Migraciones recientes
+
+- `042_merge_duplicate_products.sql` (TAL-191): fusiona productos activos duplicados que comparten marca, categoría y nombre normalizado. Conserva el producto con más ofertas, mueve las ofertas (con su historial de precios) e imágenes, y copia atributos y especificaciones que falten al superviviente. Es idempotente, termina sin hacer nada si no quedan duplicados y aborta si un duplicado tiene datos de usuario (interés, reseña, carrito o comparación) para fusionarlo a mano. Está al final de `migration_order.txt`.
+
 ---
 
 # 11. Acceso a datos y sqlc
@@ -834,9 +838,29 @@ PostgreSQL
 
 La API de Ingestion administra ejecuciones de integración y procesa los productos y ofertas recibidos.
 
+Cada ítem se procesa en **una sola transacción**: producto, imagen, oferta e historial de precios se confirman juntos o se revierten juntos (`internal/ingestion/processor.go`). Un fallo a mitad de camino no deja productos huérfanos ni productos sin su oferta.
+
 Cuando un ítem coincide con un producto ya catalogado (por SKU, marca + modelo o tienda + URL de la oferta), Ingestion solo actualiza la oferta: el catálogo lo cura el admin. La única excepción es la imagen (TAL-243): si el producto no tiene ninguna imagen activa y el ítem trae `product.imageUrl`, se guarda como imagen principal. Nunca reemplaza una imagen existente ni reactiva una URL que el admin desactivó.
 
 Las operaciones internas están protegidas por autorización administrativa o `INTERNAL_API_TOKEN`, según corresponda.
+
+## 14.1 Importar el catálogo local del scraper (`cmd/ingestion-import`)
+
+`cmd/ingestion-import` carga en PostgreSQL los archivos que el scraper deja en `out/catalog/<tienda>/*.json`. No escribe la base por su cuenta: envía cada ítem al mismo `Processor` de Ingestion API, así las reglas de producto, oferta e imagen son las mismas que en la carga por HTTP. Desde `backend/`:
+
+```bash
+go run ./cmd/ingestion-import -dir ../scraper/out/catalog/ripley-cl -store-id 4
+```
+
+| Flag | Regla |
+|---|---|
+| `-dir` | obligatorio; carpeta del catálogo de una tienda. |
+| `-store-id` | obligatorio; id de la tienda en PostgreSQL (no el de la base SQLite del scraper). |
+| `-source` | opcional; nombre de la fuente (por defecto, `source.name` del archivo). |
+| `-base-url` | opcional; URL base de la tienda (por defecto, `source.baseUrl` del archivo). |
+| `-batch` | ítems por lote, entre 1 y 100 (por defecto 100). |
+
+Es idempotente: un ítem que ya está catalogado se actualiza en vez de duplicarse, y los archivos que repiten la identidad de otro ítem del mismo lote se omiten. Al terminar reporta `creados`, `actualizados`, `omitidos` y `fallidos`, junto con la cantidad de archivos leídos.
 
 Documentación relacionada:
 

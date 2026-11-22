@@ -89,6 +89,9 @@ proxy de Vite:
   ordenamiento y paginación.
 - Página de detalle con imágenes, descripción, especificaciones, calificación,
   reseñas, historial de precios y ofertas por tienda.
+- La ficha de producto (`ProductDetailPage`) arma las especificaciones desde
+  `attributes`, porque el campo `specs` llega vacío; si la oferta no trae
+  imagen, muestra «Sin imagen».
 - Acciones para marcar favoritos, agregar al carrito o seleccionar para
   comparar.
 - Comparación de hasta tres productos de categorías iguales o compatibles.
