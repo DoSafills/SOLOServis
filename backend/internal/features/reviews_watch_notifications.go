@@ -30,14 +30,24 @@ func (input reviewInput) validate() *httpx.Validator {
 	return &v
 }
 
+// reviewAuthor son los campos del autor que muestra una reseña: su nombre y si
+// confirmó el email, igual que GET /products/{id}/reviews. El userId interno no
+// se publica (TAL-200, hallazgo H12 de TAL-195). Espera la reseña con alias r
+// y user_account con alias u.
+const reviewAuthor = `'author',u.name,'authorVerified',u.email_verified`
+
+// ListProductReviews atiende GET /reviews/product/{productId}: responde 200
+// con las reseñas del producto, de la más nueva a la más antigua, con el
+// autor por nombre (reviewAuthor). Responde 404 si el producto no existe y
+// 500 si falla la base.
 func (h *Handler) ListProductReviews(w http.ResponseWriter, r *http.Request) {
 	productID, err := h.service.ProductID(r.Context(), chi.URLParam(r, "productId"))
 	if err != nil {
 		h.dbError(w, r, err, http.StatusNotFound, "Producto no encontrado.")
 		return
 	}
-	h.rows(w, r, `SELECT jsonb_build_object('id','product:'||id,'userId',user_id,'rating',rating,'title',title,'content',content,'verified',verified,'createdAt',created_at)
-		FROM product_review WHERE product_id=$1 ORDER BY created_at DESC`, productID)
+	h.rows(w, r, `SELECT jsonb_build_object('id','product:'||r.id,`+reviewAuthor+`,'rating',r.rating,'title',r.title,'content',r.content,'verified',r.verified,'createdAt',r.created_at)
+		FROM product_review r JOIN user_account u ON u.id=r.user_id WHERE r.product_id=$1 ORDER BY r.created_at DESC`, productID)
 }
 
 // CreateProductReview atiende POST /reviews/product/{productId}: crea o
@@ -61,21 +71,31 @@ func (h *Handler) CreateProductReview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	h.createReview(w, r, `INSERT INTO product_review (user_id,product_id,rating,title,content) VALUES ($1,$2,$3,$4,$5)
+	h.createReview(w, r, `WITH r AS (INSERT INTO product_review (user_id,product_id,rating,title,content) VALUES ($1,$2,$3,$4,$5)
 		ON CONFLICT (user_id,product_id) DO UPDATE SET rating=EXCLUDED.rating,title=EXCLUDED.title,content=EXCLUDED.content,updated_at=NOW()
-		RETURNING jsonb_build_object('id','product:'||id,'userId',user_id,'productId',product_id,'rating',rating,'title',title,'content',content,'createdAt',created_at)`, input, productID)
+		RETURNING id,user_id,product_id,rating,title,content,verified,created_at)
+		SELECT jsonb_build_object('id','product:'||r.id,`+reviewAuthor+`,'productId',r.product_id,'rating',r.rating,'title',r.title,'content',r.content,'verified',r.verified,'createdAt',r.created_at)
+		FROM r JOIN user_account u ON u.id=r.user_id`, input, productID)
 }
 
+// ListStoreReviews atiende GET /reviews/store/{storeId}: responde 200 con las
+// reseñas de la tienda, de la más nueva a la más antigua, con el autor por
+// nombre (reviewAuthor). Responde 400 si storeId no es un número positivo y
+// 500 si falla la base.
 func (h *Handler) ListStoreReviews(w http.ResponseWriter, r *http.Request) {
 	storeID, ok := intParam(r, "storeId")
 	if !ok {
 		badRequest(w, r, "El id de la tienda no es válido.")
 		return
 	}
-	h.rows(w, r, `SELECT jsonb_build_object('id','store:'||id,'userId',user_id,'rating',rating,'title',title,'content',content,'createdAt',created_at)
-		FROM store_review WHERE store_id=$1 ORDER BY created_at DESC`, storeID)
+	h.rows(w, r, `SELECT jsonb_build_object('id','store:'||r.id,`+reviewAuthor+`,'rating',r.rating,'title',r.title,'content',r.content,'createdAt',r.created_at)
+		FROM store_review r JOIN user_account u ON u.id=r.user_id WHERE r.store_id=$1 ORDER BY r.created_at DESC`, storeID)
 }
 
+// CreateStoreReview atiende POST /reviews/store/{storeId}: crea o reemplaza
+// la reseña del usuario de la sesión. Responde 400 si storeId no es un número
+// positivo, 422 si la reseña no cumple las reglas, 503 si Store API no
+// confirma la tienda y 201 con la reseña guardada.
 func (h *Handler) CreateStoreReview(w http.ResponseWriter, r *http.Request) {
 	storeID, ok := intParam(r, "storeId")
 	if !ok {
@@ -91,19 +111,25 @@ func (h *Handler) CreateStoreReview(w http.ResponseWriter, r *http.Request) {
 		h.remoteError(w, r, err, "Store API no está disponible.")
 		return
 	}
-	h.createReview(w, r, `INSERT INTO store_review (user_id,store_id,rating,title,content) VALUES ($1,$2,$3,$4,$5)
+	h.createReview(w, r, `WITH r AS (INSERT INTO store_review (user_id,store_id,rating,title,content) VALUES ($1,$2,$3,$4,$5)
 		ON CONFLICT (user_id,store_id) DO UPDATE SET rating=EXCLUDED.rating,title=EXCLUDED.title,content=EXCLUDED.content,updated_at=NOW()
-		RETURNING jsonb_build_object('id','store:'||id,'userId',user_id,'storeId',store_id,'rating',rating,'title',title,'content',content,'createdAt',created_at)`, input, storeID)
+		RETURNING id,user_id,store_id,rating,title,content,created_at)
+		SELECT jsonb_build_object('id','store:'||r.id,`+reviewAuthor+`,'storeId',r.store_id,'rating',r.rating,'title',r.title,'content',r.content,'createdAt',r.created_at)
+		FROM r JOIN user_account u ON u.id=r.user_id`, input, storeID)
 }
 
+// ListServiceReviews atiende GET /reviews/service/{serviceId}: responde 200
+// con las reseñas del servicio, de la más nueva a la más antigua, con el
+// autor por nombre (reviewAuthor). Responde 404 si el servicio no existe y
+// 500 si falla la base.
 func (h *Handler) ListServiceReviews(w http.ResponseWriter, r *http.Request) {
 	serviceID, err := h.service.ServiceID(r.Context(), chi.URLParam(r, "serviceId"))
 	if err != nil {
 		h.dbError(w, r, err, http.StatusNotFound, "Servicio no encontrado.")
 		return
 	}
-	h.rows(w, r, `SELECT jsonb_build_object('id','service:'||id,'userId',user_id,'rating',rating,'title',title,'content',content,'verified',verified,'createdAt',created_at)
-		FROM service_review WHERE service_id=$1 ORDER BY created_at DESC`, serviceID)
+	h.rows(w, r, `SELECT jsonb_build_object('id','service:'||r.id,`+reviewAuthor+`,'rating',r.rating,'title',r.title,'content',r.content,'verified',r.verified,'createdAt',r.created_at)
+		FROM service_review r JOIN user_account u ON u.id=r.user_id WHERE r.service_id=$1 ORDER BY r.created_at DESC`, serviceID)
 }
 
 // CreateServiceReview atiende POST /reviews/service/{serviceId}: crea o
@@ -128,11 +154,17 @@ func (h *Handler) CreateServiceReview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	h.createReview(w, r, `INSERT INTO service_review (user_id,service_id,rating,title,content) VALUES ($1,$2,$3,$4,$5)
+	h.createReview(w, r, `WITH r AS (INSERT INTO service_review (user_id,service_id,rating,title,content) VALUES ($1,$2,$3,$4,$5)
 		ON CONFLICT (user_id,service_id) DO UPDATE SET rating=EXCLUDED.rating,title=EXCLUDED.title,content=EXCLUDED.content,updated_at=NOW()
-		RETURNING jsonb_build_object('id','service:'||id,'userId',user_id,'serviceId',service_id,'rating',rating,'title',title,'content',content,'createdAt',created_at)`, input, serviceID)
+		RETURNING id,user_id,service_id,rating,title,content,verified,created_at)
+		SELECT jsonb_build_object('id','service:'||r.id,`+reviewAuthor+`,'serviceId',r.service_id,'rating',r.rating,'title',r.title,'content',r.content,'verified',r.verified,'createdAt',r.created_at)
+		FROM r JOIN user_account u ON u.id=r.user_id`, input, serviceID)
 }
 
+// createReview ejecuta query (un INSERT ... ON CONFLICT que devuelve la reseña
+// como JSON con la forma del GET, sin el userId interno) con el usuario de la
+// sesión, subjectID y los campos de input, y responde 201 con la reseña. Los
+// errores de base se mapean con dbError (por ejemplo 23503 → 422).
 func (h *Handler) createReview(w http.ResponseWriter, r *http.Request, query string, input reviewInput, subjectID int32) {
 	var result json.RawMessage
 	err := h.db.QueryRow(r.Context(), query, sessionUserID(r), subjectID, input.Rating, input.Title, input.Content).Scan(&result)
