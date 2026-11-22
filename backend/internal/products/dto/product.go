@@ -2,6 +2,7 @@ package dto
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -26,6 +27,9 @@ type ProductListItem struct {
 	// equivalente) y valores de atributos tipados por key.
 	CategorySlug *string                    `json:"categorySlug"`
 	Attributes   map[string]json.RawMessage `json:"attributes"`
+	// UpdatedAt es la última modificación del producto, en RFC 3339 UTC
+	// (TAL-237). El frontend lo muestra como «última actualización».
+	UpdatedAt string `json:"updatedAt"`
 }
 
 // splitCategory devuelve (categoría, subcategoría). Si la categoría del producto
@@ -83,7 +87,19 @@ func FromListProduct(row generated.ListProductsRow) ProductListItem {
 		Images:      []ProductImage{},
 		Offers:      []ProductOffer{},
 		Attributes:  make(map[string]json.RawMessage),
+		UpdatedAt:   formatTime(row.UpdatedAt.Time, row.UpdatedAt.Valid),
 	}
+}
+
+// formatTime convierte una marca de tiempo de PostgreSQL en RFC 3339 en UTC.
+// Recibe el valor y si es válido (las columnas nulas llegan con Valid=false) y
+// devuelve el texto, o "" cuando no hay dato: el DTO usa cadena vacía en vez de
+// null para no romper a los clientes que ya leen estos campos como string.
+func formatTime(value time.Time, valid bool) string {
+	if !valid {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 // AttributeJSON convierte un valor guardado (forma canónica de
