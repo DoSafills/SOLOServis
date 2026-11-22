@@ -1,6 +1,7 @@
 package features
 
 import (
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/mail"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
@@ -27,6 +29,20 @@ const (
 
 // minPasswordLength es el largo mínimo de contraseña al registrarse.
 const minPasswordLength = 10
+
+// Vida de las sesiones (TAL-200, hallazgos H5 y H6 de TAL-195).
+const (
+	// accessTokenLifetime es lo que dura un access token.
+	accessTokenLifetime = 15 * time.Minute
+	// sessionLifetime es el vencimiento absoluto de una sesión, contado desde
+	// el login o el registro. Las rotaciones de /auth/refresh no lo extienden.
+	sessionLifetime = 30 * 24 * time.Hour
+	// maxSessionsPerUser es el tope de sesiones vigentes por usuario: al crear
+	// una nueva se borran las vencidas y las menos usadas que sobren.
+	maxSessionsPerUser = 10
+)
+
+const sessionGoneDetail = "La sesión ya no es válida. Vuelve a iniciar sesión."
 
 // Límites de la Auth API contra solicitudes excesivas (TAL-201, hallazgo H1
 // de TAL-195). Cada PBKDF2 cuesta ~59 ms de CPU (benchmark de checkPassword)
@@ -98,15 +114,17 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		h.dbError(w, r, err, http.StatusConflict, "El email ya está registrado.")
 		return
 	}
-	h.issueTokens(w, r, userID, http.StatusCreated)
+	h.issueTokens(w, r, userID, http.StatusCreated, sessionLifetime)
 }
 
 // Login atiende POST /auth/login: valida email y password y emite tokens.
 // Responde 200 con la sesión, 422 si faltan datos, 401 si las credenciales no
 // coinciden y 429 si el email acumuló maxLoginFailures fallos en la ventana o
-// si no hay cupo para PBKDF2 (TAL-201). Un email inexistente cuenta como
-// fallo, para que el bloqueo no revele qué cuentas existen; un login exitoso
-// reinicia la cuenta de fallos.
+// si no hay cupo para PBKDF2 (TAL-201). Un email inexistente o una cuenta
+// inactiva siguen el mismo camino que una contraseña incorrecta: calculan
+// PBKDF2 contra dummyPasswordHash, ocupan un cupo, cuentan como fallo y
+// responden el mismo 401, así ni el tiempo ni el bloqueo revelan qué cuentas
+// existen (TAL-200, H2). Un login exitoso reinicia la cuenta de fallos.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var input authInput
 	if !decodeAuth(w, r, &input) {
@@ -133,18 +151,19 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var hash string
 	err := h.db.QueryRow(r.Context(), `SELECT id,password_hash FROM user_account WHERE email=$1 AND active`,
 		input.Email).Scan(&userID, &hash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		h.loginFailures.Fail(input.Email)
-	}
-	if err != nil {
+	found := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		h.dbError(w, r, err, http.StatusUnauthorized, "Credenciales inválidas.")
 		return
+	}
+	if !found {
+		hash = dummyPasswordHash()
 	}
 	if !h.passwordSlots.Acquire(r.Context()) {
 		httpx.WriteRateLimited(w, r, passwordBusyRetry, passwordBusyDetail)
 		return
 	}
-	ok := checkPassword(hash, input.Password)
+	ok := checkPassword(hash, input.Password) && found
 	h.passwordSlots.Release()
 	if !ok {
 		h.loginFailures.Fail(input.Email)
@@ -152,18 +171,37 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.loginFailures.Reset(input.Email)
-	h.issueTokens(w, r, userID, http.StatusOK)
+	h.issueTokens(w, r, userID, http.StatusOK, sessionLifetime)
 }
 
-// issueTokens crea una sesión para userID y responde con status los tokens
-// (access de 15 minutos, refresh de 30 días) y el perfil. Guarda solo el
-// SHA-256 de cada token. Responde 404 si el usuario ya no está activo y 500
-// si falla la base o el generador aleatorio.
-func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int32, status int) {
+// dummyPasswordHash devuelve un hash con el mismo formato e iteraciones que
+// passwordHash, para que Login calcule PBKDF2 aunque el email no exista
+// (TAL-200, H2). Se genera la primera vez que se usa, así los procesos que no
+// atienden auth no pagan el cálculo al arrancar. Que valide o no da igual:
+// Login además exige que la cuenta exista.
+var dummyPasswordHash = sync.OnceValue(func() string {
+	hash, err := passwordHash("cuenta-inexistente")
+	if err != nil {
+		// Solo falla si falla el generador aleatorio. Con una sal fija se
+		// sigue calculando PBKDF2 con las mismas iteraciones.
+		return fmt.Sprintf("pbkdf2-sha256$%d$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", passwordIterations)
+	}
+	return hash
+})
+
+// issueTokens crea una sesión para userID que vence en remaining
+// (sessionLifetime en login y registro; lo que le quedaba a la sesión
+// anterior en un refresh) y responde con status los tokens y el perfil. El
+// access token dura accessTokenLifetime, o menos si la sesión vence antes.
+// Antes de guardar la sesión borra las vencidas del usuario y las menos
+// usadas que excedan maxSessionsPerUser (TAL-200, H6). Guarda solo el SHA-256
+// de cada token. Responde 401 si el usuario ya no está activo y 500 si falla
+// la base o el generador aleatorio.
+func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int32, status int, remaining time.Duration) {
 	var name, email string
 	if err := h.db.QueryRow(r.Context(), `SELECT name,email FROM user_account WHERE id=$1 AND active`,
 		userID).Scan(&name, &email); err != nil {
-		h.dbError(w, r, err, http.StatusNotFound, "Usuario no encontrado.")
+		h.dbError(w, r, err, http.StatusUnauthorized, sessionGoneDetail)
 		return
 	}
 	access, err := newToken()
@@ -176,25 +214,40 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
-	refreshExpiry := time.Now().Add(30 * 24 * time.Hour)
+	accessLifetime := min(accessTokenLifetime, remaining)
+	refreshExpiry := time.Now().Add(remaining)
+	// Las vencidas no cuentan para el tope. De las vigentes quedan las
+	// maxSessionsPerUser-1 de id más alto (las últimas creadas o rotadas) y la
+	// nueva completa el tope.
+	if _, err := h.db.Exec(r.Context(), `DELETE FROM user_session WHERE user_id=$1 AND (refresh_expires_at<=NOW()
+		OR id NOT IN (SELECT id FROM user_session WHERE user_id=$1 AND refresh_expires_at>NOW() ORDER BY id DESC LIMIT $2))`,
+		userID, maxSessionsPerUser-1); err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
 	// Los vencimientos los calcula la base con NOW(), el mismo reloj con que
 	// se validan: las columnas son TIMESTAMP sin zona y un time.Time de Go
 	// llega con la hora local del proceso (en -03:00 el token nacía vencido).
+	// Por eso viajan como segundos desde ahora y no como instantes.
 	_, err = h.db.Exec(r.Context(), `INSERT INTO user_session
 		(user_id,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at)
-		VALUES ($1,$2,$3,NOW()+INTERVAL '15 minutes',NOW()+INTERVAL '30 days')`, userID, tokenHash(access), tokenHash(refresh))
+		VALUES ($1,$2,$3,NOW()+make_interval(secs=>$4::float8),NOW()+make_interval(secs=>$5::float8))`,
+		userID, tokenHash(access), tokenHash(refresh), accessLifetime.Seconds(), remaining.Seconds())
 	if err != nil {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	apiutil.WriteJSON(w, status, map[string]any{"userId": userID, "accessToken": access, "refreshToken": refresh,
-		"name": name, "email": email, "tokenType": "Bearer", "expiresIn": 900,
+		"name": name, "email": email, "tokenType": "Bearer", "expiresIn": int(accessLifetime.Seconds()),
 		"refreshExpiresAt": refreshExpiry})
 }
 
 // Refresh atiende POST /auth/refresh: canjea un refresh token vigente por un
-// par nuevo y borra la sesión anterior (rotación). Responde 200 con la
-// sesión nueva, 422 si falta refreshToken y 401 si no es válido o venció.
+// par nuevo y borra la sesión anterior (rotación). La sesión nueva hereda el
+// vencimiento de la anterior, así una sesión vence a sessionLifetime del
+// login aunque se rote (TAL-200, H5). Responde 200 con la sesión nueva, 422
+// si falta refreshToken y 401 si no es válido, venció o la cuenta ya no está
+// activa.
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var input authInput
 	if !decodeAuth(w, r, &input) {
@@ -206,13 +259,15 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var userID int32
+	var remainingSeconds float64
 	err := h.db.QueryRow(r.Context(), `DELETE FROM user_session WHERE refresh_token_hash=$1 AND refresh_expires_at>NOW()
-		RETURNING user_id`, tokenHash(input.RefreshToken)).Scan(&userID)
+		RETURNING user_id, EXTRACT(EPOCH FROM refresh_expires_at-NOW())::float8`,
+		tokenHash(input.RefreshToken)).Scan(&userID, &remainingSeconds)
 	if err != nil {
 		h.dbError(w, r, err, http.StatusUnauthorized, "El refresh token no es válido o venció.")
 		return
 	}
-	h.issueTokens(w, r, userID, http.StatusOK)
+	h.issueTokens(w, r, userID, http.StatusOK, time.Duration(remainingSeconds*float64(time.Second)))
 }
 
 // Logout cierra la sesión del bearer token o, si no viene, la del
@@ -231,6 +286,19 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteInternal(w, r, h.logger, err)
 			return
 		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// LogoutAll atiende POST /auth/logout-all: cierra todas las sesiones del
+// usuario dueño del bearer token, incluida la actual, por ejemplo si le
+// robaron un refresh token (TAL-200, H6). Va detrás de requireSession, que
+// responde 401 sin un access token vigente. Responde 204, o 500 si falla la
+// base.
+func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.db.Exec(r.Context(), `DELETE FROM user_session WHERE user_id=$1`, sessionUserID(r)); err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -256,7 +324,9 @@ func validEmail(value string) bool {
 }
 
 // ValidateToken atiende GET /auth/validate: responde 200 con el userId si el
-// bearer token es un access token vigente, o 401 si falta, no existe o venció.
+// bearer token es un access token vigente de una cuenta activa, o 401 si
+// falta, no existe, venció o la cuenta fue desactivada (el mismo criterio que
+// authz.RequireSession).
 func (h *Handler) ValidateToken(w http.ResponseWriter, r *http.Request) {
 	token := bearerToken(r)
 	if token == "" {
@@ -264,7 +334,8 @@ func (h *Handler) ValidateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var userID int32
-	err := h.db.QueryRow(r.Context(), `SELECT user_id FROM user_session WHERE access_token_hash=$1 AND access_expires_at>NOW()`, tokenHash(token)).Scan(&userID)
+	err := h.db.QueryRow(r.Context(), `SELECT s.user_id FROM user_session s JOIN user_account u ON u.id=s.user_id
+		WHERE s.access_token_hash=$1 AND s.access_expires_at>NOW() AND u.active`, tokenHash(token)).Scan(&userID)
 	if err != nil {
 		h.dbError(w, r, err, http.StatusUnauthorized, "El access token no es válido o venció.")
 		return
@@ -299,22 +370,29 @@ func tokenHash(token string) []byte {
 	return hash[:]
 }
 
-// passwordHash deriva el hash de password con PBKDF2-SHA256, sal aleatoria
-// de 16 bytes y passwordIterations iteraciones. Devuelve el texto
-// "pbkdf2-sha256$<iteraciones>$<sal>$<hash>" que se guarda en user_account.
+// passwordHash deriva el hash de password con PBKDF2-SHA256 (crypto/pbkdf2),
+// sal aleatoria de 16 bytes y passwordIterations iteraciones. Devuelve el
+// texto "pbkdf2-sha256$<iteraciones>$<sal>$<hash>" que se guarda en
+// user_account, o error si falla el generador aleatorio o la derivación.
 func passwordHash(password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	derived := pbkdf2([]byte(password), salt, passwordIterations, 32)
+	derived, err := pbkdf2.Key(sha256.New, password, salt, passwordIterations, 32)
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf("pbkdf2-sha256$%d$%s$%s", passwordIterations,
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(derived)), nil
 }
 
 // checkPassword indica si password corresponde al hash encoded (formato de
-// passwordHash). Rechaza formatos desconocidos e iteraciones fuera de
-// [100000, 1000000], y compara en tiempo constante.
+// passwordHash). Rechaza formatos desconocidos, iteraciones fuera de
+// [100000, 1000000] y hashes vacíos, y compara en tiempo constante. Usa
+// crypto/pbkdf2 en lugar de la implementación propia anterior (TAL-200,
+// H15): el resultado es el mismo, así los hashes ya guardados siguen
+// validando.
 func checkPassword(encoded, password string) bool {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 4 || parts[0] != "pbkdf2-sha256" {
@@ -329,46 +407,9 @@ func checkPassword(encoded, password string) bool {
 		return false
 	}
 	want, err := base64.RawStdEncoding.DecodeString(parts[3])
-	if err != nil {
+	if err != nil || len(want) == 0 {
 		return false
 	}
-	got := pbkdf2([]byte(password), salt, iterations, len(want))
-	return subtle.ConstantTimeCompare(got, want) == 1
-}
-
-// pbkdf2 implementa PBKDF2 (RFC 8018) con HMAC-SHA256: deriva keyLength
-// bytes de password y salt con iterations rondas. Ver H15 de TAL-195.
-func pbkdf2(password, salt []byte, iterations, keyLength int) []byte {
-	result := make([]byte, 0, keyLength)
-	for block := uint32(1); len(result) < keyLength; block++ {
-		mac := hmacSHA256(password, append(append([]byte(nil), salt...), byte(block>>24), byte(block>>16), byte(block>>8), byte(block)))
-		u := mac
-		value := append([]byte(nil), u...)
-		for i := 1; i < iterations; i++ {
-			u = hmacSHA256(password, u)
-			for j := range value {
-				value[j] ^= u[j]
-			}
-		}
-		result = append(result, value...)
-	}
-	return result[:keyLength]
-}
-
-// hmacSHA256 calcula HMAC-SHA256 (RFC 2104) de data con key; es la función
-// pseudoaleatoria de pbkdf2.
-func hmacSHA256(key, data []byte) []byte {
-	block := make([]byte, 64)
-	if len(key) > len(block) {
-		hash := sha256.Sum256(key)
-		key = hash[:]
-	}
-	copy(block, key)
-	inner, outer := make([]byte, 64), make([]byte, 64)
-	for i := range block {
-		inner[i], outer[i] = block[i]^0x36, block[i]^0x5c
-	}
-	innerHash := sha256.Sum256(append(inner, data...))
-	outerHash := sha256.Sum256(append(outer, innerHash[:]...))
-	return outerHash[:]
+	got, err := pbkdf2.Key(sha256.New, password, salt, iterations, len(want))
+	return err == nil && subtle.ConstantTimeCompare(got, want) == 1
 }
