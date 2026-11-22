@@ -106,6 +106,9 @@ services:
     environment:
       <<: *dominio-env
       API_DOMAIN: usuarios
+      # Compose local se abre por HTTP (IP de LAN): sin Secure, o el navegador
+      # descarta la cookie. En Kubernetes el default sigue siendo true.
+      AUTH_COOKIE_SECURE: "false"
     ports:
       - "8084:8080" # user
       - "8088:8080" # auth
