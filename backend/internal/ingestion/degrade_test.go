@@ -8,7 +8,7 @@ import (
 // TestEvaluateDegradation fija la regla de TAL-211: cuándo una corrida deja de
 // entregar datos. Cada caso usa los umbrales por defecto.
 func TestEvaluateDegradation(t *testing.T) {
-	thresholds := Thresholds{RejectRatio: DefaultRejectRatio, DropRatio: DefaultDropRatio, BaselineRuns: DefaultBaselineRuns}
+	thresholds := Thresholds{RejectRatio: DefaultRejectRatio, DropRatio: DefaultDropRatio, BaselineRuns: DefaultBaselineRuns, PriceRatio: DefaultPriceRatio}
 	tests := []struct {
 		name     string
 		counters Counters
@@ -85,6 +85,16 @@ func TestEvaluateDegradation(t *testing.T) {
 			degraded: true,
 			contains: "10 de 20 tarjetas rechazadas",
 		},
+		{
+			name:     "demasiados precios nulos o en cero alertan",
+			counters: Counters{Found: 20, Sent: 20, ZeroPrices: 8, PricesTotal: 20},
+			degraded: true,
+			contains: "8 de 20 ítems con precio nulo o 0",
+		},
+		{
+			name:     "pocos precios nulos o en cero no alertan",
+			counters: Counters{Found: 20, Sent: 20, ZeroPrices: 2, PricesTotal: 20},
+		},
 	}
 
 	for _, test := range tests {
@@ -109,7 +119,7 @@ func TestEvaluateDegradationAcumulaRazones(t *testing.T) {
 	got := EvaluateDegradation(
 		Counters{Found: 10, Sent: 0, Rejected: 9, PagesFailed: 2},
 		nil,
-		Thresholds{RejectRatio: DefaultRejectRatio, DropRatio: DefaultDropRatio},
+		Thresholds{RejectRatio: DefaultRejectRatio, DropRatio: DefaultDropRatio, PriceRatio: DefaultPriceRatio},
 	)
 
 	if !got.Degraded || len(got.Reasons) != 2 {
@@ -142,7 +152,8 @@ func TestMedian(t *testing.T) {
 func TestThresholdsFromEnv(t *testing.T) {
 	t.Run("por defecto", func(t *testing.T) {
 		got := ThresholdsFromEnv()
-		if got.RejectRatio != DefaultRejectRatio || got.DropRatio != DefaultDropRatio || got.BaselineRuns != DefaultBaselineRuns {
+		if got.RejectRatio != DefaultRejectRatio || got.DropRatio != DefaultDropRatio ||
+			got.BaselineRuns != DefaultBaselineRuns || got.PriceRatio != DefaultPriceRatio {
 			t.Fatalf("umbrales = %+v", got)
 		}
 	})
@@ -151,9 +162,10 @@ func TestThresholdsFromEnv(t *testing.T) {
 		t.Setenv("INGESTION_DEGRADED_REJECT_RATIO", "0.5")
 		t.Setenv("INGESTION_DEGRADED_DROP_RATIO", "0.8")
 		t.Setenv("INGESTION_DEGRADED_BASELINE_RUNS", "10")
+		t.Setenv("INGESTION_DEGRADED_PRICE_RATIO", "0.1")
 
 		got := ThresholdsFromEnv()
-		if got.RejectRatio != 0.5 || got.DropRatio != 0.8 || got.BaselineRuns != 10 {
+		if got.RejectRatio != 0.5 || got.DropRatio != 0.8 || got.BaselineRuns != 10 || got.PriceRatio != 0.1 {
 			t.Fatalf("umbrales = %+v", got)
 		}
 	})
@@ -162,9 +174,11 @@ func TestThresholdsFromEnv(t *testing.T) {
 		t.Setenv("INGESTION_DEGRADED_REJECT_RATIO", "dos")
 		t.Setenv("INGESTION_DEGRADED_DROP_RATIO", "3")
 		t.Setenv("INGESTION_DEGRADED_BASELINE_RUNS", "0")
+		t.Setenv("INGESTION_DEGRADED_PRICE_RATIO", "-1")
 
 		got := ThresholdsFromEnv()
-		if got.RejectRatio != DefaultRejectRatio || got.DropRatio != DefaultDropRatio || got.BaselineRuns != DefaultBaselineRuns {
+		if got.RejectRatio != DefaultRejectRatio || got.DropRatio != DefaultDropRatio ||
+			got.BaselineRuns != DefaultBaselineRuns || got.PriceRatio != DefaultPriceRatio {
 			t.Fatalf("umbrales = %+v", got)
 		}
 	})

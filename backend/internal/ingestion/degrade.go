@@ -26,6 +26,11 @@ type Counters struct {
 	Duplicated int
 	// PagesFailed es cuántas páginas del listado no se pudieron leer.
 	PagesFailed int
+	// ZeroPrices es cuántos ítems del lote llegaron con precio nulo o en 0.
+	ZeroPrices int
+	// PricesTotal es cuántos ítems se recibieron en los lotes de la corrida;
+	// es el denominador de la proporción de precios inválidos.
+	PricesTotal int
 }
 
 // Thresholds son los límites con los que se decide que una corrida quedó
@@ -39,23 +44,31 @@ type Thresholds struct {
 	DropRatio float64
 	// BaselineRuns es cuántas corridas exitosas previas forman la mediana.
 	BaselineRuns int
+	// PriceRatio es la proporción de ítems con precio nulo o en 0 sobre los
+	// recibidos que ya se considera anormal (0.20 por defecto).
+	PriceRatio float64
 }
 
 // ThresholdsFromEnv arma los umbrales con los valores por defecto y los
-// sobrescribe con INGESTION_DEGRADED_REJECT_RATIO, INGESTION_DEGRADED_DROP_RATIO
-// e INGESTION_DEGRADED_BASELINE_RUNS. Un valor inválido o fuera de rango se
-// ignora en silencio: una variable mal escrita no puede apagar las alertas.
+// sobrescribe con INGESTION_DEGRADED_REJECT_RATIO, INGESTION_DEGRADED_DROP_RATIO,
+// INGESTION_DEGRADED_PRICE_RATIO e INGESTION_DEGRADED_BASELINE_RUNS. Un valor
+// inválido o fuera de rango se ignora en silencio: una variable mal escrita no
+// puede apagar las alertas.
 func ThresholdsFromEnv() Thresholds {
 	thresholds := Thresholds{
 		RejectRatio:  DefaultRejectRatio,
 		DropRatio:    DefaultDropRatio,
 		BaselineRuns: DefaultBaselineRuns,
+		PriceRatio:   DefaultPriceRatio,
 	}
 	if ratio, ok := readFloat("INGESTION_DEGRADED_REJECT_RATIO", 0, 1); ok {
 		thresholds.RejectRatio = ratio
 	}
 	if ratio, ok := readFloat("INGESTION_DEGRADED_DROP_RATIO", 0, 1); ok {
 		thresholds.DropRatio = ratio
+	}
+	if ratio, ok := readFloat("INGESTION_DEGRADED_PRICE_RATIO", 0, 1); ok {
+		thresholds.PriceRatio = ratio
 	}
 	if runs, ok := readInt("INGESTION_DEGRADED_BASELINE_RUNS", 1, 50); ok {
 		thresholds.BaselineRuns = runs
@@ -74,11 +87,11 @@ type Degradation struct {
 // EvaluateDegradation decide si una corrida dejó de entregar datos.
 //
 // Compara los contadores del scraper contra sí mismos (nada encontrado, nada
-// enviado, demasiados rechazos) y contra la mediana de las últimas corridas
-// exitosas de la misma tienda. Los duplicados descartados cuentan como
-// entrega: un listado que repite tarjetas no es una tienda caída (TAL-172).
-// Nunca inventa una alerta: sin contadores, con `Found` en cero o sin
-// historial suficiente la respuesta es «no degradada».
+// enviado, demasiados rechazos, exceso de precios nulos o en 0) y contra la
+// mediana de las últimas corridas exitosas de la misma tienda. Los duplicados
+// descartados cuentan como entrega: un listado que repite tarjetas no es una
+// tienda caída (TAL-172). Nunca inventa una alerta: sin contadores, con `Found`
+// en cero o sin historial suficiente la respuesta es «no degradada».
 // Devuelve el veredicto con las razones que lo sostienen.
 func EvaluateDegradation(counters Counters, baseline []int32, thresholds Thresholds) Degradation {
 	if counters.Found <= 0 {
@@ -118,6 +131,15 @@ func EvaluateDegradation(counters Counters, baseline []int32, thresholds Thresho
 			reasons = append(reasons, fmt.Sprintf(
 				"%d de %d tarjetas rechazadas (%.0f%% supera el umbral de %.0f%%)",
 				counters.Rejected, counters.Found, ratio*100, thresholds.RejectRatio*100,
+			))
+		}
+	}
+	if counters.PricesTotal > 0 {
+		ratio := float64(counters.ZeroPrices) / float64(counters.PricesTotal)
+		if ratio > thresholds.PriceRatio {
+			reasons = append(reasons, fmt.Sprintf(
+				"%d de %d ítems con precio nulo o 0 (%.0f%% supera el umbral de %.0f%%)",
+				counters.ZeroPrices, counters.PricesTotal, ratio*100, thresholds.PriceRatio*100,
 			))
 		}
 	}

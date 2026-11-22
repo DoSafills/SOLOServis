@@ -56,6 +56,9 @@ const (
 	DefaultDropRatio = 0.50
 	// DefaultBaselineRuns: corridas exitosas previas que forman la mediana.
 	DefaultBaselineRuns = 5
+	// DefaultPriceRatio: proporción de ítems con precio nulo o en 0 sobre los
+	// recibidos a partir de la cual la corrida se considera degradada.
+	DefaultPriceRatio = 0.20
 	// NotificationTypeDegraded marca el aviso de una tienda que dejó de
 	// entregar datos; el frontend decide cómo mostrarlo por el `type`.
 	NotificationTypeDegraded = "scraper_degraded"

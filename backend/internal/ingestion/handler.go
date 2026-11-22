@@ -149,6 +149,9 @@ func (h *Handler) FinishRun(w http.ResponseWriter, r *http.Request) {
 	if hasCounters {
 		h.checkDegradation(r.Context(), id, counters)
 	}
+	if h.processor != nil {
+		h.processor.ForgetPriceStats(id)
+	}
 	h.writeRun(w, r, id)
 }
 
@@ -163,6 +166,11 @@ func (h *Handler) checkDegradation(ctx context.Context, id int32, counters Count
 		return
 	}
 	thresholds := ThresholdsFromEnv()
+	// Los precios inválidos se cuentan en los lotes ya procesados: el cierre
+	// solo trae los contadores del scraper, que no los incluyen.
+	if h.processor != nil {
+		counters.ZeroPrices, counters.PricesTotal = h.processor.PriceStats(id)
+	}
 	run, err := h.runs.GetRun(ctx, id)
 	if err != nil || run.StoreID == nil {
 		if err != nil {

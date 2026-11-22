@@ -272,16 +272,17 @@ func (n *fakeAdminNotifier) NotifyAdmins(_ context.Context, notification AdminNo
 }
 
 type env struct {
-	runs     *fakeRuns
-	catalog  *fakeCatalog
-	offers   *fakeOffers
-	notifier *fakeNotifier
-	alerts   *fakeAdminNotifier
-	logs     *bytes.Buffer
+	runs      *fakeRuns
+	catalog   *fakeCatalog
+	offers    *fakeOffers
+	notifier  *fakeNotifier
+	alerts    *fakeAdminNotifier
+	logs      *bytes.Buffer
+	processor *Processor
 }
 
 func newEnv() *env {
-	return &env{
+	e := &env{
 		runs:     &fakeRuns{storeID: 2, run: Run{ID: 3, Source: "Ripley scraper", Status: StatusRunning}, existing: map[string]ExistingProduct{}},
 		catalog:  &fakeCatalog{category: refrigeradores},
 		offers:   &fakeOffers{},
@@ -289,13 +290,15 @@ func newEnv() *env {
 		alerts:   &fakeAdminNotifier{},
 		logs:     &bytes.Buffer{},
 	}
+	logger := slog.New(slog.NewJSONHandler(e.logs, nil))
+	e.processor = NewProcessor(e.runs, e.catalog, e.offers, e.notifier, logger)
+	return e
 }
 
 func (e *env) serve(t *testing.T, method, target, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	logger := slog.New(slog.NewJSONHandler(e.logs, nil))
-	processor := NewProcessor(e.runs, e.catalog, e.offers, e.notifier, logger)
-	h := NewHandler(e.runs, processor, e.alerts, logger)
+	h := NewHandler(e.runs, e.processor, e.alerts, logger)
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
 	r.Post("/ingestion/runs", h.OpenRun)
@@ -488,6 +491,38 @@ func TestFinishRunHealthyRunDoesNotAlert(t *testing.T) {
 
 	if len(e.alerts.sent) != 0 {
 		t.Fatalf("avisos = %d; quiero 0", len(e.alerts.sent))
+	}
+}
+
+// TestFinishRunPriceDegradation comprueba el umbral de precios nulos o en 0:
+// los ítems se procesan por lotes y el cierre usa ese conteo para decidir.
+func TestFinishRunPriceDegradation(t *testing.T) {
+	items := func(first, second string) string {
+		return `{"product":{"name":"A"},"offer":{"price":` + first + `}},
+			{"product":{"name":"B"},"offer":{"price":` + second + `}}`
+	}
+	for _, tc := range []struct {
+		name   string
+		items  string
+		alerts int
+	}{
+		{"precios válidos", items("10", "20"), 0},
+		{"precios en cero", items("0", "0"), 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := withStore(newEnv())
+			batch(t, e, tc.items)
+
+			body := `{"status":"success","itemsFound":2,"itemsSent":2}`
+			requireStatus(t, e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", body), http.StatusOK)
+
+			if len(e.alerts.sent) != tc.alerts {
+				t.Fatalf("avisos = %d; quiero %d (log: %s)", len(e.alerts.sent), tc.alerts, e.logs.String())
+			}
+			if tc.alerts == 1 && !strings.Contains(e.alerts.sent[0].Message, "precio nulo o 0") {
+				t.Fatalf("message = %q", e.alerts.sent[0].Message)
+			}
+		})
 	}
 }
 
