@@ -113,6 +113,42 @@ func TestSessionTokensAreStoredHashed(t *testing.T) {
 	}
 }
 
+// TestChangePasswordStoresHash comprueba que la contraseña nueva nunca llega
+// en claro a PostgreSQL: el UPDATE recibe el mismo formato PBKDF2 que register
+// y checkPassword acepta la nueva clave.
+func TestChangePasswordStoresHash(t *testing.T) {
+	const newPassword = "NuevaClave123"
+	db := &recordingDB{fakeDB: &fakeDB{t: t, rules: []rule{
+		qRow("SELECT password_hash FROM user_account", testPasswordHash),
+		qExec("UPDATE user_account SET password_hash", 1),
+	}}}
+	router := authRouter(t, db)
+
+	body := fmt.Sprintf(`{"currentPassword":%q,"newPassword":%q}`, testPassword, newPassword)
+	req := httptest.NewRequest(http.MethodPost, "/auth/change-password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(db.sql, "UPDATE user_account SET password_hash") {
+		t.Fatalf("última consulta = %q", db.sql)
+	}
+	if len(db.args) != 2 {
+		t.Fatalf("args = %v", db.args)
+	}
+	hash, ok := db.args[0].(string)
+	if !ok || !strings.HasPrefix(hash, "pbkdf2-sha256$") || strings.Contains(hash, newPassword) {
+		t.Fatalf("la contraseña nueva no se guardó hasheada: %v", db.args[0])
+	}
+	if !checkPassword(hash, newPassword) {
+		t.Fatal("el hash guardado no corresponde a la contraseña nueva")
+	}
+}
+
 func TestLogoutDeletesSessionByTokenHash(t *testing.T) {
 	token := "un-token-de-sesion-cualquiera"
 	db := &recordingDB{fakeDB: &fakeDB{t: t, rules: []rule{

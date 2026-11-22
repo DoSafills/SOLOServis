@@ -51,6 +51,8 @@ func registerRoutes(r chi.Router, name string, h *Handler, admin func(http.Handl
 		r.Post("/auth/refresh", h.Refresh)
 		r.Post("/auth/logout", h.Logout)
 		r.Get("/auth/validate", h.ValidateToken)
+		// Cambiar la contraseña actúa en nombre de un usuario: exige sesión.
+		r.With(h.requireSession).Post("/auth/change-password", h.ChangePassword)
 	case "favorites-api":
 		r.Group(func(r chi.Router) {
 			r.Use(h.requireSession)
@@ -149,7 +151,7 @@ func cors(frontendURL string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", frontendURL)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
