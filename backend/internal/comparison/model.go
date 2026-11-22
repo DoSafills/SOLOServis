@@ -50,6 +50,11 @@ type ProductSummary struct {
 	BestPrice  *string `json:"bestPrice"`
 	BestStore  *string `json:"bestStore"`
 	OfferCount int64   `json:"offerCount"`
+	// LastUpdated es la fecha de la última verificación de la mejor oferta, en
+	// RFC 3339 UTC. Es null cuando el producto no tiene ofertas disponibles.
+	// TAL-223: la comparación y el asistente necesitan saber si el precio es de
+	// hoy o de hace dos semanas; sin esta marca no pueden decirlo.
+	LastUpdated *string `json:"lastUpdated"`
 }
 
 // CategoryInfo identifica la categoría común. Slug es null si la categoría

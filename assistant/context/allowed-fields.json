@@ -3,7 +3,7 @@
   "purpose": "Lista cerrada de los campos que pueden llegar al proveedor de IA. Cualquier campo ausente se descarta antes de llamar al modelo.",
   "allow": {
     "category": ["name"],
-    "product": ["id", "name", "brand", "model", "bestPrice", "bestStore", "offerCount"],
+    "product": ["id", "name", "brand", "model", "bestPrice", "bestStore", "offerCount", "lastUpdated"],
     "attribute": ["key", "label", "dataType", "unit", "values", "differs"],
     "specification": ["name", "unit", "values", "differs"]
   },
