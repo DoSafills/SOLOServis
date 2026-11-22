@@ -68,6 +68,23 @@ spec:
             - name: INTERNAL_API_TOKEN
               valueFrom:
                 secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+            # Asistente de comparación (IA). El proveedor se cambia aquí o por
+            # variables del despliegue, sin recompilar: `compatible` habla el
+            # formato chat/completions de OpenAI, que es el de DeepSeek. Para
+            # Gemini: AI_PROVIDER=gemini, AI_BASE_URL vacío y AI_MODEL=gemini-3.6-flash.
+            - name: AI_PROVIDER
+              value: compatible
+            - name: AI_BASE_URL
+              value: https://api.deepseek.com/v1
+            - name: AI_MODEL
+              value: deepseek-chat
+            # La clave la emite el proveedor: vive en el Secret soloservis-ai,
+            # que crea la Fase 4 del deploy desde AI_API_KEY. Sin Secret la
+            # variable no existe, el proveedor queda nulo y la ruta responde
+            # 503 ai_unavailable; el resto del dominio funciona igual.
+            - name: AI_API_KEY
+              valueFrom:
+                secretKeyRef: {name: soloservis-ai, key: AI_API_KEY, optional: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

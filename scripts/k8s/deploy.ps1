@@ -672,6 +672,33 @@ function Ensure-PostgresSecret {
   return 'OK (Secret postgres-secret creado con contrasena aleatoria)'
 }
 
+# El asistente de comparacion (IA) necesita una clave que emite el proveedor:
+# no se puede generar al azar como las otras. Se reutiliza el Secret si existe;
+# si no, se crea a partir de AI_API_KEY en el entorno del despliegue. Sin clave
+# no se detiene el despliegue: el asistente responde 503 ai_unavailable y el
+# resto del sitio funciona igual.
+# La clave nunca se imprime ni se pasa por la linea de comandos: va por un
+# archivo temporal que se borra en el mismo paso.
+function Ensure-AISecret {
+  $null = K get secret soloservis-ai -o name
+  if ($script:KExit -eq 0) { return 'OK (Secret soloservis-ai existente)' }
+
+  $key = $env:AI_API_KEY
+  if ([string]::IsNullOrWhiteSpace($key)) {
+    return 'AVISO (sin AI_API_KEY: el asistente respondera 503 hasta crear el Secret soloservis-ai)'
+  }
+
+  $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('soloservis-ai-' + [System.Guid]::NewGuid().ToString('N'))
+  try {
+    [System.IO.File]::WriteAllText($tmp, $key)
+    $null = K create secret generic soloservis-ai "--from-file=AI_API_KEY=$tmp"
+    if ($script:KExit -eq 0) { return 'OK (Secret soloservis-ai creado con AI_API_KEY)' }
+    return 'AVISO (no se pudo crear soloservis-ai: el asistente respondera 503)'
+  } finally {
+    if (Test-Path $tmp) { Remove-Item -Force $tmp }
+  }
+}
+
 function Phase4 {
   $cp = [ordered]@{}
   $err = Build-Rendered
@@ -697,6 +724,9 @@ function Phase4 {
     Stop-Phase 4 $cp 'el PVC de PostgreSQL ya tiene datos y falta postgres-secret: recrealo con la contrasena anterior (k8s/README.md) o borra el PVC si no necesitas los datos'
   }
   if ($cp['Credenciales BD'] -like 'ERROR*') { Stop-Phase 4 $cp 'kubectl create secret postgres-secret fallo' }
+
+  # Clave del proveedor de IA (TAL-247). Nunca detiene el despliegue.
+  $cp['Clave IA'] = Ensure-AISecret
 
   Step 'Aplicando Services y StatefulSet de PostgreSQL'
   $ok = Apply-Component 'app.kubernetes.io/component=database'

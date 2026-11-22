@@ -73,7 +73,7 @@ Errores (TAL-78, problem+json):
 | Producto inexistente | 404 `not_found` |
 | Sin `AI_API_KEY` o proveedor no configurado | 503 `ai_unavailable` |
 | Proveedor caído, timeout o cuota agotada | 503 `ai_unavailable` (nunca 500 con detalles) |
-| Límite por usuario/IP | 429 `too_many_requests` |
+| Límite por usuario/IP | 429 `rate_limited` |
 
 ## 5. Contexto que se envía al modelo
 

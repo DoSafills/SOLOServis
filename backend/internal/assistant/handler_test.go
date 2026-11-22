@@ -674,8 +674,87 @@ func TestOpenAIProvider(t *testing.T) {
 	}
 }
 
-func TestProviderSelection(t *testing.T) {
-	cases := []struct {
+// TestDeepSeekProvider comprueba que cambiar de proveedor es solo configuración:
+// con AI_PROVIDER=compatible, AI_BASE_URL y AI_MODEL se habla el formato
+// chat/completions de DeepSeek, la clave viaja en Authorization y no se envía
+// el campo `private` (que es exclusivo de Pollinations). Si esto pasa, no hay
+// nada compilado dentro que ate el asistente a un proveedor.
+func TestDeepSeekProvider(t *testing.T) {
+	var (
+		gotPath  string
+		gotAuth  string
+		gotModel string
+		gotBody  map[string]any
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("leer body: %v", err)
+		}
+		if err := json.Unmarshal(body, &gotBody); err != nil {
+			t.Errorf("body inválido: %v", err)
+		}
+		if model, ok := gotBody["model"].(string); ok {
+			gotModel = model
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"choices": [{"message": {"role": "assistant", "content": "El LG tiene mas capacidad."}, "finish_reason": "stop"}],
+			"usage": {"prompt_tokens": 210, "completion_tokens": 18}
+		}`)
+	}))
+	defer server.Close()
+
+	t.Setenv("AI_PROVIDER", "compatible")
+	t.Setenv("AI_BASE_URL", server.URL+"/v1")
+	t.Setenv("AI_MODEL", "deepseek-chat")
+	t.Setenv("AI_API_KEY", "sk-deepseek-de-prueba")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	provider := NewProviderFromConfig(cfg, discardLogger())
+	if provider == nil {
+		t.Fatal("provider = nil con AI_PROVIDER=compatible y AI_BASE_URL")
+	}
+	id, ok := provider.(identified)
+	if !ok {
+		t.Fatal("el proveedor no informa su identidad")
+	}
+	if id.ProviderName() != "compatible" || id.ProviderModel() != "deepseek-chat" {
+		t.Fatalf("identidad = %q/%q", id.ProviderName(), id.ProviderModel())
+	}
+
+	result, err := provider.Generate(context.Background(), ProviderRequest{
+		SystemPrompt: "prompt", UserContent: "contenido", Temperature: 0.2, TopP: 0.9, MaxOutputTokens: 400,
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if gotPath != "/v1/chat/completions" {
+		t.Fatalf("path = %q, quiero /v1/chat/completions", gotPath)
+	}
+	if gotAuth != "Bearer sk-deepseek-de-prueba" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotModel != "deepseek-chat" {
+		t.Fatalf("model = %q, quiero deepseek-chat", gotModel)
+	}
+	if _, enviado := gotBody["private"]; enviado {
+		t.Fatal("`private` es de Pollinations: DeepSeek no lo recibe")
+	}
+	if result.Text != "El LG tiene mas capacidad." {
+		t.Fatalf("text = %q", result.Text)
+	}
+	if result.PromptTokens != 210 || result.OutputTokens != 18 {
+		t.Fatalf("tokens = %d/%d", result.PromptTokens, result.OutputTokens)
+	}
+}
+
+func TestProviderSelection(t *testing.T) {	cases := []struct {
 		name      string
 		provider  string
 		key       string

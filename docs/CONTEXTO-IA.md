@@ -63,7 +63,7 @@ documentales detectadas están en la sección 12.
 | Contenedores | Docker multi-etapa, sin root, Docker Compose |
 | Orquestación | Kubernetes + Kustomize (clúster UCT), `deploy.ps1` / `deploy.sh` |
 | Autenticación | Sesiones con token opaco (se guarda SHA-256), PBKDF2-SHA256, token de servicio `INTERNAL_API_TOKEN` |
-| Asistente de comparación (IA) | Gemini (`gemini-3.5-flash`) en `backend/internal/assistant/`; contexto cerrado a 2–5 productos, guardrails, caché en memoria y auditoría en `ai_comparison_query`. `auto` usa Gemini con `AI_API_KEY`; sin clave responde 503 `ai_unavailable` y no inventa texto; `off` desactiva la ruta. |
+| Asistente de comparación (IA) | Proveedor agnóstico por configuración (`AI_PROVIDER`, `AI_MODEL`, `AI_BASE_URL`, `AI_API_KEY`), sin recompilar; en el clúster corre DeepSeek (`deepseek-chat`). Código en `backend/internal/assistant/`; contexto cerrado a 2–5 productos, guardrails, caché en memoria y auditoría en `ai_comparison_query`. Sin clave responde 503 `ai_unavailable` y no inventa texto; `off` desactiva la ruta. |
 
 **No existe** (aunque aparezca en documentos viejos): Redis, Scrapy, Playwright
 directo, TanStack Query, Prisma, NestJS, "Go Workers", JSONL como
@@ -191,10 +191,10 @@ Declaradas en `backend/internal/allapis/domains.go` (`Calls`):
 | `GATEWAY_URL` | URL común de respaldo para llamadas internas |
 | `PRODUCT_API_URL`, `STORE_API_URL`, `SERVICE_API_URL`, `PRICING_API_URL`, `NOTIFICATION_API_URL` | URL específica de cada API llamada |
 | `INTERNAL_API_TOKEN` | Token de servicio (mínimo 32 caracteres; si es más corto se ignora) |
-| `AI_PROVIDER` | Proveedor del asistente de comparación (`auto` por defecto: Gemini con `AI_API_KEY`) |
-| `AI_MODEL` | Modelo del asistente (`gemini-3.5-flash` por defecto) |
-| `AI_API_KEY` | Clave del proveedor, solo en el backend. Sin ella `auto` responde 503 `ai_unavailable` y no arma respuestas propias; con `off` el asistente queda desactivado |
-| `AI_BASE_URL` | Opcional; URL base alternativa del proveedor (pruebas o proxy propio) |
+| `AI_PROVIDER` | Proveedor del asistente de comparación (`auto` por defecto: Gemini con `AI_API_KEY`; en el clúster `compatible` para DeepSeek) |
+| `AI_MODEL` | Modelo del asistente (`gemini-3.5-flash` por defecto; en el clúster `deepseek-chat`) |
+| `AI_API_KEY` | Clave del proveedor, solo en el backend. Sin ella `auto` responde 503 `ai_unavailable` y no arma respuestas propias; con `off` el asistente queda desactivado. En el clúster vive en el Secret `soloservis-ai` |
+| `AI_BASE_URL` | Opcional; URL base del proveedor compatible OpenAI (`https://api.deepseek.com/v1` en el clúster) |
 | `LOG_LEVEL` | Nivel de log |
 
 ---
@@ -388,7 +388,7 @@ código nuevo.**
 | Despliegue | `k8s/README.md` |
 | Scraper v2 | `scraper/README.md` |
 | Tests | `scripts/testing/reporte.py` y `docs/reportes/testing/` |
-| Asistente de comparación con IA (conectado a Gemini) | `assistant/README.md` y `assistant/docs/propuesta-asistente.md` |
+| Asistente de comparación con IA (proveedor configurable; DeepSeek en el clúster) | `assistant/README.md` y `assistant/docs/propuesta-asistente.md` |
 
 **Regla práctica:** antes de afirmar que algo existe, verificar en el código
 (`grep`, `router.go`, `domains.go`, `compose.yml`, `k8s/`). Antes de afirmar que

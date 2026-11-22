@@ -114,9 +114,9 @@ que la fuente de verdad vive aquí y se copia al backend:
 3. Ruta `POST /comparisons/assistant` (Comparison API), pública y con rate limit
    por IP (10/min, 100/día). Valida el body con el estándar TAL-78:
    `400` al decodificar, `422` al incumplir reglas, `404` si un producto no
-   existe, `429` `too_many_requests` al agotar la cuota y `503`
+   existe, `429` `rate_limited` con `Retry-After` al agotar la cuota y `503`
    `ai_unavailable` con el asistente en `off` o si el proveedor falla.
-4. Migración `022_ai_comparison_query.sql` para auditoría (pregunta, respuesta,
+4. Migración `029_ai_comparison_query.sql` para auditoría (pregunta, respuesta,
    proveedor, tokens, latencia, caché). Un fallo al auditar no rompe la
    respuesta.
 5. `fronted/src/services/api/assistant.ts` y la ventana

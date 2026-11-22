@@ -40,10 +40,14 @@ x-dominio-env: &dominio-env
   # Credencial de DESARROLLO, solo para Compose local.
   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-solo-para-compose-local}
   # Asistente de comparación (IA). auto = Gemini con AI_API_KEY; sin clave la
-  # ruta responde 503 ai_unavailable. La clave va en .env (ignorado por git),
-  # nunca aquí.
+  # ruta responde 503 ai_unavailable. La clave va en docker/.env (ignorado por
+  # git), nunca aquí. Para DeepSeek:
+  #   AI_PROVIDER=compatible
+  #   AI_BASE_URL=https://api.deepseek.com/v1
+  #   AI_MODEL=deepseek-chat
   AI_PROVIDER: ${AI_PROVIDER:-auto}
   AI_MODEL: ${AI_MODEL:-gemini-3.5-flash}
+  AI_BASE_URL: ${AI_BASE_URL:-}
   AI_API_KEY: ${AI_API_KEY:-}
 
 services:

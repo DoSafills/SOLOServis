@@ -452,10 +452,10 @@ Las variables pueden obtenerse del entorno de ejecución o del archivo `.env`.
 | `PRICING_API_URL` | Dirección interna de Pricing API. |
 | `NOTIFICATION_API_URL` | Dirección interna de Notification API. |
 | `INTERNAL_API_TOKEN` | Token para operaciones internas autorizadas (mínimo 32 caracteres; si es más corto se ignora). |
-| `AI_PROVIDER` | Proveedor del asistente de comparación (`auto` por defecto: Gemini con `AI_API_KEY`). |
-| `AI_MODEL` | Modelo del asistente (`gemini-3.5-flash` por defecto; Google lo marca deprecado y lo enruta a `gemini-3.6-flash`). |
-| `AI_API_KEY` | Clave del proveedor. **Solo backend.** Sin ella `auto` responde 503 `ai_unavailable`: la ruta no genera texto propio. |
-| `AI_BASE_URL` | Opcional; URL base alternativa del proveedor (pruebas locales o proxy propio). Cambiarla basta para apuntar a otro endpoint. |
+| `AI_PROVIDER` | Proveedor del asistente de comparación (`auto` por defecto: Gemini con `AI_API_KEY`). En el clúster es `compatible` (DeepSeek). |
+| `AI_MODEL` | Modelo del asistente (`gemini-3.5-flash` por defecto; en el clúster `deepseek-chat`). |
+| `AI_API_KEY` | Clave del proveedor. **Solo backend.** Sin ella `auto` responde 503 `ai_unavailable`: la ruta no genera texto propio. En el clúster vive en el Secret `soloservis-ai`. |
+| `AI_BASE_URL` | Opcional; URL base del proveedor compatible OpenAI (`https://api.deepseek.com/v1` en el clúster). Cambiarla basta para apuntar a otro endpoint. |
 | `LOG_LEVEL` | Nivel de registro de eventos. |
 
 ## 8.2 Archivo `.env`
@@ -2407,6 +2407,19 @@ desactiva y responde 503. `AI_BASE_URL` también cambia el endpoint de Gemini si
 tocar código. El modelo se cambia con `AI_MODEL` (por defecto
 `gemini-3.5-flash`).
 
+El clúster usa DeepSeek con el camino `compatible`, porque es más barato y no
+exige cambiar código:
+
+```env
+AI_PROVIDER=compatible
+AI_BASE_URL=https://api.deepseek.com/v1
+AI_MODEL=deepseek-chat
+AI_API_KEY=sk-...   # Secret soloservis-ai
+```
+
+Cambiar a Gemini, Groq, Ollama o un proxy propio es cambiar esas variables y
+reiniciar el pod: el binario es el mismo.
+
 ```http
 POST /comparisons/assistant
 Content-Type: application/json
@@ -2430,14 +2443,14 @@ Content-Type: application/json
   de `/compare`; nunca llegan imágenes, URLs, descripciones ni datos de usuario.
 - Errores: `400` al decodificar, `422 validation_failed` al incumplir reglas
   (incluida `incompatible_category`), `404 not_found` si un producto no existe,
-  `429 too_many_requests` al superar 10/min o 100/día por IP y `503
+  `429 rate_limited` con `Retry-After` al superar 10/min o 100/día por IP y `503
   ai_unavailable` si el proveedor falla o el asistente está en `off`. Los
   detalles internos y la clave no aparecen en la respuesta.
 - Guardrails de salida: texto plano, mención de al menos un producto comparado y
   largo máximo de 900 caracteres; si no se cumple, responde la frase fija de
   rechazo de `prompts/system.es.md`.
 - Caché en memoria (24 h) por hash de IDs ordenados + pregunta normalizada. La
-  auditoría va a `ai_comparison_query` (migración 022); un fallo al auditar no
+  auditoría va a `ai_comparison_query` (migración 029); un fallo al auditar no
   cambia la respuesta.
 
 <!--

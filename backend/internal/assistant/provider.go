@@ -107,6 +107,14 @@ func NewProviderFromConfig(cfg Config, logger *slog.Logger) Provider {
 				return nil
 			}
 		}
+		// El modelo por defecto es de Gemini. Si se cambia el proveedor y no el
+		// modelo, el proveedor responde 400 y el usuario sólo ve un 503. El aviso
+		// deja la causa en el primer log del arranque.
+		if strings.HasPrefix(strings.ToLower(cfg.Model), "gemini") && logger != nil {
+			logger.Warn("assistant_provider_model_mismatch",
+				"provider", provider, "model", cfg.Model,
+				"hint", "el modelo por defecto es de Gemini; configura AI_MODEL para este proveedor")
+		}
 		return newOpenAIProvider(provider, apiKey, cfg.Model, baseURL, timeout,
 			cfg.Limits.Provider.MaxRetries, cfg.Limits.Provider.RetryOnStatus, false)
 	case "off", "none", "disabled":
