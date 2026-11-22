@@ -2145,6 +2145,7 @@ Ya no descarga `GET /products` de Product API: consulta la base directamente.
 | GET | `/search/brands?q=` | marcas activas |
 | GET | `/search/presets` | catálogo de consultas curadas (TAL-222) |
 | GET | `/search/presets/{slug}` | ejecuta el preset: mismo formato que `/search/products` + `X-Total-Count` |
+| GET | `/search/alternatives?q=` | respuesta determinista: preset si hay coincidencia, búsqueda libre si no (TAL-226) |
 
 ### Consultas predefinidas (TAL-222)
 
@@ -2168,6 +2169,24 @@ pueden sobrescribir. Un slug desconocido responde 404 con `code: preset_not_foun
 El catálogo se valida en un test (`presets_test.go`): slug único y con formato,
 título y descripción, categoría sembrada, `sort` permitido, precios válidos y
 `limit` en rango. Un preset mal escrito rompe CI, no producción.
+
+### Respuestas alternativas sin IA (TAL-226)
+
+`GET /search/alternatives?q=` empareja el texto con el catálogo y responde sin
+generar prosa:
+
+| Campo | Valor |
+| --- | --- |
+| `source` | `preset` si se usó una consulta curada; `text` si fue búsqueda libre |
+| `matched` | El preset usado, o `null` |
+| `presets` | Hasta tres sugerencias, sin el ya usado |
+| `products` | Resultados reales; total en `X-Total-Count` |
+
+La normalización quita tildes, stopwords y plurales (`notebooks` → `notebook`).
+Se exige que al menos la mitad de los tokens de la consulta estén en el
+vocabulario del preset; por debajo, se prefiere la búsqueda libre antes que
+adivinar. No hay LLM ni texto generado: `source` explica lo que pasó.
+
 
 
 ### Parámetros de `/search/products` (y de `/search/facets`, sin `sort`/`limit`/`offset`)
