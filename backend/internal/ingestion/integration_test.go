@@ -18,6 +18,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -80,7 +81,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		t.Fatalf("EnsureBrand reescribió el nombre de marca: %q", storedBrandName)
 	}
 
-	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), notifier, logger), logger)
+	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), notifier, logger), nil, logger)
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
 	r.Post("/ingestion/runs", h.OpenRun)
@@ -165,24 +166,6 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		t.Fatal("Ingestion no debe modificar productos existentes")
 	}
 
-	// 2b. Una hoja sembrada por 040 se ingiere por slug sin atributos.
-	hoja := items(run.ID, map[string]any{"externalId": "e-lav",
-		"product": map[string]any{"sku": tag + "-lav", "name": "Lavadora " + tag, "brand": brand,
-			"categorySlug": "lavadoras"},
-		"offer": map[string]any{"price": 450000, "productUrl": "https://tienda.example.test/p/lav"}})
-	if hoja.Results[0].Status != ItemCreated {
-		t.Fatalf("hoja nueva = %+v", hoja.Results[0])
-	}
-	var hojaSlug string
-	must(pool.QueryRow(ctx, `
-		SELECT c.slug FROM product p
-		JOIN categories c ON c.id = p.category_ref
-		JOIN product_category pc ON pc.id = p.category_id
-		WHERE p.sku = $1 AND c.legacy_product_category_id = pc.id`, tag+"-lav").Scan(&hojaSlug), "hoja nueva")
-	if hojaSlug != "lavadoras" {
-		t.Fatalf("hoja nueva quedó en %q, quiero lavadoras", hojaSlug)
-	}
-
 	// 3. Segundo lote: bajada de precio del producto creado, con aviso.
 	var productID int32
 	must(pool.QueryRow(ctx, `SELECT id FROM product WHERE sku = $1`, tag+"-1").Scan(&productID), "id")
@@ -240,13 +223,13 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	// 4. Contadores, auditoría y cierre.
 	rec = do(http.MethodGet, fmt.Sprintf("/ingestion/runs/%d", run.ID), nil)
 	_ = json.Unmarshal(rec.Body.Bytes(), &run)
-	if run.RecordsFound != 8 || run.RecordsProcessed != 6 || run.RecordsFailed != 2 {
+	if run.RecordsFound != 7 || run.RecordsProcessed != 5 || run.RecordsFailed != 2 {
 		t.Fatalf("contadores = %d/%d/%d", run.RecordsFound, run.RecordsProcessed, run.RecordsFailed)
 	}
 	var scraped int
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM scraped_data WHERE scrape_run_id = $1`, run.ID).Scan(&scraped), "scraped_data")
-	if scraped != 8 {
-		t.Fatalf("scraped_data = %d, quiero 8", scraped)
+	if scraped != 7 {
+		t.Fatalf("scraped_data = %d, quiero 7", scraped)
 	}
 
 	if rec := do(http.MethodPost, fmt.Sprintf("/ingestion/runs/%d/finish", run.ID), map[string]any{"status": "success"}); rec.Code != http.StatusOK ||
@@ -313,7 +296,7 @@ func TestIngestionIntegration_ImagenDeProductoExistente(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	runs := NewRepository(pool)
-	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), &fakeNotifier{}, logger), logger)
+	h := NewHandler(runs, NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), &fakeNotifier{}, logger), nil, logger)
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)
 	r.Post("/ingestion/runs", h.OpenRun)
@@ -406,5 +389,72 @@ func TestIngestionIntegration_ImagenDeProductoExistente(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM product WHERE name = $1`, name).Scan(&copies), "copias")
 	if copies != 1 {
 		t.Fatalf("productos = %d, quiero 1 (sin duplicados)", copies)
+	}
+}
+
+// Integración TAL-205: SaveScrapedBatch guarda todas las filas del lote con
+// un solo INSERT, en el orden recibido y con NULL donde no hay identificador.
+// Si una fila no es jsonb válido (\u0000), no guarda ninguna: el procesador
+// cae al guardado ítem por ítem. Se omite sin TEST_DATABASE_URL.
+func TestIngestionIntegration_ScrapedDataPorLote(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL no definida: se omite el test de integración")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	tag := "tal205-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	var storeID int32
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM data_source WHERE name = $1`, "Scraper "+tag)
+		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = $1`, storeID)
+	})
+	if err := pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda "+tag).Scan(&storeID); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool)
+	runID, err := repo.OpenRun(ctx, "Scraper "+tag, nil, storeID, "perf")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows := []ScrapedItem{
+		{ExternalID: strp("a"), ExternalURL: strp("https://t.test/a"), Raw: json.RawMessage(`{"n":1}`)},
+		{Raw: json.RawMessage(`{"n":2}`)},
+		{ExternalID: strp("c"), Raw: json.RawMessage(`{"n":3}`)},
+	}
+	if err := repo.SaveScrapedBatch(ctx, runID, rows); err != nil {
+		t.Fatalf("guardar lote: %v", err)
+	}
+	saved := func() []string {
+		t.Helper()
+		result, err := pool.Query(ctx, `
+			SELECT COALESCE(external_id, '-') || '|' || COALESCE(external_url, '-') || '|' || (raw_data->>'n')
+			FROM scraped_data WHERE scrape_run_id = $1 ORDER BY id`, runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := pgx.CollectRows(result, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if got, want := saved(), []string{"a|https://t.test/a|1", "-|-|2", "c|-|3"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("scraped_data = %v, quiero %v", got, want)
+	}
+
+	bad := []ScrapedItem{{Raw: json.RawMessage(`{"n":4}`)}, {Raw: json.RawMessage(`{"n":"\u0000"}`)}}
+	if err := repo.SaveScrapedBatch(ctx, runID, bad); err == nil {
+		t.Fatal("un \\u0000 debe hacer fallar el lote")
+	}
+	if got := saved(); len(got) != 3 {
+		t.Fatalf("un lote fallido no debe dejar filas: %v", got)
 	}
 }

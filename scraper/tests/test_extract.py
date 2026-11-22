@@ -32,8 +32,11 @@ def test_falabella_reads_template_url_and_money(spec_by_slug):
     assert not result.rejected
 
     first = result.items[0]
-    assert first.external_id == "FAL-1001"
-    assert first.external_url == "https://www.falabella.com/falabella-cl/product/FAL-1001"
+    # TAL-172: la clave es el SKU (data-key), no el id de test del DOM.
+    assert first.external_id == "15267403"
+    assert first.external_url == (
+        "https://www.falabella.com/falabella-cl/product/15267403/refrigerador-no-frost-samsung"
+    )
     assert first.product.name == "Refrigerador No Frost 300 L"
     assert first.product.brand == "Samsung"
     assert first.product.category_slug == "refrigeradores"
@@ -49,6 +52,66 @@ def test_falabella_reads_template_url_and_money(spec_by_slug):
     second = result.items[1]
     assert second.offer.available is False
     assert second.product.attributes == {"capacidad_litros": 500}
+
+
+def test_supplements_fill_the_skeleton_image_from_jsonld(spec_by_slug):
+    """TAL-242: la tarjeta sin <img> toma imagen y URL del JSON-LD de la página."""
+    spec = spec_by_slug["falabella-cl"]
+
+    result = _extract(spec, fixture_html("falabella-cl"))
+
+    assert not result.rejected
+    second = result.items[1]
+    assert second.product.image_url == (
+        "https://media.falabella.com/falabellaCL/17296521_1/public"
+    )
+    assert second.external_url == (
+        "https://www.falabella.com/falabella-cl/product/17296521/refrigerador-side-by-side-lg"
+    )
+
+
+def test_supplements_never_overwrite_the_card_image(spec_by_slug):
+    """La imagen del HTML visible manda: el suplemento sólo rellena vacíos."""
+    spec = spec_by_slug["falabella-cl"]
+
+    result = _extract(spec, fixture_html("falabella-cl"))
+
+    assert not result.rejected
+    assert result.items[0].product.image_url == (
+        "https://cdn.falabella.com/falabella-cl/product/15267403/principal.jpg"
+    )
+
+
+def test_without_jsonld_the_items_are_rejected_for_missing_url(spec_by_slug):
+    """Sin datos estructurados no hay URL canónica: se rechaza, no se inventa."""
+    spec = spec_by_slug["falabella-cl"]
+    html = re.sub(
+        r'<script type="application/ld\+json">.*?</script>',
+        "",
+        fixture_html("falabella-cl"),
+        flags=re.S,
+    )
+
+    result = _extract(spec, html)
+
+    assert result.items == []
+    assert len(result.rejected) == 2
+    for rejected in result.rejected:
+        assert "externalUrl: required value not found" in rejected.reasons
+
+
+def test_malformed_jsonld_is_a_warning_not_an_error(spec_by_slug):
+    """Un JSON-LD ilegible se informa y la corrida sigue, sin romper el ítem."""
+    spec = spec_by_slug["falabella-cl"]
+    html = fixture_html("falabella-cl").replace(
+        '"@type": "ItemList",', '"@type": "ItemList" "roto",'
+    )
+
+    result = _extract(spec, html)
+
+    assert any("jsonld script 1: invalid JSON" in warning for warning in result.warnings)
+    assert result.items == []
+    assert len(result.rejected) == 2
 
 
 def test_ripley_absolutizes_links(spec_by_slug):
@@ -250,3 +313,38 @@ def test_tal170_invalid_money_is_rejected_with_reason(
 
 def test_tal170_integer_coercion_remains_separate_from_money():
     assert coerce("300", "integer") == (300, None)
+
+
+# ------------------------------------------------------------------ TAL-172
+
+
+def test_tal172_external_id_sale_del_data_key_y_no_del_contador_del_dom(spec_by_slug):
+    """En el listado real el id del DOM es un contador; el SKU vive en data-key.
+
+    El fixture reproduce la página de producción: ``id="testId-pod-151021732"``
+    con ``data-key="151021731"``. La clave del ítem debe ser el SKU.
+    """
+    spec = spec_by_slug["falabella-cl"]
+
+    result = _extract(
+        spec, fixture_html("falabella-cl", "listing-tarjetas-repetidas.html")
+    )
+
+    assert [item.external_id for item in result.items] == ["151021731", "151021731"]
+    assert not any(
+        str(item.external_id).startswith("testId-pod-") for item in result.items
+    )
+
+
+def test_tal172_tarjeta_sin_clave_se_rechaza_con_razon(spec_by_slug):
+    """Sin ``data-key`` la tarjeta se rechaza con su razón, no desaparece."""
+    spec = spec_by_slug["falabella-cl"]
+
+    result = _extract(
+        spec, fixture_html("falabella-cl", "listing-tarjetas-repetidas.html")
+    )
+
+    assert len(result.rejected) == 1
+    assert any(
+        reason.startswith("externalId:") for reason in result.rejected[0].reasons
+    )

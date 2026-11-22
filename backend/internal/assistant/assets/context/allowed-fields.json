@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "purpose": "Lista cerrada de los campos que pueden llegar al proveedor de IA. Cualquier campo ausente se descarta antes de llamar al modelo.",
+  "allow": {
+    "category": ["name"],
+    "product": ["id", "name", "brand", "model", "bestPrice", "bestStore", "offerCount"],
+    "attribute": ["key", "label", "dataType", "unit", "values", "differs"],
+    "specification": ["name", "unit", "values", "differs"]
+  },
+  "deny": [
+    {
+      "field": "imageUrl",
+      "reason": "No aporta a la decisión y consume tokens."
+    },
+    {
+      "field": "description",
+      "reason": "Texto largo y no comparable; el modelo podría interpretarlo de más."
+    },
+    {
+      "field": "productUrl",
+      "reason": "No se necesita para responder y expone enlaces de tiendas."
+    }
+  ],
+  "forbiddenSources": [
+    {
+      "table": "user_account",
+      "reason": "Datos personales: nombre, correo, rol, contraseña."
+    },
+    {
+      "table": "user_session",
+      "reason": "Tokens de sesión."
+    },
+    {
+      "table": "cart_item",
+      "reason": "Comportamiento de compra del usuario."
+    },
+    {
+      "table": "product_user_interest",
+      "reason": "Favoritos, precios objetivo y preferencias."
+    },
+    {
+      "table": "product_review",
+      "reason": "Opiniones de terceros, fuera del alcance de la comparación."
+    },
+    {
+      "table": "search_query",
+      "reason": "Historial de búsquedas."
+    },
+    {
+      "table": "saved_search",
+      "reason": "Búsquedas guardadas del usuario."
+    },
+    {
+      "table": "notification",
+      "reason": "Notificaciones y datos asociados al usuario."
+    },
+    {
+      "table": "product_price_history",
+      "reason": "El alcance es la matriz actual, no la serie histórica."
+    },
+    {
+      "table": "product",
+      "reason": "Solo se permiten los productos comparados; nunca el catálogo completo."
+    }
+  ],
+  "rules": [
+    "El contexto se arma en el backend a partir de los productIds recibidos; el cliente no envía datos de producto.",
+    "Los productos deben ser 2 a 5 y de la misma categoría.",
+    "Los datos de oferta se limitan a la mejor oferta disponible por producto.",
+    "Ninguna credencial, token o cadena de conexión puede aparecer en el contexto."
+  ]
+}

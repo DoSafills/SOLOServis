@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	assistantapi "github.com/DoSafills/SOLOServis/backend/internal/assistant"
 	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/DoSafills/SOLOServis/backend/internal/comparison"
@@ -174,6 +175,7 @@ func registerSearchRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	r.Get("/search/popular-products", handler.PopularProducts)
 	r.Get("/search/presets", handler.Presets)
 	r.Get("/search/presets/{slug}", handler.PresetProducts)
+	r.Get("/search/alternatives", handler.Alternatives)
 	r.Get("/search/facets", handler.Facets)
 	r.Get("/search/categories", handler.Categories)
 	r.Get("/search/brands", handler.Brands)
@@ -182,14 +184,34 @@ func registerSearchRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 }
 
 func registerComparisonRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
-	handler := comparison.NewHandler(comparison.NewRepository(db), logger)
-	session := authz.New(authz.NewPostgresSessions(db), "", logger).RequireSession
+	repository := comparison.NewRepository(db)
+	handler := comparison.NewHandler(repository, logger)
+
+	// Asistente de comparación (IA): público, con rate limit por IP. Con
+	// AI_PROVIDER=auto usa Gemini si hay AI_API_KEY y, si no, el respondedor
+	// local sobre la matriz; `off` deja la ruta en 503 ai_unavailable.
+	assistantCfg, err := assistantapi.LoadConfig()
+	if err != nil {
+		logger.Error("assistant_config_invalid", "error", err.Error())
+		assistantCfg = assistantapi.DefaultConfig()
+	}
+	prompt, err := assistantapi.SystemPrompt()
+	if err != nil {
+		logger.Error("assistant_prompt_invalid", "error", err.Error())
+	}
+	assistantService := assistantapi.NewService(
+		assistantapi.NewProviderFromConfig(assistantCfg, logger),
+		assistantCfg, prompt, assistantapi.NewPostgresRecorder(db), logger,
+	)
+	assistantHandler := assistantapi.NewHandler(repository, assistantService, logger)
 
 	// Públicos: comparar sin guardar y buscar alternativas compatibles.
 	r.Get("/comparisons/products/compare", handler.Compare)
 	r.Get("/comparisons/compatible/{productId}", handler.Compatible)
+	r.Post("/comparisons/assistant", assistantHandler.Ask)
 
 	// Comparaciones guardadas: el usuario sale de la sesión (corrige S3).
+	session := authz.New(authz.NewPostgresSessions(db), "", logger).RequireSession
 	r.Group(func(r chi.Router) {
 		r.Use(session)
 		r.Post("/comparisons/products", handler.Create)
@@ -209,7 +231,7 @@ func registerIngestionRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger
 	runs := ingestion.NewRepository(db)
 	processor := ingestion.NewProcessor(runs, products.NewRepository(db), pricing.NewRepository(db),
 		pricing.NewHTTPNotifier(), logger)
-	handler := ingestion.NewHandler(runs, processor, logger)
+	handler := ingestion.NewHandler(runs, processor, ingestion.NewHTTPNotifier(), logger)
 
 	// Solo el scraper (INTERNAL_API_TOKEN) o un admin.
 	r.Group(func(r chi.Router) {

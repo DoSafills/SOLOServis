@@ -70,6 +70,7 @@ Justificación:
 | `body_too_large` | 413 | El body supera el límite configurado. |
 | `unsupported_media_type` | 415 | `Content-Type` ausente o distinto de `application/json`. |
 | `validation_failed` | 422 | JSON decodificado correctamente que no cumple reglas de negocio. Incluye `errors`. |
+| `rate_limited` | 429 | Demasiadas solicitudes o demasiados intentos fallidos (TAL-201). Incluye `Retry-After` en segundos. Lo responden el gateway (nginx) y la Auth API. |
 | `internal_error` | 500 | Cualquier error no previsto. Mensaje genérico + `request_id`. |
 
 Los códigos por campo (`errors[].code`) iniciales son: `required`, `min`, `max`, `max_length`, `format`, `one_of`, `unknown_field`, `invalid_type`, `not_found` (referencia a otro recurso inexistente, p. ej. `categoryId`). Se pueden agregar nuevos; nunca se renombran los existentes.
@@ -92,6 +93,7 @@ Los códigos por campo (`errors[].code`) iniciales son: `required`, `min`, `max`
 | **413 Content Too Large** | Body mayor al límite (1 MB por defecto). | Problem `body_too_large`. |
 | **415 Unsupported Media Type** | Endpoint con body y `Content-Type` distinto de `application/json` (se aceptan parámetros como `charset=utf-8`). | Problem `unsupported_media_type`. |
 | **422 Unprocessable Content** | El JSON **es válido y se decodificó**, pero no cumple las reglas: obligatorios, rangos, largos, formatos, referencias inexistentes (FK, SQLSTATE `23503`). | Problem `validation_failed` con `errors`. |
+| **429 Too Many Requests** | Se superó un límite de solicitudes: por IP en el gateway, por intentos fallidos de login por email o por cálculos de contraseña simultáneos en la Auth API (TAL-201). Usar `httpx.WriteRateLimited`. | Problem `rate_limited` + header `Retry-After`. |
 | **500 Internal Server Error** | Error no previsto (BD caída, bug, panic). El detalle va al log. | Problem `internal_error` con mensaje genérico. |
 
 ### Regla 400 vs 422 (mecánica)

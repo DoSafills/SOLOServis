@@ -169,7 +169,8 @@ async def execute(
                 )
             break
 
-        new_items = _dedupe(result.items, items, spec.dedupe_by)
+        new_items, duplicated = _dedupe(result.items, items, spec.dedupe_by)
+        counters.items_duplicated += duplicated
         _index_items(new_items, items_by_id, items_by_url)
         if new_items:
             await asyncio.to_thread(repo.save_items, settings.db_path, run_id, new_items)
@@ -248,20 +249,30 @@ async def execute(
 
     ingestion_run_id: int | None = None
     ingestion_error: str | None = None
-    if status == RUN_STATUS_SUCCESS and ingestion is not None and items:
-        ingestion_run_id, ingestion_error, sent, failed = await _ingest(
-            ingestion, source, config, list(items.values())
-        )
-        counters.items_sent = sent
-        counters.items_failed = failed
-        if ingestion_error is None and sent == 0:
-            # The API accepted the run but processed nothing: treat it as an
-            # error instead of reporting a healthy run with ``itemsSent: 0``.
-            ingestion_error = (
-                f"ingestion accepted 0 of {len(items)} items; "
-                "check the store mapping and the item contract"
+    counters.items_rejected = len(rejects)
+    if ingestion is not None:
+        if status == RUN_STATUS_SUCCESS and items:
+            ingestion_run_id, ingestion_error, sent, failed = await _ingest(
+                ingestion, source, config, list(items.values()), counters
             )
-            warnings.append(ingestion_error)
+            counters.items_sent = sent
+            counters.items_failed = failed
+            if ingestion_error is None and sent == 0:
+                # The API accepted the run but processed nothing: treat it as an
+                # error instead of reporting a healthy run with ``itemsSent: 0``.
+                ingestion_error = (
+                    f"ingestion accepted 0 of {len(items)} items; "
+                    "check the store mapping and the item contract"
+                )
+                warnings.append(ingestion_error)
+        else:
+            # TAL-172: antes una corrida fallida o vacía no abría corrida en
+            # ingestion, así que la caída de una tienda sólo quedaba en el
+            # SQLite del scraper y en el log del Job. Ahora deja fila y
+            # contadores, que es de donde salen las alertas.
+            ingestion_run_id, ingestion_error = await _report_run(
+                ingestion, source, config, counters, status=status, error=error
+            )
 
     rejects_path = await asyncio.to_thread(
         save_rejects, settings.rejects_dir, run_id, [reject.to_dict() for reject in rejects]
@@ -435,7 +446,8 @@ async def _crawl(
             counters.pages_processed += 1
             rejects.extend(result.rejected)
             warnings.extend(result.warnings)
-            new_items = _dedupe(result.items, items, spec.dedupe_by)
+            new_items, duplicated = _dedupe(result.items, items, spec.dedupe_by)
+            counters.items_duplicated += duplicated
             _index_items(new_items, items_by_id, items_by_url)
             if new_items:
                 await asyncio.to_thread(
@@ -680,15 +692,26 @@ def _index_items(
             items_by_url[_url_key(item.external_url)] = item
 
 
-def _dedupe(candidates: list[Item], known: dict[str, Item], dedupe_by: str) -> list[Item]:
+def _dedupe(
+    candidates: list[Item], known: dict[str, Item], dedupe_by: str
+) -> tuple[list[Item], int]:
+    """Descarta los ítems cuya clave ya se vio y cuenta cuántos fueron.
+
+    Devuelve ``(nuevos, descartados)``. La cuenta importa (TAL-172): antes el
+    descarte era invisible y un listado que repite tarjetas parecía una tienda
+    con menos productos. Un ítem sin clave tampoco se puede deduplicar, así que
+    se descarta y se cuenta igual.
+    """
     fresh: list[Item] = []
+    dropped = 0
     for item in candidates:
         key = item.external_url if dedupe_by == "externalUrl" else item.key
         if not key or key in known:
+            dropped += 1
             continue
         known[key] = item
         fresh.append(item)
-    return fresh
+    return fresh, dropped
 
 
 def _next_url(
@@ -743,7 +766,15 @@ async def _ingest(
     source: DataSource,
     config: ScraperConfig,
     items: list[Item],
+    counters: Counters,
 ) -> tuple[int | None, str | None, int, int]:
+    """Envía los ítems y cierra la corrida en Ingestion con sus contadores.
+
+    Devuelve ``(run_id, error, procesados, fallidos)``. Al cerrar adjunta
+    ``itemsFound``, ``itemsSent``, ``itemsRejected`` y ``pagesFailed`` para que
+    ingestion pueda avisar cuando una tienda deja de entregar datos (TAL-211);
+    un backend anterior ignora esos campos.
+    """
     try:
         run = await client.open_run(
             source.name, source.base_url, source.store_id or 0, config.scraper_type or "http"
@@ -753,20 +784,82 @@ async def _ingest(
     try:
         batch = await client.send_items(run.id, items)
     except IngestionError as exc:
-        await _finish_ingestion(client, run.id, "failed", str(exc))
+        await _finish_ingestion(
+            client, run.id, "failed", str(exc), _ingestion_counters(counters, sent=0)
+        )
         return run.id, f"could not send items: {exc}", 0, len(items)
     try:
-        await client.finish_run(run.id, "success")
+        await client.finish_run(
+            run.id, "success", counters=_ingestion_counters(counters, sent=batch.received)
+        )
     except IngestionError as exc:
         return run.id, f"could not finish ingestion run: {exc}", batch.processed, batch.failed
     return run.id, None, batch.processed, batch.failed
 
 
-async def _finish_ingestion(
-    client: IngestionClient, run_id: int, status: str, reason: str
-) -> None:
+def _ingestion_counters(counters: Counters, *, sent: int) -> dict[str, int]:
+    """Traduce los contadores locales a los nombres del contrato de ingestion.
+
+    ``sent`` se recibe aparte porque es lo que el scraper acaba de enviar y el
+    contador local todavía no lo refleja en el momento de cerrar la corrida.
+    ``itemsDuplicated`` viaja desde TAL-172 para que la alerta distinga una
+    tienda caída de un listado que repite tarjetas.
+    """
+    return {
+        "itemsFound": counters.items_found,
+        "itemsSent": sent,
+        "itemsRejected": counters.items_rejected,
+        "itemsDuplicated": counters.items_duplicated,
+        "pagesFailed": counters.pages_failed,
+    }
+
+
+async def _report_run(
+    client: IngestionClient,
+    source: DataSource,
+    config: ScraperConfig,
+    counters: Counters,
+    *,
+    status: str,
+    error: str | None,
+) -> tuple[int | None, str | None]:
+    """Deja constancia en Ingestion de una corrida que no envió ítems.
+
+    Abre la corrida y la cierra con los contadores, sin propagar el fallo: si
+    Ingestion no responde, el resultado de la corrida no cambia. Devuelve
+    ``(run_id, error)`` donde ``error`` describe el problema de transporte, no
+    el de la extracción.
+    """
     try:
-        await client.finish_run(run_id, status, reason)
+        run = await client.open_run(
+            source.name, source.base_url, source.store_id or 0, config.scraper_type or "http"
+        )
+    except IngestionError as exc:
+        return None, f"could not open ingestion run: {exc}"
+
+    ingestion_status = "success" if status == RUN_STATUS_SUCCESS else "failed"
+    try:
+        await client.finish_run(
+            run.id,
+            ingestion_status,
+            error,
+            counters=_ingestion_counters(counters, sent=0),
+        )
+    except IngestionError as exc:
+        return run.id, f"could not finish ingestion run: {exc}"
+    return run.id, None
+
+
+async def _finish_ingestion(
+    client: IngestionClient,
+    run_id: int,
+    status: str,
+    reason: str,
+    counters: dict[str, int] | None = None,
+) -> None:
+    """Cierra una corrida que no llegó a enviar ítems, sin propagar el fallo."""
+    try:
+        await client.finish_run(run_id, status, reason, counters=counters)
     except IngestionError:
         return
 

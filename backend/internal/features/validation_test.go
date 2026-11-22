@@ -21,6 +21,7 @@ const badUUID = "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
 // misplacedUUID tiene 36 caracteres y 4 guiones, pero el primero está corrido.
 const misplacedUUID = "111111112-222-3333-4444-555555555555"
 
+// TestValidacionFavoritos fija que los favoritos rechazan UUID mal formados en la ruta.
 func TestValidacionFavoritos(t *testing.T) {
 	runCases(t, "favorites-api", []apiCase{
 		{name: "add/uuid no hexadecimal", method: http.MethodPost, target: "/favorites/" + badUUID, body: `{}`,
@@ -39,6 +40,7 @@ func TestValidacionFavoritos(t *testing.T) {
 	})
 }
 
+// TestValidacionResenas fija las reglas de UUID, largo del título y rango de rating de las reseñas.
 func TestValidacionResenas(t *testing.T) {
 	longTitle := `{"rating":4,"title":"` + strings.Repeat("a", maxReviewTitle+1) + `"}`
 	// El largo se cuenta en caracteres: 200 "ñ" ocupan 400 bytes y son válidos.
@@ -68,6 +70,7 @@ func TestValidacionResenas(t *testing.T) {
 	})
 }
 
+// TestValidacionWatchlist fija las reglas de productId y del precio objetivo de la watchlist.
 func TestValidacionWatchlist(t *testing.T) {
 	runCases(t, "watchlist-api", []apiCase{
 		{name: "add/productId no es uuid", method: http.MethodPost, target: "/watchlist",
@@ -93,6 +96,7 @@ func TestValidacionWatchlist(t *testing.T) {
 	})
 }
 
+// TestValidacionNotificaciones fija las reglas de largo de type y title y de forma de data al crear notificaciones.
 func TestValidacionNotificaciones(t *testing.T) {
 	notification := func(typ, title, data string) string {
 		return `{"userId":7,"type":"` + typ + `","title":"` + title + `","message":"m","data":` + data + `}`
@@ -118,6 +122,7 @@ func TestValidacionNotificaciones(t *testing.T) {
 	})
 }
 
+// TestValidacionCarrito fija las reglas de quantity y productId del carrito.
 func TestValidacionCarrito(t *testing.T) {
 	item := func(quantity string) string {
 		return `{"productId":"` + productUUID + `","offerId":5,"quantity":` + quantity + `}`
@@ -144,6 +149,7 @@ func TestValidacionCarrito(t *testing.T) {
 	})
 }
 
+// TestValidacionBusquedasGuardadas fija las reglas de type en el historial y de name y filters en las búsquedas guardadas.
 func TestValidacionBusquedasGuardadas(t *testing.T) {
 	runCases(t, "search-api", []apiCase{
 		{name: "history/type desconocido", method: http.MethodPost, target: "/search/history",
@@ -152,7 +158,7 @@ func TestValidacionBusquedasGuardadas(t *testing.T) {
 			wantFields: []string{"type/one_of"}},
 		{name: "history/type mixed", method: http.MethodPost, target: "/search/history",
 			body:       `{"query":"tv","type":"mixed"}`,
-			rules:      []rule{qRows("INSERT INTO search_query", `{"id":1,"type":"mixed"}`)},
+			rules:      []rule{trimHistory, qRows("INSERT INTO search_query", `{"id":1,"type":"mixed"}`)},
 			wantStatus: http.StatusCreated, wantBody: `"mixed"`},
 		{name: "saved/name largo", method: http.MethodPost, target: "/search/saved",
 			body:       `{"name":"` + strings.Repeat("a", maxSavedSearchName+1) + `"}`,
@@ -168,11 +174,12 @@ func TestValidacionBusquedasGuardadas(t *testing.T) {
 			wantFields: []string{"filters/invalid_type"}},
 		{name: "saved/filters null", method: http.MethodPost, target: "/search/saved",
 			body:       `{"name":"TVs","filters":null}`,
-			rules:      []rule{qRows("INSERT INTO saved_search", `{"id":1,"name":"TVs","filters":{}}`)},
+			rules:      []rule{savedCount, qRows("INSERT INTO saved_search", `{"id":1,"name":"TVs","filters":{}}`)},
 			wantStatus: http.StatusCreated, wantBody: `"TVs"`},
 	})
 }
 
+// TestValidacionComparacionServicios fija las reglas de nombre, servicios y tope de las comparaciones de servicios.
 func TestValidacionComparacionServicios(t *testing.T) {
 	other := "aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	ids := func(values ...string) string {
@@ -206,6 +213,7 @@ func TestValidacionComparacionServicios(t *testing.T) {
 	})
 }
 
+// TestIsUUID fija qué textos acepta isUUID como UUID.
 func TestIsUUID(t *testing.T) {
 	cases := []struct {
 		value string
@@ -229,6 +237,7 @@ func TestIsUUID(t *testing.T) {
 	}
 }
 
+// TestIsJSONObjectYRawJSON fija qué acepta isJSONObject y qué guarda rawJSON para filters.
 func TestIsJSONObjectYRawJSON(t *testing.T) {
 	cases := []struct {
 		name       string

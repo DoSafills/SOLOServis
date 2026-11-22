@@ -1,6 +1,7 @@
 package ingestion
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,13 +19,15 @@ import (
 type Handler struct {
 	runs      RunStore
 	processor *Processor
+	notifier  Notifier
 	logger    *slog.Logger
 }
 
 // NewHandler arma el handler HTTP de ingestion con el almacén de ejecuciones,
-// el procesador de ítems y el logger.
-func NewHandler(runs RunStore, processor *Processor, logger *slog.Logger) *Handler {
-	return &Handler{runs: runs, processor: processor, logger: logger}
+// el procesador de ítems, el notificador de administradores y el logger.
+// Un `notifier` nulo desactiva las alertas sin romper las rutas.
+func NewHandler(runs RunStore, processor *Processor, notifier Notifier, logger *slog.Logger) *Handler {
+	return &Handler{runs: runs, processor: processor, notifier: notifier, logger: logger}
 }
 
 // OpenRun atiende POST /ingestion/runs: 201 + Location con la ejecución.
@@ -129,6 +132,7 @@ func (h *Handler) FinishRun(w http.ResponseWriter, r *http.Request) {
 	var v httpx.Validator
 	v.Check(request.Status == StatusSuccess || request.Status == StatusFailed, "status", "one_of", "status debe ser success o failed")
 	v.MaxLength("errorMessage", message, MaxErrorMessage)
+	counters, hasCounters := finishCounters(&v, request)
 	if !v.Valid() {
 		httpx.WriteValidation(w, r, v.Errors())
 		return
@@ -142,7 +146,97 @@ func (h *Handler) FinishRun(w http.ResponseWriter, r *http.Request) {
 		h.writeRunError(w, r, err)
 		return
 	}
+	if hasCounters {
+		h.checkDegradation(r.Context(), id, counters)
+	}
 	h.writeRun(w, r, id)
+}
+
+// checkDegradation evalúa la corrida recién cerrada y avisa a los
+// administradores cuando la tienda entregó mucho menos de lo habitual.
+//
+// Es deliberadamente tolerante: si no hay tienda, si el historial no se puede
+// leer o si Notification API falla, deja un warning en el log y la corrida
+// sigue cerrada. Perder una alerta nunca puede tumbar una ingesta.
+func (h *Handler) checkDegradation(ctx context.Context, id int32, counters Counters) {
+	if h.notifier == nil {
+		return
+	}
+	thresholds := ThresholdsFromEnv()
+	run, err := h.runs.GetRun(ctx, id)
+	if err != nil || run.StoreID == nil {
+		if err != nil {
+			h.logger.Warn("ingestion_degradation_without_run", "runId", id, "error", err)
+		}
+		return
+	}
+	baseline, err := h.runs.RecentFound(ctx, *run.StoreID, id, thresholds.BaselineRuns)
+	if err != nil {
+		h.logger.Warn("ingestion_degradation_without_baseline", "runId", id, "error", err)
+		baseline = nil
+	}
+	verdict := EvaluateDegradation(counters, baseline, thresholds)
+	if !verdict.Degraded {
+		return
+	}
+
+	notification := AdminNotification{
+		Type:  NotificationTypeDegraded,
+		Title: fmt.Sprintf("La tienda %s dejó de entregar productos", run.Source),
+		Message: fmt.Sprintf(
+			"La corrida %d de %s quedó degradada: %s.",
+			id, run.Source, strings.Join(verdict.Reasons, "; "),
+		),
+		Data: map[string]any{
+			"runId":     id,
+			"storeId":   *run.StoreID,
+			"source":    run.Source,
+			"counters":  counters,
+			"reasons":   verdict.Reasons,
+			"status":    run.Status,
+			"scraper":   run.ScraperType,
+			"startedAt": run.StartedAt,
+		},
+	}
+	if err := h.notifier.NotifyAdmins(ctx, notification); err != nil {
+		h.logger.Warn("ingestion_degradation_notification_failed", "runId", id, "error", err)
+	}
+}
+
+// finishCounters valida los contadores opcionales del cierre de corrida.
+//
+// Devuelve los contadores y si el cliente envió al menos uno. Un valor
+// negativo o mayor que MaxCounterValue es un error de validación por campo;
+// los campos ausentes quedan en cero y no alteran la evaluación.
+func finishCounters(v *httpx.Validator, request FinishRequest) (Counters, bool) {
+	var counters Counters
+	entries := []struct {
+		field  string
+		value  *int
+		target *int
+	}{
+		{"itemsFound", request.ItemsFound, &counters.Found},
+		{"itemsSent", request.ItemsSent, &counters.Sent},
+		{"itemsRejected", request.ItemsRejected, &counters.Rejected},
+		{"itemsDuplicated", request.ItemsDuplicated, &counters.Duplicated},
+		{"pagesFailed", request.PagesFailed, &counters.PagesFailed},
+	}
+	provided := false
+	for _, entry := range entries {
+		if entry.value == nil {
+			continue
+		}
+		provided = true
+		switch {
+		case *entry.value < 0:
+			v.Add(entry.field, "min", entry.field+" no puede ser negativo")
+		case *entry.value > MaxCounterValue:
+			v.Add(entry.field, "max", fmt.Sprintf("%s no puede superar %d", entry.field, MaxCounterValue))
+		default:
+			*entry.target = *entry.value
+		}
+	}
+	return counters, provided
 }
 
 // GetRun atiende GET /ingestion/runs/{id}.

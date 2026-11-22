@@ -175,7 +175,7 @@ one used by the pipeline tests.
 | Store | Listing | Access | Notes |
 | --- | --- | --- | --- |
 | `ripley-cl` | `https://simple.ripley.cl/search/refrigerador` | Works | `storeId = 4`. One listing page returns ~57 items |
-| `falabella-cl` | `https://www.falabella.com/falabella-cl` | Works | `storeId = 1`. `href` is injected by JavaScript, so the spec builds the product URL from `externalId` |
+| `falabella-cl` | `https://www.falabella.com/falabella-cl` | Works | `storeId = 1`. `href` is injected by JavaScript and most cards ship an image skeleton: the spec reads the URL and the image from the page JSON-LD (§4.9) |
 | `mercadolibre-cl` | `https://www.mercadolibre.cl` | **Blocked** | `storeId = 6`. Redirects automated traffic to `/gz/account-verification`; its runs fail without affecting the other stores |
 
 A real run is the acceptance test:
@@ -244,8 +244,9 @@ a load error, never a silently ignored selector.
 | `listing.pagination` | no | `mode: none` by default. |
 | `listing.allowEmpty` | no | `false`: an empty first page fails the run. |
 | `item.externalId` | no | `ValueSpec`; a selector or an attribute. |
-| `item.externalUrl` | yes | `ValueSpec`; selector, attribute or template. |
+| `item.externalUrl` | no | `ValueSpec`; selector, attribute or template. Required unless a supplement targets it. |
 | `item.fields` | yes | Contract paths → field specs (§4.3). |
+| `item.supplements` | no | Extra sources for values the card omits (§4.9). |
 | `crawl` | no | Declared link discovery (§4.6). Requires `"1.1"`. |
 | `detail` | no | Product-page enrichment (§4.7). Requires `"1.1"`. |
 | `rules.dedupeBy` | no | `externalId` (default) or `externalUrl`. |
@@ -343,19 +344,27 @@ an ISO-4217 code from labels such as `"$usd"`.
 `maxPages` is capped by `SCRAPER_MAX_PAGES`. A repeated URL always stops the
 walk, so a broken "next" link cannot loop forever.
 
-### 4.5 Why Falabella uses a template
+### 4.5 Why Falabella reads the URL from structured data
 
 Falabella injects the product `href` with JavaScript, so the listing HTML has
-the card `id` but no usable link. The spec therefore declares:
+no usable link in the card. Since TAL-242 the URL comes from the JSON-LD block
+the page publishes, joined by `data-key`:
 
 ```json
-"externalUrl": {
-  "template": "https://www.falabella.com/falabella-cl/product/{externalId}"
+"supplements": {
+  "externalUrl": {
+    "from": "jsonld",
+    "matchBy": { "attribute": "data-key" },
+    "valuePath": "url"
+  }
 }
 ```
 
-That is an explicit, reviewed rule. v2 never falls back to the listing URL: an
-item without a real product URL is rejected.
+The old template (`…/product/{externalId}`) is gone: it built
+`…/product/testId-pod-15267403`, which is not a product URL, and for half the
+cards the visible `id` does not match the canonical product at all. v2 never
+falls back to the listing URL: an item without a real product URL is rejected.
+See §4.9.
 
 ### 4.6 Declared discovery (`crawl`)
 
@@ -457,6 +466,46 @@ before a stale selector produces garbage items.
 The selector must match **any** page of the store, not just the listing. If it
 is listing-specific, leave `match.detect` out and use `detail.detect` for the
 detail container.
+
+### 4.9 Supplements (`item.supplements`)
+
+Some storefronts render the first cards of a listing with their images and
+links and leave the rest as skeletons, filled later by client-side JavaScript
+that this scraper never runs. The same page usually publishes the real values
+as structured data (a JSON-LD `ItemList`). A supplement is the declared bridge:
+
+```json
+"item": {
+  "supplements": {
+    "product.imageUrl": {
+      "from": "jsonld",
+      "matchBy": { "attribute": "data-key" },
+      "valuePath": "image"
+    }
+  }
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| the object key | `externalUrl` or a path already declared in `item.fields`. |
+| `from` | Only `jsonld` today. |
+| `matchBy` | `ValueSpec` (selector or attribute) that yields the product id from the card. |
+| `valuePath` | Dotted path inside the JSON-LD item (`image`, `offers.0.price`). |
+
+Rules:
+
+* The join key is the **first run of digits** of `matchBy` and of the entry's
+  `/product/<id>/` URL, so `data-key="15267403"` and `id="testId-pod-15267403"`
+  find the same entry. Entries without a product URL are ignored.
+* A supplement **never overwrites** a value the card produced: the visible
+  markup wins. For `externalUrl` it is the only source, so `item.externalUrl`
+  and a supplement targeting it are mutually exclusive, and an item that cannot
+  be joined is rejected (`externalUrl: required value not found`).
+* A malformed JSON-LD script is a **warning** in `run.json`, not a failure. The
+  index is built once per page, so each page of a listing uses its own block.
+* Only strings are accepted: a missing path or a non-string value means "no
+  value", never a guess.
 
 ---
 

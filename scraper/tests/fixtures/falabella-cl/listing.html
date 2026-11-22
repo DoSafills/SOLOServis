@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="es-CL">
   <body>
-    <div data-pod="catalyst-pod" id="FAL-1001">
+    <div data-pod="catalyst-pod" id="testId-pod-15267403" data-key="15267403">
       <div class="pod-head">
-        <img src="//cdn.falabella.com/falabella-cl/product/FAL-1001/principal.jpg" alt="">
+        <img src="//cdn.falabella.com/falabella-cl/product/15267403/principal.jpg" alt="">
       </div>
       <div class="pod-details">
         <span class="title1">Samsung</span>
@@ -17,9 +17,13 @@
         <span class="availability">Disponible</span>
       </div>
     </div>
-    <div data-pod="catalyst-pod" id="FAL-1002">
+    <!-- Tarjeta con esqueleto: Falabella sólo renderiza la imagen de las
+         primeras tarjetas y deja el resto así; el dato real está en el JSON-LD. -->
+    <div data-pod="catalyst-pod" id="testId-pod-17296521" data-key="17296521">
       <div class="pod-head">
-        <img src="//cdn.falabella.com/falabella-cl/product/FAL-1002/principal.jpg" alt="">
+        <div class="image-skeleton">
+          <div class="skeleton-shimmer"></div>
+        </div>
       </div>
       <div class="pod-details">
         <span class="title1">LG</span>
@@ -32,5 +36,31 @@
         <span class="availability">Sin stock</span>
       </div>
     </div>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "item": {
+              "@type": "Product",
+              "url": "https://www.falabella.com/falabella-cl/product/15267403/refrigerador-no-frost-samsung",
+              "image": "https://media.falabella.com/falabellaCL/15267403_1/public"
+            }
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "item": {
+              "@type": "Product",
+              "url": "https://www.falabella.com/falabella-cl/product/17296521/refrigerador-side-by-side-lg",
+              "image": "https://media.falabella.com/falabellaCL/17296521_1/public"
+            }
+          }
+        ]
+      }
+    </script>
   </body>
 </html>

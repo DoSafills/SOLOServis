@@ -80,3 +80,16 @@
 
 # 041: valida las CHECK NOT VALID de product_category (level, slug y padre).
 041_validate_category_constraints.sql
+
+# Migraciones que venían de develop con el mismo prefijo numérico que las de
+# TAL-190/TAL-231, pero con nombre de archivo distinto (el runner registra por
+# nombre). Van después de 041: son idempotentes e independientes del árbol de
+# categorías, y así se conserva el orden en que TAL-231 ya fue validado.
+# TAL-244: 022-024 movieron productos sin actualizar category_ref.
+026_backfill_product_category_ref.sql
+# TAL-189: índices de las búsquedas de Ingestion y texto de búsqueda normalizado.
+027_ingestion_lookup_indexes.sql
+028_product_search_text.sql
+# TAL-247: la rama del asistente la traía como 022, pero ese número ya lo usa
+# develop. Va al final para no cambiar el checksum de una migración aplicada.
+029_ai_comparison_query.sql

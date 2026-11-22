@@ -452,6 +452,10 @@ Las variables pueden obtenerse del entorno de ejecución o del archivo `.env`.
 | `PRICING_API_URL` | Dirección interna de Pricing API. |
 | `NOTIFICATION_API_URL` | Dirección interna de Notification API. |
 | `INTERNAL_API_TOKEN` | Token para operaciones internas autorizadas (mínimo 32 caracteres; si es más corto se ignora). |
+| `AI_PROVIDER` | Proveedor del asistente de comparación (`auto` por defecto: Gemini con `AI_API_KEY`). En el clúster es `compatible` (DeepSeek). |
+| `AI_MODEL` | Modelo del asistente (`gemini-3.5-flash` por defecto; en el clúster `deepseek-chat`). |
+| `AI_API_KEY` | Clave del proveedor. **Solo backend.** Sin ella `auto` responde 503 `ai_unavailable`: la ruta no genera texto propio. En el clúster vive en el Secret `soloservis-ai`. |
+| `AI_BASE_URL` | Opcional; URL base del proveedor compatible OpenAI (`https://api.deepseek.com/v1` en el clúster). Cambiarla basta para apuntar a otro endpoint. |
 | `LOG_LEVEL` | Nivel de registro de eventos. |
 
 ## 8.2 Archivo `.env`
@@ -2130,6 +2134,7 @@ Ya no descarga `GET /products` de Product API: consulta la base directamente.
 | GET | `/search/brands?q=` | marcas activas |
 | GET | `/search/presets` | catálogo de consultas curadas (TAL-222) |
 | GET | `/search/presets/{slug}` | ejecuta el preset: mismo formato que `/search/products` + `X-Total-Count` |
+| GET | `/search/alternatives?q=` | respuesta determinista: preset si hay coincidencia, búsqueda libre si no (TAL-226) |
 
 ### Consultas predefinidas (TAL-222)
 
@@ -2153,6 +2158,24 @@ pueden sobrescribir. Un slug desconocido responde 404 con `code: preset_not_foun
 El catálogo se valida en un test (`presets_test.go`): slug único y con formato,
 título y descripción, categoría sembrada, `sort` permitido, precios válidos y
 `limit` en rango. Un preset mal escrito rompe CI, no producción.
+
+### Respuestas alternativas sin IA (TAL-226)
+
+`GET /search/alternatives?q=` empareja el texto con el catálogo y responde sin
+generar prosa:
+
+| Campo | Valor |
+| --- | --- |
+| `source` | `preset` si se usó una consulta curada; `text` si fue búsqueda libre |
+| `matched` | El preset usado, o `null` |
+| `presets` | Hasta tres sugerencias, sin el ya usado |
+| `products` | Resultados reales; total en `X-Total-Count` |
+
+La normalización quita tildes, stopwords y plurales (`notebooks` → `notebook`).
+Se exige que al menos la mitad de los tokens de la consulta estén en el
+vocabulario del preset; por debajo, se prefiere la búsqueda libre antes que
+adivinar. No hay LLM ni texto generado: `source` explica lo que pasó.
+
 
 
 ### Parámetros de `/search/products` (y de `/search/facets`, sin `sort`/`limit`/`offset`)
@@ -2295,6 +2318,7 @@ Ya no llama a Product API ni a Pricing API: el mejor precio se calcula en SQL co
 | --- | --- | --- | --- |
 | GET | `/comparisons/products/compare?ids=a,b,c` | pública | matriz de comparación (2 a 5 productos, sin guardar) |
 | GET | `/comparisons/compatible/{productId}?limit=&offset=` | pública | alternativas de la misma categoría + `X-Total-Count` |
+| POST | `/comparisons/assistant` | pública (rate limit) | respuesta del asistente de comparación (IA) |
 | POST | `/comparisons/products` | sesión | 201 + `Location` con la comparación guardada |
 | GET | `/comparisons/products?limit=&offset=` | sesión | mis comparaciones + `X-Total-Count` |
 | GET | `/comparisons/products/{id}` | sesión (dueño) | comparación guardada con su matriz |
@@ -2351,6 +2375,69 @@ GET /comparisons/products/compare?ids=c5b9f86a-703b-4569-9902-0ccadfcdab60,bb0aa
   ]
 }
 ```
+
+### Asistente de comparación (IA)
+
+`POST /comparisons/assistant` responde en lenguaje natural una pregunta sobre los
+**productos que el usuario está comparando**. Vive en `internal/assistant/` y su
+configuración declarativa, el prompt y la allowlist de campos están en la carpeta
+raíz `assistant/`, copiada a `internal/assistant/assets/` para `go:embed`
+(`scripts/sync-assistant-assets.sh`; `--check` falla si divergen).
+
+Proveedores (`AI_PROVIDER`): `auto` (por defecto) usa Gemini si existe
+`AI_API_KEY`; sin clave la ruta responde 503 `ai_unavailable` y **no** arma una
+respuesta de plantilla. `gemini` exige clave; `pollinations` usa el endpoint
+gratuito sin clave (límite aproximado de 1 respuesta cada 45 s por IP);
+`compatible` apunta a cualquier API compatible OpenAI con `AI_BASE_URL`; `off`
+desactiva y responde 503. `AI_BASE_URL` también cambia el endpoint de Gemini sin
+tocar código. El modelo se cambia con `AI_MODEL` (por defecto
+`gemini-3.5-flash`).
+
+El clúster usa DeepSeek con el camino `compatible`, porque es más barato y no
+exige cambiar código:
+
+```env
+AI_PROVIDER=compatible
+AI_BASE_URL=https://api.deepseek.com/v1
+AI_MODEL=deepseek-chat
+AI_API_KEY=sk-...   # Secret soloservis-ai
+```
+
+Cambiar a Gemini, Groq, Ollama o un proxy propio es cambiar esas variables y
+reiniciar el pod: el binario es el mismo.
+
+```http
+POST /comparisons/assistant
+Content-Type: application/json
+
+{ "productIds": ["<uuid-a>", "<uuid-b>"], "question": "¿Cuál conviene para una familia de 5?" }
+```
+
+```json
+{
+  "answer": "Para una familia de 5, el ...",
+  "sources": ["<uuid-a>", "<uuid-b>"],
+  "provider": "gemini",
+  "model": "gemini-3.5-flash",
+  "cached": false
+}
+```
+
+- El cliente manda **solo** `productIds` (2 a 5, misma categoría, sin repetidos) y
+  `question` (1 a 300 caracteres, texto plano). El contexto (precio, tienda,
+  atributos y especificaciones) lo arma el servidor desde PostgreSQL con la matriz
+  de `/compare`; nunca llegan imágenes, URLs, descripciones ni datos de usuario.
+- Errores: `400` al decodificar, `422 validation_failed` al incumplir reglas
+  (incluida `incompatible_category`), `404 not_found` si un producto no existe,
+  `429 rate_limited` con `Retry-After` al superar 10/min o 100/día por IP y `503
+  ai_unavailable` si el proveedor falla o el asistente está en `off`. Los
+  detalles internos y la clave no aparecen en la respuesta.
+- Guardrails de salida: texto plano, mención de al menos un producto comparado y
+  largo máximo de 900 caracteres; si no se cumple, responde la frase fija de
+  rechazo de `prompts/system.es.md`.
+- Caché en memoria (24 h) por hash de IDs ordenados + pregunta normalizada. La
+  auditoría va a `ai_comparison_query` (migración 029); un fallo al auditar no
+  cambia la respuesta.
 
 <!--
 PENDIENTE: el texto original de la rama TAL-227 que se pegó termina aquí (a mitad de §12.6).
