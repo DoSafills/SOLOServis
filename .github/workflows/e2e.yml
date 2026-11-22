@@ -1,0 +1,59 @@
+name: E2E (sistema completo)
+
+# Verifica el sistema entero en local, como lo ve el navegador: levanta el
+# Compose (PostgreSQL, los 3 dominios, el gateway y el scraper) y corre
+# scripts/testing/contratos.py contra el gateway en 8443.
+#
+# No corre en cada push a propósito: construir 4 imágenes y esperar los
+# healthchecks cuesta minutos. Se lanza a mano cuando se toca el enrutamiento,
+# el estándar de errores o una migración; el job `imagenes` de ci.yml ya
+# comprueba en cada PR que las imágenes compilen.
+#
+# Los "avisos" del verificador (desviaciones conocidas, ver
+# docs/reportes/errores-pendientes.md) no hacen fallar el job: solo las
+# comprobaciones de severidad "contrato".
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contratos:
+    name: Gateway + contratos HTTP
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar BuildKit
+        uses: docker/setup-buildx-action@v3
+
+      - name: Levantar el stack y esperar los healthchecks
+        run: docker compose -f docker/compose.yml up -d --build --wait
+
+      - name: Verificar contratos por el gateway
+        run: python scripts/testing/contratos.py --timeout 20 --md docs/reportes/contratos-ci.md
+
+      - name: Estado y logs de los contenedores
+        if: always()
+        run: |
+          docker compose -f docker/compose.yml ps
+          docker compose -f docker/compose.yml logs --no-color --tail=120
+
+      - name: Publicar la evidencia
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-contratos
+          path: docs/reportes/contratos-ci.md
+          if-no-files-found: warn
+
+      - name: Bajar el stack
+        if: always()
+        run: docker compose -f docker/compose.yml down -v

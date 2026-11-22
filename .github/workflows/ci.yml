@@ -42,8 +42,8 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Tests
-        run: go test ./...
+      - name: Tests (race)
+        run: go test -race ./...
 
   scraper:
     name: Scraper (pytest + ruff)
@@ -95,11 +95,12 @@ jobs:
       - name: Instalar
         run: pnpm install --frozen-lockfile
 
+      - name: Formato
+        run: pnpm format:check
+
       - name: Lint
         run: pnpm lint
 
-      # `pnpm format:check` queda fuera hasta que se resuelvan los CRLF
-      # (AGENTS.md §13): hoy falla por archivos ajenos a cualquier PR.
       - name: Build
         run: pnpm build
 
@@ -130,6 +131,26 @@ jobs:
 
       - name: Topología de microservicios
         run: docker compose -f docker/compose.microservicios.yml config --quiet
+
+  # Un Dockerfile roto (COPY a una ruta que ya no existe, falta un ENV) no lo
+  # detecta `compose config`: solo falla al construir la imagen, que hasta ahora
+  # era el primer paso del despliegue. Construirlas acá lo detecta en el PR.
+  # No se publican: solo se comprueba que compilen.
+  imagenes:
+    name: Imágenes Docker (build sin push)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar BuildKit
+        uses: docker/setup-buildx-action@v3
+
+      - name: Construir backend, gateway y scraper
+        run: docker compose -f docker/compose.yml build
+
+      - name: Listar imágenes construidas
+        run: docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}'
 
   # TAL-183: `kubectl kustomize` solo arma el YAML. kubeconform lo valida contra
   # el esquema de la API y rechaza campos desconocidos o mal indentados, que de
