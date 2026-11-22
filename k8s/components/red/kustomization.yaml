@@ -1,0 +1,19 @@
+# Red restringida (TAL-197, hallazgo H4 de TAL-195): NetworkPolicies que
+# niegan todo por defecto y abren solo el tráfico que la app usa.
+#
+# El script de deploy incluye este componente solo si la plataforma permite
+# crear NetworkPolicy (`kubectl auth can-i create networkpolicies`). Hoy UCT
+# responde "no": el rol del namespace solo puede leerlas, y el deploy lo
+# informa en la Fase 0 y sigue sin ellas. Se desactiva con -SinRed / --sin-red.
+#
+# Sirve para las dos topologías: las políticas eligen los pods por etiqueta
+# (component=api cubre comercial, usuarios, ingestion y backend).
+#
+# Sin `labels:` a propósito: en un Component ese transformador se aplicaría a
+# todos los recursos del overlay, no solo a estos. Cada política trae sus
+# etiquetas (part-of=soloservis y component=red, que usa la Fase 4).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - politicas.yaml
