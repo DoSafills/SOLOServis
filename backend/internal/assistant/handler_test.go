@@ -754,7 +754,8 @@ func TestDeepSeekProvider(t *testing.T) {
 	}
 }
 
-func TestProviderSelection(t *testing.T) {	cases := []struct {
+func TestProviderSelection(t *testing.T) {
+	cases := []struct {
 		name      string
 		provider  string
 		key       string
