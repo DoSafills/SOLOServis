@@ -54,9 +54,9 @@ func TestAlternatives_EmparejaElPresetMasEspecifico(t *testing.T) {
 		t.Fatalf("matched = %+v", response.Matched)
 	}
 	q := *s.gotQuery
-	if q.CategorySlug == nil || *q.CategorySlug != "refrigeradores" ||
+	if s.gotScopeRef == nil || s.gotScopeRef.Slug == nil || *s.gotScopeRef.Slug != "refrigeradores" ||
 		q.MaxPrice == nil || *q.MaxPrice != "400000" {
-		t.Fatalf("query = %+v", q)
+		t.Fatalf("query = %+v (alcance %+v)", q, s.gotScopeRef)
 	}
 	if rec.Header().Get("X-Total-Count") != "7" {
 		t.Fatalf("X-Total-Count = %q", rec.Header().Get("X-Total-Count"))

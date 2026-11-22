@@ -36,6 +36,8 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 //
 // strpos (no ILIKE) evita que '%' o '_' del usuario actúen como comodines, y
 // translate (nativo, sin la extensión unaccent) ignora tildes y mayúsculas.
+// Nombre, modelo y SKU llegan ya normalizados en p.search_text (columna
+// generada, migración 028, TAL-189); solo la marca se normaliza aquí.
 const matchedSQL = `
 WITH matched AS (
     SELECT p.id, best.price AS best_price, best.offers AS offer_count
@@ -53,8 +55,8 @@ WITH matched AS (
       AND NOT EXISTS (
           SELECT 1 FROM unnest($1::text[]) AS w(word)
           WHERE strpos(
-              translate(lower(p.name || ' ' || COALESCE(p.model, '') || ' ' || COALESCE(p.sku, '') || ' ' || COALESCE(b.name, '')),
-                        'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc'),
+              p.search_text || ' ' ||
+              translate(lower(COALESCE(b.name, '')), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc'),
               translate(lower(w.word), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc')) = 0)
       AND ($2::int[] IS NULL OR p.category_id = ANY($2::int[]))
       AND (cardinality($3::int[]) = 0 OR p.brand_id = ANY($3::int[]))
@@ -223,8 +225,8 @@ WITH popular_queries AS (
 ),
 product_text AS (
     SELECT p.id,
-           translate(lower(concat_ws(' ', p.name, p.model, p.sku, b.name)),
-                     'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc') AS normalized_text
+           p.search_text || ' ' ||
+           translate(lower(COALESCE(b.name, '')), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc') AS normalized_text
     FROM product p
     LEFT JOIN brand b ON b.id = p.brand_id
     WHERE p.active

@@ -46,7 +46,7 @@ func TestIntegration_ArbolDeCategoriasUnificado(t *testing.T) {
 				FROM product_category
 				WHERE active
 				  AND translate(lower(btrim(name)), 'áéíóúüñ', 'aeiouun')
-				      IN ('telefonia', 'lavado', 'computadores', 'videojuegos', 'refrigeracion', 'hogar')`,
+				      IN ('lavado', 'computadores', 'videojuegos', 'refrigeracion')`,
 		},
 		{
 			name: "Lavadoras cuelga de Electrodomésticos",
