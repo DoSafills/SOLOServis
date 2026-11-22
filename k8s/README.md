@@ -244,7 +244,7 @@ Requests por pod en `dominios`: comercial 50m/128Mi, usuarios 25m/64Mi, ingestio
 | 1 | Borra el despliegue anterior. **Conserva el PVC y los Secrets** | no quedan recursos `part-of=soloservis` |
 | 2 | Elige la StorageClass (prueba que un PVC quede Bound y escribible) y genera `k8s/overlays/uct` | `kubectl kustomize` compila |
 | 3 | `docker build` y `docker push` de las 3 imágenes (frontend, backend y scraper) | cada imagen OK |
-| 4 | Crea los Secrets `postgres-secret` (contraseña aleatoria), `soloservis-internal` (token) y `soloservis-ai` (desde `AI_API_KEY` del entorno) si no existen y despliega PostgreSQL | `postgres-0` Ready |
+| 4 | Crea los Secrets `postgres-secret` (contraseña aleatoria), `soloservis-internal` (token) y `soloservis-ai` (desde `AI_API_KEY` del entorno) si no existen, aplica las NetworkPolicy si la plataforma lo permite y despliega PostgreSQL | `postgres-0` Ready |
 | 5 | Job de migraciones (`migration_order.txt`) | `schema_migrations` = archivos del manifiesto |
 | 6 | APIs: `comercial`, `usuarios` e `ingestion` (o `backend`), más `scraper-api` | cada API Ready y con `/health` → `database: connected`; scraper Ready y `/health` → `ok` |
 | 7 | Frontend (nginx) | Ready y `/products` responde a través de nginx |
@@ -263,6 +263,7 @@ Requests por pod en `dominios`: comercial 50m/128Mi, usuarios 25m/64Mi, ingestio
 | `-Tag` | `--tag` | por defecto: el commit actual (`git rev-parse --short HEAD`) |
 | `-FromPhase` / `-ToPhase` | `--from-phase` / `--to-phase` | ejecutar solo un rango de fases (0–10) |
 | `-SkipCleanup` | `--skip-cleanup` | no borrar nada en la Fase 1 |
+| `-SinRed` | `--sin-red` | no aplicar las NetworkPolicy y borrar las de un despliegue anterior |
 | `-StorageClass`, `-IngressClass`, `-IngressHost`, `-ImagePullSecret` | `--storage-class`, `--ingress-class`, `--ingress-host`, `--image-pull-secret` | casos especiales |
 
 El script guarda el registry, el tag y la StorageClass elegida en `k8s/overlays/uct/` (carpeta ignorada por git). Así, al reintentar desde una fase intermedia, no tienes que repetirlos.
@@ -727,7 +728,8 @@ k8s/
 ├── components/
 │   ├── dominios/                 comercial, usuarios e ingestion (Deployment + Service) + destinos del nginx
 │   ├── consolidado/              Deployment "backend" con las 14 APIs + destino del nginx (respaldo)
-│   └── espera-postgres/          initContainer que espera a PostgreSQL; lo incluyen las dos topologías
+│   ├── espera-postgres/          initContainer que espera a PostgreSQL; lo incluyen las dos topologías
+│   └── red/                      NetworkPolicy: niega todo y abre solo lo que la app usa (si hay permiso)
 ├── tests/                        pod de test: Job + smoke-test.sh (solo lecturas)
 │   └── llamadas/                 visor de llamadas: Job con origen y destino
 └── overlays/uct/                 GENERADO por el script (ignorado por git): namespace, imágenes,
@@ -735,7 +737,7 @@ k8s/
 scripts/k8s/deploy.ps1            despliegue por fases (PowerShell 5.1+)
 scripts/k8s/deploy.sh             el mismo despliegue en bash (Linux, macOS, Git Bash)
 docker/all-apis/Dockerfile        imagen del backend (cmd/all-apis); la usan los 3 pods de API
-docker/frontend/                  build de Vite + nginx (default.conf.template, proxy.conf)
+docker/frontend/                  build de Vite + nginx (default.conf.template, proxy.conf, security-headers.conf)
 docker/scraper/Dockerfile         imagen del scraper v2 (paquete scraper/ + specs)
 docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/compose.microservicios.yml)
 ```
@@ -745,3 +747,5 @@ docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/c
 - **Token interno:** el token de `soloservis-internal` lo genera el script al azar en cada namespace y no está en git. El pod de test lo usa sin imprimirlo.
 - **Orden de arranque:** cada pod de API tiene un initContainer (`espera-postgres`, con `pg_isready`) y queda en `Init` hasta que PostgreSQL acepta conexiones. Además, la API hace ping a la base al iniciar y su readiness (`/health`) exige la conexión. No suma a la cuota: corre antes que el contenedor principal y pide menos que él.
 - **Pods:** todos corren sin root, con `readOnlyRootFilesystem` y sin capabilities. Cumplen Pod Security `restricted`.
+- **Red (TAL-197):** `components/red` niega todo el tráfico por defecto y permite solo Ingress → frontend, frontend → APIs, APIs → PostgreSQL, scraper → ingestion, ingestion → comercial, el CronJob y los Jobs hacia lo que usan, DNS y la salida a internet del scraper (y de comercial, para el proveedor de IA). El script la aplica solo si `kubectl auth can-i create networkpolicies` responde `yes`. **Hoy UCT responde `no`**: el rol del namespace solo puede leerlas, así que se omiten y la Fase 0 lo informa. Si algún día se aplican y algo deja de responder, `-SinRed` las borra en el siguiente deploy.
+- **Gateway (TAL-197):** nginx envía CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` y `Permissions-Policy` (`docker/frontend/security-headers.conf`), oculta su versión y rechaza con 400 las rutas con `%2F`, `%5C` o segmentos `..`. HSTS lo pone el Ingress de UCT.
