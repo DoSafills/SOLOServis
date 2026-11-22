@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 // ProblemContentType es el media type de RFC 9457.
@@ -31,6 +33,11 @@ const (
 	CodeValidationFailed     = "validation_failed"
 	CodeInternalError        = "internal_error"
 	CodeServiceUnavailable   = "service_unavailable"
+	CodeRateLimited          = "rate_limited"
+	// CodeAIUnavailable distingue «el proveedor de IA no respondió o no hay
+	// clave configurada» de una caída de la base. El cliente reintenta igual,
+	// pero el log y el frontend saben que el problema es del asistente.
+	CodeAIUnavailable = "ai_unavailable"
 )
 
 const (
@@ -81,6 +88,19 @@ func WriteValidation(w http.ResponseWriter, r *http.Request, fieldErrors []Field
 		"La solicitud no cumple las reglas de validación.", fieldErrors...)
 }
 
+// WriteRateLimited responde 429 rate_limited con la cabecera Retry-After en
+// segundos enteros (redondeados hacia arriba, mínimo 1). Recibe cuánto debe
+// esperar el cliente y el detalle para el usuario. Existe para que todo
+// límite de solicitudes responda igual (TAL-201).
+func WriteRateLimited(w http.ResponseWriter, r *http.Request, retryAfter time.Duration, detail string) {
+	seconds := int64((retryAfter + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
+	WriteProblem(w, r, http.StatusTooManyRequests, CodeRateLimited, detail)
+}
+
 // WriteInternal registra el error real y responde 500 con un mensaje genérico,
 // o 503 si la causa es que no se pudo llegar a la base (IsUnavailable).
 // El detalle de err nunca llega al cliente.
@@ -107,6 +127,7 @@ func IsUnavailable(err error) bool {
 	return err != nil && (errors.As(err, &netErr) || errors.Is(err, context.DeadlineExceeded))
 }
 
+// errorString devuelve el texto de err para el log, o "<nil>" si no hay error.
 func errorString(err error) string {
 	if err == nil {
 		return "<nil>"

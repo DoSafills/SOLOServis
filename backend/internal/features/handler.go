@@ -14,6 +14,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
 	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
+	"github.com/DoSafills/SOLOServis/backend/internal/ratelimit"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -39,18 +40,33 @@ type Handler struct {
 	// requireSession es authz.RequireSession: la misma validación de sesión
 	// que usan comparison y user (TAL-125, H4).
 	requireSession func(http.Handler) http.Handler
+	// loginFailures cuenta los logins fallidos por email y passwordSlots
+	// acota los cálculos de PBKDF2 simultáneos (TAL-201).
+	loginFailures *ratelimit.Failures
+	passwordSlots *ratelimit.Slots
 }
 
+// NewHandler crea el handler de las APIs de features sobre el pool de
+// PostgreSQL, con la validación de sesión de authz. Recibe el nombre de la
+// API, el pool y el logger; devuelve el handler listo para registrar rutas.
 func NewHandler(name string, db *pgxpool.Pool, logger *slog.Logger) *Handler {
 	return newHandler(name, db, logger, authz.New(authz.NewPostgresSessions(db), "", logger).RequireSession)
 }
 
+// newHandler arma el Handler con una base cualquiera (los tests pasan un
+// fake) y el middleware de sesión dado. Crea también los límites de login en
+// memoria (TAL-201), uno por proceso. Devuelve el handler listo.
 func newHandler(name string, db DB, logger *slog.Logger, requireSession func(http.Handler) http.Handler) *Handler {
 	repository := NewRepository(db)
 	return &Handler{name: name, db: db, repo: repository, service: NewService(repository), logger: logger,
-		requireSession: requireSession}
+		requireSession: requireSession,
+		loginFailures:  ratelimit.NewFailures(maxLoginFailures, loginFailureWindow),
+		passwordSlots:  ratelimit.NewSlots(maxConcurrentPasswordHashes, passwordSlotWait),
+	}
 }
 
+// Health atiende GET /health: hace ping a PostgreSQL con 2 s de plazo y
+// responde 200 con el nombre de la API si la base contesta, o 503 si no.
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -61,6 +77,8 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	apiutil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": h.name, "database": "connected"})
 }
 
+// rows ejecuta query (que devuelve una fila JSON por registro) y responde 200
+// con el arreglo; cualquier error de base responde 500 sin detalle interno.
 func (h *Handler) rows(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
@@ -70,6 +88,9 @@ func (h *Handler) rows(w http.ResponseWriter, r *http.Request, query string, arg
 	apiutil.WriteJSON(w, http.StatusOK, result)
 }
 
+// created ejecuta un INSERT ... RETURNING que devuelve el recurso como JSON y
+// responde 201 con él. Los errores de base se mapean con dbError; un INSERT
+// sin filas es un error interno (500).
 func (h *Handler) created(w http.ResponseWriter, r *http.Request, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
@@ -83,6 +104,8 @@ func (h *Handler) created(w http.ResponseWriter, r *http.Request, query string, 
 	apiutil.WriteJSON(w, http.StatusCreated, result[0])
 }
 
+// one ejecuta query y responde 200 con la primera fila JSON, 404 con el
+// mensaje notFound si no hay filas, o 500 si la base falla.
 func (h *Handler) one(w http.ResponseWriter, r *http.Request, notFound string, query string, args ...any) {
 	result, err := h.repo.QueryJSON(r.Context(), query, args...)
 	if err != nil {
@@ -115,6 +138,8 @@ func valid(w http.ResponseWriter, r *http.Request, v *httpx.Validator) bool {
 	return true
 }
 
+// intParam lee el parámetro de ruta key como entero de 32 bits. Devuelve el
+// valor y false si no es un número o no es positivo.
 func intParam(r *http.Request, key string) (int32, bool) {
 	value, err := strconv.ParseInt(chi.URLParam(r, key), 10, 32)
 	return int32(value), err == nil && value > 0
@@ -126,6 +151,8 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, message stri
 	httpx.WriteProblem(w, r, status, problemCode(status), message)
 }
 
+// problemCode traduce un status HTTP al code estable del estándar TAL-78
+// que usa writeError; los status no previstos quedan como internal_error.
 func problemCode(status int) string {
 	switch status {
 	case http.StatusBadRequest:
@@ -225,6 +252,8 @@ func constraintField(pgErr *pgconn.PgError) httpx.FieldError {
 	return httpx.FieldError{Field: field, Code: "format", Message: field + " no cumple las reglas"}
 }
 
+// camelCase convierte un nombre snake_case (columna de la base) a camelCase
+// (campo del JSON), para nombrar el campo en los errores de validación.
 func camelCase(snake string) string {
 	parts := strings.Split(snake, "_")
 	for i := 1; i < len(parts); i++ {
@@ -235,6 +264,8 @@ func camelCase(snake string) string {
 	return strings.Join(parts, "")
 }
 
+// badRequest responde 400 invalid_parameter con message; se usa cuando un
+// parámetro de ruta no tiene el formato esperado.
 func badRequest(w http.ResponseWriter, r *http.Request, message string) {
 	writeError(w, r, http.StatusBadRequest, message)
 }

@@ -15,6 +15,7 @@ upsert is idempotent, but a retried batch can still inflate counters.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -160,13 +161,27 @@ class IngestionClient:
         return merged
 
     async def finish_run(
-        self, run_id: int, status: str, error_message: str | None = None
+        self,
+        run_id: int,
+        status: str,
+        error_message: str | None = None,
+        counters: Mapping[str, int] | None = None,
     ) -> IngestionRun:
+        """Cierra la corrida y, si se pasan, adjunta los contadores del scraper.
+
+        ``counters`` usa los nombres del contrato de ingestion
+        (``itemsFound``, ``itemsSent``, ``itemsRejected``, ``pagesFailed``) y es
+        opcional: un backend anterior simplemente ignora lo que no pide. Sirve
+        para que ingestion detecte una tienda que dejó de entregar datos
+        (TAL-211) sin que el scraper tenga que decidir nada.
+        """
         if status not in {"success", "failed"}:
             raise ValueError(f"invalid ingestion status {status!r}")
         payload: dict[str, Any] = {"status": status}
         if error_message:
             payload["errorMessage"] = error_message[:2000]
+        if counters:
+            payload.update({key: int(value) for key, value in counters.items()})
         http_status, body = await self._call(f"/ingestion/runs/{run_id}/finish", payload)
         if http_status != 200:
             raise IngestionError(

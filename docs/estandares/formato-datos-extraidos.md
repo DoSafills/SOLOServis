@@ -75,7 +75,7 @@ trazabilidad; el payload se envía tal cual.
 | `schemaVersion` | string | sí | Constante `"1.0"` (§8). |
 | `entityType` | string | sí | Constante `"product"`. `"service"` se rechaza hasta que exista contrato de ingesta. |
 | `externalId` | string | no | ≤ 255. Identificador propio de la tienda, si lo publica. Se guarda en `scraped_data.external_id`. |
-| `externalUrl` | string | sí | URL `http(s)` absoluta, ≤ 2048. Es la página del producto. El spec debe declarar un selector o una plantilla; **nunca** se usa la URL del listado como sustituto. |
+| `externalUrl` | string | sí | URL `http(s)` absoluta, ≤ 2048. Es la página del producto. El spec debe declarar un selector, una plantilla o un suplemento JSON-LD; **nunca** se usa la URL del listado como sustituto. |
 | `source` | objeto | no | §2.1. |
 | `product` | objeto | sí | §3. |
 | `offer` | objeto | sí | §4. |
