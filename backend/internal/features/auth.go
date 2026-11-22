@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/mail"
+	"os"
 	"strings"
 	"time"
 
@@ -49,6 +50,13 @@ const (
 const (
 	loginBlockedDetail = "Demasiados intentos fallidos para este email. Espera antes de reintentar."
 	passwordBusyDetail = "El servicio está ocupado. Reintenta en unos segundos."
+)
+
+const (
+	// refreshCookieName es la cookie httpOnly donde viaja el refresh token.
+	refreshCookieName = "refresh_token"
+	// refreshTokenLifetime es la vida del refresh token y de su cookie.
+	refreshTokenLifetime = 30 * 24 * time.Hour
 )
 
 type authInput struct {
@@ -236,10 +244,11 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// issueTokens crea una sesión para userID y responde con status los tokens
-// (access de 15 minutos, refresh de 30 días) y el perfil. Guarda solo el
-// SHA-256 de cada token. Responde 404 si el usuario ya no está activo y 500
-// si falla la base o el generador aleatorio.
+// issueTokens crea una sesión para userID y responde con status el access
+// token, el perfil y, solo si la request trae X-Refresh-In-Body: 1, también el
+// refresh token. Siempre deja el refresh token en la cookie httpOnly, donde
+// reemplaza al anterior. Guarda solo el SHA-256 de cada token. Responde 404 si
+// el usuario ya no está activo y 500 si falla la base o el generador aleatorio.
 func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int32, status int) {
 	var name, email string
 	if err := h.db.QueryRow(r.Context(), `SELECT name,email FROM user_account WHERE id=$1 AND active`,
@@ -257,7 +266,7 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
-	refreshExpiry := time.Now().Add(30 * 24 * time.Hour)
+	refreshExpiry := time.Now().Add(refreshTokenLifetime)
 	// Los vencimientos los calcula la base con NOW(), el mismo reloj con que
 	// se validan: las columnas son TIMESTAMP sin zona y un time.Time de Go
 	// llega con la hora local del proceso (en -03:00 el token nacía vencido).
@@ -268,27 +277,39 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
-	apiutil.WriteJSON(w, status, map[string]any{"userId": userID, "accessToken": access, "refreshToken": refresh,
+	setRefreshCookie(w, refresh)
+	payload := map[string]any{"userId": userID, "accessToken": access,
 		"name": name, "email": email, "tokenType": "Bearer", "expiresIn": 900,
-		"refreshExpiresAt": refreshExpiry})
+		"refreshExpiresAt": refreshExpiry}
+	if wantsRefreshInBody(r) {
+		payload["refreshToken"] = refresh
+	}
+	apiutil.WriteJSON(w, status, payload)
 }
 
 // Refresh atiende POST /auth/refresh: canjea un refresh token vigente por un
-// par nuevo y borra la sesión anterior (rotación). Responde 200 con la
-// sesión nueva, 422 si falta refreshToken y 401 si no es válido o venció.
+// par nuevo y borra la sesión anterior (rotación), dejando el token nuevo en
+// la cookie. Toma el token del body o, si no viene, de la cookie. Responde 200
+// con la sesión nueva, 422 si no hay token y 401 si no es válido o venció.
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var input authInput
-	if !decodeAuth(w, r, &input) {
-		return
+	if r.Body != nil && r.ContentLength != 0 {
+		if !decodeAuth(w, r, &input) {
+			return
+		}
+	}
+	token := strings.TrimSpace(input.RefreshToken)
+	if token == "" {
+		token = refreshCookieToken(r)
 	}
 	var v httpx.Validator
-	v.Required("refreshToken", input.RefreshToken)
+	v.Required("refreshToken", token)
 	if !valid(w, r, &v) {
 		return
 	}
 	var userID int32
 	err := h.db.QueryRow(r.Context(), `DELETE FROM user_session WHERE refresh_token_hash=$1 AND refresh_expires_at>NOW()
-		RETURNING user_id`, tokenHash(input.RefreshToken)).Scan(&userID)
+		RETURNING user_id`, tokenHash(token)).Scan(&userID)
 	if err != nil {
 		h.dbError(w, r, err, http.StatusUnauthorized, "El refresh token no es válido o venció.")
 		return
@@ -297,7 +318,8 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // Logout cierra la sesión del bearer token o, si no viene, la del
-// refreshToken del body. Sin ninguno de los dos no hay nada que cerrar: 204.
+// refreshToken del body o de la cookie, y siempre vence la cookie. Sin sesión
+// que cerrar responde igual 204.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	token := bearerToken(r)
 	if token == "" && r.Body != nil && r.ContentLength != 0 {
@@ -307,12 +329,16 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		}
 		token = strings.TrimSpace(input.RefreshToken)
 	}
+	if token == "" {
+		token = refreshCookieToken(r)
+	}
 	if token != "" {
 		if _, err := h.db.Exec(r.Context(), `DELETE FROM user_session WHERE access_token_hash=$1 OR refresh_token_hash=$1`, tokenHash(token)); err != nil {
 			httpx.WriteInternal(w, r, h.logger, err)
 			return
 		}
 	}
+	clearRefreshCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -324,6 +350,53 @@ func decodeAuth(w http.ResponseWriter, r *http.Request, input *authInput) bool {
 		return false
 	}
 	return true
+}
+
+// refreshCookieToken devuelve el refresh token de la cookie refresh_token, o
+// "" si la request no la trae.
+func refreshCookieToken(r *http.Request) string {
+	if cookie, err := r.Cookie(refreshCookieName); err == nil {
+		return cookie.Value
+	}
+	return ""
+}
+
+// wantsRefreshInBody indica si la request pidió el refresh token también en el
+// JSON (X-Refresh-In-Body: 1). Sin ese header solo viaja en la cookie.
+func wantsRefreshInBody(r *http.Request) bool {
+	return r.Header.Get("X-Refresh-In-Body") == "1"
+}
+
+// refreshCookie arma la cookie del refresh token con los atributos comunes a
+// la emisión y al vencimiento: httpOnly, SameSite=Strict y Path=/auth.
+func refreshCookie(token string, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    token,
+		Path:     "/auth",
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   refreshCookieSecure(),
+		SameSite: http.SameSiteStrictMode,
+	}
+}
+
+// setRefreshCookie deja el refresh token en la cookie, con la misma vida del
+// token. Una emisión nueva reemplaza el valor anterior.
+func setRefreshCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, refreshCookie(token, int(refreshTokenLifetime.Seconds())))
+}
+
+// clearRefreshCookie vence la cookie con Max-Age=0 (http.Cookie lo serializa
+// con MaxAge -1) y los mismos atributos con que se emitió.
+func clearRefreshCookie(w http.ResponseWriter) {
+	http.SetCookie(w, refreshCookie("", -1))
+}
+
+// refreshCookieSecure indica si la cookie lleva Secure: AUTH_COOKIE_SECURE,
+// true por defecto; "false" permite HTTP en desarrollo local.
+func refreshCookieSecure() bool {
+	return !strings.EqualFold(strings.TrimSpace(os.Getenv("AUTH_COOKIE_SECURE")), "false")
 }
 
 // validEmail indica si value es un correo con formato válido, sin nombre
