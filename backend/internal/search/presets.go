@@ -14,6 +14,7 @@ package search
 // el entorno (ver AGENTS.md §8).
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -127,10 +128,6 @@ func LookupPreset(slug string) (Preset, bool) {
 func (p Preset) toQuery() Query {
 	q := Query{Sort: "name", Limit: DefaultLimit}
 	q.Words = strings.Fields(p.Query.Q)
-	if p.Query.Category != "" {
-		category := p.Query.Category
-		q.CategorySlug = &category
-	}
 	if p.Query.MinPrice != "" {
 		minPrice := p.Query.MinPrice
 		q.MinPrice = &minPrice
@@ -227,6 +224,21 @@ func (h *Handler) PresetProducts(w http.ResponseWriter, r *http.Request) {
 	if !v.Valid() {
 		writeInvalidQuery(w, r, v)
 		return
+	}
+	if preset.Query.Category != "" {
+		slug := preset.Query.Category
+		scope, err := h.searcher.ResolveScope(r.Context(), categories.Ref{Slug: &slug})
+		switch {
+		case errors.Is(err, categories.ErrNotFound):
+			httpx.WriteProblem(w, r, http.StatusBadRequest, httpx.CodeInvalidParameter,
+				"Los parámetros de la consulta no son válidos.",
+				httpx.FieldError{Field: "category", Code: "not_found", Message: "category no existe"})
+			return
+		case err != nil:
+			httpx.WriteInternal(w, r, h.logger, err)
+			return
+		}
+		q.CategoryIDs = scope.CategoryIDs
 	}
 
 	results, total, err := h.searcher.SearchProducts(r.Context(), q)

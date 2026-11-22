@@ -36,6 +36,8 @@ func TestSeedCategorySlugsRemainValid(t *testing.T) {
 		"notebooks",
 		"televisores",
 		"internet-fibra-optica",
+		"computacion",
+		"computadores-de-escritorio",
 	} {
 		if got := NormalizeSlug(slug); got != slug {
 			t.Errorf("NormalizeSlug(%q) = %q", slug, got)
@@ -70,8 +72,8 @@ func TestCanonicalCategorySlugAliases(t *testing.T) {
 		{input: "televisión", want: "televisores"},
 		{input: "TV", want: "televisores"},
 		{input: "Telefonía", want: "celulares"},
-		{input: "computación", want: "notebooks"},
-		{input: "Computadores", want: "notebooks"},
+		{input: "computación", want: "computacion"},
+		{input: "Computadores", want: "computacion"},
 		{input: "electrodomésticos", want: "electrodomesticos"},
 		{input: "categoria-desconocida", want: "categoria-desconocida"},
 		{input: "internet_fibra_optica", want: "internet-fibra-optica"},

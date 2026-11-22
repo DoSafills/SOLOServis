@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 )
 
@@ -64,7 +65,8 @@ func TestPresets_Respuesta(t *testing.T) {
 }
 
 func TestPresetProducts_EjecutaElPreset(t *testing.T) {
-	s := &fakeSearcher{results: []ProductResult{{ID: "x"}}, total: 3}
+	s := &fakeSearcher{results: []ProductResult{{ID: "x"}}, total: 3,
+		scope: categories.Scope{CategoryIDs: []int32{4}}}
 
 	rec, _ := serve(t, s, "/search/presets/notebooks-economicos?limit=5")
 
@@ -77,8 +79,11 @@ func TestPresetProducts_EjecutaElPreset(t *testing.T) {
 	}
 
 	q := *s.gotQuery
-	if q.CategorySlug == nil || *q.CategorySlug != "notebooks" {
-		t.Fatalf("category = %v", q.CategorySlug)
+	if s.gotScopeRef == nil || s.gotScopeRef.Slug == nil || *s.gotScopeRef.Slug != "notebooks" {
+		t.Fatalf("category = %+v", s.gotScopeRef)
+	}
+	if len(q.CategoryIDs) != 1 || q.CategoryIDs[0] != 4 {
+		t.Fatalf("categorías = %v", q.CategoryIDs)
 	}
 	if q.MaxPrice == nil || *q.MaxPrice != "550000" || q.MinPrice != nil {
 		t.Fatalf("precios = min %v max %v", q.MinPrice, q.MaxPrice)
@@ -95,8 +100,8 @@ func TestPresetProducts_UsaSuPropioLimite(t *testing.T) {
 
 	requireStatus(t, rec, http.StatusOK)
 	q := *s.gotQuery
-	if q.Sort != "newest" || q.Limit != 12 || q.CategorySlug != nil {
-		t.Fatalf("query de novedades = %+v", q)
+	if q.Sort != "newest" || q.Limit != 12 || q.CategoryIDs != nil || s.gotScopeRef != nil {
+		t.Fatalf("query de novedades = %+v (alcance %+v)", q, s.gotScopeRef)
 	}
 }
 
@@ -129,6 +134,16 @@ func TestPresetProducts_SlugDesconocido(t *testing.T) {
 	}
 	if s.dbTouched != 0 {
 		t.Fatal("un preset desconocido no debe consultar la base")
+	}
+}
+
+// TestPresetProducts_AlcanceInvalido cubre que un preset con categoría que no
+// resuelve en el árbol responde 400 con el código del campo, no 500.
+func TestPresetProducts_AlcanceInvalido(t *testing.T) {
+	rec, _ := serve(t, &fakeSearcher{scopeErr: categories.ErrNotFound}, "/search/presets/notebooks")
+	requireStatus(t, rec, http.StatusBadRequest)
+	if codes := fieldCodes(t, rec); len(codes) != 1 || codes[0] != "category/not_found" {
+		t.Fatalf("errores = %v", codes)
 	}
 }
 

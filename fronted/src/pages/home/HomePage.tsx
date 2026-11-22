@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { UI_TEXT } from "../../constants/uiText";
 import type { Page, Product, Service, StoreOffer } from "../../types";
-import { PRODUCT_TYPES, SERVICE_CATEGORY_ICONS } from "../../constants/productCatalog";
+import { SERVICE_CATEGORY_ICONS } from "../../constants/productCatalog";
+import { getProductCategoryGroups } from "../../constants/categoryTree";
 import {
   formatSearchHistoryQuery,
   type SearchHistoryEntry,
@@ -15,7 +16,8 @@ import ServiceCard from "../../components/services/ServiceCard";
 import CategoryIcon, { type CategoryIconName } from "../../components/common/CategoryIcon";
 import { ProductSkeletonGrid, ServiceSkeletonGrid, Skeleton } from "../../components/common/ui";
 
-const productCategories = PRODUCT_TYPES;
+// Tarjetas = grupos NV2 del backend (Electrodomésticos, Computación, Pantallas…).
+const productCategories = getProductCategoryGroups();
 
 const serviceCategories = [
   { name: UI_TEXT.categories.internet, icon: SERVICE_CATEGORY_ICONS.internet, color: "#D1A85A" },
@@ -596,7 +598,13 @@ export default function HomePage({
               name: category.name,
               icon: category.icon,
               onClick: () =>
-                navigate({ id: "search-products", query: "", productGroup: category.id }),
+                navigate({
+                  id: "search-products",
+                  query: "",
+                  category: category.slug,
+                  categoryContext: category.name,
+                  resetFilters: true,
+                }),
             }))}
           />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

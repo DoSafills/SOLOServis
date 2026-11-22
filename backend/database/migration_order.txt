@@ -35,6 +35,56 @@
 023_consolidate_computacion_category.sql
 024_celulares_category.sql
 025_merge_refrigeradores_duplicates.sql
+# TAL-190: restricciones de rango y anti-ciclo, todas NOT VALID.
+026_integrity_constraints.sql
+# TAL-190: corrige padres y fusiona duplicados de product_category (idempotente).
+027_product_category_parent_fixes.sql
+# 028: reparenta Computación/Celulares/Gaming bajo Tecnología, repone las
+# hijas de Computación y agrega las subcategorías de Electrodomésticos.
+028_reparent_and_expand_category_tree.sql
+# 029: indices de FK faltantes tras 016/026 (ejecucion de scraping y fuente).
+029_fk_indexes_scrape_run_data_source.sql
+# 030: unicidad (padre, nombre sin tildes) en product_category; complementa 011.
+030_product_category_unique_normalized_name.sql
+# TAL-231 (ajuste): hijas Notebooks y Computadores de escritorio de Computación; categories computacion y computadores-de-escritorio.
+031_computacion_subcategories.sql
+# 032: árbol de exactamente 3 niveles (categories_nv1/nv2/nv3) y
+# product.category_nv3_id; aditiva e idempotente.
+032_category_tree_nv.sql
+# 033: siembra del árbol NV1/NV2/NV3 y backfill de product.category_nv3_id.
+033_backfill_category_tree_nv.sql
+# 034: puente categories_nv3.legacy_product_category_id y backfill de los
+# productos que sigan sin category_nv3_id.
+034_category_nv3_bridge.sql
+# 035: puente de accesorios-de-computacion con la fila legacy Computación y
+# control de slugs repetidos entre categories_nv1, nv2 y nv3.
+035_accesorios_computacion_bridge.sql
+
+# 036: unifica el árbol en product_category (slug + level), absorbe el nivel 4
+# y retira categories_nv1/nv2/nv3 y product.category_nv3_id.
+036_unify_product_category_tree.sql
+
+# 037: reubica la aspiradora demo en limpieza-del-hogar y la freidora demo en cocina.
+037_move_misclassified_products.sql
+
+# 038: hojas de nivel 3 bajo Muebles (Sofás, Mesas de comedor, Mesitas de
+# noche, Camas, Closets y armarios) y la hoja única pasa a Decoración.
+038_muebles_subcategories.sql
+
+# 039: computacion queda sin hoja; accesorios-de-computacion recibe su fila y
+# se realinea product.category_ref de la hoja Notebooks.
+039_realign_categories.sql
+
+# 040: una fila de categories por hoja activa y relleno de product.category_ref NULL.
+040_seed_leaf_categories.sql
+
+# 041: valida las CHECK NOT VALID de product_category (level, slug y padre).
+041_validate_category_constraints.sql
+
+# Migraciones que venían de develop con el mismo prefijo numérico que las de
+# TAL-190/TAL-231, pero con nombre de archivo distinto (el runner registra por
+# nombre). Van después de 041: son idempotentes e independientes del árbol de
+# categorías, y así se conserva el orden en que TAL-231 ya fue validado.
 # TAL-244: 022-024 movieron productos sin actualizar category_ref.
 026_backfill_product_category_ref.sql
 # TAL-189: índices de las búsquedas de Ingestion y texto de búsqueda normalizado.

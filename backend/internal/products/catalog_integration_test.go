@@ -44,12 +44,12 @@ func TestCatalogIntegration_CicloDeVidaConAtributos(t *testing.T) {
 
 	fridge, fridgeValues := resolveAndValidate(t, repo, "refrigeradores",
 		`{"capacidad_litros": 350, "eficiencia_energetica": "A+", "no_frost": true, "peso_kg": 65.5, "color": "Gris"}`)
-	if fridge.ID == nil || fridge.LegacyID == nil || len(fridge.Attributes) != 5 {
+	if fridge.ID == nil || fridge.CategoryID == nil || len(fridge.Attributes) != 5 {
 		t.Fatalf("categoría resuelta = %+v", fridge)
 	}
 
 	publicID, err := repo.Create(ctx, ProductWrite{
-		LegacyCategoryID: *fridge.LegacyID, CategoryRef: fridge.ID,
+		CategoryID: *fridge.CategoryID, CategoryRef: fridge.ID,
 		Name: "Refrigerador TAL-70", SKU: uniqueSKU("tal70"),
 		ImageURL: "https://example.test/tal70.png", Attributes: fridgeValues,
 	})
@@ -89,7 +89,7 @@ func TestCatalogIntegration_CicloDeVidaConAtributos(t *testing.T) {
 	notebook, notebookValues := resolveAndValidate(t, repo, "notebooks",
 		`{"memoria_ram_gb": 16, "almacenamiento_gb": 512, "pantalla_pulgadas": 14}`)
 	if err := repo.Update(ctx, publicID, ProductWrite{
-		LegacyCategoryID: *notebook.LegacyID, CategoryRef: notebook.ID,
+		CategoryID: *notebook.CategoryID, CategoryRef: notebook.ID,
 		Name: "Notebook TAL-70", Attributes: notebookValues,
 	}); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -104,8 +104,8 @@ func TestCatalogIntegration_CicloDeVidaConAtributos(t *testing.T) {
 		t.Fatalf("detalle tras Update = %s %s %s", *detail.CategorySlug, detail.Name, encoded)
 	}
 
-	// Filtro por slug nuevo.
-	items, total, err := repo.List(ctx, ListParams{CategorySlug: strp("notebooks"), Limit: 100})
+	// Filtro por la hoja del árbol (nivel 3) donde quedó el producto.
+	items, total, err := repo.List(ctx, ListParams{CategoryIDs: []int32{*notebook.CategoryID}, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,8 @@ func TestCatalogIntegration_CicloDeVidaConAtributos(t *testing.T) {
 	if err := repo.Deactivate(ctx, publicID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("segunda baja: %v, quiero ErrNotFound", err)
 	}
-	if err := repo.Update(ctx, publicID, ProductWrite{LegacyCategoryID: *notebook.LegacyID, Name: "x"}); !errors.Is(err, ErrNotFound) {
+	if err := repo.Update(ctx, publicID, ProductWrite{CategoryID: *notebook.CategoryID,
+		Name: "x"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Update tras la baja: %v, quiero ErrNotFound", err)
 	}
 }
@@ -142,16 +143,24 @@ func TestCatalogIntegration_ResolveCategory(t *testing.T) {
 	repo := NewRepository(pool)
 	ctx := context.Background()
 
-	// Lavadoras es una categoría antigua activa sin slug en `categories`
-	// (TAL-231 fusionó en ella la rama "Lavado").
-	var lavadoID int32
-	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Lavadoras' AND active`).Scan(&lavadoID); err != nil {
+	// 040 deja una fila de categories por hoja activa: ninguna puede faltar.
+	var sinFila int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM product_category pc
+		WHERE pc.active AND pc.level = 3
+		  AND NOT EXISTS (SELECT 1 FROM categories c WHERE c.legacy_product_category_id = pc.id)`).
+		Scan(&sinFila); err != nil {
 		t.Fatal(err)
 	}
-	lavado, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: lavadoID})
-	if err != nil || lavado.ID != nil || lavado.LegacyID == nil || *lavado.LegacyID != lavadoID ||
-		lavado.ItemType != categories.ItemTypeProduct || len(lavado.Attributes) != 0 {
-		t.Fatalf("categoría antigua sin equivalente = %+v (%v)", lavado, err)
+	if sinFila != 0 {
+		t.Fatalf("hojas activas sin fila en categories = %d, quiero 0", sinFila)
+	}
+
+	// Una hoja nueva sembrada por 040 se resuelve por slug y no acepta atributos.
+	lavadoras, err := repo.ResolveCategory(ctx, CategoryRef{Slug: "lavadoras"})
+	if err != nil || lavadoras.ID == nil || lavadoras.CategoryID == nil ||
+		lavadoras.ItemType != categories.ItemTypeProduct || len(lavadoras.Attributes) != 0 {
+		t.Fatalf("hoja sembrada por slug = %+v (%v)", lavadoras, err)
 	}
 
 	var refrigeradoresID int32
@@ -163,28 +172,28 @@ func TestCatalogIntegration_ResolveCategory(t *testing.T) {
 		ORDER BY child.id LIMIT 1`).Scan(&refrigeradoresID); err != nil {
 		t.Fatal(err)
 	}
-	fridge, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: refrigeradoresID})
+	fridge, err := repo.ResolveCategory(ctx, CategoryRef{ID: refrigeradoresID})
 	if err != nil || fridge.Slug == nil || *fridge.Slug != "refrigeradores" || len(fridge.Attributes) != 5 {
-		t.Fatalf("categoría antigua enlazada = %+v (%v)", fridge, err)
+		t.Fatalf("hoja enlazada = %+v (%v)", fridge, err)
 	}
-	if fridge.LegacyID == nil || *fridge.LegacyID != refrigeradoresID {
-		t.Fatalf("categoría unificada usa legacy id %v, quiero %d", fridge.LegacyID, refrigeradoresID)
+	if fridge.CategoryID == nil || *fridge.CategoryID != refrigeradoresID {
+		t.Fatalf("categoría unificada usa id de hoja %v, quiero %d", fridge.CategoryID, refrigeradoresID)
 	}
 
 	var oldRefrigeracionID int32
 	if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Refrigeracion'`).Scan(&oldRefrigeracionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.ResolveCategory(ctx, CategoryRef{LegacyID: oldRefrigeracionID}); !errors.Is(err, ErrCategoryNotFound) {
-		t.Fatalf("categoría legacy retirada = %v, quiero ErrCategoryNotFound", err)
+	if _, err := repo.ResolveCategory(ctx, CategoryRef{ID: oldRefrigeracionID}); !errors.Is(err, ErrCategoryNotFound) {
+		t.Fatalf("categoría retirada = %v, quiero ErrCategoryNotFound", err)
 	}
 
 	service, err := repo.ResolveCategory(ctx, CategoryRef{Slug: "internet-fibra-optica"})
-	if err != nil || service.ItemType != categories.ItemTypeService || service.LegacyID != nil {
+	if err != nil || service.ItemType != categories.ItemTypeService || service.CategoryID != nil {
 		t.Fatalf("categoría de servicio = %+v (%v)", service, err)
 	}
 
-	for _, ref := range []CategoryRef{{Slug: "no-existe"}, {LegacyID: 999999}} {
+	for _, ref := range []CategoryRef{{Slug: "no-existe"}, {ID: 999999}} {
 		if _, err := repo.ResolveCategory(ctx, ref); !errors.Is(err, ErrCategoryNotFound) {
 			t.Fatalf("ResolveCategory(%+v) = %v, quiero ErrCategoryNotFound", ref, err)
 		}
@@ -247,12 +256,12 @@ func TestCatalogIntegration_RefrigeradoresConsolidadosEnElectrodomesticos(t *tes
 			misplaced, wrongUnifiedRef, oldSpecValues)
 	}
 
-	var linkedLegacyID int32
-	if err := pool.QueryRow(ctx, `SELECT legacy_product_category_id FROM categories WHERE id = $1`, unifiedID).Scan(&linkedLegacyID); err != nil {
+	var linkedCategoryID int32
+	if err := pool.QueryRow(ctx, `SELECT legacy_product_category_id FROM categories WHERE id = $1`, unifiedID).Scan(&linkedCategoryID); err != nil {
 		t.Fatal(err)
 	}
-	if linkedLegacyID != refrigeratorID {
-		t.Fatalf("legacy_product_category_id = %d, quiero %d", linkedLegacyID, refrigeratorID)
+	if linkedCategoryID != refrigeratorID {
+		t.Fatalf("legacy_product_category_id = %d, quiero %d", linkedCategoryID, refrigeratorID)
 	}
 }
 
@@ -288,26 +297,30 @@ func TestCatalogIntegration_ListPaginaYFiltroAntiguo(t *testing.T) {
 		}
 	}
 
-	// El filtro antiguo incluye subcategorías: Electrodomésticos →
-	// Refrigeradores y Lavadoras (árbol canónico de TAL-231).
-	var electroID int32
-	if err := pool.QueryRow(ctx, `
-		SELECT id FROM product_category
-		WHERE name = 'Electrodomésticos' AND parent_category_id IS NULL AND active`).Scan(&electroID); err != nil {
-		t.Fatal(err)
+	// El alcance por slug baja por el árbol: Computación abarca notebooks,
+	// computadores de escritorio y accesorios.
+	scope, err := repo.ResolveScope(ctx, categories.Ref{Slug: strp("computacion")})
+	if err != nil || scope.Level != categories.Level2 || len(scope.CategoryIDs) < 2 {
+		t.Fatalf("alcance de Computación = %+v (%v)", scope, err)
 	}
 	var wantSubtree int64
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM product p JOIN product_category c ON c.id = p.category_id
-		WHERE p.active AND (c.id = $1 OR c.parent_category_id = $1)`, electroID).Scan(&wantSubtree); err != nil {
+		SELECT count(*) FROM product p
+		WHERE p.active AND p.category_id = ANY($1::int[])`, scope.CategoryIDs).Scan(&wantSubtree); err != nil {
 		t.Fatal(err)
 	}
-	items, total, err := repo.List(ctx, ListParams{LegacyCategoryID: &electroID, Limit: 100})
+	items, total, err := repo.List(ctx, ListParams{CategoryIDs: scope.CategoryIDs, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total != wantSubtree || int64(len(items)) != wantSubtree || wantSubtree == 0 {
-		t.Fatalf("filtro Electrodomésticos = %d (total %d), quiero %d", len(items), total, wantSubtree)
+	if wantSubtree == 0 || total != wantSubtree || int64(len(items)) != wantSubtree {
+		t.Fatalf("filtro Computación = %d (total %d), quiero %d", len(items), total, wantSubtree)
+	}
+
+	// La hoja notebooks devuelve solo su propio id.
+	byLeaf, err := repo.ResolveScope(ctx, categories.Ref{Slug: strp("notebooks")})
+	if err != nil || byLeaf.Level != categories.Level3 || len(byLeaf.CategoryIDs) != 1 {
+		t.Fatalf("alcance por slug notebooks = %+v (%v)", byLeaf, err)
 	}
 
 	// Página fuera de rango: arreglo vacío, total real.
@@ -324,7 +337,7 @@ func TestCatalogIntegration_BaseDeDatosProtegeLosAtributos(t *testing.T) {
 
 	fridge, values := resolveAndValidate(t, repo, "refrigeradores", `{"capacidad_litros": 200}`)
 	sku := uniqueSKU("tal70-fk")
-	publicID, err := repo.Create(ctx, ProductWrite{LegacyCategoryID: *fridge.LegacyID, CategoryRef: fridge.ID,
+	publicID, err := repo.Create(ctx, ProductWrite{CategoryID: *fridge.CategoryID, CategoryRef: fridge.ID,
 		Name: "FK TAL-70", SKU: sku, Attributes: values})
 	if err != nil {
 		t.Fatal(err)
@@ -342,7 +355,7 @@ func TestCatalogIntegration_BaseDeDatosProtegeLosAtributos(t *testing.T) {
 	}
 
 	t.Run("sku duplicado", func(t *testing.T) {
-		_, err := repo.Create(ctx, ProductWrite{LegacyCategoryID: *fridge.LegacyID, Name: "dup", SKU: sku})
+		_, err := repo.Create(ctx, ProductWrite{CategoryID: *fridge.CategoryID, Name: "dup", SKU: sku})
 		expectCode(t, err, "23505")
 	})
 
@@ -378,7 +391,12 @@ func TestCatalogIntegration_BaseDeDatosProtegeLosAtributos(t *testing.T) {
 		}
 		defer tx.Rollback(ctx)
 		_, err = tx.Exec(ctx, `DELETE FROM category_attributes WHERE id = $1`, values[0].AttributeID)
-		expectCode(t, err, "23001") // restrict_violation (ON DELETE RESTRICT)
+		// ON DELETE RESTRICT se reporta como 23001 en algunas versiones de
+		// PostgreSQL y como 23503 en otras; ambas significan lo mismo aquí.
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || (pgErr.Code != "23001" && pgErr.Code != "23503") {
+			t.Fatalf("error = %v, quiero SQLSTATE 23001 o 23503", err)
+		}
 	})
 
 	t.Run("valor vacío", func(t *testing.T) {
@@ -406,7 +424,7 @@ func TestCatalogIntegration_HistorialConOfertaMonedaYHora(t *testing.T) {
 	fridge, values := resolveAndValidate(t, repo, "refrigeradores",
 		`{"capacidad_litros": 350, "eficiencia_energetica": "A+", "no_frost": true}`)
 	publicID, err := repo.Create(ctx, ProductWrite{
-		LegacyCategoryID: *fridge.LegacyID, CategoryRef: fridge.ID,
+		CategoryID: *fridge.CategoryID, CategoryRef: fridge.ID,
 		Name: "Refrigerador TAL-238", SKU: uniqueSKU("tal238"), Attributes: values,
 	})
 	if err != nil {
@@ -466,5 +484,174 @@ func TestCatalogIntegration_HistorialConOfertaMonedaYHora(t *testing.T) {
 	}
 	if len(keys) != 6 {
 		t.Fatalf("campos inesperados en %s", encoded)
+	}
+}
+
+// TestCatalogIntegration_InvariantesCategorias verifica el estado que dejan
+// 038-040: una fila de categories por hoja, slugs alineados, category_ref
+// coherente y todas las hojas con productos en nivel 3.
+func TestCatalogIntegration_InvariantesCategorias(t *testing.T) {
+	pool := repositoryTestPool(t)
+	ctx := context.Background()
+
+	checks := []struct {
+		name  string
+		query string
+	}{
+		{"hojas activas sin fila de categories", `
+			SELECT count(*) FROM product_category pc
+			WHERE pc.active AND pc.level = 3
+			  AND NOT EXISTS (SELECT 1 FROM categories c WHERE c.legacy_product_category_id = pc.id)`},
+		{"filas de producto con slug distinto al de su hoja", `
+			SELECT count(*) FROM categories c
+			JOIN product_category pc ON pc.id = c.legacy_product_category_id
+			WHERE c.item_type = 'product' AND c.slug <> pc.slug`},
+		{"productos con category_ref incoherente", `
+			SELECT count(*) FROM product p
+			JOIN categories c ON c.id = p.category_ref
+			WHERE c.item_type <> 'product'
+			   OR c.legacy_product_category_id IS DISTINCT FROM p.category_id`},
+		{"productos con category_ref NULL teniendo fila su hoja", `
+			SELECT count(*) FROM product p
+			WHERE p.category_ref IS NULL
+			  AND EXISTS (SELECT 1 FROM categories c WHERE c.legacy_product_category_id = p.category_id)`},
+		{"productos en categorías que no son hoja activa", `
+			SELECT count(*) FROM product p
+			JOIN product_category pc ON pc.id = p.category_id
+			WHERE NOT pc.active OR pc.level <> 3`},
+	}
+
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			var total int
+			if err := pool.QueryRow(ctx, check.query).Scan(&total); err != nil {
+				t.Fatal(err)
+			}
+			if total != 0 {
+				t.Fatalf("%s = %d, quiero 0", check.name, total)
+			}
+		})
+	}
+
+	// computacion es el único alias sin hoja.
+	var computacionLegacy *int32
+	if err := pool.QueryRow(ctx,
+		`SELECT legacy_product_category_id FROM categories WHERE slug = 'computacion' AND item_type = 'product'`).
+		Scan(&computacionLegacy); err != nil {
+		t.Fatal(err)
+	}
+	if computacionLegacy != nil {
+		t.Fatalf("computacion sigue enlazada a la hoja %d", *computacionLegacy)
+	}
+
+	var accesoriosLegacy *int32
+	if err := pool.QueryRow(ctx, `
+		SELECT c.legacy_product_category_id
+		FROM categories c
+		JOIN product_category pc ON pc.id = c.legacy_product_category_id
+		WHERE c.slug = 'accesorios-de-computacion' AND c.item_type = 'product'
+		  AND pc.slug = 'accesorios-de-computacion' AND pc.level = 3`).Scan(&accesoriosLegacy); err != nil {
+		t.Fatal(err)
+	}
+	if accesoriosLegacy == nil {
+		t.Fatal("accesorios-de-computacion debe apuntar a su hoja")
+	}
+}
+
+// TestCatalogIntegration_ConteosPorRama comprueba que ListCategoryCounts
+// suma hojas y descendientes y que un producto nuevo se refleja en toda la rama.
+func TestCatalogIntegration_ConteosPorRama(t *testing.T) {
+	pool := repositoryTestPool(t)
+	repo := NewRepository(pool)
+	ctx := context.Background()
+
+	before, err := repo.ListCategoryCounts(ctx)
+	if err != nil {
+		t.Fatalf("ListCategoryCounts: %v", err)
+	}
+
+	rows, err := repo.ListCategories(ctx)
+	if err != nil {
+		t.Fatalf("ListCategories: %v", err)
+	}
+	for _, row := range rows {
+		if !row.Slug.Valid || !row.Level.Valid || row.Level.Int16 < 1 || row.Level.Int16 > 3 {
+			t.Fatalf("nodo activo sin slug/level válidos: %+v", row)
+		}
+		if _, ok := before[row.ID]; !ok {
+			t.Fatalf("el nodo %d no tiene conteo", row.ID)
+		}
+	}
+
+	var hogarID, mueblesID, sofasID int32
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM product_category WHERE slug = 'hogar' AND level = 1`).Scan(&hogarID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM product_category WHERE slug = 'muebles' AND level = 2`).Scan(&mueblesID); err != nil {
+		t.Fatal(err)
+	}
+	sofas, err := repo.ResolveCategory(ctx, CategoryRef{Slug: "sofas"})
+	if err != nil || sofas.CategoryID == nil || sofas.ID == nil {
+		t.Fatalf("ResolveCategory(sofas) = %+v (%v)", sofas, err)
+	}
+	sofasID = *sofas.CategoryID
+
+	publicID, err := repo.Create(ctx, ProductWrite{
+		CategoryID: sofasID, CategoryRef: sofas.ID,
+		Name: "Sofá TAL-040", SKU: uniqueSKU("tal040"),
+		ImageURL: "https://example.test/tal040.png",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE public_id = $1`, publicID)
+	})
+
+	after, err := repo.ListCategoryCounts(ctx)
+	if err != nil {
+		t.Fatalf("ListCategoryCounts: %v", err)
+	}
+	for id, delta := range map[int32]int64{sofasID: 1, mueblesID: 1, hogarID: 1} {
+		if got := after[id] - before[id]; got != delta {
+			t.Fatalf("nodo %d creció %d, quiero %d", id, got, delta)
+		}
+	}
+}
+
+// TestCatalogIntegration_CategoriasOmitenRamasInactivas verifica que una
+// hoja inactiva no aparece en GET /product-categories.
+func TestCatalogIntegration_CategoriasOmitenRamasInactivas(t *testing.T) {
+	pool := repositoryTestPool(t)
+	repo := NewRepository(pool)
+	ctx := context.Background()
+
+	var camasID int32
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM product_category WHERE slug = 'camas' AND level = 3`).Scan(&camasID); err != nil {
+		t.Fatal(err)
+	}
+
+	var inactiveID int32
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO product_category (parent_category_id, name, slug, level, active)
+		VALUES ($1, 'Prueba inactiva 040', 'prueba-inactiva-040', 3, FALSE)
+		RETURNING id`, camasID).Scan(&inactiveID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product_category WHERE id = $1`, inactiveID)
+	})
+
+	rows, err := repo.ListCategories(ctx)
+	if err != nil {
+		t.Fatalf("ListCategories: %v", err)
+	}
+	for _, row := range rows {
+		if row.ID == inactiveID {
+			t.Fatalf("la hoja inactiva %d no debe aparecer", inactiveID)
+		}
 	}
 }

@@ -91,7 +91,7 @@ func (h *Handler) DuplicateCandidates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	category, err := h.repository.ResolveCategory(r.Context(), CategoryRef{Slug: request.CategorySlug})
-	if errors.Is(err, ErrCategoryNotFound) || (err == nil && category.ID == nil) {
+	if errors.Is(err, ErrCategoryNotFound) {
 		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: "categorySlug", Code: "not_found",
 			Message: "categorySlug no existe o no está habilitada para productos"}})
 		return
@@ -105,8 +105,13 @@ func (h *Handler) DuplicateCandidates(w http.ResponseWriter, r *http.Request) {
 			Message: "categorySlug debe ser una categoría de productos"}})
 		return
 	}
+	if category.CategoryID == nil {
+		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: "categorySlug", Code: "not_found",
+			Message: "categorySlug no tiene una categoría de nivel 3 activa"}})
+		return
+	}
 
-	candidates, err := h.repository.FindDuplicateCandidates(r.Context(), *category.ID, request.BrandID,
+	candidates, err := h.repository.FindDuplicateCandidates(r.Context(), *category.CategoryID, request.BrandID,
 		request.SKU, strings.ToLower(strings.Join(strings.Fields(request.Model), " ")), excludeID)
 	if err != nil {
 		httpx.WriteInternal(w, r, h.logger, err)
@@ -239,7 +244,7 @@ func (h *Handler) validateWrite(w http.ResponseWriter, r *http.Request, f *write
 	ref := CategoryRef{Slug: f.categorySlug}
 	field := "categorySlug"
 	if f.categoryID != nil {
-		ref = CategoryRef{LegacyID: *f.categoryID}
+		ref = CategoryRef{ID: *f.categoryID}
 		field = "categoryId"
 	}
 	category, err := h.repository.ResolveCategory(r.Context(), ref)
@@ -256,13 +261,15 @@ func (h *Handler) validateWrite(w http.ResponseWriter, r *http.Request, f *write
 			Message: field + " debe ser una categoría de productos"}})
 		return ProductWrite{}, false
 	}
-	if category.LegacyID == nil {
-		// product.category_id es obligatorio mientras conviva el modelo anterior.
-		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: field, Code: "not_found",
-			Message: field + " no está habilitada para productos (sin categoría equivalente en product_category)"}})
+	if category.CategoryID == nil {
+		// Categoría del árbol sin hoja de nivel 3 activa.
+		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: field, Code: "not_enabled",
+			Message: field + " no tiene una categoría de nivel 3 activa"}})
 		return ProductWrite{}, false
 	}
 
+	// Sin fila en categories no hay atributos definidos: un producto sin
+	// atributos se acepta y los que lleguen responden unknown_field.
 	values, fieldErrors := categories.ValidateAttributes(category.Attributes, f.attributes)
 	if len(fieldErrors) > 0 {
 		httpx.WriteValidation(w, r, fieldErrors)
@@ -270,14 +277,14 @@ func (h *Handler) validateWrite(w http.ResponseWriter, r *http.Request, f *write
 	}
 
 	return ProductWrite{
-		LegacyCategoryID: *category.LegacyID,
-		CategoryRef:      category.ID,
-		BrandID:          f.brandID,
-		Name:             f.name,
-		Model:            f.model,
-		SKU:              f.sku,
-		Description:      f.description,
-		Attributes:       values,
+		CategoryID:  *category.CategoryID,
+		CategoryRef: category.ID,
+		BrandID:     f.brandID,
+		Name:        f.name,
+		Model:       f.model,
+		SKU:         f.sku,
+		Description: f.description,
+		Attributes:  values,
 	}, true
 }
 
@@ -305,13 +312,29 @@ func (h *Handler) writeStoreError(w http.ResponseWriter, r *http.Request, err er
 }
 
 // List atiende GET /products?category=&limit=&offset=. category acepta el id
-// de product_category (incluye subcategorías) o el slug de categories.
+// de product_category o el slug de cualquier nivel; el alcance se traduce a
+// los ids de las hojas (nivel 3) con ResolveScope.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	params, fieldErrors := parseListParams(r.URL.Query())
+	params, ref, fieldErrors := parseListParams(r.URL.Query())
 	if len(fieldErrors) > 0 {
 		httpx.WriteProblem(w, r, http.StatusBadRequest, httpx.CodeInvalidParameter,
 			"Los parámetros de la consulta no son válidos.", fieldErrors...)
 		return
+	}
+
+	if ref != nil {
+		scope, err := h.repository.ResolveScope(r.Context(), *ref)
+		switch {
+		case errors.Is(err, categories.ErrNotFound):
+			httpx.WriteProblem(w, r, http.StatusBadRequest, httpx.CodeInvalidParameter,
+				"Los parámetros de la consulta no son válidos.",
+				httpx.FieldError{Field: "category", Code: "not_found", Message: "category no existe"})
+			return
+		case err != nil:
+			httpx.WriteInternal(w, r, h.logger, err)
+			return
+		}
+		params.CategoryIDs = scope.CategoryIDs
 	}
 
 	items, total, err := h.repository.List(r.Context(), params)
@@ -326,20 +349,23 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
-func parseListParams(query url.Values) (ListParams, []httpx.FieldError) {
+// parseListParams valida limit, offset y category. Del category devuelve el
+// Ref que hay que resolver contra el árbol de product_category; el resto de
+// los parámetros no dependen de la base.
+func parseListParams(query url.Values) (ListParams, *categories.Ref, []httpx.FieldError) {
 	params := ListParams{Limit: DefaultListLimit}
 	var v httpx.Validator
+	var ref *categories.Ref
 
 	if query.Has("category") {
-		category := query.Get("category")
-		if id, err := strconv.ParseInt(category, 10, 32); err == nil {
-			legacyID := int32(id)
-			v.Check(legacyID > 0, "category", "min", "category debe ser mayor que 0")
-			params.LegacyCategoryID = &legacyID
-		} else if categories.ValidSlug(category) {
-			params.CategorySlug = &category
-		} else {
+		parsed, code := categories.ParseScopeParam(query.Get("category"))
+		switch code {
+		case "min":
+			v.Add("category", "min", "category debe ser mayor que 0")
+		case "format":
 			v.Add("category", "format", "category debe ser un id numérico o un slug de categoría")
+		default:
+			ref = &parsed
 		}
 	}
 
@@ -369,7 +395,7 @@ func parseListParams(query url.Values) (ListParams, []httpx.FieldError) {
 		}
 	}
 
-	return params, v.Errors()
+	return params, ref, v.Errors()
 }
 
 // GetByPublicID atiende GET /products/{publicID}. Un producto dado de baja
@@ -392,8 +418,26 @@ func (h *Handler) GetByPublicID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, detail)
 }
 
-// ListCategories atiende GET /product-categories (árbol del modelo anterior).
+// ListCategories atiende GET /product-categories. Con ?counts=true agrega
+// productCount por nodo (productos activos de la hoja y sus descendientes).
 func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
+	var counts map[int32]int64
+	if raw := r.URL.Query().Get("counts"); raw != "" {
+		withCounts, err := strconv.ParseBool(raw)
+		if err != nil {
+			httpx.WriteProblem(w, r, http.StatusBadRequest, httpx.CodeInvalidParameter,
+				"El parámetro counts debe ser true o false.")
+			return
+		}
+		if withCounts {
+			counts, err = h.repository.ListCategoryCounts(r.Context())
+			if err != nil {
+				httpx.WriteInternal(w, r, h.logger, err)
+				return
+			}
+		}
+	}
+
 	rows, err := h.repository.ListCategories(r.Context())
 	if err != nil {
 		httpx.WriteInternal(w, r, h.logger, err)
@@ -402,7 +446,7 @@ func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
 
 	result := make([]dto.ProductCategory, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, dto.FromProductCategory(row))
+		result = append(result, dto.FromProductCategory(row, counts))
 	}
 	writeJSON(w, http.StatusOK, result)
 }

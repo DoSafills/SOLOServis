@@ -6,6 +6,7 @@ import {
   getProductReviews,
   type ApiProductReview,
 } from "../../services/api/products";
+import { getCategoryBySlug, type CategoryAttribute } from "../../services/api/categories";
 import { getProductOfferUpdates, type ApiProductOfferUpdate } from "../../services/api/stores";
 import {
   Breadcrumb,
@@ -16,11 +17,8 @@ import {
 } from "../../components/common/ui";
 import PriceHistory from "../../components/products/PriceHistory";
 import PriceOfferComparison from "./PriceOfferComparison";
-import {
-  getProductCategoryGroup,
-  getProductSubtype,
-  getProductSubtypeSearchQuery,
-} from "../../constants/productCatalog";
+import { getProductSubtype, getProductSubtypeSearchQuery } from "../../constants/productCatalog";
+import { findProductCategoryPath } from "../../constants/categoryTree";
 
 interface Props {
   productId: string;
@@ -95,6 +93,49 @@ const groupProductSpecifications = (specs: Record<string, string>) => {
     .filter((group) => group.items.length > 0);
 };
 
+type ProductAttributes = Record<string, string | number | boolean>;
+
+/**
+ * Convierte una clave técnica de atributo (capacidad_litros) en una etiqueta
+ * legible (Capacidad litros). Solo se usa cuando la categoría no entrega el
+ * label de ese atributo.
+ * @param key Clave del atributo.
+ * @returns La etiqueta con la primera letra en mayúscula.
+ */
+const formatAttributeKey = (key: string): string =>
+  key
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/^./, (char) => char.toLocaleUpperCase("es"));
+
+/**
+ * Arma las especificaciones visibles del producto desde los atributos que
+ * devuelve Product API, con la etiqueta y la unidad que define la categoría.
+ * Product API entrega los datos en `attributes` y deja `specs` vacío, así que
+ * esta conversión es la que llena las tablas de características de la ficha.
+ * @param attributes Atributos tipados del producto.
+ * @param definitions Definiciones de la categoría, para label y unidad.
+ * @returns Un mapa nombre → valor listo para las tablas de la ficha.
+ */
+const buildSpecifications = (
+  attributes: ProductAttributes | undefined,
+  definitions: CategoryAttribute[],
+): Record<string, string> => {
+  const definitionsByKey = new Map(definitions.map((definition) => [definition.key, definition]));
+  const specifications: Record<string, string> = {};
+
+  for (const [key, rawValue] of Object.entries(attributes ?? {})) {
+    const definition = definitionsByKey.get(key);
+    const label = definition
+      ? `${definition.label}${definition.unit ? ` (${definition.unit})` : ""}`
+      : formatAttributeKey(key);
+    specifications[label] =
+      typeof rawValue === "boolean" ? (rawValue ? "Sí" : "No") : String(rawValue);
+  }
+
+  return specifications;
+};
+
 export default function ProductDetailPage({
   productId,
   navigate,
@@ -127,6 +168,10 @@ export default function ProductDetailPage({
     requestKey: string;
     message: string;
   } | null>(null);
+  const [categoryDefinitions, setCategoryDefinitions] = useState<{
+    slug: string;
+    attributes: CategoryAttribute[];
+  }>({ slug: "", attributes: [] });
   const [loadAttempt, setLoadAttempt] = useState(0);
   const requestKey = `${productId}:${loadAttempt}`;
   const loading = loadedRequestKey !== requestKey;
@@ -170,6 +215,19 @@ export default function ProductDetailPage({
         if (!cancelled) {
           setSelectedImage(0);
           setProductState({ requestKey: currentRequestKey, value: result });
+          setCategoryDefinitions({ slug: result?.categorySlug ?? "", attributes: [] });
+          const slug = result?.categorySlug;
+          if (slug) {
+            // Las etiquetas de los atributos viven en la definición de la
+            // categoría; si falla, quedan las claves técnicas del producto.
+            getCategoryBySlug(slug)
+              .then((category) => {
+                if (!cancelled) {
+                  setCategoryDefinitions({ slug, attributes: category.attributes });
+                }
+              })
+              .catch(() => undefined);
+          }
         }
       })
       .catch((error: unknown) => {
@@ -253,13 +311,28 @@ export default function ProductDetailPage({
       </div>
     );
 
-  const primarySpecifications = getPrimarySpecifications(product.specs);
-  const specificationGroups = groupProductSpecifications(product.specs);
+  const specifications =
+    Object.keys(product.specs).length > 0
+      ? product.specs
+      : buildSpecifications(
+          product.attributes,
+          categoryDefinitions.slug === product.categorySlug ? categoryDefinitions.attributes : [],
+        );
+  const primarySpecifications = getPrimarySpecifications(specifications);
+  const specificationGroups = groupProductSpecifications(specifications);
   const productImages = [...new Set([product.image, ...product.images].filter(Boolean))];
-  const isHomeProduct = getProductCategoryGroup(product.category) === "home";
+  // Ruta NV (Hogar > Electrodomésticos > Refrigeradores) desde el slug que
+  // entrega el backend; si el producto aún no tiene slug, se cae al nombre legacy.
+  const categoryPath = product.categorySlug
+    ? (findProductCategoryPath(product.categorySlug) ?? [])
+    : [];
   const productSubcategory = product.subcategory.trim() || getProductSubtype(product);
+  const lastCategoryPathName = categoryPath.at(-1)?.name ?? "";
+  // La ruta NV ya termina en la subcategoría, así que solo se agrega un tramo
+  // extra cuando la subcategoría aporta un nombre distinto.
   const hasDistinctSubcategory =
-    productSubcategory.toLocaleLowerCase("es") !== product.category.toLocaleLowerCase("es");
+    productSubcategory.toLocaleLowerCase("es") !== product.category.toLocaleLowerCase("es") &&
+    productSubcategory.toLocaleLowerCase("es") !== lastCategoryPathName.toLocaleLowerCase("es");
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -270,17 +343,33 @@ export default function ProductDetailPage({
             label: "Productos",
             onClick: () => navigate({ id: "search-products", query: "" }),
           },
-          {
-            label: isHomeProduct ? "Hogar" : product.category,
-            onClick: () =>
-              isHomeProduct
-                ? navigate({ id: "search-products", query: "", productGroup: "home" })
-                : navigate({
-                    id: "search-products",
-                    query: "",
-                    category: product.category,
-                  }),
-          },
+          ...(categoryPath.length > 0
+            ? categoryPath.map((node, index) => ({
+                label: node.name,
+                ...(index < categoryPath.length - 1
+                  ? {
+                      onClick: () =>
+                        navigate({
+                          id: "search-products",
+                          query: "",
+                          category: node.slug,
+                          categoryContext: node.name,
+                          resetFilters: true,
+                        }),
+                    }
+                  : {}),
+              }))
+            : [
+                {
+                  label: product.category,
+                  onClick: () =>
+                    navigate({
+                      id: "search-products",
+                      query: "",
+                      category: product.category,
+                    }),
+                },
+              ]),
           ...(hasDistinctSubcategory
             ? [
                 {
@@ -309,15 +398,21 @@ export default function ProductDetailPage({
             }}
             className="rounded-2xl overflow-hidden h-[420px] md:h-[520px] mb-3"
           >
-            <img
-              src={productImages[selectedImage] ?? product.image}
-              alt={product.name}
-              className="w-full h-full object-contain p-4 transition-all duration-200"
-              style={{
-                background:
-                  "radial-gradient(circle at top, rgba(209,168,90,0.12), transparent 40%)",
-              }}
-            />
+            {productImages.length > 0 ? (
+              <img
+                src={productImages[selectedImage] ?? productImages[0]}
+                alt={product.name}
+                className="w-full h-full object-contain p-4 transition-all duration-200"
+                style={{
+                  background:
+                    "radial-gradient(circle at top, rgba(209,168,90,0.12), transparent 40%)",
+                }}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-muted">
+                Sin imagen
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2 overflow-x-auto pb-1">

@@ -39,9 +39,9 @@ func mustJSON(t *testing.T, value string) string {
 	return string(encoded)
 }
 
-// refrigeradores: categoría nueva enlazada a la anterior, con un requerido.
+// refrigeradores: fila en categories con su hoja de nivel 3 y un requerido.
 var refrigeradores = products.WriteCategory{
-	ID: int32p(1), Slug: strp("refrigeradores"), ItemType: categories.ItemTypeProduct, LegacyID: int32p(5),
+	ID: int32p(1), CategoryID: int32p(5), Slug: strp("refrigeradores"), ItemType: categories.ItemTypeProduct,
 	Attributes: []categories.Attribute{
 		{ID: 10, Key: "capacidad_litros", DataType: "integer", Required: true, Min: floatp(50), Max: floatp(1500)},
 	},
@@ -532,7 +532,7 @@ func TestAddItems_ProductoNuevo(t *testing.T) {
 		t.Fatalf("resultado = %+v", result)
 	}
 	created := e.catalog.created[0]
-	if created.LegacyCategoryID != 5 || *created.CategoryRef != 1 || *created.BrandID != 77 || created.SKU != "LG-1" ||
+	if created.CategoryID != 5 || *created.CategoryRef != 1 || *created.BrandID != 77 || created.SKU != "LG-1" ||
 		len(created.Attributes) != 1 || created.Attributes[0].Text != "350" {
 		t.Fatalf("producto creado = %+v", created)
 	}
@@ -543,6 +543,56 @@ func TestAddItems_ProductoNuevo(t *testing.T) {
 	if !reflect.DeepEqual(e.runs.counters, []int{1, 1, 0}) || !reflect.DeepEqual(e.runs.saved, []string{"rip-1"}) ||
 		!reflect.DeepEqual(e.runs.brands, []string{"LG"}) {
 		t.Fatalf("contadores = %v guardados = %v marcas = %v", e.runs.counters, e.runs.saved, e.runs.brands)
+	}
+}
+
+// TestAddItems_CategoriasVigentesYNueva comprueba que los cuatro slugs que ya
+// enviaba el scraper sigan ingresando y que un slug nuevo con fila en
+// categories (lavadoras) también cree el producto en su hoja.
+func TestAddItems_CategoriasVigentesYNueva(t *testing.T) {
+	casos := []struct {
+		slug       string
+		category   products.WriteCategory
+		attributes string
+	}{
+		{"refrigeradores", products.WriteCategory{ID: int32p(1), CategoryID: int32p(11), Slug: strp("refrigeradores"),
+			ItemType:   categories.ItemTypeProduct,
+			Attributes: refrigeradores.Attributes}, `{"capacidad_litros":350}`},
+		{"notebooks", products.WriteCategory{ID: int32p(2), CategoryID: int32p(12), Slug: strp("notebooks"),
+			ItemType:   categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{}}, `{}`},
+		{"televisores", products.WriteCategory{ID: int32p(3), CategoryID: int32p(13), Slug: strp("televisores"),
+			ItemType:   categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{}}, `{}`},
+		{"celulares", products.WriteCategory{ID: int32p(4), CategoryID: int32p(14), Slug: strp("celulares"),
+			ItemType:   categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{}}, `{}`},
+		{"lavadoras", products.WriteCategory{ID: int32p(9), CategoryID: int32p(20), Slug: strp("lavadoras"),
+			ItemType: categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{
+				{ID: 40, Key: "capacidad_kg", DataType: "integer", Required: true, Min: floatp(5), Max: floatp(30)},
+			}}, `{"capacidad_kg":12}`},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.slug, func(t *testing.T) {
+			e := newEnv()
+			e.catalog.category = caso.category
+
+			item := fmt.Sprintf(`{"product":{"name":"Producto","categorySlug":%q,"attributes":%s},"offer":{"price":1}}`,
+				caso.slug, caso.attributes)
+			result := batch(t, e, item)
+
+			if result.Results[0].Status != ItemCreated || len(e.catalog.created) != 1 {
+				t.Fatalf("resultado = %+v, quiero producto creado", result.Results[0])
+			}
+			created := e.catalog.created[0]
+			if created.CategoryID != *caso.category.CategoryID ||
+				created.CategoryRef == nil || *created.CategoryRef != *caso.category.ID {
+				t.Fatalf("producto creado = %+v, quiero hoja %d ref %d",
+					created, *caso.category.CategoryID, *caso.category.ID)
+			}
+		})
 	}
 }
 
@@ -724,7 +774,7 @@ func TestAddItems_ErroresDeCategoriaYBaseDeDatos(t *testing.T) {
 		{"categoría de servicios", func(e *env) {
 			e.catalog.category = products.WriteCategory{ID: int32p(4), ItemType: categories.ItemTypeService}
 		}, []string{"product.categorySlug/not_enabled"}},
-		{"categoría sin vínculo legado", func(e *env) {
+		{"categoría sin hoja de nivel 3", func(e *env) {
 			e.catalog.category = products.WriteCategory{ID: int32p(7), Slug: strp("celulares"),
 				ItemType: categories.ItemTypeProduct}
 		}, []string{"product.categorySlug/not_enabled"}},
@@ -765,7 +815,7 @@ func TestAddItems_CodigosDeCategoria(t *testing.T) {
 		{name: "desconocida", slug: "categoria-inexistente", setup: func(e *env) {
 			e.catalog.resolveErrors = map[string]error{"categoria-inexistente": products.ErrCategoryNotFound}
 		}, want: "product.categorySlug/not_found"},
-		{name: "sin vínculo legado", slug: "celulares", setup: func(e *env) {
+		{name: "sin hoja de nivel 3", slug: "celulares", setup: func(e *env) {
 			e.catalog.category = products.WriteCategory{ID: int32p(7), Slug: strp("celulares"),
 				ItemType: categories.ItemTypeProduct}
 		}, want: "product.categorySlug/not_enabled"},
@@ -803,8 +853,8 @@ func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
 			wantSlug: "refrigeradores",
 		},
 		{name: "telefonía se enruta a celulares", slug: "telefonía", wantSlug: "celulares"},
-		{name: "computación se enruta a notebooks", slug: "computación", wantSlug: "notebooks"},
-		{name: "computadores se enruta a notebooks", slug: "computadores", wantSlug: "notebooks"},
+		{name: "computación sin palabra clave va a computadores de escritorio", slug: "computación", wantSlug: "computadores-de-escritorio"},
+		{name: "computadores va a computadores de escritorio", slug: "computadores", wantSlug: "computadores-de-escritorio"},
 		{
 			name:       "desconocido",
 			slug:       "desconocida",
@@ -850,6 +900,42 @@ func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
 					t.Fatalf("se llamó a ResolveCategory con slug vacío: %+v", e.catalog.resolved)
 				}
 				return
+			}
+			if len(e.catalog.resolved) != 1 || e.catalog.resolved[0].Slug != tc.wantSlug {
+				t.Fatalf("slugs enviados a ResolveCategory = %+v, quiero %q", e.catalog.resolved, tc.wantSlug)
+			}
+		})
+	}
+}
+
+// TestAddItems_ClasificaComputacionPorNombre verifica que un ítem de la
+// categoría computacion termine en notebooks, en computadores de escritorio o
+// en accesorios-de-computacion según las palabras de su nombre, que es lo que
+// resuelve ResolveCategory.
+func TestAddItems_ClasificaComputacionPorNombre(t *testing.T) {
+	tests := []struct {
+		name     string
+		product  string
+		wantSlug string
+	}{
+		{name: "MacBook Air", product: "MacBook Air M2 13\"", wantSlug: "notebooks"},
+		{name: "notebook", product: "Notebook Lenovo IdeaPad 3", wantSlug: "notebooks"},
+		{name: "laptop gamer", product: "Laptop gamer ASUS TUF", wantSlug: "notebooks"},
+		{name: "PC gamer", product: "PC Gamer Ryzen 5 RTX 4060", wantSlug: "computadores-de-escritorio"},
+		{name: "iMac", product: "iMac 24\" M3", wantSlug: "computadores-de-escritorio"},
+		{name: "mochila para notebook", product: "Mochila para notebook 15.6\"", wantSlug: "accesorios-de-computacion"},
+		{name: "monitor portátil", product: "Monitor portátil 15.6\"", wantSlug: "accesorios-de-computacion"},
+		{name: "sin palabras clave", product: "Armado de equipo Ryzen 7", wantSlug: "computadores-de-escritorio"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			item := `{"product":{"name":` + mustJSON(t, tc.product) +
+				`,"categorySlug":"computacion","attributes":{"capacidad_litros":200}},"offer":{"price":1}}`
+			result := batch(t, e, item)
+			if result.Results[0].Status != ItemCreated {
+				t.Fatalf("resultado = %+v, quiero producto creado", result.Results[0])
 			}
 			if len(e.catalog.resolved) != 1 || e.catalog.resolved[0].Slug != tc.wantSlug {
 				t.Fatalf("slugs enviados a ResolveCategory = %+v, quiero %q", e.catalog.resolved, tc.wantSlug)
@@ -928,7 +1014,6 @@ func TestAddItems_RechazaSeparadoresDeSlugInvalidos(t *testing.T) {
 		})
 	}
 }
-
 // TAL-205: solo una bajada de precio consulta la oferta y los usuarios a
 // avisar. Si el precio sube o queda igual (lo habitual en cada corrida), el
 // ítem se ahorra esas dos consultas y no se envía ningún aviso.

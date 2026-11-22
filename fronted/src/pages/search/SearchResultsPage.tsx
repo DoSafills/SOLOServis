@@ -19,7 +19,16 @@ import {
   ProductSkeletonGrid,
   Skeleton,
 } from "../../components/common/ui";
-import { getProductCategoryGroup } from "../../constants/productCatalog";
+import {
+  PRODUCT_CATEGORY_TREE,
+  findProductCategoryPath,
+  getProductCategoryLeafSlugs,
+  getProductCategorySlugName,
+  isProductCategorySlug,
+  type ProductCategoryGroup,
+  type ProductCategoryLeaf,
+  type ProductCategorySection,
+} from "../../constants/categoryTree";
 import {
   type SessionStorageCodec,
   nullablePositiveIntegerSessionCodec,
@@ -173,6 +182,13 @@ export default function SearchResultsPage({
     stringSessionCodec,
   );
   const activeProductGroup = productGroup ?? "all";
+  // El backend acepta slugs NV1/NV2/NV3 en `category`; las rutas antiguas
+  // usan productGroup=home|technology, que también se traducen a slug.
+  const routeCategorySlug = category && isProductCategorySlug(category) ? category : null;
+  const legacyGroupSlugs: Record<string, string> = { home: "hogar", technology: "tecnologia" };
+  const groupScopeSlug =
+    legacyGroupSlugs[activeProductGroup] ??
+    (isProductCategorySlug(activeProductGroup) ? activeProductGroup : null);
   const isMultiCategoryView = Boolean(categoryIds?.length);
   const [filtersByGroup, setFiltersByGroup] = useSessionStorageState<
     Record<string, ProductFilterState>
@@ -210,19 +226,16 @@ export default function SearchResultsPage({
     categoryId !== undefined ||
     isMultiCategoryView;
   const isGroupedProductsView =
-    activeProductGroup !== "all" &&
+    groupScopeSlug !== null &&
     !category &&
     categoryId === undefined &&
     !isMultiCategoryView &&
     selectedCategory === null &&
     selectedCategorySlug === null;
   const showCategoryFilter = !hasCategoryContext || isGroupedProductsView;
-  const groupCategoryLabel =
-    activeProductGroup === "home"
-      ? "Hogar"
-      : activeProductGroup === "technology"
-        ? "Tecnología"
-        : "Otras categorías";
+  const groupCategoryLabel = groupScopeSlug
+    ? (getProductCategorySlugName(groupScopeSlug) ?? "Categorías")
+    : "Categorías";
   const activeFilterKey = activeProductGroup;
   const activeFilters = filtersByGroup[activeFilterKey] ?? emptyFilters;
   const {
@@ -277,18 +290,6 @@ export default function SearchResultsPage({
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [filtersOpen]);
 
-  const rootCategories = useMemo(
-    () => categories.filter((categoryItem) => categoryItem.parentId === null),
-    [categories],
-  );
-  const productGroupCategoryIds = useMemo(
-    () =>
-      rootCategories
-        .filter((categoryItem) => getProductCategoryGroup(categoryItem.name) === activeProductGroup)
-        .map((categoryItem) => categoryItem.id),
-    [activeProductGroup, rootCategories],
-  );
-
   const searchParams = useMemo<SearchProductsParams>(() => {
     const attributes: NonNullable<SearchProductsParams["attributes"]> = {};
     for (const [key, value] of Object.entries(activeFilters.selectedAttributes)) {
@@ -303,14 +304,20 @@ export default function SearchResultsPage({
         };
       }
     }
-    const categoryFromRoute = categories.find(
-      (item) => normalizeCategoryKey(item.name) === normalizeCategoryKey(category ?? ""),
-    )?.id;
+    const categoryFromRoute = routeCategorySlug
+      ? undefined
+      : categories.find(
+          (item) => normalizeCategoryKey(item.name) === normalizeCategoryKey(category ?? ""),
+        )?.id;
     return {
       query,
       category: isMultiCategoryView
         ? undefined
-        : (selectedCategorySlug ?? selectedCategory ?? categoryId ?? categoryFromRoute),
+        : (selectedCategorySlug ??
+          selectedCategory ??
+          categoryId ??
+          routeCategorySlug ??
+          categoryFromRoute),
       brandIds: [...activeFilters.selectedBrands],
       storeIds: [...activeFilters.selectedStores],
       minPrice: activeFilters.priceMin || undefined,
@@ -330,6 +337,7 @@ export default function SearchResultsPage({
     page,
     pageSize,
     query,
+    routeCategorySlug,
     selectedCategory,
     selectedCategorySlug,
     sort,
@@ -338,22 +346,24 @@ export default function SearchResultsPage({
     searchParams,
     categoryIds,
     searchAttempt,
-    productGroupCategoryIds,
+    groupScopeSlug,
     isGroupedProductsView,
   ]);
   const searching =
     loading ||
     loadedSearchKey !== searchRequestKey ||
-    (isGroupedProductsView && !categoriesLoaded) ||
     (isMultiCategoryView && !categoriesLoaded) ||
-    (Boolean(category) && !categoriesLoaded);
+    (Boolean(category) && !routeCategorySlug && !categoriesLoaded);
 
   useEffect(() => {
-    if ((isGroupedProductsView || isMultiCategoryView || category) && !categoriesLoaded) return;
+    if ((isMultiCategoryView || (Boolean(category) && !routeCategorySlug)) && !categoriesLoaded) {
+      return;
+    }
     let cancelled = false;
     const loadResults = async () => {
       if (
         category &&
+        !routeCategorySlug &&
         !categories.some(
           (item) => normalizeCategoryKey(item.name) === normalizeCategoryKey(category),
         )
@@ -370,8 +380,8 @@ export default function SearchResultsPage({
             ]
           : isGroupedProductsView
             ? [
-                searchProductsAcrossCategories(searchParams, productGroupCategoryIds),
-                getSearchFacetsAcrossCategories(searchParams, productGroupCategoryIds),
+                searchProducts({ ...searchParams, category: groupScopeSlug ?? undefined }),
+                getSearchFacets({ ...searchParams, category: groupScopeSlug ?? undefined }),
               ]
             : [searchProducts(searchParams), getSearchFacets(searchParams)],
       );
@@ -412,22 +422,23 @@ export default function SearchResultsPage({
     categories,
     category,
     categoryError,
-    productGroupCategoryIds,
     categoryIds,
+    groupScopeSlug,
     isMultiCategoryView,
     isGroupedProductsView,
-    groupCategoryLabel,
     page,
     pageSize,
+    routeCategorySlug,
     searchParams,
     searchAttempt,
     searchRequestKey,
     setPage,
   ]);
 
-  const subcategoriesOf = (parentId: number) =>
-    categories.filter((cat) => cat.parentId === parentId);
   const selectedCategoryName = categories.find((cat) => cat.id === selectedCategory)?.name ?? "";
+  const routeCategoryName = routeCategorySlug
+    ? getProductCategorySlugName(routeCategorySlug)
+    : null;
   const selectedDynamicCategoryName =
     dynamicCategories.find((item) => item.slug === selectedCategorySlug)?.name ?? "";
   const getCategoryPath = (categoryIdValue: number) => {
@@ -440,48 +451,16 @@ export default function SearchResultsPage({
     }
     return path.reverse();
   };
-  const getCategoryDescendants = (categoryIdValue: number) => {
-    const descendants = new Set([categoryIdValue]);
-    const pending = [categoryIdValue];
-    while (pending.length > 0) {
-      const current = pending.pop();
-      if (current === undefined) continue;
-      for (const child of subcategoriesOf(current)) {
-        if (!descendants.has(child.id)) {
-          descendants.add(child.id);
-          pending.push(child.id);
-        }
-      }
-    }
-    return descendants;
-  };
-  const visibleRootCategories =
-    activeProductGroup !== "all"
-      ? rootCategories.filter(
-          (categoryItem) => getProductCategoryGroup(categoryItem.name) === activeProductGroup,
-        )
-      : rootCategories;
-  const relevantCategoryNames = new Set(
-    categories
-      .filter((item) => {
-        if (selectedCategory !== null) {
-          return getCategoryDescendants(selectedCategory).has(item.id);
-        }
-        return (
-          activeProductGroup === "all" ||
-          productGroupCategoryIds.some((rootId) => getCategoryDescendants(rootId).has(item.id))
-        );
-      })
-      .flatMap((item) => [item.name, item.name.replace(/\s+/g, "")])
-      .map(normalizeCategoryKey),
-  );
-  const availableDynamicCategories = dynamicCategories.filter(
-    (item) =>
-      selectedCategorySlug !== null ||
-      (selectedCategory === null && activeProductGroup === "all") ||
-      relevantCategoryNames.has(normalizeCategoryKey(item.name)) ||
-      relevantCategoryNames.has(normalizeCategoryKey(item.slug)),
-  );
+  // Las hojas del grupo abierto acotan los atributos específicos; sin grupo
+  // (o con una hoja elegida) se ofrecen todas las categorías con atributos.
+  const groupLeafSlugs = groupScopeSlug ? getProductCategoryLeafSlugs(groupScopeSlug) : null;
+  const availableDynamicCategories =
+    selectedCategorySlug !== null || !groupLeafSlugs
+      ? dynamicCategories
+      : dynamicCategories.filter((item) => groupLeafSlugs.includes(item.slug));
+  const attributeCategorySlug = dynamicCategories.some((item) => item.slug === selectedCategorySlug)
+    ? selectedCategorySlug
+    : "";
   const selectCategory = (nextCategory: number | null) => {
     if (nextCategory === selectedCategory && selectedCategorySlug === null) return;
     setLoading(true);
@@ -539,25 +518,39 @@ export default function SearchResultsPage({
     }
   };
 
-  const renderCategoryOption = (categoryItem: ApiProductCategory, depth = 0) => (
-    <div key={categoryItem.id}>
-      <button
-        type="button"
-        aria-pressed={selectedCategory === categoryItem.id}
-        onClick={() => selectCategory(categoryItem.id)}
-        style={{ marginLeft: `${depth * 12}px` }}
-        className={`flex w-[calc(100%-0.75rem)] items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
-          selectedCategory === categoryItem.id
-            ? "bg-prime-muted font-semibold text-prime"
-            : "text-muted-2 hover:bg-surface-2 hover:text-text"
-        }`}
-      >
-        {categoryItem.name}
-        {selectedCategory === categoryItem.id && <span aria-hidden="true">✓</span>}
-      </button>
-      {subcategoriesOf(categoryItem.id).map((child) => renderCategoryOption(child, depth + 1))}
-    </div>
-  );
+  /**
+   * Pinta un nodo del árbol NV (NV1, NV2 o NV3) y sus hijos. Seleccionarlo
+   * filtra la búsqueda con `category=<slug>`, que el backend resuelve con
+   * todos sus descendientes.
+   * @param node Nodo del árbol a pintar.
+   * @param depth Profundidad para la sangría.
+   * @returns El bloque del nodo con sus hijos.
+   */
+  const renderCategoryOption = (
+    node: ProductCategorySection | ProductCategoryGroup | ProductCategoryLeaf,
+    depth = 0,
+  ) => {
+    const selected = selectedCategorySlug === node.slug && selectedCategory === null;
+    return (
+      <div key={node.slug}>
+        <button
+          type="button"
+          aria-pressed={selected}
+          onClick={() => selectDynamicCategory(node.slug)}
+          style={{ marginLeft: `${depth * 12}px` }}
+          className={`flex w-[calc(100%-0.75rem)] items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+            selected
+              ? "bg-prime-muted font-semibold text-prime"
+              : "text-muted-2 hover:bg-surface-2 hover:text-text"
+          }`}
+        >
+          {node.name}
+          {selected && <span aria-hidden="true">✓</span>}
+        </button>
+        {"children" in node && node.children.map((child) => renderCategoryOption(child, depth + 1))}
+      </div>
+    );
+  };
   const activeFilterCount =
     selectedBrands.size +
     selectedStores.size +
@@ -593,13 +586,13 @@ export default function SearchResultsPage({
                 <span aria-hidden="true">✓</span>
               )}
             </button>
-            {visibleRootCategories.map((root) => renderCategoryOption(root))}
+            {PRODUCT_CATEGORY_TREE.map((root) => renderCategoryOption(root))}
           </div>
           {availableDynamicCategories.length > 0 && (
             <label className="mt-2 block text-xs font-medium text-muted">
               Atributos específicos
               <select
-                value={selectedCategorySlug ?? ""}
+                value={attributeCategorySlug}
                 onChange={(event) => selectDynamicCategory(event.target.value)}
                 className="mt-1.5 w-full rounded-lg border border-bd bg-surface-2 px-2.5 py-2 text-sm text-text focus:border-prime focus:outline-none"
               >
@@ -811,6 +804,9 @@ export default function SearchResultsPage({
     </div>
   );
   const categoryPath = selectedCategory === null ? [] : getCategoryPath(selectedCategory);
+  const routeCategoryPath = routeCategorySlug
+    ? (findProductCategoryPath(routeCategorySlug) ?? [])
+    : [];
   const breadcrumbItems: Array<{ label: string; onClick?: () => void }> = [
     { label: "Inicio", onClick: () => navigate({ id: "home" }) },
     {
@@ -827,20 +823,32 @@ export default function SearchResultsPage({
               navigate({
                 id: "search-products",
                 query: "",
-                productGroup: activeProductGroup,
+                ...(groupScopeSlug
+                  ? { category: groupScopeSlug, categoryContext: groupCategoryLabel }
+                  : { productGroup: activeProductGroup }),
+              }),
+          }
+        : {}),
+    });
+  }
+  for (const [index, node] of routeCategoryPath.entries()) {
+    breadcrumbItems.push({
+      label: node.name,
+      ...(index < routeCategoryPath.length - 1
+        ? {
+            onClick: () =>
+              navigate({
+                id: "search-products",
+                query: "",
+                category: node.slug,
+                categoryContext: node.name,
+                resetFilters: true,
               }),
           }
         : {}),
     });
   }
   for (const [index, categoryItem] of categoryPath.entries()) {
-    if (
-      activeProductGroup !== "all" &&
-      index === 0 &&
-      getProductCategoryGroup(categoryItem.name) === activeProductGroup
-    ) {
-      continue;
-    }
     breadcrumbItems.push({
       label: categoryItem.name,
       ...(index < categoryPath.length - 1 ||
@@ -877,6 +885,7 @@ export default function SearchResultsPage({
   }
   if (
     category &&
+    !routeCategorySlug &&
     !breadcrumbItems.some(
       (item) => normalizeCategoryKey(item.label) === normalizeCategoryKey(category),
     )
@@ -934,7 +943,8 @@ export default function SearchResultsPage({
       <div className="mb-6 mt-5 flex flex-wrap items-end justify-between gap-4 border-b border-white/10 pb-5">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
-            {category ||
+            {routeCategoryName ||
+              category ||
               categoryContext ||
               selectedCategoryName ||
               selectedDynamicCategoryName ||
