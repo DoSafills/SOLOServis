@@ -1,0 +1,90 @@
+{
+  "category": {
+    "name": "Refrigeradores"
+  },
+  "products": [
+    {
+      "id": "6f1c2a3e-1b7d-4c1e-9a2f-1d2c3b4a5e01",
+      "name": "Refrigerador Samsung No Frost",
+      "brand": "Samsung",
+      "model": "RT38K",
+      "bestPrice": "549990",
+      "bestStore": "Falabella",
+      "offerCount": 3
+    },
+    {
+      "id": "6f1c2a3e-1b7d-4c1e-9a2f-1d2c3b4a5e02",
+      "name": "Refrigerador LG Side by Side",
+      "brand": "LG",
+      "model": "GS65",
+      "bestPrice": "799990",
+      "bestStore": "Ripley",
+      "offerCount": 2
+    },
+    {
+      "id": "6f1c2a3e-1b7d-4c1e-9a2f-1d2c3b4a5e03",
+      "name": "Samsung Refrigerator RF24FSEDBSR",
+      "brand": "Samsung",
+      "model": "RF24FSEDBSR",
+      "bestPrice": "1099990",
+      "bestStore": "Paris",
+      "offerCount": 1
+    }
+  ],
+  "attributes": [
+    {
+      "key": "capacidad_litros",
+      "label": "Capacidad",
+      "dataType": "integer",
+      "unit": "L",
+      "values": [380, 550, 617],
+      "differs": true
+    },
+    {
+      "key": "eficiencia_energetica",
+      "label": "Eficiencia energética",
+      "dataType": "enum",
+      "unit": null,
+      "values": ["A++", "A+", "A++"],
+      "differs": true
+    },
+    {
+      "key": "no_frost",
+      "label": "No Frost",
+      "dataType": "boolean",
+      "unit": null,
+      "values": [true, true, true],
+      "differs": false
+    },
+    {
+      "key": "peso_kg",
+      "label": "Peso",
+      "dataType": "decimal",
+      "unit": "kg",
+      "values": [65.5, 90.0, null],
+      "differs": true
+    },
+    {
+      "key": "color",
+      "label": "Color",
+      "dataType": "string",
+      "unit": null,
+      "values": ["Silver", "Black", "Silver"],
+      "differs": true
+    }
+  ],
+  "specifications": [
+    {
+      "name": "Capacidad",
+      "unit": "litros",
+      "values": ["380", "550", "617"],
+      "differs": true
+    },
+    {
+      "name": "Eficiencia energética",
+      "unit": null,
+      "values": ["A++", "A+", "A++"],
+      "differs": true
+    }
+  ]
+}

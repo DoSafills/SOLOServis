@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "products": {
+    "min": 2,
+    "max": 5,
+    "sameCategory": true
+  },
+  "question": {
+    "minLength": 1,
+    "maxLength": 300,
+    "allowHtml": false
+  },
+  "answer": {
+    "maxWords": 120,
+    "maxChars": 900,
+    "mustMentionComparedProduct": true
+  },
+  "rateLimit": {
+    "scope": "session-or-ip",
+    "perMinute": 10,
+    "perDay": 100
+  },
+  "provider": {
+    "timeoutMs": 25000,
+    "maxRetries": 1,
+    "retryOnStatus": [429, 500, 502, 503, 504]
+  },
+  "cache": {
+    "enabled": true,
+    "ttlSeconds": 86400,
+    "keyFields": ["sortedProductIds", "normalizedQuestion"]
+  }
+}
