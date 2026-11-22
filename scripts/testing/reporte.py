@@ -9,6 +9,7 @@ estados en un reporte Markdown. Solo usa la libreria estandar de Python 3.9+.
     python scripts/testing/reporte.py --postgres-docker  # con tests de integracion
     python scripts/testing/reporte.py --smoke            # suma el pod de test de k8s
     python scripts/testing/reporte.py --salud            # suma el health check del cluster
+    python scripts/testing/reporte.py --errores          # suma los errores recurrentes del cluster
 
 Sale con codigo 1 si alguna prueba falla, para poder usarlo en CI.
 """
@@ -58,6 +59,7 @@ class Suite:
     notes: list[str] = field(default_factory=list)  # Markdown extra para el detalle de la suite
 
     def count(self, status: str) -> int:
+        """Cuántos casos de la suite tienen el estado `status`."""
         return sum(1 for case in self.cases if case.status == status)
 
 
@@ -83,6 +85,7 @@ def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None, timeout: i
 
 
 def which(name: str) -> str | None:
+    """Ruta del ejecutable `name` en el PATH, o None si no está."""
     return shutil.which(name)
 
 
@@ -99,6 +102,9 @@ def trim(text: str, limit: int = MAX_ERROR_LINES, tail: bool = False) -> str:
 
 
 def suite_backend(raw_dir: Path, database_url: str | None) -> Suite:
+    """Corre `go test -json ./...` en backend/ y arma la suite con un caso por test.
+
+    Con `database_url` pasa TEST_DATABASE_URL para los tests de integración."""
     suite = Suite("backend", "Backend (Go)", "go test -json ./...")
     if not which("go"):
         suite.reason = "no se encontró `go` en el PATH"
@@ -167,6 +173,9 @@ def suite_backend(raw_dir: Path, database_url: str | None) -> Suite:
 
 
 def suite_pytest(key: str, title: str, folder: Path, python: str, raw_dir: Path) -> Suite:
+    """Corre pytest en `folder` con el intérprete `python` y arma la suite desde el XML JUnit.
+
+    Si faltan dependencias deja la suite como no ejecutada, con el motivo."""
     suite = Suite(key, title, "python -m pytest -q --junitxml=…")
     code, out = run([python, "-c", "import pytest, scrapling"], folder)
     if code != 0:
@@ -206,6 +215,7 @@ def suite_pytest(key: str, title: str, folder: Path, python: str, raw_dir: Path)
 
 
 def suite_frontend(raw_dir: Path) -> Suite:
+    """Corre `pnpm format:check`, `lint`, `build` y `audit` en fronted/; un caso por paso."""
     suite = Suite("frontend", "Frontend (chequeos estáticos)", "pnpm format:check, lint, build, audit")
     pnpm = which("pnpm") or which("pnpm.cmd")
     folder = ROOT / "fronted"
@@ -231,6 +241,7 @@ def suite_frontend(raw_dir: Path) -> Suite:
 
 
 def suite_smoke(raw_dir: Path) -> Suite:
+    """Lee el log del Job soloservis-smoke-test y arma un caso por línea OK/FALLA."""
     suite = Suite("smoke", "Kubernetes (pod de test)", "kubectl logs job/soloservis-smoke-test")
     if not which("kubectl"):
         suite.reason = "no se encontró `kubectl` en el PATH"
@@ -302,6 +313,51 @@ def suite_salud(raw_dir: Path) -> Suite:
     return suite
 
 
+# ------------------------------------------------------------------ errores
+
+
+def suite_errores(raw_dir: Path) -> Suite:
+    """Seguimiento de errores (TAL-219): corre scripts/testing/errores.py.
+
+    Cada error recurrente es un caso: falla si es grave (5xx, ERROR, reinicio,
+    corrida o Job fallido). Los aislados y el tráfico de pruebas van en notas."""
+    suite = Suite("errores", "Kubernetes (errores recurrentes)", "python scripts/testing/errores.py")
+    if not which("kubectl"):
+        suite.reason = "no se encontró `kubectl` en el PATH"
+        return suite
+    result = raw_dir / "errores.json"
+    started = time.monotonic()
+    code, out = run([sys.executable, str(ROOT / "scripts" / "testing" / "errores.py"), "--json", str(result)],
+                    ROOT, timeout=900)
+    suite.seconds = time.monotonic() - started
+    (raw_dir / "errores.txt").write_text(out, encoding="utf-8")
+    if code not in (0, 1) or not result.exists():
+        suite.reason = trim(out, 2).replace("ERROR: ", "") or "no se pudo consultar el clúster"
+        return suite
+    data = json.loads(result.read_text(encoding="utf-8"))
+
+    def label(group: dict) -> str:
+        """Nombre corto de un grupo: origen, qué y code."""
+        return f"{group['origin']}: {group['what']} {group['code']}"
+
+    for group in data["recurrent"]:
+        detail = (f"{group['real']} veces ({group['source']}), {group['first']} → {group['last']}"
+                  + (f"\n{group['cause']}" if group["cause"] else "")
+                  + (f"\nejemplo: {group['example']}" if group["example"] else ""))
+        suite.cases.append(Case(label(group), FAIL if group["grave"] else OK, detail))
+    if not suite.cases:
+        suite.cases.append(Case("Sin errores recurrentes", OK, data["header"].get("Logs de pods desde", "")))
+    for title, key in (("Una sola vez", "single"), ("Tráfico de pruebas (no cuenta)", "tests")):
+        if data[key]:
+            suite.notes += [f"**{title}:**", ""]
+            suite.notes += [f"- {g['real'] or g['count']}x {label(g)}" + (f" — {g['cause']}" if g["cause"] else "")
+                            for g in data[key]]
+            suite.notes.append("")
+    suite.notes += [f"- Aviso: {note}" for note in data["notes"]]
+    suite.status = FAIL if suite.count(FAIL) else OK
+    return suite
+
+
 # ------------------------------------------------- PostgreSQL desechable
 
 
@@ -357,6 +413,7 @@ def start_postgres(raw_dir: Path) -> tuple[str | None, str]:
 
 
 def stop_postgres() -> None:
+    """Borra el contenedor de PostgreSQL desechable que levantó start_postgres."""
     run(["docker", "rm", "-f", PG_CONTAINER], ROOT, timeout=60)
 
 
@@ -364,20 +421,24 @@ def stop_postgres() -> None:
 
 
 def version(cmd: list[str]) -> str:
+    """Primera línea de la salida de `cmd` (por ejemplo `go version`), o «no disponible»."""
     code, out = run(cmd, ROOT, timeout=30)
     return out.strip().splitlines()[0] if code == 0 and out.strip() else "no disponible"
 
 
 def git(*args: str) -> str:
+    """Salida de `git <args>` en la raíz del repo, o «desconocido» si falla."""
     code, out = run(["git", *args], ROOT, timeout=30)
     return out.strip() if code == 0 else "desconocido"
 
 
 def duration(seconds: float) -> str:
+    """Formatea segundos como «12.3 s» o «2 min 5 s»."""
     return f"{seconds:.1f} s" if seconds < 60 else f"{int(seconds // 60)} min {int(seconds % 60)} s"
 
 
 def render(suites: list[Suite], meta: dict[str, str]) -> str:
+    """Arma el reporte Markdown: encabezado `meta`, resumen, errores, omitidas y detalle por suite."""
     lines = ["# Reporte de testing", ""]
     lines += ["| Campo | Valor |", "| --- | --- |"]
     lines += [f"| {key} | {value} |" for key, value in meta.items()]
@@ -465,12 +526,17 @@ def render(suites: list[Suite], meta: dict[str, str]) -> str:
 
 
 def main() -> int:
+    """Lee los argumentos, corre las suites pedidas y escribe el reporte.
+
+    Devuelve 1 si alguna suite falla, para poder usarlo en CI."""
     parser = argparse.ArgumentParser(description="Genera el reporte de testing de SOLOServis.")
     parser.add_argument("--suites", default=",".join(SUITES),
                         help=f"suites separadas por coma (por defecto: {','.join(SUITES)})")
     parser.add_argument("--smoke", action="store_true", help="suma el pod de test de Kubernetes")
     parser.add_argument("--salud", action="store_true",
                         help="suma el health check del despliegue (scripts/testing/salud.py)")
+    parser.add_argument("--errores", action="store_true",
+                        help="suma los errores recurrentes del despliegue (scripts/testing/errores.py)")
     parser.add_argument("--postgres-docker", action="store_true",
                         help="levanta un PostgreSQL 18 desechable para los tests de integración")
     parser.add_argument("--python", default=sys.executable,
@@ -520,6 +586,9 @@ def main() -> int:
         if args.salud:
             print("Suite salud: revisando el despliegue…", flush=True)
             suites.append(suite_salud(raw_dir))
+        if args.errores:
+            print("Suite errores: juntando los errores del despliegue…", flush=True)
+            suites.append(suite_errores(raw_dir))
     finally:
         if started_pg:
             stop_postgres()
@@ -529,7 +598,8 @@ def main() -> int:
         "Fecha": f"{now:%Y-%m-%d %H:%M %z}",
         "Rama": f"`{git('rev-parse', '--abbrev-ref', 'HEAD')}`",
         "Commit": f"`{commit}`{dirty}",
-        "Suites pedidas": ", ".join(chosen + (["smoke"] if args.smoke else []) + (["salud"] if args.salud else [])),
+        "Suites pedidas": ", ".join(chosen + (["smoke"] if args.smoke else []) + (["salud"] if args.salud else [])
+                                  + (["errores"] if args.errores else [])),
         "Tests de integración": integration,
         "Go": version(["go", "version"]),
         "Python": version([args.python, "--version"]),

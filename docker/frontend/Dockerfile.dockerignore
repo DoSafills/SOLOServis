@@ -3,6 +3,7 @@
 !fronted/**
 !docker/frontend/default.conf.template
 !docker/frontend/proxy.conf
+!docker/frontend/security-headers.conf
 fronted/node_modules
 fronted/dist
 fronted/.vite
