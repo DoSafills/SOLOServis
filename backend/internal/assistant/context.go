@@ -28,6 +28,9 @@ type modelProduct struct {
 	BestPrice  *string `json:"bestPrice"`
 	BestStore  *string `json:"bestStore"`
 	OfferCount int64   `json:"offerCount"`
+	// LastUpdated permite responder «¿este precio es de hoy?» con el dato real
+	// de la oferta, no con una suposición (TAL-223).
+	LastUpdated *string `json:"lastUpdated"`
 }
 
 type modelAttribute struct {
@@ -59,13 +62,14 @@ func buildModelContext(matrix comparison.Matrix) modelContext {
 	}
 	for _, product := range matrix.Products {
 		ctx.Products = append(ctx.Products, modelProduct{
-			ID:         product.ID,
-			Name:       product.Name,
-			Brand:      product.Brand,
-			Model:      product.Model,
-			BestPrice:  product.BestPrice,
-			BestStore:  product.BestStore,
-			OfferCount: product.OfferCount,
+			ID:          product.ID,
+			Name:        product.Name,
+			Brand:       product.Brand,
+			Model:       product.Model,
+			BestPrice:   product.BestPrice,
+			BestStore:   product.BestStore,
+			OfferCount:  product.OfferCount,
+			LastUpdated: product.LastUpdated,
 		})
 	}
 	for _, attribute := range matrix.Attributes {
