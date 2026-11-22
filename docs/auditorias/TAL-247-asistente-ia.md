@@ -1,7 +1,7 @@
 # TAL-247 — Asistente de comparación con proveedor intercambiable
 
-**Estado:** integrado en `feat/backend`, sin desplegar. La llamada real al
-proveedor queda pendiente de la clave y del redeploy, que está en pausa.
+**Estado:** integrado en `feat/backend` y verificado contra DeepSeek en local.
+Sin desplegar: el redeploy está en pausa por decisión del equipo.
 
 ---
 
@@ -97,6 +97,8 @@ El wiring se hizo en las dos topologías (`dominios/comercial.yaml` y
 
 ## 4. Verificación local
 
+### 4.1. Estática
+
 ```
 go build ./...                    sin errores
 go vet ./...                      sin observaciones
@@ -108,6 +110,61 @@ docker compose config --quiet     ok
 bash -n scripts/k8s/deploy.sh     sintaxis ok
 ```
 
+### 4.2. Prueba con el proveedor real (2026-11-22)
+
+Con los cinco contenedores de `docker/compose.yml` arriba, DeepSeek configurado
+por entorno y tres refrigeradores del catálogo real:
+
+```http
+POST http://localhost:8081/comparisons/assistant
+```
+
+```json
+{
+  "productIds": ["9d212279-…", "c835e09e-…", "8e1cf996-…"],
+  "question": "¿Cuál conviene para una familia de 5 con presupuesto de 900 mil?"
+}
+```
+
+`HTTP 200` en **2,27 s**:
+
+```json
+{
+  "answer": "Con 900 mil tienes dos opciones: el LG French Door 530 L y el LG Side by Side, ambos a $899.990… Para una familia de 5, el Side by Side gana en capacidad y en eficiencia…",
+  "sources": ["9d212279-…", "c835e09e-…", "8e1cf996-…"],
+  "provider": "compatible",
+  "model": "deepseek-chat",
+  "cached": false
+}
+```
+
+La respuesta menciona los productos comparados, usa solo datos de la matriz
+(precio, litros, eficiencia) y declara lo que no tiene («No hay datos de
+garantía ni materiales»), que es el guardrail esperado.
+
+La auditoría quedó en PostgreSQL:
+
+```
+provider    | model          | prompt | output | latency | cached | success
+compatible  | deepseek-chat  |    956 |    178 |   2207  | f      | t
+compatible  | deepseek-chat  |        |        |         | t      | t
+```
+
+Repetir la misma pregunta devuelve `cached: true` y no consume cuota: la caché
+en memoria de 24 h funciona antes de llamar al proveedor.
+
+### 4.3. El resto del contrato, en el binario desplegado
+
+| Caso | Resultado |
+| --- | --- |
+| Cuota agotada (11 pedidos en un minuto) | `429 rate_limited` con `Retry-After: 34` |
+| Un solo producto | `422 validation_failed` con `errors[0].field = productIds` |
+| Campo desconocido | `400 unknown_field` |
+| Diez llamadas auditadas | 10 filas, 10 con `success`, 9 231 tokens en total |
+
+Los tres primeros son el estándar TAL-78 respondido por el handler real, no por
+un test unitario.
+
 Prueba nueva: `TestDeepSeekProvider` arma el proveedor desde el entorno
 (`AI_PROVIDER=compatible`, `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY`) contra un
 servidor simulado y verifica que la llamada va a `/v1/chat/completions`, que la
@@ -117,16 +174,21 @@ de que cambiar de proveedor es configuración y no código.
 
 ## 5. Límites y pendientes
 
-- **La llamada real a DeepSeek no se hizo**: falta la clave. El camino está
-  probado contra un servidor HTTP simulado, no contra la API.
+- **La llamada real a DeepSeek se hizo y funciona** (2026-11-22, ver §4.2). Lo
+  que sigue sin probar es el camino `gemini`, que sólo tiene cobertura de
+  servidor simulado.
 - **Nada está en el clúster**: el redeploy está en pausa por decisión del
-  equipo, y siguen sin aplicar las migraciones 026, 027, 028 y ahora 029.
+  equipo, y siguen sin aplicar las migraciones 026, 027, 028 y ahora 029. En
+  local se aplicaron solas al inicializar el volumen de PostgreSQL.
 - **El pod de test no cubre el asistente**: las 35 verificaciones no incluyen
   esta ruta; agregarla exige decidir antes cómo se prueba sin gastar cuota.
 - **`deploy.ps1` no se validó aquí**: no hay PowerShell en el equipo de
   desarrollo. El archivo quedó en ASCII y con sintaxis compatible con PS 5.1;
   la validación real ocurre en el primer despliegue desde Windows.
+- **El frontend no se probó contra el contenedor**: `docker/compose.yml` no
+  levanta el gateway; la tarjeta `ComparisonAssistantCard` se valida con
+  `pnpm dev` contra `VITE_COMPARISON_API_URL`.
 
-Cuando haya clave y redeploy, esta auditoría se completa con la evidencia real:
-respuesta del proveedor, fila en `ai_comparison_query` y el `provider`/`model`
-que devuelve `POST /comparisons/assistant`.
+Queda pendiente para la evidencia del clúster: la respuesta del proveedor desde
+el pod, la fila en `ai_comparison_query` y el `provider`/`model` que devuelve
+`POST /comparisons/assistant` en UCT.
