@@ -360,6 +360,7 @@ func TestComparisonRouter_RutasRegistradas(t *testing.T) {
 	want := []string{
 		"GET /health",
 		"GET /comparisons/products/compare",
+		"POST /comparisons/assistant",
 		"GET /comparisons/compatible/{productId}",
 		"POST /comparisons/products",
 		"GET /comparisons/products",

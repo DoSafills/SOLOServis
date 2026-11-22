@@ -40,3 +40,6 @@
 # TAL-189: índices de las búsquedas de Ingestion y texto de búsqueda normalizado.
 027_ingestion_lookup_indexes.sql
 028_product_search_text.sql
+# TAL-247: la rama del asistente la traía como 022, pero ese número ya lo usa
+# develop. Va al final para no cambiar el checksum de una migración aplicada.
+029_ai_comparison_query.sql

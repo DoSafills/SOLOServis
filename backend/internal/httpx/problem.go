@@ -34,6 +34,10 @@ const (
 	CodeInternalError        = "internal_error"
 	CodeServiceUnavailable   = "service_unavailable"
 	CodeRateLimited          = "rate_limited"
+	// CodeAIUnavailable distingue «el proveedor de IA no respondió o no hay
+	// clave configurada» de una caída de la base. El cliente reintenta igual,
+	// pero el log y el frontend saben que el problema es del asistente.
+	CodeAIUnavailable = "ai_unavailable"
 )
 
 const (
