@@ -405,8 +405,18 @@ function Build-Rendered {
   return ''
 }
 
-function Apply-Component([string]$Selector) {
-  $out = K apply -f $Rendered -l $Selector
+# Apply-Component aplica del render los objetos con la etiqueta $Selector y
+# devuelve $true si kubectl termino bien. Con -ServerSide usa server-side apply:
+# el apply normal guarda una copia del objeto en la anotacion
+# last-applied-configuration, que no puede pasar de 256 KB, y el ConfigMap de
+# migraciones ya ronda ese tamano. --force-conflicts toma los campos que antes
+# dejo el apply normal.
+function Apply-Component([string]$Selector, [switch]$ServerSide) {
+  if ($ServerSide) {
+    $out = K apply --server-side --force-conflicts -f $Rendered -l $Selector
+  } else {
+    $out = K apply -f $Rendered -l $Selector
+  }
   Show $out
   return ($script:KExit -eq 0)
 }
@@ -810,7 +820,7 @@ function Phase5 {
   Step 'Recreando Job soloservis-migrate (los Jobs son inmutables)'
   Show (K delete job soloservis-migrate --ignore-not-found --wait=true --timeout=120s)
   $null = Apply-Component 'app.kubernetes.io/component=config'
-  $ok = Apply-Component 'app.kubernetes.io/component=migrations'
+  $ok = Apply-Component 'app.kubernetes.io/component=migrations' -ServerSide
   if (-not $ok) { $cp['Migration Job'] = 'ERROR'; Stop-Phase 5 $cp 'kubectl apply fallo' }
 
   Step 'Esperando el Job (max 5 min)'
