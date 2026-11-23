@@ -142,14 +142,30 @@ func (e *env) register(name string) (session, string) {
 	return s, email
 }
 
-// seedOffer devuelve un producto activo con una oferta disponible del seed.
-func (e *env) seedOffer() (productID string, offerID, storeID int32) {
+// newOffer crea un refrigerador activo con una oferta disponible en una tienda
+// propia del test (TAL-241: el seed ya no trae productos). Al terminar se
+// borran la tienda y el producto, y con ellos la oferta y su historial.
+func (e *env) newOffer() (productID string, offerID, storeID int32) {
 	e.t.Helper()
-	err := e.pool.QueryRow(context.Background(), `
-		SELECT p.public_id::text, o.id, o.store_id FROM product p JOIN product_offer o ON o.product_id = p.id
-		WHERE p.active AND o.available ORDER BY p.id, o.id LIMIT 1`).Scan(&productID, &offerID, &storeID)
-	if err != nil {
-		e.t.Fatalf("seed sin ofertas (¿faltan migraciones?): %v", err)
+	ctx := context.Background()
+	var id int32
+	e.t.Cleanup(func() {
+		_, _ = e.pool.Exec(context.Background(), `DELETE FROM product WHERE id = $1`, id)
+		_, _ = e.pool.Exec(context.Background(), `DELETE FROM store WHERE id = $1`, storeID)
+	})
+	if err := e.pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda oferta "+e.tag).Scan(&storeID); err != nil {
+		e.t.Fatalf("crear tienda: %v", err)
+	}
+	if err := e.pool.QueryRow(ctx, `
+		INSERT INTO product (category_id, category_ref, name)
+		SELECT c.legacy_product_category_id, c.id, $1 FROM categories c WHERE c.slug = 'refrigeradores'
+		RETURNING id, public_id::text`, "Refrigerador "+e.tag).Scan(&id, &productID); err != nil {
+		e.t.Fatalf("crear producto: %v", err)
+	}
+	if err := e.pool.QueryRow(ctx, `
+		INSERT INTO product_offer (product_id, store_id, price, available, product_url)
+		VALUES ($1, $2, 549990, true, $3) RETURNING id`, id, storeID, "https://integracion.test/oferta-"+e.tag).Scan(&offerID); err != nil {
+		e.t.Fatalf("crear oferta: %v", err)
 	}
 	return productID, offerID, storeID
 }
@@ -385,7 +401,7 @@ func TestIntegracion_Comercial(t *testing.T) {
 	e := newEnv(t)
 	s, _ := e.register("beto")
 	user := s.UserID
-	productID, offerID, storeID := e.seedOffer()
+	productID, offerID, storeID := e.newOffer()
 
 	t.Run("lecturas product, store, service, search y comparison", func(t *testing.T) {
 		e.expect(http.StatusOK, "comercial", "GET", "/products/"+productID, "", nil)
@@ -512,11 +528,20 @@ func TestIntegracion_IngestionNotificaAComercial(t *testing.T) {
 	source := "Scraper " + e.tag
 	t.Cleanup(func() { _, _ = e.pool.Exec(context.Background(), `DELETE FROM data_source WHERE name = $1`, source) })
 
-	// Producto del seed (LG GM53): ingestion lo encuentra por marca y modelo.
+	// Producto ya catalogado con marca y modelo, creado por el test (TAL-241: el
+	// seed ya no trae productos): ingestion lo encuentra por marca y modelo.
+	brand := "Marca " + e.tag
 	var productID string
-	if err := e.pool.QueryRow(context.Background(), `SELECT p.public_id::text FROM product p JOIN brand b ON b.id = p.brand_id
-		WHERE b.name = 'LG' AND p.model = 'GM53'`).Scan(&productID); err != nil {
-		t.Fatalf("producto del seed: %v", err)
+	t.Cleanup(func() {
+		_, _ = e.pool.Exec(context.Background(), `DELETE FROM product WHERE public_id::text = $1`, productID)
+		_, _ = e.pool.Exec(context.Background(), `DELETE FROM brand WHERE name = $1`, brand)
+	})
+	if err := e.pool.QueryRow(context.Background(), `
+		WITH b AS (INSERT INTO brand (name) VALUES ($1) RETURNING id)
+		INSERT INTO product (category_id, category_ref, brand_id, name, model)
+		SELECT c.legacy_product_category_id, c.id, b.id, $2, 'GM53' FROM categories c, b WHERE c.slug = 'refrigeradores'
+		RETURNING public_id::text`, brand, "Refrigerador "+e.tag).Scan(&productID); err != nil {
+		t.Fatalf("crear producto catalogado: %v", err)
 	}
 	e.expect(http.StatusCreated, "comercial", "POST", "/watchlist", s.AccessToken, map[string]any{"productId": productID, "targetPrice": 500000})
 
@@ -528,8 +553,8 @@ func TestIntegracion_IngestionNotificaAComercial(t *testing.T) {
 	_ = json.Unmarshal(data, &run)
 	item := func(price int) {
 		t.Helper()
-		e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/items", run.ID), ingestionToken, map[string]any{"items": []any{
-			map[string]any{"externalId": "lg-gm53", "product": map[string]any{"name": "Refrigerador LG", "brand": "LG", "model": "GM53"},
+		e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/items", run.ID), internalToken, map[string]any{"items": []any{
+			map[string]any{"externalId": "lg-gm53", "product": map[string]any{"name": "Refrigerador LG", "brand": brand, "model": "GM53"},
 				"offer": map[string]any{"price": price, "productUrl": "https://integracion.test/" + e.tag}},
 		}})
 	}
@@ -566,7 +591,7 @@ func TestIntegracion_AccesoCruzado(t *testing.T) {
 	e := newEnv(t)
 	ana, _ := e.register("ana-idor")
 	beto, _ := e.register("beto-idor")
-	productID, _, _ := e.seedOffer()
+	productID, _, _ := e.newOffer()
 	var serviceID string
 	if err := e.pool.QueryRow(context.Background(), `SELECT public_id::text FROM service WHERE active ORDER BY id LIMIT 1`).Scan(&serviceID); err != nil {
 		t.Fatalf("seed sin servicios: %v", err)

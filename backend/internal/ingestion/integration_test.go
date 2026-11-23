@@ -41,7 +41,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	tag := "tal77-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	source := "Scraper " + tag
 	brand := "Marca " + tag
-	var storeID, otherStoreID, userID int32
+	var storeID, otherStoreID, userID, lgBrandID int32
 
 	// Limpieza registrada antes de crear datos.
 	t.Cleanup(func() {
@@ -51,6 +51,10 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = ANY($1)`, []int32{storeID, otherStoreID})
 		_, _ = pool.Exec(ctx, `DELETE FROM brand WHERE name = $1`, brand)
 		_, _ = pool.Exec(ctx, `DELETE FROM user_account WHERE id = $1`, userID)
+		// Sin productos del seed, EnsureBrand puede crear LG: se borra si quedó
+		// sin productos, para no dejar una marca vacía en la base.
+		_, _ = pool.Exec(ctx, `DELETE FROM brand b WHERE b.id = $1
+			AND NOT EXISTS (SELECT 1 FROM product p WHERE p.brand_id = b.id)`, lgBrandID)
 	})
 	must := func(err error, what string) {
 		t.Helper()
@@ -68,6 +72,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	runs := NewRepository(pool)
 	brandID, err := runs.EnsureBrand(ctx, "LG")
 	must(err, "buscar marca LG")
+	lgBrandID = brandID
 	for _, variant := range []string{"lg", "L.G."} {
 		variantID, err := runs.EnsureBrand(ctx, variant)
 		must(err, "buscar variante de marca "+variant)
@@ -123,16 +128,21 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	}
 
 	// 2. Lote mixto.
+	// Un producto ya catalogado, de marca LG, creado por el test (TAL-241: el
+	// seed ya no trae productos). El nombre termina en el tag para la limpieza.
 	var seedPublicID string
-	must(pool.QueryRow(ctx, `SELECT p.public_id::text FROM product p JOIN brand b ON b.id = p.brand_id
-		WHERE b.name = 'LG' AND p.model = 'GM53'`).Scan(&seedPublicID), "producto del seed")
+	seedModel := strings.ToUpper("GM53-" + tag)
+	must(pool.QueryRow(ctx, `
+		INSERT INTO product (category_id, category_ref, brand_id, name, model)
+		SELECT c.legacy_product_category_id, c.id, $1, $2, $3 FROM categories c WHERE c.slug = 'refrigeradores'
+		RETURNING public_id::text`, brandID, "Refri catalogado "+tag, seedModel).Scan(&seedPublicID), "producto catalogado")
 
 	result := items(run.ID,
 		map[string]any{"externalId": "e-1", "product": map[string]any{"sku": tag + "-1", "name": "Refri " + tag,
 			"brand": brand, "model": "M1", "categorySlug": "refrigeradores", "attributes": map[string]any{"capacidad_litros": 350}},
 			"offer": map[string]any{"price": 300000, "productUrl": "https://tienda.example.test/p/1"}},
 		map[string]any{"externalId": "e-2", "product": map[string]any{"sku": tag + "-sku-de-la-tienda",
-			"name": "lo que diga la tienda", "brand": "lg", "model": "gm53"},
+			"name": "lo que diga la tienda", "brand": "lg", "model": strings.ToLower(seedModel)},
 			"offer": map[string]any{"price": 888888}},
 		map[string]any{"externalId": "e-3", "product": map[string]any{"sku": tag + "-3", "name": "Sin atributo",
 			"categorySlug": "refrigeradores"}, "offer": map[string]any{"price": 1}},
@@ -147,7 +157,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		t.Fatalf("resultados = %v, quiero %v", statuses, want)
 	}
 	if result.Results[1].ProductID != seedPublicID {
-		t.Fatal("un SKU desconocido con marca + modelo del seed debe encontrar ese producto, no duplicarlo")
+		t.Fatal("un SKU desconocido con marca + modelo de un producto catalogado debe encontrar ese producto, no duplicarlo")
 	}
 
 	// El producto nuevo quedó con categoría, atributos y la marca creada.
@@ -160,7 +170,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	if categorySlug != "refrigeradores" || brandName != brand || capacity != "350" {
 		t.Fatalf("producto creado = %s %s %s", categorySlug, brandName, capacity)
 	}
-	// El producto del seed no se modificó (el nombre del ítem se ignora).
+	// El producto catalogado no se modificó (el nombre del ítem se ignora).
 	var seedName string
 	must(pool.QueryRow(ctx, `SELECT name FROM product WHERE public_id = $1::uuid`, seedPublicID).Scan(&seedName), "seed")
 	if seedName == "lo que diga la tienda" {
