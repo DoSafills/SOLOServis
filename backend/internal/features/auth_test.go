@@ -25,9 +25,16 @@ var testPasswordHash = func() string {
 // Reglas de issueTokens: lee el usuario, poda sus sesiones (TAL-200) y
 // guarda la nueva.
 var (
-	userProfile   = qRow("SELECT name,email FROM user_account", "Ana", "ana@mail.cl")
+	userProfile = qRow("SELECT name,email,public_id::text,avatar_mime IS NOT NULL",
+		"Ana", "ana@mail.cl", "00000000-0000-0000-0000-000000000007", true)
 	pruneSessions = qExec("DELETE FROM user_session WHERE user_id=$1 AND", 0)
 	saveSession   = qExec("INSERT INTO user_session", 1)
+)
+
+// Atributos de la cookie del refresh token al emitirla y al vencerla.
+var (
+	refreshCookieSet        = []string{"refresh_token=", "Path=/auth", "Max-Age=2592000", "HttpOnly", "Secure", "SameSite=Strict"}
+	expiredRefreshCookieSet = []string{"refresh_token=", "Max-Age=0", "Path=/auth", "HttpOnly", "Secure", "SameSite=Strict"}
 )
 
 func TestAuthAPI(t *testing.T) {
@@ -42,8 +49,11 @@ func TestAuthAPI(t *testing.T) {
 	runCases(t, "auth-api", []apiCase{
 		// POST /auth/register
 		{name: "register/feliz", method: http.MethodPost, target: "/auth/register", body: register, token: "-",
-			rules:      []rule{qRow(insertUser, int32(7)), userProfile, pruneSessions, saveSession},
-			wantStatus: http.StatusCreated, wantBody: `"accessToken"`},
+			rules:         []rule{qRow(insertUser, int32(7)), userProfile, pruneSessions, saveSession},
+			wantStatus:    http.StatusCreated,
+			wantBody:      `"accessToken"`,
+			wantBodyNot:   `"refreshToken"`,
+			wantSetCookie: refreshCookieSet},
 		{name: "register/json malformado", method: http.MethodPost, target: "/auth/register", body: `{"name":`, token: "-",
 			wantStatus: http.StatusBadRequest, wantCode: httpx.CodeMalformedJSON},
 		{name: "register/campo desconocido", method: http.MethodPost, target: "/auth/register", body: `{"nombre":"Ana"}`, token: "-",
@@ -63,8 +73,17 @@ func TestAuthAPI(t *testing.T) {
 
 		// POST /auth/login
 		{name: "login/feliz", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
-			rules:      []rule{qRow(findUser, int32(7), testPasswordHash), userProfile, pruneSessions, saveSession},
-			wantStatus: http.StatusOK, wantBody: `"refreshToken"`},
+			rules:         []rule{qRow(findUser, int32(7), testPasswordHash), userProfile, pruneSessions, saveSession},
+			wantStatus:    http.StatusOK,
+			wantBody:      `"avatarUrl":"/users/00000000-0000-0000-0000-000000000007/avatar"`,
+			wantBodyNot:   `"refreshToken"`,
+			wantSetCookie: refreshCookieSet},
+		{name: "login/refreshToken en el body", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
+			headers:       map[string]string{"X-Refresh-In-Body": "1"},
+			rules:         []rule{qRow(findUser, int32(7), testPasswordHash), userProfile, pruneSessions, saveSession},
+			wantStatus:    http.StatusOK,
+			wantBody:      `"refreshToken"`,
+			wantSetCookie: refreshCookieSet},
 		{name: "login/reglas", method: http.MethodPost, target: "/auth/login", body: `{"email":"","password":""}`, token: "-",
 			wantStatus: http.StatusUnprocessableEntity, wantCode: httpx.CodeValidationFailed,
 			wantFields: []string{"email/required", "password/required"}},
@@ -79,7 +98,7 @@ func TestAuthAPI(t *testing.T) {
 			rules:      []rule{qFail(findUser, errBoom)},
 			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 		{name: "login/usuario desactivado al emitir tokens", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
-			rules:      []rule{qRow(findUser, int32(7), testPasswordHash), qNoRows("SELECT name,email FROM user_account")},
+			rules:      []rule{qRow(findUser, int32(7), testPasswordHash), qNoRows("SELECT name,email,public_id")},
 			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
 		{name: "login/falla al podar sesiones", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
 			rules:      []rule{qRow(findUser, int32(7), testPasswordHash), userProfile, qFail(pruneSessions.sql, errBoom)},
@@ -90,10 +109,19 @@ func TestAuthAPI(t *testing.T) {
 
 		// POST /auth/refresh
 		{name: "refresh/feliz", method: http.MethodPost, target: "/auth/refresh", body: `{"refreshToken":"r"}`, token: "-",
-			rules:      []rule{qRow(rotate, int32(7), float64(3600)), userProfile, pruneSessions, saveSession},
-			wantStatus: http.StatusOK, wantBody: `"accessToken"`},
+			rules:         []rule{qRow(rotate, int32(7), float64(3600)), userProfile, pruneSessions, saveSession},
+			wantStatus:    http.StatusOK,
+			wantBody:      `"accessToken"`,
+			wantSetCookie: refreshCookieSet},
+		{name: "refresh/desde cookie", method: http.MethodPost, target: "/auth/refresh", token: "-",
+			cookie:        "refresh_token=r",
+			rules:         []rule{qRow(rotate, int32(7), float64(3600)), userProfile, pruneSessions, saveSession},
+			wantStatus:    http.StatusOK,
+			wantBody:      `"accessToken"`,
+			wantBodyNot:   `"refreshToken"`,
+			wantSetCookie: refreshCookieSet},
 		{name: "refresh/cuenta desactivada", method: http.MethodPost, target: "/auth/refresh", body: `{"refreshToken":"r"}`, token: "-",
-			rules:      []rule{qRow(rotate, int32(7), float64(3600)), qNoRows("SELECT name,email FROM user_account")},
+			rules:      []rule{qRow(rotate, int32(7), float64(3600)), qNoRows("SELECT name,email,public_id")},
 			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
 		{name: "refresh/reglas", method: http.MethodPost, target: "/auth/refresh", body: `{}`, token: "-",
 			wantStatus: http.StatusUnprocessableEntity, wantCode: httpx.CodeValidationFailed,
@@ -107,13 +135,21 @@ func TestAuthAPI(t *testing.T) {
 
 		// POST /auth/logout
 		{name: "logout/con bearer", method: http.MethodPost, target: "/auth/logout",
-			rules:      []rule{qExec("DELETE FROM user_session WHERE access_token_hash", 1)},
-			wantStatus: http.StatusNoContent},
+			rules:         []rule{qExec("DELETE FROM user_session WHERE access_token_hash", 1)},
+			wantStatus:    http.StatusNoContent,
+			wantSetCookie: expiredRefreshCookieSet},
 		{name: "logout/con refreshToken en el body", method: http.MethodPost, target: "/auth/logout", body: `{"refreshToken":"r"}`, token: "-",
-			rules:      []rule{qExec("DELETE FROM user_session WHERE access_token_hash", 1)},
-			wantStatus: http.StatusNoContent},
+			rules:         []rule{qExec("DELETE FROM user_session WHERE access_token_hash", 1)},
+			wantStatus:    http.StatusNoContent,
+			wantSetCookie: expiredRefreshCookieSet},
+		{name: "logout/desde cookie", method: http.MethodPost, target: "/auth/logout", token: "-",
+			cookie:        "refresh_token=r",
+			rules:         []rule{qExec("DELETE FROM user_session WHERE access_token_hash", 1)},
+			wantStatus:    http.StatusNoContent,
+			wantSetCookie: expiredRefreshCookieSet},
 		{name: "logout/sin sesión que cerrar", method: http.MethodPost, target: "/auth/logout", token: "-",
-			wantStatus: http.StatusNoContent},
+			wantStatus:    http.StatusNoContent,
+			wantSetCookie: expiredRefreshCookieSet},
 		{name: "logout/json malformado", method: http.MethodPost, target: "/auth/logout", body: `{"refreshToken":`, token: "-",
 			wantStatus: http.StatusBadRequest, wantCode: httpx.CodeMalformedJSON},
 		{name: "logout/error interno", method: http.MethodPost, target: "/auth/logout",
