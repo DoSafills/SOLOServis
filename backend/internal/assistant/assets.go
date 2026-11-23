@@ -9,9 +9,10 @@ import (
 )
 
 // Los archivos se copian desde assistant/ con scripts/sync-assistant-assets.sh.
-// Solo se embebe lo que el backend usa en tiempo de ejecución.
+// Solo se embebe lo que el backend usa en tiempo de ejecución o lo que los
+// tests necesitan leer sin depender de rutas del repo.
 //
-//go:embed assets/config/ai.config.json assets/config/limits.json assets/prompts/system.es.md assets/context/allowed-fields.json
+//go:embed assets/config/ai.config.json assets/config/limits.json assets/prompts/system.es.md assets/context/allowed-fields.json assets/context/example-comparison.json assets/evals/cases.json
 var embedded embed.FS
 
 const (
@@ -19,6 +20,8 @@ const (
 	limitsPath    = "assets/config/limits.json"
 	promptPath    = "assets/prompts/system.es.md"
 	allowlistPath = "assets/context/allowed-fields.json"
+	fixturePath   = "assets/context/example-comparison.json"
+	evalsPath     = "assets/evals/cases.json"
 )
 
 // LoadConfig lee la configuración embebida y aplica AI_PROVIDER / AI_MODEL.
@@ -139,6 +142,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Limits.Cache.TTLSeconds <= 0 {
 		c.Limits.Cache.TTLSeconds = 86400
+	}
+	if c.Limits.Context.MaxBytes <= 0 {
+		c.Limits.Context.MaxBytes = DefaultMaxContextBytes
 	}
 }
 

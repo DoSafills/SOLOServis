@@ -29,12 +29,16 @@ func TestTAL66UniqueConstraintsRejectNormalizedDuplicates(t *testing.T) {
 		t.Fatal("normalized duplicate store name was accepted")
 	}
 
+	// La oferta propia del test trae su fila de historial (TAL-241: el seed ya
+	// no trae ofertas).
+	offerID := repositoryTestOffer(t, pool)
 	_, err = pool.Exec(ctx, `
 		INSERT INTO product_price_history (product_offer_id, price, recorded_at)
 		SELECT product_offer_id, price, recorded_at
 		FROM product_price_history
+		WHERE product_offer_id = $1
 		ORDER BY id
-		LIMIT 1`)
+		LIMIT 1`, offerID)
 	if err == nil {
 		t.Fatal("duplicate history row for same offer, price and instant was accepted")
 	}

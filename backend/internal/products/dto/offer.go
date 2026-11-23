@@ -53,5 +53,6 @@ func FromProductOffer(offer generated.ListProductOffersRow) ProductOffer {
 		Stock:        stock,
 		Condition:    offer.Condition,
 		ProductURL:   productURL,
+		LastUpdated:  formatTime(offer.LastUpdated.Time, offer.LastUpdated.Valid),
 	}
 }

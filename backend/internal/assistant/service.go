@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -72,9 +71,20 @@ func (s *Service) Ask(ctx context.Context, in AskInput) (Answer, error) {
 		return cached, nil
 	}
 
-	contextJSON, err := json.Marshal(buildModelContext(in.Matrix))
+	maxBytes := s.cfg.Limits.Context.MaxBytes
+	contextJSON, dropped, err := encodeModelContext(in.Matrix, maxBytes)
 	if err != nil {
 		return Answer{}, fmt.Errorf("armar contexto del asistente: %w", err)
+	}
+	if s.logger != nil && dropped > 0 {
+		// TAL-181: el recorte se avisa porque el modelo responde con menos
+		// filas de las que ve el usuario en la comparación.
+		s.logger.Warn("assistant_context_trimmed",
+			"products", len(in.Matrix.Products),
+			"rows_dropped", dropped,
+			"context_bytes", len(contextJSON),
+			"max_bytes", maxBytes,
+		)
 	}
 	if s.logger != nil {
 		s.logger.Debug("assistant_context_built",

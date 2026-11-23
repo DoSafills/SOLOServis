@@ -27,20 +27,18 @@ corresponde a `products[i]`. Un producto sin ese dato lleva `null`.
   "category": { "name": "Refrigeradores" },
   "products": [
     {
-      "id": "3f1c…",
       "name": "Refrigerador Samsung No Frost",
       "brand": "Samsung",
       "model": "RT38K",
       "bestPrice": "549990",
       "bestStore": "Falabella",
-      "offerCount": 3
+      "offerCount": 3,
+      "lastUpdated": "2026-11-20T23:01:31Z"
     }
   ],
   "attributes": [
     {
-      "key": "capacidad_litros",
       "label": "Capacidad",
-      "dataType": "integer",
       "unit": "L",
       "values": [380, 550, null],
       "differs": true
@@ -62,11 +60,18 @@ corresponde a `products[i]`. Un producto sin ese dato lleva `null`.
 - `bestPrice` es el menor precio **total** (precio + envío) en pesos chilenos,
   como cadena sin separadores ni símbolo. Si no hay ofertas disponibles, `null`.
 - `offerCount` cuenta solo ofertas disponibles de tiendas activas.
-- `attributes[].values` usa el tipo de `dataType`: número para `integer` y
-  `decimal`, booleano para `boolean`, cadena para `string` y `enum`.
+- `attributes[].values` va tipado según el atributo: número para `integer` y
+  `decimal`, booleano para `boolean`, cadena para `string` y `enum`. El tipo, la
+  clave del atributo y el UUID del producto no se envían: el modelo no los usa.
+- Una especificación que repite un atributo (mismo nombre que su etiqueta o
+  clave, y el atributo tiene el dato en los mismos productos) no se envía.
 - `differs` se calcula comparando todos los valores, incluidos los `null`.
 - No se incluye `imageUrl`, descripciones largas ni URLs de tienda: no aportan a
   la decisión y consumen tokens.
 - Si una fila no tiene ningún valor, no se envía.
 - El JSON va compacto (sin indentación) dentro de `<productos>…</productos>`.
+- El JSON no supera `context.maxBytes` de `config/limits.json` (8192). Si se
+  pasa, se quitan primero las filas con `differs` en false y después las
+  últimas filas, especificaciones antes que atributos; productos y categoría no
+  se tocan. El backend lo registra como `assistant_context_trimmed`.
 - La pregunta va recortada, sin HTML y dentro de `<pregunta>…</pregunta>`.

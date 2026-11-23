@@ -645,7 +645,8 @@ curl -sS -X POST http://scraper-api:8095/runs/42/stop -H "Authorization: Bearer 
 ```
 
 Auth: `Authorization: Bearer $SCRAPER_API_TOKEN` (falls back to
-`INTERNAL_API_TOKEN`). If no token is configured, every protected endpoint
+`INTERNAL_API_TOKEN`; at least 32 characters, or the process refuses to start).
+If no token is configured, every protected endpoint
 (`/stores`, `/runs`, `/tasks`) answers `503`; health and readiness stay
 available for probes.
 
@@ -813,7 +814,7 @@ in `SCRAPED_DATA` and the catalog for replay.
 | `SCRAPER_BACKOFF_BASE` | `1.0` | Exponential backoff base, seconds. |
 | `SCRAPER_API_HOST` | `0.0.0.0` | Bind address. |
 | `SCRAPER_API_PORT` | `8095` | Bind port. |
-| `SCRAPER_API_TOKEN` | `INTERNAL_API_TOKEN` | Bearer token for the control API. |
+| `SCRAPER_API_TOKEN` | `INTERNAL_API_TOKEN` | Bearer token for the control API (≥ 32 chars; a shorter one stops the process). In Kubernetes both tokens come from the `soloservis-scraper` Secret. |
 | `SCRAPER_STOP_TIMEOUT` | `20` | Grace period for a controlled stop. |
 | `INGESTION_API_URL` | empty | Ingestion base URL. |
 | `INGESTION_API_TOKEN` | `INTERNAL_API_TOKEN` | Bearer token (≥ 32 chars). |

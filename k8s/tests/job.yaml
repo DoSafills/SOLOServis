@@ -34,10 +34,11 @@ spec:
           image: curlimages/curl:8.11.1
           command: ["sh", "/scripts/smoke-test.sh"]
           env:
-            # Para probar una ruta interna (ADMIN). El script nunca lo imprime.
-            - name: INTERNAL_API_TOKEN
+            # Token del scraper, para probar /ingestion/* con token (TAL-199).
+            # El script nunca lo imprime.
+            - name: SCRAPER_TOKEN
               valueFrom:
-                secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+                secretKeyRef: {name: soloservis-scraper, key: SCRAPER_TOKEN, optional: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

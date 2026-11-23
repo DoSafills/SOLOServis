@@ -46,6 +46,7 @@ ENV NGINX_ENVSUBST_FILTER="_UPSTREAM$"     PRODUCT_UPSTREAM=product-api:8081    
 
 COPY docker/frontend/default.conf.template /etc/nginx/templates/default.conf.template
 COPY docker/frontend/proxy.conf /etc/nginx/soloservis-proxy.conf
+COPY docker/frontend/security-headers.conf /etc/nginx/soloservis-security-headers.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 EXPOSE 8080

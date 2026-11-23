@@ -64,8 +64,11 @@ type Problem struct {
 	Errors    []FieldError `json:"errors,omitempty"`
 }
 
-// WriteProblem responde un error con el formato estándar.
+// WriteProblem responde un error con el formato estándar: recibe el status,
+// el code estable, el detalle para el usuario y los errores por campo. Además
+// deja el code anotado para que AccessLog lo registre (TAL-250).
 func WriteProblem(w http.ResponseWriter, r *http.Request, status int, code, detail string, fieldErrors ...FieldError) {
+	recordProblemCode(r.Context(), code)
 	problem := Problem{
 		Type:      "about:blank",
 		Title:     http.StatusText(status),

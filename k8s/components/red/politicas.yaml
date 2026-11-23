@@ -1,0 +1,369 @@
+# NetworkPolicies de SOLOServis (TAL-197). Las reglas se suman: un paquete pasa
+# si alguna política lo permite, y cada conexión necesita salida en el origen y
+# entrada en el destino. Los puertos son los del contenedor, no los del Service
+# (frontend:80 llega al pod en el 8080).
+#
+# Mapa de lo permitido:
+#   Ingress UCT     -> frontend:8080
+#   frontend        -> APIs:8080, scraper-api:8095 y sí mismo (salud.py)
+#   APIs            -> postgres:5432; ingestion -> comercial:8080
+#   comercial       -> internet:443 (proveedor de IA)
+#   scraper-api     -> ingestion:8080 (o backend) e internet:80/443
+#   scraper-trigger -> scraper-api:8095
+#   migraciones     -> postgres:5432
+#   pods de test    -> frontend, APIs y scraper-api
+#   todos           -> DNS:53
+#
+# Las sondas de kubelet salen del nodo, no de un pod, y los CNI habituales
+# (Calico, Cilium, Canal) las dejan pasar sin regla. kubectl exec y
+# port-forward tampoco pasan por la red del pod.
+
+# 1. Base: nada entra ni sale de ningún pod del namespace salvo lo de abajo.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: denegar-todo
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# 2. DNS para todos los pods: sin esto no se resuelve ni "postgres". Se abre el
+# 53 hacia cualquier destino porque el namespace y las etiquetas del DNS del
+# clúster no se pueden consultar desde el rol de estudiante.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: permitir-dns
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+# 3. frontend (nginx, el gateway). Entrada desde cualquier origen en el 8080:
+# es la puerta pública y el controlador de Ingress de UCT vive en un namespace
+# que no podemos ver, así que restringir el origen no agrega seguridad y sí
+# riesgo de dejar el sitio sin tráfico. La salida queda limitada a las APIs,
+# al scraper (salud.py consulta su /health desde este pod) y a sí mismo
+# (salud.py prueba frontend:80 desde el mismo pod).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: 8080}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: scraper-api
+      ports:
+        - {protocol: TCP, port: 8095}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: frontend
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+# 4. Entrada común de las APIs (comercial, usuarios, ingestion o backend):
+# solo desde el gateway y los pods de test (smoke test y visor de llamadas).
+# Así nadie del namespace se salta el limit_except ni las rutas no publicadas.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-entrada
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: frontend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: test
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+# 5. El scraper entrega lo extraído a ingestion (en consolidado, a backend).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingestion-entrada-scraper
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [ingestion, backend]}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: scraper-api
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+# 6. La única llamada entre dominios: ingestion avisa a notification, que vive
+# en comercial (NOTIFICATION_API_URL=http://comercial:8080).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: comercial-entrada-ingestion
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: comercial
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingestion
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+# 7. Salida de las APIs: PostgreSQL (también el initContainer espera-postgres,
+# que corre en el mismo pod) y las otras APIs en el 8080 (ingestion ->
+# comercial; dentro de un mismo dominio las llamadas van a 127.0.0.1 y no
+# pasan por la red).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-salida
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - {protocol: TCP, port: 5432}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+# 8. El asistente de comparación llama al proveedor de IA por HTTPS
+# (AI_BASE_URL). Solo comercial (o backend) y solo hacia IPs públicas: los
+# rangos privados quedan fuera para no abrir de paso la red interna del clúster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: comercial-salida-ia
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [comercial, backend]}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - {protocol: TCP, port: 443}
+---
+# 9. PostgreSQL: solo las APIs y el Job de migraciones. salud.py entra con
+# kubectl exec, que no pasa por la red.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-entrada
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: soloservis-migrate
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+# 10. API de control del scraper: la llaman el CronJob scraper-trigger, los
+# pods de test y salud.py (desde el pod del frontend). Además exige el token.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scraper-entrada
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: scraper-api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: scraper-trigger
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: test
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: frontend
+      ports:
+        - {protocol: TCP, port: 8095}
+---
+# 11. Salida del scraper: ingestion (o backend) y las tiendas por HTTP/HTTPS.
+# Las tiendas son IPs públicas; los rangos privados quedan fuera, así el
+# scraper no llega a postgres ni a las otras APIs aunque lo comprometan.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scraper-salida
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: scraper-api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [ingestion, backend]}
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - {protocol: TCP, port: 80}
+        - {protocol: TCP, port: 443}
+---
+# 12. CronJob scraper-trigger: solo habla con la API del scraper.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scraper-trigger-salida
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: scraper-trigger
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: scraper-api
+      ports:
+        - {protocol: TCP, port: 8095}
+---
+# 13. Job de migraciones: solo PostgreSQL.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: migraciones-salida
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: soloservis-migrate
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+# 14. Pods de test (k8s/tests y k8s/tests/llamadas, etiqueta component=test):
+# llegan al gateway, a cada API directo y al scraper, que es lo que verifican.
+# No llegan a PostgreSQL.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pruebas-salida
+  labels:
+    app.kubernetes.io/part-of: soloservis
+    app.kubernetes.io/component: red
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: test
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: frontend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: scraper-api
+      ports:
+        - {protocol: TCP, port: 8095}

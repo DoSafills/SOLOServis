@@ -13,6 +13,11 @@
     consolidado  (respaldo) las 14 APIs en un solo Deployment "backend".
   La Fase 10 corre el pod de test (k8s/tests): solo lecturas, no escribe nada.
 
+  NetworkPolicy (k8s/components/red, TAL-197): si la plataforma permite crearlas
+  (kubectl auth can-i create networkpolicies), la Fase 4 aplica una red que niega
+  todo por defecto y abre solo lo que la app usa. Si no lo permite (hoy UCT), se
+  omiten y el despliegue sigue igual. -SinRed las desactiva y borra las que haya.
+
   Cada fase ejecuta, comprueba y muestra su checkpoint. Si un checkpoint falla, el
   script se detiene y muestra que lo bloquea (eventos, logs). Nunca imprime Secrets,
   tokens ni el contenido del kubeconfig.
@@ -35,6 +40,10 @@
 .EXAMPLE
   # Solo el pod de test
   .\scripts\k8s\deploy.ps1 -Modo uct -FromPhase 10
+
+.EXAMPLE
+  # Re-desplegar sin NetworkPolicy (y borrar las de un despliegue anterior)
+  .\scripts\k8s\deploy.ps1 -Modo uct -FromPhase 3 -SkipCleanup -SinRed
 #>
 [CmdletBinding()]
 param(
@@ -55,7 +64,9 @@ param(
   [string]$ImagePullSecret = '',
   [ValidateRange(0, 10)][int]$FromPhase = 0,
   [ValidateRange(0, 10)][int]$ToPhase = 10,
-  [switch]$SkipCleanup
+  [switch]$SkipCleanup,
+  # No aplicar las NetworkPolicy de k8s/components/red aunque haya permiso.
+  [switch]$SinRed
 )
 
 $ErrorActionPreference = 'Continue'
@@ -304,6 +315,7 @@ function Write-Overlay {
   $L.Add('  - ../../base')
   $L.Add('components:')
   $L.Add("  - ../../components/$Topologia")
+  if ($script:Red -eq 'aplicar') { $L.Add('  - ../../components/red') }
   $L.Add('configMapGenerator:')
   $L.Add('  - name: soloservis-migrations')
   $L.Add('    files:')
@@ -393,10 +405,55 @@ function Build-Rendered {
   return ''
 }
 
-function Apply-Component([string]$Selector) {
-  $out = K apply -f $Rendered -l $Selector
+# Apply-Component aplica del render los objetos con la etiqueta $Selector y
+# devuelve $true si kubectl termino bien. Con -ServerSide usa server-side apply:
+# el apply normal guarda una copia del objeto en la anotacion
+# last-applied-configuration, que no puede pasar de 256 KB, y el ConfigMap de
+# migraciones ya ronda ese tamano. --force-conflicts toma los campos que antes
+# dejo el apply normal.
+function Apply-Component([string]$Selector, [switch]$ServerSide) {
+  if ($ServerSide) {
+    $out = K apply --server-side --force-conflicts -f $Rendered -l $Selector
+  } else {
+    $out = K apply -f $Rendered -l $Selector
+  }
   Show $out
   return ($script:KExit -eq 0)
+}
+
+# NetworkPolicy (TAL-197). $script:Red se calcula una vez antes de las fases:
+#   aplicar      hay permiso: el overlay incluye components/red
+#   desactivada  hay permiso pero se paso -SinRed
+#   sin-permiso  la plataforma no deja crearlas (hoy UCT): se omiten
+function Get-RedState {
+  $can = ((K auth can-i create networkpolicies) -join ' ').Trim()
+  if ($can -notmatch '^yes') { return 'sin-permiso' }
+  if ($SinRed) { return 'desactivada' }
+  return 'aplicar'
+}
+
+function Get-RedText {
+  switch ($script:Red) {
+    'aplicar' { return 'SI (k8s/components/red se aplica en la Fase 4)' }
+    'desactivada' { return 'NO (-SinRed: se borran las de un despliegue anterior)' }
+    default { return 'OMITIDA (la plataforma no permite crear NetworkPolicy)' }
+  }
+}
+
+function Apply-Red($Cp) {
+  if ($script:Red -eq 'aplicar') {
+    Step 'Aplicando NetworkPolicy (k8s/components/red)'
+    $ok = Apply-Component 'app.kubernetes.io/component=red'
+    if (-not $ok) { Stop-Phase 4 $Cp 'kubectl apply de las NetworkPolicy fallo' }
+    $n = @(K get networkpolicy -l 'app.kubernetes.io/part-of=soloservis' -o name | Where-Object { $_ -match '/' }).Count
+    $Cp['NetworkPolicy'] = "OK ($n aplicadas)"
+  } elseif ($script:Red -eq 'desactivada') {
+    Step 'Borrando NetworkPolicy de un despliegue anterior (-SinRed)'
+    Show (K delete networkpolicy -l 'app.kubernetes.io/part-of=soloservis' --ignore-not-found)
+    $Cp['NetworkPolicy'] = Get-RedText
+  } else {
+    $Cp['NetworkPolicy'] = Get-RedText
+  }
 }
 
 # ---------------------------------------------------------------- FASE 0
@@ -432,6 +489,7 @@ function Phase0 {
 
   $owned = @(K get 'all,pvc,ingress,configmap,secret,job' -l 'app.kubernetes.io/part-of=soloservis' -o name | Where-Object { $_ -match '/' })
   $cp['Recursos encontrados'] = "$($owned.Count) etiquetados soloservis"
+  $cp['NetworkPolicy'] = Get-RedText
   $cp['Bloqueos'] = $(if ($missing) { "no instalado: $($missing -join ', ')" } else { 'ninguno' })
   Checkpoint 0 $cp
 }
@@ -649,6 +707,53 @@ function Phase3 {
 
 # ---------------------------------------------------------------- FASE 4
 
+# New-SecretFromValues crea un Secret generico a partir de un diccionario
+# ordenado CLAVE -> valor. Cada valor va a un archivo en una carpeta temporal
+# del usuario y kubectl lo lee con --from-file, asi nunca aparece en la linea de
+# comandos ni en la lista de procesos (TAL-199, H11). La carpeta se borra en el
+# mismo paso. Devuelve $true si kubectl termino bien.
+function New-SecretFromValues {
+  param([string]$Name, [System.Collections.Specialized.OrderedDictionary]$Values)
+  $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('soloservis-secret-' + [System.Guid]::NewGuid().ToString('N'))
+  $null = New-Item -ItemType Directory -Path $dir
+  try {
+    $kargs = @('create', 'secret', 'generic', $Name)
+    foreach ($key in $Values.Keys) {
+      $file = Join-Path $dir $key
+      # Sin BOM: el valor tiene que llegar al Secret tal cual.
+      [System.IO.File]::WriteAllText($file, [string]$Values[$key])
+      $kargs += "--from-file=$key=$file"
+    }
+    $null = K @kargs
+    return ($script:KExit -eq 0)
+  } finally {
+    if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+  }
+}
+
+# New-RandomHex devuelve Bytes*2 caracteres hexadecimales de un generador
+# criptografico.
+function New-RandomHex {
+  param([int]$Bytes)
+  $buf = New-Object byte[] $Bytes
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($buf)
+  return ([System.BitConverter]::ToString($buf) -replace '-', '').ToLower()
+}
+
+# Ensure-TokenSecret crea el Secret $Name con la clave $Key y un token aleatorio
+# de 64 caracteres si no existe; si existe, lo reutiliza. Sin la etiqueta
+# part-of: sobrevive a la limpieza de la Fase 1. Devuelve el estado para el
+# checkpoint.
+function Ensure-TokenSecret {
+  param([string]$Name, [string]$Key)
+  $null = K get secret $Name -o name
+  if ($script:KExit -eq 0) { return "OK (Secret $Name existente)" }
+  $values = [ordered]@{}
+  $values[$Key] = New-RandomHex 32
+  if (New-SecretFromValues $Name $values) { return "OK (Secret $Name creado)" }
+  return "ERROR (no se pudo crear $Name)"
+}
+
 # Reutiliza postgres-secret si existe (la contrasena vive tambien dentro del
 # volumen, asi que no se cambia sola). Si no existe, lo crea con una contrasena
 # aleatoria, salvo que el PVC ya tenga datos: no coincidiria con la guardada.
@@ -663,11 +768,9 @@ function Ensure-PostgresSecret {
   }
 
   # 48 caracteres hex: seguros dentro de DATABASE_URL sin escapar.
-  $bytes = New-Object byte[] 24
-  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-  $pw = ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLower()
-  $null = K create secret generic postgres-secret '--from-literal=POSTGRES_USER=postgres' '--from-literal=POSTGRES_DB=soloservis' "--from-literal=POSTGRES_PASSWORD=$pw"
-  if ($script:KExit -ne 0) { return 'ERROR (no se pudo crear postgres-secret)' }
+  $values = [ordered]@{ POSTGRES_USER = 'postgres'; POSTGRES_DB = 'soloservis' }
+  $values['POSTGRES_PASSWORD'] = New-RandomHex 24
+  if (-not (New-SecretFromValues 'postgres-secret' $values)) { return 'ERROR (no se pudo crear postgres-secret)' }
   $null = K label secret postgres-secret app.kubernetes.io/name=postgres app.kubernetes.io/component=database
   return 'OK (Secret postgres-secret creado con contrasena aleatoria)'
 }
@@ -677,8 +780,8 @@ function Ensure-PostgresSecret {
 # si no, se crea a partir de AI_API_KEY en el entorno del despliegue. Sin clave
 # no se detiene el despliegue: el asistente responde 503 ai_unavailable y el
 # resto del sitio funciona igual.
-# La clave nunca se imprime ni se pasa por la linea de comandos: va por un
-# archivo temporal que se borra en el mismo paso.
+# La clave nunca se imprime ni se pasa por la linea de comandos: va por
+# New-SecretFromValues (archivo temporal que se borra en el mismo paso).
 function Ensure-AISecret {
   $null = K get secret soloservis-ai -o name
   if ($script:KExit -eq 0) { return 'OK (Secret soloservis-ai existente)' }
@@ -688,15 +791,10 @@ function Ensure-AISecret {
     return 'AVISO (sin AI_API_KEY: el asistente respondera 503 hasta crear el Secret soloservis-ai)'
   }
 
-  $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('soloservis-ai-' + [System.Guid]::NewGuid().ToString('N'))
-  try {
-    [System.IO.File]::WriteAllText($tmp, $key)
-    $null = K create secret generic soloservis-ai "--from-file=AI_API_KEY=$tmp"
-    if ($script:KExit -eq 0) { return 'OK (Secret soloservis-ai creado con AI_API_KEY)' }
-    return 'AVISO (no se pudo crear soloservis-ai: el asistente respondera 503)'
-  } finally {
-    if (Test-Path $tmp) { Remove-Item -Force $tmp }
+  if (New-SecretFromValues 'soloservis-ai' ([ordered]@{ AI_API_KEY = $key })) {
+    return 'OK (Secret soloservis-ai creado con AI_API_KEY)'
   }
+  return 'AVISO (no se pudo crear soloservis-ai: el asistente respondera 503)'
 }
 
 function Phase4 {
@@ -704,18 +802,11 @@ function Phase4 {
   $err = Build-Rendered
   if ($err) { Stop-Phase 4 $cp "kustomize: $err" }
 
-  # Token de servicio (scraper y llamadas internas). Fuera de git y sin la
-  # etiqueta part-of: sobrevive a la limpieza de la Fase 1.
-  $null = K get secret soloservis-internal -o name
-  if ($script:KExit -ne 0) {
-    $bytes = New-Object byte[] 32
-    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    $token = ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLower()
-    $null = K create secret generic soloservis-internal "--from-literal=INTERNAL_API_TOKEN=$token"
-    $cp['Token interno'] = $(if ($script:KExit -eq 0) { 'OK (Secret soloservis-internal creado)' } else { 'ERROR' })
-  } else {
-    $cp['Token interno'] = 'OK (Secret soloservis-internal existente)'
-  }
+  # Tokens de servicio, fuera de git (TAL-199). El interno es admin en las
+  # APIs y lo usan las llamadas entre ellas; el del scraper solo abre su API
+  # de control y /ingestion/*. Ninguno se imprime.
+  $cp['Token interno'] = Ensure-TokenSecret 'soloservis-internal' 'INTERNAL_API_TOKEN'
+  $cp['Token del scraper'] = Ensure-TokenSecret 'soloservis-scraper' 'SCRAPER_TOKEN'
 
   # Credenciales de PostgreSQL, fuera de git (TAL-98). Va antes del StatefulSet,
   # que las lee. La contrasena nunca se imprime.
@@ -727,6 +818,9 @@ function Phase4 {
 
   # Clave del proveedor de IA (TAL-247). Nunca detiene el despliegue.
   $cp['Clave IA'] = Ensure-AISecret
+
+  # NetworkPolicy antes que los pods: cada pod nace ya con su red restringida.
+  Apply-Red $cp
 
   Step 'Aplicando Services y StatefulSet de PostgreSQL'
   $ok = Apply-Component 'app.kubernetes.io/component=database'
@@ -759,7 +853,7 @@ function Phase5 {
   Step 'Recreando Job soloservis-migrate (los Jobs son inmutables)'
   Show (K delete job soloservis-migrate --ignore-not-found --wait=true --timeout=120s)
   $null = Apply-Component 'app.kubernetes.io/component=config'
-  $ok = Apply-Component 'app.kubernetes.io/component=migrations'
+  $ok = Apply-Component 'app.kubernetes.io/component=migrations' -ServerSide
   if (-not $ok) { $cp['Migration Job'] = 'ERROR'; Stop-Phase 5 $cp 'kubectl apply fallo' }
 
   Step 'Esperando el Job (max 5 min)'
@@ -1027,6 +1121,10 @@ if (-not $Tag) {
 
 Write-Host "SOLOServis -> Kubernetes | topologia=$Topologia contexto=$(if ($Context) { $Context } else { '(el del kubeconfig)' }) namespace=$Namespace fases=$FromPhase..$ToPhase" -ForegroundColor Cyan
 Write-Host "Kubeconfig: $(Split-Path $Kubeconfig -Leaf) | tag=$Tag registry=$(if ($Registry) { $Registry } else { '(sin definir)' })" -ForegroundColor Cyan
+
+Write-Host 'Comprobando si la plataforma permite NetworkPolicy (puede abrir el navegador para el login OIDC)' -ForegroundColor DarkGray
+$script:Red = Get-RedState
+Write-Host "NetworkPolicy: $(Get-RedText)" -ForegroundColor Cyan
 
 $phases = @{
   0 = { Phase0 }; 1 = { Phase1 }; 2 = { Phase2 }; 3 = { Phase3 }; 4 = { Phase4 }

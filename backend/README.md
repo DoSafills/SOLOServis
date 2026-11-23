@@ -451,7 +451,8 @@ Las variables pueden obtenerse del entorno de ejecución o del archivo `.env`.
 | `SERVICE_API_URL` | Dirección interna de Service API. |
 | `PRICING_API_URL` | Dirección interna de Pricing API. |
 | `NOTIFICATION_API_URL` | Dirección interna de Notification API. |
-| `INTERNAL_API_TOKEN` | Token para operaciones internas autorizadas (mínimo 32 caracteres; si es más corto se ignora). |
+| `INTERNAL_API_TOKEN` | Token para operaciones internas autorizadas (mínimo 32 caracteres; si es más corto se ignora). No abre `/ingestion/*`. |
+| `INGESTION_API_TOKEN` | Token del scraper: lo único que abre `/ingestion/*` además de una sesión admin, y no sirve en ninguna otra ruta (TAL-199). Mínimo 32 caracteres. |
 | `AI_PROVIDER` | Proveedor del asistente de comparación (`auto` por defecto: Gemini con `AI_API_KEY`). En el clúster es `compatible` (DeepSeek). |
 | `AI_MODEL` | Modelo del asistente (`gemini-3.5-flash` por defecto; en el clúster `deepseek-chat`). |
 | `AI_API_KEY` | Clave del proveedor. **Solo backend.** Sin ella `auto` responde 503 `ai_unavailable`: la ruta no genera texto propio. En el clúster vive en el Secret `soloservis-ai`. |
@@ -476,6 +477,7 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/soloservis
 API_DOMAIN=
 GATEWAY_URL=
 INTERNAL_API_TOKEN=
+INGESTION_API_TOKEN=
 LOG_LEVEL=
 ```
 
@@ -787,10 +789,11 @@ internal/authz/
 
 | Componente | Responsabilidad |
 |---|---|
-| Auth API | Registro, login, refresh y logout. |
+| Auth API | Registro, login, refresh, logout y cierre de todas las sesiones. |
 | Authz | Validación de sesiones y permisos. |
 | User API | Información asociada a los usuarios. |
 | INTERNAL_API_TOKEN | Autorización de operaciones internas. |
+| INGESTION_API_TOKEN | Autorización del scraper, solo en `/ingestion/*`. |
 
 ## 13.2 Reglas de seguridad
 
@@ -842,7 +845,7 @@ Cada ítem se procesa en **una sola transacción**: producto, imagen, oferta e h
 
 Cuando un ítem coincide con un producto ya catalogado (por SKU, marca + modelo o tienda + URL de la oferta), Ingestion solo actualiza la oferta: el catálogo lo cura el admin. La única excepción es la imagen (TAL-243): si el producto no tiene ninguna imagen activa y el ítem trae `product.imageUrl`, se guarda como imagen principal. Nunca reemplaza una imagen existente ni reactiva una URL que el admin desactivó.
 
-Las operaciones internas están protegidas por autorización administrativa o `INTERNAL_API_TOKEN`, según corresponda.
+Las rutas de Ingestion aceptan una sesión admin o `INGESTION_API_TOKEN`, el token del scraper. `INTERNAL_API_TOKEN` no las abre, y el token del scraper no sirve en ninguna otra API: si alguien compromete el pod del scraper, puede cargar ofertas pero no es admin del resto (TAL-199).
 
 ## 14.1 Importar el catálogo local del scraper (`cmd/ingestion-import`)
 
@@ -1658,7 +1661,7 @@ Desde TAL-70, Product API crea, consulta, edita y lista productos usando la cate
 `POST`, `PUT` y `DELETE` exigen `Authorization: Bearer <token>`:
 
 - **Sesión de Auth API** de un usuario con `role = 'admin'` (tabla `user_session`, se compara el SHA-256 del token).
-- **Token de servicio** `INTERNAL_API_TOKEN` (mínimo 32 caracteres; si es más corto se ignora). Ingestion API lo reenvía automáticamente (`features.remoteJSON`). En `docker/compose.yml` hay un valor de desarrollo que se reemplaza con la variable de entorno `INTERNAL_API_TOKEN`.
+- **Token de servicio** `INTERNAL_API_TOKEN` (mínimo 32 caracteres; si es más corto se ignora). Pricing e Ingestion lo reenvían a Notification API. Ingestion API no lo acepta: sus rutas usan `INGESTION_API_TOKEN` (TAL-199). En `docker/compose.yml` hay un valor de desarrollo que se reemplaza con la variable de entorno `INTERNAL_API_TOKEN`.
 
 | Caso | Status | `code` |
 | --- | --- | --- |
@@ -1703,7 +1706,7 @@ Orden de validación (TAL-78 §3): id de ruta (400) → decodificación (400/413
 
 ### Respuestas
 
-`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (el slug de la hoja de nivel 3; `null` si no tiene) y `attributes` con valores tipados. Respuesta real del `PUT` con el body de arriba:
+`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (el slug de la hoja de nivel 3; `null` si no tiene) y `attributes` con valores tipados. Desde TAL-237 también viajan `updatedAt` (producto) y `lastUpdated` (cada oferta), ambos en RFC 3339 UTC: sin ellos la ficha no podía decir cuándo se verificó el precio. Respuesta real del `PUT` con el body de arriba:
 
 ```http
 PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
@@ -1732,7 +1735,8 @@ PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
     "eficiencia_energetica": "A++",
     "no_frost": true,
     "peso_kg": 65.5
-  }
+  },
+  "updatedAt": "2026-11-22T15:43:49Z"
 }
 ```
 
@@ -2366,7 +2370,9 @@ Ya no llama a Product API ni a Pricing API: el mejor precio se calcula en SQL co
 
 ### La matriz
 
-- `products`: columnas en el orden pedido, con `bestPrice` (precio total), `bestStore` y `offerCount`.
+- `products`: columnas en el orden pedido, con `bestPrice` (precio total), `bestStore`, `offerCount` y
+  `lastUpdated` (TAL-223): fecha de la última verificación de esa mejor oferta, RFC 3339 UTC, o
+  `null` si el producto no tiene ofertas. Es lo que permite decir si el precio es de hoy.
 - `attributes`: atributos **`comparable`** de la categoría (TAL-71), en `displayOrder`, con valores tipados alineados con `products` (`null` si el producto no lo tiene).
 - `specifications`: especificaciones anteriores comparables (`product_category_specification`), como texto. Se incluyen porque los productos existentes todavía no tienen atributos (TAL-70 no los migró).
 - Solo aparecen filas con al menos un valor. `differs` indica si los valores difieren (un `null` cuenta como distinto), para mostrar "solo diferencias".
@@ -2383,10 +2389,12 @@ GET /comparisons/products/compare?ids=c5b9f86a-703b-4569-9902-0ccadfcdab60,bb0aa
     { "id": "c5b9f86a-703b-4569-9902-0ccadfcdab60", "name": "Refrigerador Midea Side by Side No Frost 555 L",
       "brand": "Midea", "model": "MDRS710FGE50IN",
       "imageUrl": "https://rimage.ripley.cl/home.ripley/Attachment/WOP/1/2000406824253/full_image-2000406824253",
-      "bestPrice": "332991.00", "bestStore": "Ripley", "offerCount": 3 },
+      "bestPrice": "332991.00", "bestStore": "Ripley", "offerCount": 3,
+      "lastUpdated": "2026-11-22T15:43:48Z" },
     { "id": "bb0aa9e9-1ca2-4aff-bd18-f8fc01666b7c", "name": "Refrigerador LG French Door 530 L",
       "brand": "LG", "model": "GM53", "imageUrl": "https://placehold.co/640x640?text=DEMO-LG-FRIDGE-530",
-      "bestPrice": "899990.00", "bestStore": "Paris", "offerCount": 2 }
+      "bestPrice": "899990.00", "bestStore": "Paris", "offerCount": 2,
+      "lastUpdated": "2026-11-22T15:43:48Z" }
   ],
   "attributes": [
     { "key": "capacidad_litros", "label": "Capacidad", "dataType": "integer", "unit": "L", "values": [555, 530], "differs": true },
@@ -2449,8 +2457,9 @@ Content-Type: application/json
 
 - El cliente manda **solo** `productIds` (2 a 5, misma categoría, sin repetidos) y
   `question` (1 a 300 caracteres, texto plano). El contexto (precio, tienda,
-  atributos y especificaciones) lo arma el servidor desde PostgreSQL con la matriz
-  de `/compare`; nunca llegan imágenes, URLs, descripciones ni datos de usuario.
+  fecha de verificación de la oferta, atributos y especificaciones) lo arma el
+  servidor desde PostgreSQL con la matriz de `/compare`; nunca llegan imágenes,
+  URLs, descripciones ni datos de usuario.
 - Errores: `400` al decodificar, `422 validation_failed` al incumplir reglas
   (incluida `incompatible_category`), `404 not_found` si un producto no existe,
   `429 rate_limited` con `Retry-After` al superar 10/min o 100/día por IP y `503

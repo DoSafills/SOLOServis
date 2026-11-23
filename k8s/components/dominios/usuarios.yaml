@@ -62,11 +62,8 @@ spec:
             - name: FRONTEND_URL
               valueFrom:
                 configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}
-            # Token de servicio (scraper/admin). Lo crea el script de deploy;
-            # sin él, las escrituras quedan solo para sesiones admin.
-            - name: INTERNAL_API_TOKEN
-              valueFrom:
-                secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+            # Sin INTERNAL_API_TOKEN (TAL-199): auth y user no tienen rutas
+            # para servicios internos ni llaman a otras APIs.
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

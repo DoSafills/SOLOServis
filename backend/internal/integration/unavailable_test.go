@@ -17,11 +17,15 @@ import (
 
 const internalToken = "token-interno-de-integracion-con-32-chars"
 
+// ingestionToken es el token del scraper: solo vale en /ingestion/* (TAL-199).
+const ingestionToken = "token-de-ingestion-de-integracion-32-chars"
+
 // Con la base caída, cada API responde 503 sin entrar en pánico y sin mostrar
 // el error interno. En particular, las rutas con sesión no responden 401: el
 // frontend cerraría la sesión del usuario por una falla del servidor.
 func TestBaseCaida_CadaAPIResponde503(t *testing.T) {
 	t.Setenv("INTERNAL_API_TOKEN", internalToken)
+	t.Setenv("INGESTION_API_TOKEN", ingestionToken)
 	// Puerto cerrado: cada consulta falla al conectar (pgxpool conecta al usarse).
 	pool, err := pgxpool.New(context.Background(), "postgres://soloservis:x@127.0.0.1:1/soloservis?connect_timeout=2")
 	if err != nil {
@@ -57,7 +61,7 @@ func TestBaseCaida_CadaAPIResponde503(t *testing.T) {
 		{"usuarios", "auth", "GET", "/auth/validate", session, ""},
 		{"usuarios", "user", "GET", "/users/1", session, ""},
 		{"usuarios", "/health", "GET", "/health", "", ""},
-		{"ingestion", "ingestion", "GET", "/ingestion/runs", "Bearer " + internalToken, ""},
+		{"ingestion", "ingestion", "GET", "/ingestion/runs", "Bearer " + ingestionToken, ""},
 		{"ingestion", "ingestion", "GET", "/ingestion/runs", session, ""},
 		{"ingestion", "/health", "GET", "/health", "", ""},
 	}
