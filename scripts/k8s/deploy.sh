@@ -283,7 +283,18 @@ build_rendered() {
     return 1
   fi
 }
+# apply_selector aplica del render los objetos con la etiqueta $1 y devuelve el
+# codigo de salida de kubectl.
 apply_selector() { k apply -f "$RENDERED" -l "$1" 2>&1 | show; return "${PIPESTATUS[0]}"; }
+
+# apply_selector_server_side hace lo mismo con server-side apply. El apply normal
+# guarda una copia del objeto en la anotacion last-applied-configuration, que no
+# puede pasar de 256 KB, y el ConfigMap de migraciones ya ronda ese tamano.
+# --force-conflicts toma los campos que antes dejo el apply normal.
+apply_selector_server_side() {
+  k apply --server-side --force-conflicts -f "$RENDERED" -l "$1" 2>&1 | show
+  return "${PIPESTATUS[0]}"
+}
 
 # NetworkPolicy (TAL-197). RED se calcula una vez antes de las fases (no dentro
 # de build_rendered, que corre en un subshell):
@@ -583,7 +594,7 @@ phase5() {
   step "Recreando Job soloservis-migrate (los Jobs son inmutables)"
   k delete job soloservis-migrate --ignore-not-found --wait=true --timeout=120s 2>&1 | show
   apply_selector app.kubernetes.io/component=config >/dev/null
-  apply_selector app.kubernetes.io/component=migrations || stop_phase 5 "kubectl apply fallo"
+  apply_selector_server_side app.kubernetes.io/component=migrations || stop_phase 5 "kubectl apply fallo"
   step "Esperando el Job (max 5 min)"
   for i in $(seq 1 60); do
     succeeded="$(k get job soloservis-migrate -o 'jsonpath={.status.succeeded}' 2>/dev/null)"
