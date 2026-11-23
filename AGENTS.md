@@ -219,6 +219,7 @@ docker compose -f docker/compose.yml config --quiet
 - `scripts/k8s/validate-manifests.sh` valida los manifiestos contra el esquema de Kubernetes (kubeconform, modo estricto) sin tocar el clúster; `kubectl kustomize` solo arma el YAML y no detecta un campo mal indentado.
 - El pod de test del clúster (`k8s/tests`, fase 10 del deploy) hace 36 verificaciones.
 - **Health check (TAL-164):** `python scripts/testing/salud.py` revisa el despliegue en cualquier momento (pods, `/health`, gateway, host público, migraciones y cuota), sin escribir nada. Es lo primero que se corre cuando alguien avisa que el sitio no funciona. Con `--detalle` lista cada pedido con lo esperado y lo obtenido; `python scripts/testing/reporte.py --salud` lo suma al reporte de testing.
+- **Carga y recursos (TAL-206/207):** `python scripts/testing/carga.py` simula usuarios por escalones y mide CPU y memoria de cada pod mientras corre; `recursos.py` mide sin carga. En UCT `kubectl top` no funciona: el consumo se lee del cgroup de cada pod. No corras carga contra UCT sin aprobación; para cargas fuertes usa `--local`.
 - **Reporte de testing (TAL-168):** `python scripts/testing/reporte.py` corre todas las suites y deja el resultado en `docs/reportes/testing/` (`--postgres-docker` suma los tests de integración). Córrelo antes de pedir un PR: `go build ./...` tiene que pasar siempre.
 
 ---
