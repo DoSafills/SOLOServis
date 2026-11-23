@@ -9,6 +9,9 @@
 #                y API_DOMAIN distinto: comercial (11 APIs), usuarios e ingestion.
 #   consolidado  (respaldo) las 14 APIs en un solo Deployment "backend".
 # La Fase 10 corre el pod de test (k8s/tests): solo lecturas, no escribe nada.
+# NetworkPolicy (k8s/components/red, TAL-197): si la plataforma permite crearlas,
+# la Fase 4 aplica una red que niega todo por defecto y abre solo lo que la app
+# usa. Si no (hoy UCT), se omiten. --sin-red las desactiva y borra las que haya.
 #
 # Ejemplos:
 #   ./scripts/k8s/deploy.sh --modo uct --kubeconfig ~/.kube/estudiantes-<usuario>.kubeconfig \
@@ -16,12 +19,13 @@
 #   ./scripts/k8s/deploy.sh --modo uct --to-phase 0          # solo inventario
 #   ./scripts/k8s/deploy.sh --modo uct --from-phase 6 --skip-cleanup
 #   ./scripts/k8s/deploy.sh --modo uct --from-phase 10       # solo el pod de test
+#   ./scripts/k8s/deploy.sh --modo uct --from-phase 3 --skip-cleanup --sin-red
 #
 # Nunca imprime Secrets, tokens ni el contenido del kubeconfig.
 set -uo pipefail
 
 usage() {
-  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
   cat <<'EOF'
 Opciones:
   --modo uct                  (opcional: el modo local se retiro en TAL-103)
@@ -30,12 +34,13 @@ Opciones:
   --registry docker.io/usuario   --tag TAG
   --storage-class X  --ingress-class X  --ingress-host X  --ingress-scheme http|https  --image-pull-secret X
   --from-phase N  --to-phase N  (0-10)   --skip-cleanup
+  --sin-red                   no aplicar las NetworkPolicy aunque haya permiso
 EOF
 }
 
 MODO=uct TOPOLOGIA=dominios KUBECONFIG_FILE="" CONTEXT="" NAMESPACE="" REGISTRY="" TAG=""
 STORAGE_CLASS="" INGRESS_CLASS="" INGRESS_HOST="" INGRESS_SCHEME="https" IMAGE_PULL_SECRET=""
-FROM_PHASE=0 TO_PHASE=10 SKIP_CLEANUP=0
+FROM_PHASE=0 TO_PHASE=10 SKIP_CLEANUP=0 SIN_RED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --modo) MODO="$2"; shift 2 ;;
@@ -53,6 +58,7 @@ while [ $# -gt 0 ]; do
     --from-phase) FROM_PHASE="$2"; shift 2 ;;
     --to-phase) TO_PHASE="$2"; shift 2 ;;
     --skip-cleanup) SKIP_CLEANUP=1; shift ;;
+    --sin-red) SIN_RED=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR: opcion desconocida: $1" >&2; usage; exit 1 ;;
   esac
@@ -207,6 +213,7 @@ write_overlay() {
     echo "  - ../../base"
     echo "components:"
     echo "  - ../../components/$TOPOLOGIA"
+    [ "$RED" = aplicar ] && echo "  - ../../components/red"
     echo "configMapGenerator:"
     echo "  - name: soloservis-migrations"
     echo "    files:"
@@ -278,6 +285,37 @@ build_rendered() {
 }
 apply_selector() { k apply -f "$RENDERED" -l "$1" 2>&1 | show; return "${PIPESTATUS[0]}"; }
 
+# NetworkPolicy (TAL-197). RED se calcula una vez antes de las fases (no dentro
+# de build_rendered, que corre en un subshell):
+#   aplicar      hay permiso: el overlay incluye components/red
+#   desactivada  hay permiso pero se paso --sin-red
+#   sin-permiso  la plataforma no deja crearlas (hoy UCT): se omiten
+red_state() {
+  if [ "$(k auth can-i create networkpolicies 2>/dev/null)" != yes ]; then echo sin-permiso
+  elif [ "$SIN_RED" = 1 ]; then echo desactivada
+  else echo aplicar; fi
+}
+red_text() {
+  case "$RED" in
+    aplicar) echo "SI (k8s/components/red se aplica en la Fase 4)" ;;
+    desactivada) echo "NO (--sin-red: se borran las de un despliegue anterior)" ;;
+    *) echo "OMITIDA (la plataforma no permite crear NetworkPolicy)" ;;
+  esac
+}
+apply_red() {
+  case "$RED" in
+    aplicar)
+      step "Aplicando NetworkPolicy (k8s/components/red)"
+      apply_selector app.kubernetes.io/component=red || stop_phase 4 "kubectl apply de las NetworkPolicy fallo"
+      cp_set NetworkPolicy "OK ($(k get networkpolicy -l app.kubernetes.io/part-of=soloservis -o name 2>/dev/null | grep -c /) aplicadas)" ;;
+    desactivada)
+      step "Borrando NetworkPolicy de un despliegue anterior (--sin-red)"
+      k delete networkpolicy -l app.kubernetes.io/part-of=soloservis --ignore-not-found 2>&1 | show
+      cp_set NetworkPolicy "$(red_text)" ;;
+    *) cp_set NetworkPolicy "$(red_text)" ;;
+  esac
+}
+
 # ---------------------------------------------------------------- FASE 0
 
 phase0() {
@@ -296,6 +334,7 @@ phase0() {
   echo "${C_DIM}  ResourceQuota / LimitRange:${C_OFF}"; k get resourcequota,limitrange 2>&1 | show
   echo "${C_DIM}  StorageClasses:${C_OFF}"; k get storageclass 2>&1 | show
   cp_set "Recursos encontrados" "$(k get all,pvc,ingress,configmap,secret,job -l app.kubernetes.io/part-of=soloservis -o name 2>/dev/null | grep -c /) etiquetados soloservis"
+  cp_set NetworkPolicy "$(red_text)"
   if [ -n "$missing" ]; then cp_set Bloqueos "no instalado:$missing"; else cp_set Bloqueos ninguno; fi
   checkpoint 0
 }
@@ -516,6 +555,8 @@ phase4() {
   esac
   # Clave del proveedor de IA (TAL-247). Nunca detiene el despliegue.
   cp_set "Clave IA" "$(ensure_ai_secret)"
+  # NetworkPolicy antes que los pods: cada pod nace ya con su red restringida.
+  apply_red
   step "Aplicando Services y StatefulSet de PostgreSQL"
   apply_selector app.kubernetes.io/component=database || stop_phase 4 "kubectl apply fallo"
   step "Esperando rollout de postgres (max 5 min)"
@@ -746,6 +787,10 @@ fi
 
 echo "${C_CYAN}SOLOServis -> Kubernetes | topologia=$TOPOLOGIA contexto=${CONTEXT:-(el del kubeconfig)} namespace=$NAMESPACE fases=$FROM_PHASE..$TO_PHASE${C_OFF}"
 echo "${C_CYAN}Kubeconfig: $(basename "$KUBECONFIG_FILE") | tag=$TAG registry=${REGISTRY:-(sin definir)}${C_OFF}"
+
+echo "${C_DIM}Comprobando si la plataforma permite NetworkPolicy (puede abrir el navegador para el login OIDC)${C_OFF}"
+RED="$(red_state)"
+echo "${C_CYAN}NetworkPolicy: $(red_text)${C_OFF}"
 
 for n in $(seq "$FROM_PHASE" "$TO_PHASE"); do
   echo; echo "---------------- FASE $n ----------------"

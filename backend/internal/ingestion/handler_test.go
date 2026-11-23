@@ -1056,7 +1056,6 @@ func TestAddItems_RechazaSeparadoresDeSlugInvalidos(t *testing.T) {
 		})
 	}
 }
-
 // TAL-205: solo una bajada de precio consulta la oferta y los usuarios a
 // avisar. Si el precio sube o queda igual (lo habitual en cada corrida), el
 // ítem se ahorra esas dos consultas y no se envía ningún aviso.

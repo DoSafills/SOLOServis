@@ -199,6 +199,7 @@ Norma completa: `docs/estandares/TAL-78-estandar-api.md`. Lo esencial:
 - Los pods corren sin root, con `readOnlyRootFilesystem` y sin capabilities (Pod Security `restricted`).
 - Un Service inyecta variables `<NOMBRE>_PORT=tcp://…` en los pods: si chocan con una variable de la app, usa `enableServiceLinks: false`.
 - `k8s/overlays/` es generado y está ignorado por git.
+- Las NetworkPolicy están en `k8s/components/red`. UCT no deja crearlas (el rol solo las lee), así que el deploy las omite; se aplican solo si `kubectl auth can-i create networkpolicies` responde `yes`.
 - Los Secrets `postgres-secret`, `soloservis-internal` y `soloservis-ai` los crea o reutiliza la fase 4 del script; no están en git. `soloservis-ai` no se puede generar al azar: la fase 4 la toma de `AI_API_KEY` en el entorno del despliegue, y sin ella avisa y sigue (el asistente responde 503).
 
 ---

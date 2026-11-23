@@ -50,6 +50,7 @@ func registerRoutes(r chi.Router, name string, h *Handler, admin func(http.Handl
 		r.Post("/auth/login", h.Login)
 		r.Post("/auth/refresh", h.Refresh)
 		r.Post("/auth/logout", h.Logout)
+		r.With(h.requireSession).Post("/auth/logout-all", h.LogoutAll)
 		r.Get("/auth/validate", h.ValidateToken)
 		// Cambiar la contraseña actúa en nombre de un usuario: exige sesión.
 		r.With(h.requireSession).Post("/auth/change-password", h.ChangePassword)

@@ -787,7 +787,7 @@ internal/authz/
 
 | Componente | Responsabilidad |
 |---|---|
-| Auth API | Registro, login, refresh y logout. |
+| Auth API | Registro, login, refresh, logout y cierre de todas las sesiones. |
 | Authz | Validación de sesiones y permisos. |
 | User API | Información asociada a los usuarios. |
 | INTERNAL_API_TOKEN | Autorización de operaciones internas. |

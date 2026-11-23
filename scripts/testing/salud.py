@@ -34,6 +34,7 @@ import argparse
 import datetime as dt
 import json
 import re
+import secrets
 import ssl
 import subprocess
 import sys
@@ -48,6 +49,9 @@ API_SERVICES = ("comercial", "usuarios", "ingestion", "backend")  # dominios o c
 QUOTA_WARN = 0.8
 TRANSIENT = ("Unable to connect", "TLS handshake timeout", "no such host", "i/o timeout",
              "connection reset", "forcibly closed", "error reading from error stream", "EOF")
+# Cada pedido lleva X-Request-ID `salud-<corrida>-<n>`: así errores.py (TAL-219)
+# separa en los logs el tráfico de este script del de usuarios reales.
+REQUEST_ID_PREFIX = f"salud-{secrets.token_hex(8)}"
 
 OK, FAIL, WARN = "OK", "FALLA", "AVISO"
 ICON = {OK: "✅", FAIL: "❌", WARN: "⚠️"}
@@ -106,6 +110,7 @@ def kubectl(args: list[str], stdin: str | None = None, timeout: int = 120) -> st
 
 
 def kget(kind: str) -> list[dict]:
+    """Lista los objetos de un tipo (pods, jobs…) del namespace actual; devuelve sus `items`."""
     return json.loads(kubectl(["get", kind, "-o", "json"]))["items"]
 
 
@@ -125,7 +130,8 @@ def http_get(urls: list[str]) -> dict[str, tuple[int, str, str]]:
     lines = []
     for i, url in enumerate(urls):
         lines.append(f"echo '@@@BEGIN {i}'")
-        lines.append(f"curl -s -m 15 -w '\\n@@@STATUS %{{http_code}} %{{content_type}}\\n' '{url}'")
+        lines.append(f"curl -s -m 15 -H 'X-Request-ID: {REQUEST_ID_PREFIX}-{i}' "
+                     f"-w '\\n@@@STATUS %{{http_code}} %{{content_type}}\\n' '{url}'")
     out = kubectl(["exec", "-i", "deploy/frontend", "--", "sh", "-s"], stdin="\n".join(lines) + "\n",
                   timeout=60 + 15 * len(urls))
     result: dict[str, tuple[int, str, str]] = {}
@@ -181,6 +187,7 @@ def quantity(value: str) -> float:
 
 
 def ago(timestamp: str | None) -> str:
+    """Convierte una fecha ISO de Kubernetes en «hace N h» o «hace N d»; devuelve «?» si no hay fecha."""
     if not timestamp:
         return "?"
     delta = dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
@@ -191,6 +198,10 @@ def ago(timestamp: str | None) -> str:
 # ---------------------------------------------------------------- comprobaciones
 
 def check_pods() -> tuple[list[Check], list[str], str]:
+    """Revisa pods, reinicios, Deployments y Jobs.
+
+    Devuelve las comprobaciones, los nombres de los Services (para saber la
+    topología) y el namespace."""
     s = SECTIONS[0]
     checks: list[Check] = []
     pods = kget("pods")
@@ -246,6 +257,10 @@ def check_pods() -> tuple[list[Check], list[str], str]:
 
 
 def check_http(services: list[str]) -> list[Check]:
+    """Pide el /health de cada proceso, la app y cada prefijo del gateway.
+
+    Recibe los Services del namespace y devuelve las comprobaciones de APIs y
+    del enrutamiento de nginx."""
     apis = [name for name in API_SERVICES if name in services]
     targets = {f"http://{name}:8080/health": name for name in apis}
     targets["http://scraper-api:8095/health"] = "scraper-api"
@@ -312,6 +327,7 @@ def check_http(services: list[str]) -> list[Check]:
 
 
 def check_public() -> list[Check]:
+    """Pide /healthz por el host público del Ingress desde este equipo; devuelve una comprobación."""
     s = SECTIONS[2]
     ingresses = kget("ingress")
     hosts = [r["host"] for i in ingresses for r in i["spec"].get("rules", []) if r.get("host")]
@@ -326,7 +342,8 @@ def check_public() -> list[Check]:
     url = f"https://{host}/healthz"
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(url, timeout=20, context=context) as resp:
+        request = urllib.request.Request(url, headers={"X-Request-ID": f"{REQUEST_ID_PREFIX}-publico"})
+        with urllib.request.urlopen(request, timeout=20, context=context) as resp:
             code = resp.status
     except urllib.error.HTTPError as exc:
         code = exc.code
@@ -340,6 +357,7 @@ def check_public() -> list[Check]:
 
 
 def check_postgres() -> list[Check]:
+    """Comprueba que PostgreSQL responde y compara schema_migrations con migration_order.txt."""
     s = SECTIONS[3]
     rows = sql("SELECT version, (SELECT count(*) FROM product WHERE active) AS productos FROM schema_migrations")
     applied = {r["version"] for r in rows}
@@ -365,6 +383,7 @@ def check_postgres() -> list[Check]:
 
 
 def check_resources() -> list[Check]:
+    """Compara el uso de la cuota del namespace con el umbral y revisa que los PVC estén Bound."""
     s = SECTIONS[4]
     checks: list[Check] = []
     for quota in kget("resourcequota"):
@@ -396,6 +415,7 @@ def check_resources() -> list[Check]:
 # ---------------------------------------------------------------- salida
 
 def print_report(checks: list[Check], header: dict[str, str], detail: bool) -> None:
+    """Muestra en la terminal el encabezado, las comprobaciones por sección y, con `detail`, cada pedido."""
     for key, value in header.items():
         print(f"{key}: {value}")
     for section in SECTIONS:
@@ -415,6 +435,7 @@ def print_report(checks: list[Check], header: dict[str, str], detail: bool) -> N
 
 
 def probes_markdown() -> list[str]:
+    """Arma la tabla Markdown con cada pedido hecho (lo esperado y lo obtenido)."""
     cell = lambda text: text.replace("|", "\\|")  # noqa: E731
     lines = ["## Pedidos realizados", "",
              "Cada consulta que hizo el script, con lo esperado y lo obtenido.", "",
@@ -425,6 +446,7 @@ def probes_markdown() -> list[str]:
 
 
 def write_markdown(path: Path, checks: list[Check], header: dict[str, str], detail: bool) -> None:
+    """Escribe en `path` el resultado en Markdown; con `detail` suma la tabla de pedidos."""
     fails = sum(c.status == FAIL for c in checks)
     warns = sum(c.status == WARN for c in checks)
     lines = ["# Health check del despliegue", "", "| Campo | Valor |", "| --- | --- |"]
@@ -446,6 +468,9 @@ def write_markdown(path: Path, checks: list[Check], header: dict[str, str], deta
 
 
 def main() -> int:
+    """Lee los argumentos, corre las comprobaciones y escribe --md/--json.
+
+    Devuelve 0 si todo pasa, 1 si alguna falla y 2 si no se pudo consultar el clúster."""
     parser = argparse.ArgumentParser(description="Health check del despliegue de SOLOServis en el clúster.")
     parser.add_argument("--md", type=Path, help="guarda el resultado en Markdown")
     parser.add_argument("--detalle", action="store_true",

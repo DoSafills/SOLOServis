@@ -59,6 +59,7 @@ func TestSessionTokensAreStoredHashed(t *testing.T) {
 	db := &recordingDB{fakeDB: &fakeDB{t: t, rules: []rule{
 		qRow("SELECT id,password_hash FROM user_account", int32(7), testPasswordHash),
 		userProfile,
+		pruneSessions,
 		qExec("INSERT INTO user_session", 1),
 	}}}
 	router := authRouter(t, db)
@@ -86,7 +87,7 @@ func TestSessionTokensAreStoredHashed(t *testing.T) {
 	if !strings.Contains(db.sql, "INSERT INTO user_session") {
 		t.Fatalf("última consulta = %q", db.sql)
 	}
-	if len(db.args) != 3 {
+	if len(db.args) != 5 { // usuario, dos hashes y los dos vencimientos
 		t.Fatalf("args = %v", db.args)
 	}
 
