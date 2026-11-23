@@ -201,7 +201,6 @@ interface TokenResponse {
   userId: number;
   name: string;
   email: string;
-  avatarUrl?: string | null;
   accessToken: string;
   expiresIn: number;
 }
@@ -289,7 +288,6 @@ async function createSession(tokens: TokenResponse): Promise<AuthSession> {
     userId: tokens.userId,
     name: tokens.name,
     email: tokens.email,
-    avatarUrl: tokens.avatarUrl ?? null,
     accessToken: tokens.accessToken,
     accessTokenExpiresAt: Date.now() + tokens.expiresIn * 1000,
   };
