@@ -745,3 +745,89 @@ func TestIngestionIntegration_VariantesDeColorYFalsosPositivos(t *testing.T) {
 		t.Fatalf("productos de la marca = %d, quiero 2 (variantes juntas, distinto aparte)", total)
 	}
 }
+
+// Integración TAL-250: una corrida que el scraper cierra como success pero en
+// la que ingestion rechazó todos los ítems queda failed en scrape_run, con el
+// motivo en error_message, y no entra en la mediana de RecentFound. Una con
+// algún ítem procesado se cierra como success. Se omite sin TEST_DATABASE_URL.
+func TestIngestionIntegration_EstadoRealDeLaCorrida(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL no definida: se omite el test de integración")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	tag := "tal250-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	var storeID int32
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM data_source WHERE name = $1`, "Scraper "+tag)
+		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = $1`, storeID)
+	})
+	if err := pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda "+tag).Scan(&storeID); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	r := chi.NewRouter()
+	r.Use(httpx.RequestID)
+	r.Post("/ingestion/runs/{id}/finish", NewHandler(repo, nil, nil, logger).FinishRun)
+
+	tests := []struct {
+		name       string
+		processed  int
+		failed     int
+		wantStatus string
+		wantMsg    string
+	}{
+		{"todo rechazado", 0, 26, StatusFailed, "Ingestion rechazó los 26 ítems de la corrida."},
+		{"algo procesado", 20, 6, StatusSuccess, ""},
+	}
+	var ids []int32
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			id, err := repo.OpenRun(ctx, "Scraper "+tag, nil, storeID, "http")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, id)
+			if err := repo.AddCounters(ctx, id, tc.processed+tc.failed, tc.processed, tc.failed); err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/ingestion/runs/%d/finish", id),
+				strings.NewReader(`{"status":"success"}`))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("finish = %d %s", rec.Code, rec.Body.String())
+			}
+			var status string
+			var msg *string
+			if err := pool.QueryRow(ctx, `SELECT status, error_message FROM scrape_run WHERE id = $1`, id).
+				Scan(&status, &msg); err != nil {
+				t.Fatal(err)
+			}
+			got := ""
+			if msg != nil {
+				got = *msg
+			}
+			if status != tc.wantStatus || got != tc.wantMsg {
+				t.Fatalf("scrape_run = (%q, %q), quiero (%q, %q)", status, got, tc.wantStatus, tc.wantMsg)
+			}
+		})
+	}
+
+	found, err := repo.RecentFound(ctx, storeID, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(found) != "[26]" {
+		t.Fatalf("RecentFound = %v; solo la corrida exitosa (26 encontrados) cuenta para la mediana", found)
+	}
+}

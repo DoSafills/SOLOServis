@@ -3,8 +3,8 @@
   "purpose": "Lista cerrada de los campos que pueden llegar al proveedor de IA. Cualquier campo ausente se descarta antes de llamar al modelo.",
   "allow": {
     "category": ["name"],
-    "product": ["id", "name", "brand", "model", "bestPrice", "bestStore", "offerCount", "lastUpdated"],
-    "attribute": ["key", "label", "dataType", "unit", "values", "differs"],
+    "product": ["name", "brand", "model", "bestPrice", "bestStore", "offerCount", "lastUpdated"],
+    "attribute": ["label", "unit", "values", "differs"],
     "specification": ["name", "unit", "values", "differs"]
   },
   "deny": [
@@ -19,6 +19,18 @@
     {
       "field": "productUrl",
       "reason": "No se necesita para responder y expone enlaces de tiendas."
+    },
+    {
+      "field": "id",
+      "reason": "El modelo no cita UUIDs: las fuentes de la respuesta las pone el backend con los productIds de la petición."
+    },
+    {
+      "field": "key",
+      "reason": "Nombre técnico del atributo; el modelo usa label y el prompt le prohíbe mostrar nombres de campos."
+    },
+    {
+      "field": "dataType",
+      "reason": "Los valores ya viajan tipados en JSON; el tipo no aporta a la respuesta."
     }
   ],
   "forbiddenSources": [
@@ -67,6 +79,8 @@
     "El contexto se arma en el backend a partir de los productIds recibidos; el cliente no envía datos de producto.",
     "Los productos deben ser 2 a 5 y de la misma categoría.",
     "Los datos de oferta se limitan a la mejor oferta disponible por producto.",
+    "Una especificación que repite un atributo (mismo nombre y el atributo tiene el dato en los mismos productos) se descarta.",
+    "El contexto no supera limits.json context.maxBytes: si se pasa, se quitan primero las filas con differs en false y después las últimas filas.",
     "Ninguna credencial, token o cadena de conexión puede aparecer en el contexto."
   ]
 }

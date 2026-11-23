@@ -4,6 +4,9 @@
 # el nginx del frontend hacia los Services internos (docker/frontend/default.conf.template).
 # El host (*.dev.censei.cl) lo agrega el overlay generado por el script de deploy.
 # Clase y anotacion exigidas por el manual de la plataforma UCT.
+# proxy-body-size (TAL-252): el Ingress corta en 1m por defecto y la foto de
+# perfil (POST /users/me/avatar) llega a 2 MB mas el sobre multipart. 3m es el
+# mismo tope que pone el nginx del frontend en location /users.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -13,6 +16,7 @@ metadata:
     app.kubernetes.io/component: ingress
   annotations:
     external-dns.alpha.kubernetes.io/target: proxy.inf.uct.cl
+    nginx.ingress.kubernetes.io/proxy-body-size: 3m
 spec:
   ingressClassName: nginx
   rules:

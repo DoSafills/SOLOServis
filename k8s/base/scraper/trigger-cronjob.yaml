@@ -45,7 +45,7 @@ spec:
               env:
                 - name: API_TOKEN
                   valueFrom:
-                    secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+                    secretKeyRef: {name: soloservis-scraper, key: SCRAPER_TOKEN, optional: true}
               command: ["/bin/sh", "-c"]
               args:
                 - |

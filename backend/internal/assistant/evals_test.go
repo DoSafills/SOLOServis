@@ -98,11 +98,12 @@ func TestEvalRefusalPhraseMatchesPrompt(t *testing.T) {
 	}
 }
 
-// TestEvalFixtureRespectsAllowlist valida el contexto de ejemplo que usan los
-// casos: cuántos productos lleva, que no tenga campos fuera de la allowlist y
-// que no incluya ninguno de los campos prohibidos. Revisa el JSON tal como está
-// escrito, no el struct de Go: el struct emite `slug` e `imageUrl` en null
-// aunque el archivo no los declare.
+// TestEvalFixtureRespectsAllowlist valida el contexto que se arma con el
+// fixture de los casos: cuántos productos lleva, que no tenga campos fuera de
+// la allowlist y que no incluya ninguno de los campos prohibidos. Revisa el
+// JSON que recibe el modelo (buildModelContext), no el archivo: el fixture es
+// la matriz tal como la entrega la Comparison API, con `id`, `key` y
+// `dataType`, y desde TAL-181 esos campos se quedan en el backend.
 func TestEvalFixtureRespectsAllowlist(t *testing.T) {
 	matrix, err := EvalFixture()
 	if err != nil {
@@ -114,13 +115,13 @@ func TestEvalFixtureRespectsAllowlist(t *testing.T) {
 			len(matrix.Products), cfg.Limits.Products.Min, cfg.Limits.Products.Max)
 	}
 
-	data, err := embedded.ReadFile(fixturePath)
+	data, err := json.Marshal(buildModelContext(matrix))
 	if err != nil {
-		t.Fatalf("leer %s: %v", fixturePath, err)
+		t.Fatalf("serializar el contexto: %v", err)
 	}
 	var fixture map[string]any
 	if err := json.Unmarshal(data, &fixture); err != nil {
-		t.Fatalf("el fixture no es un objeto JSON: %v", err)
+		t.Fatalf("el contexto no es un objeto JSON: %v", err)
 	}
 
 	raw, err := Allowlist()
@@ -165,7 +166,7 @@ func TestEvalFixtureRespectsAllowlist(t *testing.T) {
 	}
 	for _, key := range allKeys(fixture) {
 		if denied[key] {
-			t.Errorf("el fixture incluye el campo prohibido %q", key)
+			t.Errorf("el contexto incluye el campo prohibido %q", key)
 		}
 	}
 }

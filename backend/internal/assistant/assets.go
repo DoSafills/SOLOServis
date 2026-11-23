@@ -143,6 +143,9 @@ func (c *Config) applyDefaults() {
 	if c.Limits.Cache.TTLSeconds <= 0 {
 		c.Limits.Cache.TTLSeconds = 86400
 	}
+	if c.Limits.Context.MaxBytes <= 0 {
+		c.Limits.Context.MaxBytes = DefaultMaxContextBytes
+	}
 }
 
 func (c Config) validate() error {

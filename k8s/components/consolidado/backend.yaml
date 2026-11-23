@@ -58,11 +58,15 @@ spec:
             - name: FRONTEND_URL
               valueFrom:
                 configMapKeyRef: {name: soloservis-config, key: FRONTEND_URL}
-            # Token de servicio (scraper/admin). Lo crea el script de deploy;
-            # sin él, las escrituras quedan solo para sesiones admin.
+            # Token de servicio (llamadas internas y escrituras admin). Lo crea
+            # el script de deploy; sin él, quedan solo las sesiones admin.
             - name: INTERNAL_API_TOKEN
               valueFrom:
                 secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+            # Token del scraper (TAL-199): solo abre /ingestion/*.
+            - name: INGESTION_API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: soloservis-scraper, key: SCRAPER_TOKEN, optional: true}
             # Asistente de comparación (IA). Mismo criterio que la topología por
             # dominios: proveedor compatible con OpenAI (DeepSeek) y la clave en
             # el Secret soloservis-ai, que crea la Fase 4 del deploy.
