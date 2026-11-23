@@ -110,3 +110,6 @@
 
 # TAL-192: índices de búsqueda, ofertas, reseñas, favoritos y FK; quita índice duplicado de sesiones.
 046_index_review.sql
+
+# TAL-209: huella estructural por corrida y tabla source_change_event; aditiva e idempotente.
+047_source_change_event.sql

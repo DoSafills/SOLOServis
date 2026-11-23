@@ -32,6 +32,12 @@ const (
 	MaxBrandName      = 150 // brand.name
 	MaxExternalID     = 255 // scraped_data.external_id
 	MaxErrorMessage   = 2000
+	MaxSpecHash       = 128
+	MaxSpecVersion    = 32
+	// MaxFingerprintValues acota la huella: un mapa gigante es un error del
+	// cliente, no una corrida real.
+	MaxFingerprintValues = 500
+	MaxFingerprintText   = 128
 	DefaultScraper    = "http"
 	DefaultListLimit  = 20
 	MaxListLimit      = 100
@@ -62,6 +68,26 @@ const (
 	// NotificationTypeDegraded marca el aviso de una tienda que dejó de
 	// entregar datos; el frontend decide cómo mostrarlo por el `type`.
 	NotificationTypeDegraded = "scraper_degraded"
+	// NotificationTypeSourceChanged marca un cambio detectado en la estructura,
+	// la respuesta o el endpoint de una fuente (TAL-209).
+	NotificationTypeSourceChanged = "source_changed"
+
+	// Umbrales por defecto de la huella estructural (TAL-209).
+	DefaultRootDropRatio        = 0.50
+	DefaultSelectorMinRatio     = 0.10
+	DefaultHTTPFailRatio        = 0.20
+	DefaultResponseMissingRatio = 0.50
+	DefaultMinCards             = 10
+	DefaultMinPages             = 5
+)
+
+// Tipos de cambio de una fuente (TAL-209). Cada evento guardado en
+// source_change_event lleva uno de estos valores.
+const (
+	ChangeTypeStructure = "estructura" // selectores clave dejaron de coincidir
+	ChangeTypeResponse  = "respuesta"  // claves o tipos del JSON-LD cambiaron
+	ChangeTypeEndpoint  = "endpoint"    // HTTP, content-type o redirecciones
+	ChangeTypeRecords   = "registros"   // caída de tarjetas contra la mediana
 )
 
 // Run es una ejecución del scraper (scrape_run) con su fuente.
@@ -85,6 +111,10 @@ type OpenRunRequest struct {
 	Source      SourceInput `json:"source"`
 	StoreID     int32       `json:"storeId"`
 	ScraperType string      `json:"scraperType"`
+	// SpecHash y SpecVersion identifican el spec con el que el scraper extrajo.
+	// Son opcionales: un scraper sin ellos abre la corrida como antes.
+	SpecHash    string `json:"specHash"`
+	SpecVersion string `json:"specVersion"`
 }
 
 type SourceInput struct {
@@ -106,6 +136,27 @@ type FinishRequest struct {
 	ItemsRejected   *int   `json:"itemsRejected"`
 	ItemsDuplicated *int   `json:"itemsDuplicated"`
 	PagesFailed     *int   `json:"pagesFailed"`
+	// Fingerprint es la huella estructural de las páginas leídas (TAL-209).
+	// Opcional: sin ella la corrida se cierra igual que antes.
+	Fingerprint *Fingerprint `json:"fingerprint"`
+}
+
+// Fingerprint es la huella estructural que el scraper reporta al cerrar una
+// corrida: cuántas tarjetas vio, cuántas veces coincidió cada selector
+// declarado, el esquema del JSON-LD de la página y el estado de las páginas.
+// Es lo que permite detectar un cambio de HTML, de respuesta o de endpoint sin
+// guardar el contenido completo (que haría ruido por anuncios y contenido
+// dinámico). Los ceros son valores reales: por eso el bloque es opcional y no
+// se evalúa si falta.
+type Fingerprint struct {
+	RootMatches       int            `json:"rootMatches"`
+	SelectorHits      map[string]int `json:"selectorHits,omitempty"`
+	RequiredSelectors []string       `json:"requiredSelectors,omitempty"`
+	JSONLDKeys        []string       `json:"jsonldKeys,omitempty"`
+	JSONLDTypes       []string       `json:"jsonldTypes,omitempty"`
+	PagesChecked      int            `json:"pagesChecked"`
+	PagesHTTPFailed   int            `json:"pagesHttpFailed"`
+	PagesNonHTML      int            `json:"pagesNonHtml"`
 }
 
 // ItemsRequest es el body de POST /ingestion/runs/{id}/items.

@@ -184,6 +184,184 @@ func TestThresholdsFromEnv(t *testing.T) {
 	})
 }
 
+// healthyFingerprint es la huella de una tienda estable: 30 tarjetas, ambos
+// selectores requeridos coincidiendo en todas y diez páginas HTML correctas.
+func healthyFingerprint() Fingerprint {
+	return Fingerprint{
+		RootMatches:       30,
+		SelectorHits:      map[string]int{"product.name": 30, "offer.price": 30},
+		RequiredSelectors: []string{"product.name", "offer.price"},
+		JSONLDKeys:        []string{"image", "name", "sku", "url"},
+		JSONLDTypes:       []string{"Product"},
+		PagesChecked:      10,
+	}
+}
+
+// TestEvaluateFingerprint fija la regla de TAL-209: qué cuenta como cambio de
+// estructura, respuesta, endpoint o registros, y qué no dispara nada.
+func TestEvaluateFingerprint(t *testing.T) {
+	thresholds := Thresholds{
+		RootDropRatio:        DefaultRootDropRatio,
+		SelectorMinRatio:     DefaultSelectorMinRatio,
+		HTTPFailRatio:        DefaultHTTPFailRatio,
+		ResponseMissingRatio: DefaultResponseMissingRatio,
+		MinCards:             DefaultMinCards,
+		MinPages:             DefaultMinPages,
+	}
+	stable := healthyFingerprint()
+	baseline := []Fingerprint{stable, stable, stable}
+
+	withHits := func(changes func(*Fingerprint)) Fingerprint {
+		fp := healthyFingerprint()
+		changes(&fp)
+		return fp
+	}
+
+	tests := []struct {
+		name    string
+		current Fingerprint
+		base    []Fingerprint
+		tipo    string // "" cuando no debe haber eventos
+		reason  string
+	}{
+		{
+			name:    "sin cambios no genera evento",
+			current: healthyFingerprint(),
+			base:    baseline,
+		},
+		{
+			name:    "selector requerido sin coincidencias es cambio de estructura",
+			current: withHits(func(fp *Fingerprint) { fp.SelectorHits["offer.price"] = 0 }),
+			base:    baseline,
+			tipo:    ChangeTypeStructure,
+			reason:  "offer.price",
+		},
+		{
+			name:    "pocas coincidencias bajo el 10% también son estructura",
+			current: withHits(func(fp *Fingerprint) { fp.SelectorHits["offer.price"] = 2 }),
+			base:    baseline,
+			tipo:    ChangeTypeStructure,
+			reason:  "coincidió en 2 de 30",
+		},
+		{
+			name:    "faltan claves JSON-LD esperadas",
+			current: withHits(func(fp *Fingerprint) { fp.JSONLDKeys = []string{"url"} }),
+			base:    baseline,
+			tipo:    ChangeTypeResponse,
+			reason:  "claves JSON-LD esperadas",
+		},
+		{
+			name:    "cambia el tipo JSON-LD de la ficha",
+			current: withHits(func(fp *Fingerprint) { fp.JSONLDTypes = []string{"ListItem"} }),
+			base:    baseline,
+			tipo:    ChangeTypeResponse,
+			reason:  "tipos JSON-LD esperados",
+		},
+		{
+			name:    "páginas con HTTP >= 400 son cambio de endpoint",
+			current: withHits(func(fp *Fingerprint) { fp.PagesHTTPFailed = 3 }),
+			base:    baseline,
+			tipo:    ChangeTypeEndpoint,
+			reason:  "HTTP >= 400",
+		},
+		{
+			name:    "páginas que dejan de ser HTML son cambio de endpoint",
+			current: withHits(func(fp *Fingerprint) { fp.PagesNonHTML = 3 }),
+			base:    baseline,
+			tipo:    ChangeTypeEndpoint,
+			reason:  "contenido no HTML",
+		},
+		{
+			name:    "pocas páginas no bastan para evaluar el endpoint",
+			current: withHits(func(fp *Fingerprint) { fp.PagesChecked = 4; fp.PagesHTTPFailed = 4 }),
+			base:    baseline,
+		},
+		{
+			name:    "caída de tarjetas contra la mediana es cambio de registros",
+			current: withHits(func(fp *Fingerprint) {
+				fp.RootMatches = 10
+				fp.SelectorHits = map[string]int{"product.name": 10, "offer.price": 10}
+			}),
+			base:   baseline,
+			tipo:   ChangeTypeRecords,
+			reason: "vio 10 tarjetas contra una mediana de 30",
+		},
+		{
+			name:    "caída leve no alerta",
+			current: withHits(func(fp *Fingerprint) {
+				fp.RootMatches = 25
+				fp.SelectorHits = map[string]int{"product.name": 25, "offer.price": 25}
+			}),
+			base: baseline,
+		},
+		{
+			name:    "sin historial suficiente no compara registros ni respuesta",
+			current: withHits(func(fp *Fingerprint) { fp.RootMatches = 3; fp.JSONLDKeys = nil }),
+			base:    []Fingerprint{healthyFingerprint()},
+		},
+		{
+			name:    "una tienda por debajo del mínimo no alerta por registros",
+			current: withHits(func(fp *Fingerprint) {
+				fp.RootMatches = 3
+				fp.SelectorHits = map[string]int{"product.name": 3, "offer.price": 3}
+			}),
+			base: []Fingerprint{
+				withHits(func(fp *Fingerprint) { fp.RootMatches = 8 }),
+				withHits(func(fp *Fingerprint) { fp.RootMatches = 8 }),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			events := EvaluateFingerprint(test.current, test.base, thresholds)
+			if test.tipo == "" {
+				if len(events) != 0 {
+					t.Fatalf("eventos = %+v; quiero ninguno", events)
+				}
+				return
+			}
+			event := eventOf(events, test.tipo)
+			if event == nil {
+				t.Fatalf("faltó el evento %q en %+v", test.tipo, events)
+			}
+			if test.reason != "" && !containsReason(event.Reasons, test.reason) {
+				t.Fatalf("razones = %v; quiero una que contenga %q", event.Reasons, test.reason)
+			}
+		})
+	}
+}
+
+// TestEvaluateFingerprintUnEventoPorTipo comprueba que varias causas del mismo
+// tipo se agrupan: la base tiene UNIQUE (run_id, tipo).
+func TestEvaluateFingerprintUnEventoPorTipo(t *testing.T) {
+	thresholds := Thresholds{
+		RootDropRatio: DefaultRootDropRatio, SelectorMinRatio: DefaultSelectorMinRatio,
+		HTTPFailRatio: DefaultHTTPFailRatio, ResponseMissingRatio: DefaultResponseMissingRatio,
+		MinCards: DefaultMinCards, MinPages: DefaultMinPages,
+	}
+	stable := healthyFingerprint()
+	current := healthyFingerprint()
+	current.SelectorHits["product.name"] = 0
+	current.SelectorHits["offer.price"] = 0
+
+	events := EvaluateFingerprint(current, []Fingerprint{stable, stable}, thresholds)
+
+	if len(events) != 1 || events[0].Tipo != ChangeTypeStructure || len(events[0].Reasons) != 2 {
+		t.Fatalf("eventos = %+v; quiero un evento de estructura con dos razones", events)
+	}
+}
+
+// eventOf devuelve el evento del tipo pedido, o nil si no está.
+func eventOf(events []ChangeEvent, tipo string) *ChangeEvent {
+	for i := range events {
+		if events[i].Tipo == tipo {
+			return &events[i]
+		}
+	}
+	return nil
+}
+
 // containsReason informa si alguna razón contiene `fragment`.
 func containsReason(reasons []string, fragment string) bool {
 	for _, reason := range reasons {

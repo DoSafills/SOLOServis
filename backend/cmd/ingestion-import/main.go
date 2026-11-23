@@ -135,7 +135,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		runs := ingestion.NewRepository(db)
 		processor := ingestion.NewProcessor(runs, products.NewRepository(db), pricing.NewRepository(db),
 			pricing.NewHTTPNotifier(), logger)
-		runID, err := runs.OpenRun(ctx, sourceName, optional(sourceURL), int32(*storeID), scraperType)
+		runID, err := runs.OpenRun(ctx, sourceName, optional(sourceURL), int32(*storeID), scraperType, "", "")
 		if err != nil {
 			fmt.Fprintf(stderr, "no se pudo abrir la ejecución: %v\n", err)
 			return 1

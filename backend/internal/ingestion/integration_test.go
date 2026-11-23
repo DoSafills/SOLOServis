@@ -438,7 +438,7 @@ func TestIngestionIntegration_ScrapedDataPorLote(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := NewRepository(pool)
-	runID, err := repo.OpenRun(ctx, "Scraper "+tag, nil, storeID, "perf")
+	runID, err := repo.OpenRun(ctx, "Scraper "+tag, nil, storeID, "perf", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,6 +493,86 @@ func (o *offersQueFalla) UpsertOfferTx(ctx context.Context, tx pgx.Tx, w pricing
 		return 0, false, nil, errors.New("corte simulado entre producto y oferta")
 	}
 	return o.Repository.UpsertOfferTx(ctx, tx, w)
+}
+
+// Integración TAL-209: la huella de una corrida se guarda, las corridas
+// anteriores de la misma tienda se leen como historial y un evento de cambio
+// repetido (reintento de finish) no se duplica. Se omite sin TEST_DATABASE_URL.
+func TestIngestionIntegration_HuellaYEventoIdempotente(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL no definida: se omite el test de integración")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	tag := "tal209-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	source := "Scraper " + tag
+	var storeID int32
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM data_source WHERE name = $1`, source)
+		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = $1`, storeID)
+	})
+	if err := pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda "+tag).Scan(&storeID); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool)
+	must := func(err error, what string) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+	}
+	healthy := Fingerprint{
+		RootMatches:       30,
+		SelectorHits:      map[string]int{"price": 30},
+		RequiredSelectors: []string{"price"},
+		PagesChecked:      10,
+	}
+
+	first, err := repo.OpenRun(ctx, source, nil, storeID, "http", "hash-abc", "1.1")
+	must(err, "abrir primera corrida")
+	must(repo.SaveFingerprint(ctx, first, healthy), "guardar huella")
+	must(repo.FinishRun(ctx, first, StatusSuccess, nil), "cerrar primera corrida")
+
+	var specHash string
+	must(pool.QueryRow(ctx, `SELECT spec_hash FROM scrape_run WHERE id = $1`, first).Scan(&specHash), "leer spec_hash")
+	if specHash != "hash-abc" {
+		t.Fatalf("spec_hash = %q", specHash)
+	}
+
+	second, err := repo.OpenRun(ctx, source, nil, storeID, "http", "hash-abc", "1.1")
+	must(err, "abrir segunda corrida")
+	must(repo.SaveFingerprint(ctx, second, healthy), "guardar segunda huella")
+	baseline, err := repo.RecentFingerprints(ctx, storeID, second, 5)
+	must(err, "leer historial")
+	if len(baseline) != 1 || baseline[0].RootMatches != 30 || baseline[0].SelectorHits["price"] != 30 {
+		t.Fatalf("historial = %+v", baseline)
+	}
+
+	current, _ := json.Marshal(healthy)
+	previous, _ := json.Marshal(healthy)
+	event := SourceChangeEvent{
+		StoreID: storeID, RunID: second, Tipo: ChangeTypeStructure,
+		Detalle: "selector sin coincidencias", Fingerprint: current,
+		PreviousFingerprint: previous, Verdict: "degraded",
+		Reasons: []string{"price: 0 de 30"},
+	}
+	must(repo.SaveSourceChangeEvent(ctx, event), "guardar evento")
+	must(repo.SaveSourceChangeEvent(ctx, event), "reintentar evento")
+
+	var events, duplicates int
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM source_change_event WHERE run_id = $1`, second).Scan(&events), "contar eventos")
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT run_id, tipo FROM source_change_event
+		WHERE run_id = $1 GROUP BY run_id, tipo HAVING COUNT(*) > 1) d`, second).Scan(&duplicates), "duplicados")
+	if events != 1 || duplicates != 0 {
+		t.Fatalf("eventos = %d, duplicados = %d; quiero 1 y 0", events, duplicates)
+	}
 }
 
 // Integración TAL-191: repetir el mismo lote, en la misma ejecución y en una

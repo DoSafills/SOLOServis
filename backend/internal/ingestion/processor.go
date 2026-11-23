@@ -25,13 +25,16 @@ import (
 // Las consultas del ítem van por la transacción del ítem (TAL-191): producto,
 // imagen y oferta se aplican juntos o no se aplica nada.
 type RunStore interface {
-	OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType string) (int32, error)
+	OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType, specHash, specVersion string) (int32, error)
 	GetRun(ctx context.Context, id int32) (Run, error)
 	ListRuns(ctx context.Context, limit, offset int) ([]Run, int64, error)
 	FinishRun(ctx context.Context, id int32, status string, message *string) error
 	ItemsTarget(ctx context.Context, id int32) (int32, error)
 	AddCounters(ctx context.Context, id int32, found, processed, failed int) error
 	RecentFound(ctx context.Context, storeID, excludeRunID int32, limit int) ([]int32, error)
+	SaveFingerprint(ctx context.Context, runID int32, fingerprint Fingerprint) error
+	RecentFingerprints(ctx context.Context, storeID, excludeRunID int32, limit int) ([]Fingerprint, error)
+	SaveSourceChangeEvent(ctx context.Context, event SourceChangeEvent) error
 	SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, raw json.RawMessage) error
 	SaveScrapedBatch(ctx context.Context, runID int32, items []ScrapedItem) error
 	BeginTx(ctx context.Context) (pgx.Tx, error)

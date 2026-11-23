@@ -47,6 +47,23 @@ type Thresholds struct {
 	// PriceRatio es la proporción de ítems con precio nulo o en 0 sobre los
 	// recibidos que ya se considera anormal (0.20 por defecto).
 	PriceRatio float64
+	// RootDropRatio es la caída de tarjetas vistas (rootMatches) contra la
+	// mediana histórica que marca un cambio en la fuente (0.50 por defecto).
+	RootDropRatio float64
+	// SelectorMinRatio es la proporción mínima de tarjetas en que debe
+	// coincidir un selector required/rejectIfMissing (0.10 por defecto).
+	SelectorMinRatio float64
+	// HTTPFailRatio es la proporción de páginas con HTTP >= 400 o contenido no
+	// HTML que marca un cambio de endpoint (0.20 por defecto).
+	HTTPFailRatio float64
+	// ResponseMissingRatio es la proporción de claves JSON-LD esperadas que
+	// puede faltar antes de marcar un cambio de respuesta (0.50 por defecto).
+	ResponseMissingRatio float64
+	// MinCards es el mínimo de tarjetas de la mediana para que valga la pena
+	// comparar: con tiendas pequeñas el ruido supera la señal (10 por defecto).
+	MinCards int
+	// MinPages es el mínimo de páginas leídas para evaluar el endpoint (5).
+	MinPages int
 }
 
 // ThresholdsFromEnv arma los umbrales con los valores por defecto y los
@@ -56,10 +73,16 @@ type Thresholds struct {
 // puede apagar las alertas.
 func ThresholdsFromEnv() Thresholds {
 	thresholds := Thresholds{
-		RejectRatio:  DefaultRejectRatio,
-		DropRatio:    DefaultDropRatio,
-		BaselineRuns: DefaultBaselineRuns,
-		PriceRatio:   DefaultPriceRatio,
+		RejectRatio:          DefaultRejectRatio,
+		DropRatio:            DefaultDropRatio,
+		BaselineRuns:         DefaultBaselineRuns,
+		PriceRatio:           DefaultPriceRatio,
+		RootDropRatio:        DefaultRootDropRatio,
+		SelectorMinRatio:     DefaultSelectorMinRatio,
+		HTTPFailRatio:        DefaultHTTPFailRatio,
+		ResponseMissingRatio: DefaultResponseMissingRatio,
+		MinCards:             DefaultMinCards,
+		MinPages:             DefaultMinPages,
 	}
 	if ratio, ok := readFloat("INGESTION_DEGRADED_REJECT_RATIO", 0, 1); ok {
 		thresholds.RejectRatio = ratio
@@ -72,6 +95,24 @@ func ThresholdsFromEnv() Thresholds {
 	}
 	if runs, ok := readInt("INGESTION_DEGRADED_BASELINE_RUNS", 1, 50); ok {
 		thresholds.BaselineRuns = runs
+	}
+	if ratio, ok := readFloat("INGESTION_FP_ROOT_DROP_RATIO", 0, 1); ok {
+		thresholds.RootDropRatio = ratio
+	}
+	if ratio, ok := readFloat("INGESTION_FP_SELECTOR_MIN_RATIO", 0, 1); ok {
+		thresholds.SelectorMinRatio = ratio
+	}
+	if ratio, ok := readFloat("INGESTION_FP_HTTP_FAIL_RATIO", 0, 1); ok {
+		thresholds.HTTPFailRatio = ratio
+	}
+	if ratio, ok := readFloat("INGESTION_FP_RESPONSE_MISSING_RATIO", 0, 1); ok {
+		thresholds.ResponseMissingRatio = ratio
+	}
+	if cards, ok := readInt("INGESTION_FP_MIN_CARDS", 1, 100000); ok {
+		thresholds.MinCards = cards
+	}
+	if pages, ok := readInt("INGESTION_FP_MIN_PAGES", 1, 100000); ok {
+		thresholds.MinPages = pages
 	}
 	return thresholds
 }
@@ -160,6 +201,161 @@ func median(values []int32) int {
 	copy(ordered, values)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
 	return int(ordered[(len(ordered)-1)/2])
+}
+
+// ChangeEvent es un cambio detectado en una fuente, con su tipo y el motivo.
+// Un mismo cierre puede producir como máximo un evento por tipo.
+type ChangeEvent struct {
+	Tipo    string
+	Reasons []string
+}
+
+// EvaluateFingerprint compara la huella de la corrida con las anteriores de la
+// misma tienda y devuelve los cambios detectados, agrupados por tipo:
+// `endpoint` (HTTP/content-type), `estructura` (selectores clave),
+// `respuesta` (claves o tipos del JSON-LD) y `registros` (caída de tarjetas).
+//
+// Es deliberadamente conservador: sin historial suficiente, sin la muestra
+// mínima de páginas o con la tienda por debajo de MinCards no alerta. Compara
+// conteos y esquemas, nunca el HTML completo, para que un anuncio o contenido
+// dinámico no se confunda con un cambio de estructura. Devuelve una lista
+// vacía cuando no hay nada que avisar.
+func EvaluateFingerprint(current Fingerprint, baseline []Fingerprint, thresholds Thresholds) []ChangeEvent {
+	var events []ChangeEvent
+
+	if reason := endpointChange(current, thresholds); reason != "" {
+		events = append(events, ChangeEvent{Tipo: ChangeTypeEndpoint, Reasons: []string{reason}})
+	}
+	var structure []string
+	if current.RootMatches >= thresholds.MinCards {
+		for _, selector := range current.RequiredSelectors {
+			hits := current.SelectorHits[selector]
+			if float64(hits) < float64(current.RootMatches)*thresholds.SelectorMinRatio {
+				structure = append(structure, fmt.Sprintf(
+					"el selector requerido %q coincidió en %d de %d tarjetas",
+					selector, hits, current.RootMatches))
+			}
+		}
+	}
+	if len(structure) > 0 {
+		events = append(events, ChangeEvent{Tipo: ChangeTypeStructure, Reasons: structure})
+	}
+	if reason := responseChange(current, baseline, thresholds); reason != "" {
+		events = append(events, ChangeEvent{Tipo: ChangeTypeResponse, Reasons: []string{reason}})
+	}
+	if reason := recordsChange(current, baseline, thresholds); reason != "" {
+		events = append(events, ChangeEvent{Tipo: ChangeTypeRecords, Reasons: []string{reason}})
+	}
+	return events
+}
+
+// endpointChange detecta páginas que dejaron de responder HTML. Devuelve el
+// motivo o "" cuando la muestra es insuficiente o la proporción está dentro
+// del umbral.
+func endpointChange(current Fingerprint, thresholds Thresholds) string {
+	if current.PagesChecked < thresholds.MinPages {
+		return ""
+	}
+	bad := current.PagesHTTPFailed + current.PagesNonHTML
+	ratio := float64(bad) / float64(current.PagesChecked)
+	if ratio <= thresholds.HTTPFailRatio {
+		return ""
+	}
+	return fmt.Sprintf(
+		"%d de %d páginas con HTTP >= 400 o contenido no HTML (%.0f%% supera el umbral de %.0f%%)",
+		bad, current.PagesChecked, ratio*100, thresholds.HTTPFailRatio*100)
+}
+
+// responseChange detecta un JSON-LD que dejó de traer las claves o los tipos
+// que el historial considera esperados. La referencia es lo que apareció en al
+// menos la mitad de las corridas anteriores, no una corrida suelta.
+func responseChange(current Fingerprint, baseline []Fingerprint, thresholds Thresholds) string {
+	if len(baseline) < 2 {
+		return ""
+	}
+	expectedKeys := consensus(baseline, func(fp Fingerprint) []string { return fp.JSONLDKeys })
+	if len(expectedKeys) >= 3 {
+		missing := missingValues(expectedKeys, current.JSONLDKeys)
+		if ratio := float64(len(missing)) / float64(len(expectedKeys)); ratio > thresholds.ResponseMissingRatio {
+			return fmt.Sprintf(
+				"faltan %d de %d claves JSON-LD esperadas (%s); %.0f%% supera el umbral de %.0f%%",
+				len(missing), len(expectedKeys), strings.Join(missing, ", "),
+				ratio*100, thresholds.ResponseMissingRatio*100)
+		}
+	}
+	expectedTypes := consensus(baseline, func(fp Fingerprint) []string { return fp.JSONLDTypes })
+	if len(expectedTypes) > 0 {
+		if missing := missingValues(expectedTypes, current.JSONLDTypes); len(missing) > 0 {
+			return fmt.Sprintf("faltan tipos JSON-LD esperados (%s)", strings.Join(missing, ", "))
+		}
+	}
+	return ""
+}
+
+// recordsChange compara las tarjetas vistas contra la mediana histórica.
+// Devuelve el motivo o "" cuando no hay historial suficiente o la caída no
+// cruza el umbral.
+func recordsChange(current Fingerprint, baseline []Fingerprint, thresholds Thresholds) string {
+	roots := make([]int32, 0, len(baseline))
+	for _, fp := range baseline {
+		if fp.RootMatches > 0 {
+			roots = append(roots, int32(fp.RootMatches))
+		}
+	}
+	if len(roots) < 2 {
+		return ""
+	}
+	reference := median(roots)
+	if reference < thresholds.MinCards {
+		return ""
+	}
+	if limit := int(float64(reference) * thresholds.RootDropRatio); current.RootMatches < limit {
+		return fmt.Sprintf(
+			"vio %d tarjetas contra una mediana de %d en las últimas corridas",
+			current.RootMatches, reference)
+	}
+	return ""
+}
+
+// consensus devuelve los valores presentes en al menos la mitad de las huellas
+// del historial. Un valor que apareció una sola vez no es referencia.
+func consensus(baseline []Fingerprint, values func(Fingerprint) []string) []string {
+	counts := map[string]int{}
+	for _, fp := range baseline {
+		seen := map[string]bool{}
+		for _, value := range values(fp) {
+			if value == "" || seen[value] {
+				continue
+			}
+			seen[value] = true
+			counts[value]++
+		}
+	}
+	needed := (len(baseline) + 1) / 2
+	out := make([]string, 0, len(counts))
+	for value, count := range counts {
+		if count >= needed {
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// missingValues devuelve los valores esperados que no están en current, en el
+// orden de expected.
+func missingValues(expected, current []string) []string {
+	present := make(map[string]bool, len(current))
+	for _, value := range current {
+		present[value] = true
+	}
+	var out []string
+	for _, value := range expected {
+		if !present[value] {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 // readFloat lee una variable de entorno como número decimal dentro de

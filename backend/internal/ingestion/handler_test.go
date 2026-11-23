@@ -94,10 +94,19 @@ type fakeRuns struct {
 	baseline    []int32
 	baselineErr error
 	txs         []*fakeTx // transacciones abiertas por Processor
+
+	// TAL-209: huella estructural, historial y eventos de cambio.
+	savedFingerprint Fingerprint
+	fingerprintSaved bool
+	fingerprintErr   error
+	fpBaseline       []Fingerprint
+	fpBaselineErr    error
+	events           []SourceChangeEvent
+	eventErr         error
 }
 
-func (f *fakeRuns) OpenRun(_ context.Context, name string, baseURL *string, storeID int32, scraperType string) (int32, error) {
-	f.opened = []any{name, baseURL, storeID, scraperType}
+func (f *fakeRuns) OpenRun(_ context.Context, name string, baseURL *string, storeID int32, scraperType, specHash, specVersion string) (int32, error) {
+	f.opened = []any{name, baseURL, storeID, scraperType, specHash, specVersion}
 	return 3, f.openErr
 }
 func (f *fakeRuns) GetRun(context.Context, int32) (Run, error) { return f.run, f.getErr }
@@ -117,6 +126,24 @@ func (f *fakeRuns) AddCounters(_ context.Context, _ int32, found, processed, fai
 // RecentFound devuelve el historial que dejó el test en `baseline`.
 func (f *fakeRuns) RecentFound(_ context.Context, _, _ int32, _ int) ([]int32, error) {
 	return f.baseline, f.baselineErr
+}
+
+// SaveFingerprint anota la huella que el cierre quiso guardar.
+func (f *fakeRuns) SaveFingerprint(_ context.Context, _ int32, fingerprint Fingerprint) error {
+	f.savedFingerprint = fingerprint
+	f.fingerprintSaved = true
+	return f.fingerprintErr
+}
+
+// RecentFingerprints devuelve el historial de huellas que dejó el test.
+func (f *fakeRuns) RecentFingerprints(_ context.Context, _, _ int32, _ int) ([]Fingerprint, error) {
+	return f.fpBaseline, f.fpBaselineErr
+}
+
+// SaveSourceChangeEvent acumula los eventos que el cierre quiso guardar.
+func (f *fakeRuns) SaveSourceChangeEvent(_ context.Context, event SourceChangeEvent) error {
+	f.events = append(f.events, event)
+	return f.eventErr
 }
 
 // SaveScraped simula el guardado de una fila de scraped_data (el respaldo
@@ -478,6 +505,118 @@ func TestFinishRunWithoutCountersDoesNotAlert(t *testing.T) {
 
 	if len(e.alerts.sent) != 0 {
 		t.Fatalf("avisos = %d; quiero 0", len(e.alerts.sent))
+	}
+}
+
+// ------------------------------------------------------------------ TAL-209
+
+// sourceChangeBody arma un cierre con huella; los campos se fijan a una tienda
+// estable salvo lo que el test cambie al vuelo.
+func sourceChangeBody(selectorHits string) string {
+	return `{"status":"success","fingerprint":{` +
+		`"rootMatches":30,"selectorHits":` + selectorHits + `,` +
+		`"requiredSelectors":["product.name","offer.price"],` +
+		`"jsonldKeys":["image","name","sku","url"],"jsonldTypes":["Product"],` +
+		`"pagesChecked":10,"pagesHttpFailed":0,"pagesNonHtml":0}}`
+}
+
+// TestOpenRunSendsSpecMetadata comprueba que el scraper puede declarar con qué
+// spec corrió y que un valor fuera de largo se rechaza por campo.
+func TestOpenRunSendsSpecMetadata(t *testing.T) {
+	e := newEnv()
+	rec := e.serve(t, http.MethodPost, "/ingestion/runs",
+		`{"source":{"name":"Falabella scraper"},"storeId":2,"specHash":"abc123","specVersion":"1.1"}`)
+	requireStatus(t, rec, http.StatusCreated)
+	if e.runs.opened[4] != "abc123" || e.runs.opened[5] != "1.1" {
+		t.Fatalf("OpenRun = %v", e.runs.opened)
+	}
+
+	long := newEnv().serve(t, http.MethodPost, "/ingestion/runs",
+		`{"source":{"name":"x"},"storeId":2,"specHash":"`+strings.Repeat("a", MaxSpecHash+1)+`"}`)
+	requireStatus(t, long, http.StatusUnprocessableEntity)
+	if got := problemFields(t, long); !reflect.DeepEqual(got, []string{"specHash/max_length"}) {
+		t.Fatalf("errores = %v", got)
+	}
+}
+
+// TestFinishRunDetectsSourceChange recorre el camino completo: el cierre trae
+// una huella con un selector caído, ingestion la guarda, registra el evento y
+// avisa a los administradores sin cambiar la respuesta del cierre.
+func TestFinishRunDetectsSourceChange(t *testing.T) {
+	e := withStore(newEnv())
+	e.runs.fpBaseline = []Fingerprint{healthyFingerprint(), healthyFingerprint(), healthyFingerprint()}
+
+	body := sourceChangeBody(`{"product.name":30,"offer.price":0}`)
+	requireStatus(t, e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", body), http.StatusOK)
+
+	if !e.runs.fingerprintSaved || e.runs.savedFingerprint.RootMatches != 30 {
+		t.Fatalf("huella guardada = %+v (guardada: %v)", e.runs.savedFingerprint, e.runs.fingerprintSaved)
+	}
+	if len(e.runs.events) != 1 {
+		t.Fatalf("eventos = %+v; quiero uno", e.runs.events)
+	}
+	event := e.runs.events[0]
+	if event.Tipo != ChangeTypeStructure || event.StoreID != 2 || event.RunID != 3 || event.Verdict != "degraded" {
+		t.Fatalf("evento = %+v", event)
+	}
+	if len(event.Reasons) != 1 || !strings.Contains(event.Reasons[0], "offer.price") {
+		t.Fatalf("reasons = %v", event.Reasons)
+	}
+
+	if len(e.alerts.sent) != 1 {
+		t.Fatalf("avisos = %d; quiero 1 (log: %s)", len(e.alerts.sent), e.logs.String())
+	}
+	alert := e.alerts.sent[0]
+	if alert.Type != NotificationTypeSourceChanged {
+		t.Fatalf("type = %q", alert.Type)
+	}
+	if !strings.Contains(alert.Message, "estructura") || !strings.Contains(alert.Title, "Ripley scraper") {
+		t.Fatalf("aviso = %q / %q", alert.Title, alert.Message)
+	}
+	if alert.Data["runId"] != int32(3) {
+		t.Fatalf("data.runId = %v", alert.Data["runId"])
+	}
+}
+
+// TestFinishRunWithoutChangesStoresFingerprintSilently comprueba el caso sano:
+// la huella se guarda para el historial pero no hay evento ni alerta.
+func TestFinishRunWithoutChangesStoresFingerprintSilently(t *testing.T) {
+	e := withStore(newEnv())
+	e.runs.fpBaseline = []Fingerprint{healthyFingerprint(), healthyFingerprint(), healthyFingerprint()}
+
+	body := sourceChangeBody(`{"product.name":30,"offer.price":30}`)
+	requireStatus(t, e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", body), http.StatusOK)
+
+	if !e.runs.fingerprintSaved {
+		t.Fatal("la huella no se guardó")
+	}
+	if len(e.runs.events) != 0 || len(e.alerts.sent) != 0 {
+		t.Fatalf("eventos = %+v, avisos = %d; quiero 0 y 0", e.runs.events, len(e.alerts.sent))
+	}
+}
+
+// TestFinishRunInvalidFingerprint cubre la validación por campo: la huella es
+// opcional, pero si viene con conteos imposibles se rechaza con 422.
+func TestFinishRunInvalidFingerprint(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, want string
+	}{
+		{"rootMatches negativo", `{"status":"success","fingerprint":{"rootMatches":-1}}`, "fingerprint.rootMatches/min"},
+		{"páginas no HTML negativas", `{"status":"success","fingerprint":{"pagesNonHtml":-2}}`, "fingerprint.pagesNonHtml/min"},
+		{"selector con hits negativos", `{"status":"success","fingerprint":{"selectorHits":{"x":-1}}}`, "fingerprint.selectorHits/min"},
+		{"selector demasiado largo", `{"status":"success","fingerprint":{"selectorHits":{"` + strings.Repeat("a", MaxFingerprintText+1) + `":1}}}`, "fingerprint.selectorHits/max_length"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := withStore(newEnv())
+			rec := e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", tc.body)
+			requireStatus(t, rec, http.StatusUnprocessableEntity)
+			if got := problemFields(t, rec); !reflect.DeepEqual(got, []string{tc.want}) {
+				t.Fatalf("errores = %v, quiero %s", got, tc.want)
+			}
+			if e.runs.fingerprintSaved {
+				t.Fatal("una huella inválida no debe guardarse")
+			}
+		})
 	}
 }
 
