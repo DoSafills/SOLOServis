@@ -36,6 +36,7 @@ patches:
           - {name: STORE_UPSTREAM, value: "backend:8080"}
           - {name: SERVICE_UPSTREAM, value: "backend:8080"}
           - {name: AUTH_UPSTREAM, value: "backend:8080"}
+          - {name: USER_UPSTREAM, value: "backend:8080"}
           - {name: FAVORITES_UPSTREAM, value: "backend:8080"}
           - {name: CART_UPSTREAM, value: "backend:8080"}
           - {name: SEARCH_UPSTREAM, value: "backend:8080"}

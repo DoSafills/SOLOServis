@@ -30,6 +30,29 @@ server {
     gzip on;
     gzip_types text/plain text/css application/javascript application/json image/svg+xml;
 
+    # Sin la versión de nginx en la cabecera Server ni en las páginas de error.
+    server_tokens off;
+
+    # Cabeceras de seguridad (TAL-197). Las locations con add_header propio
+    # vuelven a incluir este archivo, porque si no las perderían.
+    include /etc/nginx/soloservis-security-headers.conf;
+
+    # Rutas con separadores codificados o segmentos de punto (TAL-197).
+    # nginx elige la location con la ruta ya decodificada y normalizada, pero
+    # proxy_pass reenvía la original: /offers/1%2F..%2F..%2Ffavorites entraba
+    # por /favorites (sin limit_except) y chi la enrutaba a PUT /offers/{id},
+    # una ruta que el gateway no publica. Se revisa solo la ruta, antes del "?",
+    # así una búsqueda con ".." o "%2F" en la query sigue funcionando.
+    # 418 es solo un código interno para saltar a la location que responde 400.
+    error_page 418 = @ruta_invalida;
+    if ($request_uri ~* "^[^?]*(%2f|%5c|/(\.|%2e){1,2}(/|%2f|%5c|\?|$))") {
+        return 418;
+    }
+    location @ruta_invalida {
+        default_type application/problem+json;
+        return 400 '{"type":"about:blank","title":"Bad Request","status":400,"detail":"La ruta de la solicitud no es válida.","instance":"","code":"invalid_path","request_id":"$request_id"}\n';
+    }
+
     # Probe de Kubernetes (no toca las APIs).
     location = /healthz {
         access_log off;
@@ -68,11 +91,13 @@ server {
     location @rate_limited {
         default_type application/problem+json;
         add_header Retry-After 1 always;
+        include /etc/nginx/soloservis-security-headers.conf;
         return 429 '{"type":"about:blank","title":"Too Many Requests","status":429,"detail":"Demasiadas solicitudes. Espera un momento y reintenta.","instance":"","code":"rate_limited","request_id":"$request_id"}\n';
     }
     location @auth_rate_limited {
         default_type application/problem+json;
         add_header Retry-After 3 always;
+        include /etc/nginx/soloservis-security-headers.conf;
         return 429 '{"type":"about:blank","title":"Too Many Requests","status":429,"detail":"Demasiados intentos de inicio de sesión o registro. Espera unos segundos y reintenta.","instance":"","code":"rate_limited","request_id":"$request_id"}\n';
     }
 
@@ -89,6 +114,16 @@ server {
     location ~ ^/auth(/.*)?$ {
         limit_except GET POST { deny all; }
         proxy_pass http://${AUTH_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+
+    # Perfil del usuario: nombre y foto. User API valida la sesión en las
+    # escrituras; la foto se sirve pública porque un <img> no puede enviar el
+    # bearer token. 3m cubre la imagen de 2 MB más el sobre multipart (nginx
+    # trae 1m por defecto y rechazaría la subida).
+    location ~ ^/users(/.*)?$ {
+        client_max_body_size 3m;
+        proxy_pass http://${USER_UPSTREAM};
         include /etc/nginx/soloservis-proxy.conf;
     }
 
@@ -122,11 +157,13 @@ server {
     location /assets/ {
         try_files $uri =404;
         add_header Cache-Control "public, max-age=31536000, immutable";
+        include /etc/nginx/soloservis-security-headers.conf;
     }
 
     # SPA: cualquier otra ruta sirve index.html.
     location / {
         try_files $uri $uri/ /index.html;
         add_header Cache-Control "no-cache";
+        include /etc/nginx/soloservis-security-headers.conf;
     }
 }

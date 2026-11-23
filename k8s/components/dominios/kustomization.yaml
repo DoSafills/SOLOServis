@@ -27,7 +27,7 @@ resources:
   - ingestion.yaml
 
 # El nginx del frontend envía cada ruta pública al pod de su dominio. Pricing,
-# user, notification e ingestion no se publican.
+# notification e ingestion no se publican.
 patches:
   - target: {kind: Deployment, name: frontend}
     patch: |-
@@ -38,6 +38,7 @@ patches:
           - {name: STORE_UPSTREAM, value: "comercial:8080"}
           - {name: SERVICE_UPSTREAM, value: "comercial:8080"}
           - {name: AUTH_UPSTREAM, value: "usuarios:8080"}
+          - {name: USER_UPSTREAM, value: "usuarios:8080"}
           - {name: FAVORITES_UPSTREAM, value: "comercial:8080"}
           - {name: CART_UPSTREAM, value: "comercial:8080"}
           - {name: SEARCH_UPSTREAM, value: "comercial:8080"}

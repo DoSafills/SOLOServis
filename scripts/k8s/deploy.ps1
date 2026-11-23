@@ -13,6 +13,11 @@
     consolidado  (respaldo) las 14 APIs en un solo Deployment "backend".
   La Fase 10 corre el pod de test (k8s/tests): solo lecturas, no escribe nada.
 
+  NetworkPolicy (k8s/components/red, TAL-197): si la plataforma permite crearlas
+  (kubectl auth can-i create networkpolicies), la Fase 4 aplica una red que niega
+  todo por defecto y abre solo lo que la app usa. Si no lo permite (hoy UCT), se
+  omiten y el despliegue sigue igual. -SinRed las desactiva y borra las que haya.
+
   Cada fase ejecuta, comprueba y muestra su checkpoint. Si un checkpoint falla, el
   script se detiene y muestra que lo bloquea (eventos, logs). Nunca imprime Secrets,
   tokens ni el contenido del kubeconfig.
@@ -35,6 +40,10 @@
 .EXAMPLE
   # Solo el pod de test
   .\scripts\k8s\deploy.ps1 -Modo uct -FromPhase 10
+
+.EXAMPLE
+  # Re-desplegar sin NetworkPolicy (y borrar las de un despliegue anterior)
+  .\scripts\k8s\deploy.ps1 -Modo uct -FromPhase 3 -SkipCleanup -SinRed
 #>
 [CmdletBinding()]
 param(
@@ -55,7 +64,9 @@ param(
   [string]$ImagePullSecret = '',
   [ValidateRange(0, 10)][int]$FromPhase = 0,
   [ValidateRange(0, 10)][int]$ToPhase = 10,
-  [switch]$SkipCleanup
+  [switch]$SkipCleanup,
+  # No aplicar las NetworkPolicy de k8s/components/red aunque haya permiso.
+  [switch]$SinRed
 )
 
 $ErrorActionPreference = 'Continue'
@@ -304,6 +315,7 @@ function Write-Overlay {
   $L.Add('  - ../../base')
   $L.Add('components:')
   $L.Add("  - ../../components/$Topologia")
+  if ($script:Red -eq 'aplicar') { $L.Add('  - ../../components/red') }
   $L.Add('configMapGenerator:')
   $L.Add('  - name: soloservis-migrations')
   $L.Add('    files:')
@@ -399,6 +411,41 @@ function Apply-Component([string]$Selector) {
   return ($script:KExit -eq 0)
 }
 
+# NetworkPolicy (TAL-197). $script:Red se calcula una vez antes de las fases:
+#   aplicar      hay permiso: el overlay incluye components/red
+#   desactivada  hay permiso pero se paso -SinRed
+#   sin-permiso  la plataforma no deja crearlas (hoy UCT): se omiten
+function Get-RedState {
+  $can = ((K auth can-i create networkpolicies) -join ' ').Trim()
+  if ($can -notmatch '^yes') { return 'sin-permiso' }
+  if ($SinRed) { return 'desactivada' }
+  return 'aplicar'
+}
+
+function Get-RedText {
+  switch ($script:Red) {
+    'aplicar' { return 'SI (k8s/components/red se aplica en la Fase 4)' }
+    'desactivada' { return 'NO (-SinRed: se borran las de un despliegue anterior)' }
+    default { return 'OMITIDA (la plataforma no permite crear NetworkPolicy)' }
+  }
+}
+
+function Apply-Red($Cp) {
+  if ($script:Red -eq 'aplicar') {
+    Step 'Aplicando NetworkPolicy (k8s/components/red)'
+    $ok = Apply-Component 'app.kubernetes.io/component=red'
+    if (-not $ok) { Stop-Phase 4 $Cp 'kubectl apply de las NetworkPolicy fallo' }
+    $n = @(K get networkpolicy -l 'app.kubernetes.io/part-of=soloservis' -o name | Where-Object { $_ -match '/' }).Count
+    $Cp['NetworkPolicy'] = "OK ($n aplicadas)"
+  } elseif ($script:Red -eq 'desactivada') {
+    Step 'Borrando NetworkPolicy de un despliegue anterior (-SinRed)'
+    Show (K delete networkpolicy -l 'app.kubernetes.io/part-of=soloservis' --ignore-not-found)
+    $Cp['NetworkPolicy'] = Get-RedText
+  } else {
+    $Cp['NetworkPolicy'] = Get-RedText
+  }
+}
+
 # ---------------------------------------------------------------- FASE 0
 
 function Phase0 {
@@ -432,6 +479,7 @@ function Phase0 {
 
   $owned = @(K get 'all,pvc,ingress,configmap,secret,job' -l 'app.kubernetes.io/part-of=soloservis' -o name | Where-Object { $_ -match '/' })
   $cp['Recursos encontrados'] = "$($owned.Count) etiquetados soloservis"
+  $cp['NetworkPolicy'] = Get-RedText
   $cp['Bloqueos'] = $(if ($missing) { "no instalado: $($missing -join ', ')" } else { 'ninguno' })
   Checkpoint 0 $cp
 }
@@ -727,6 +775,9 @@ function Phase4 {
 
   # Clave del proveedor de IA (TAL-247). Nunca detiene el despliegue.
   $cp['Clave IA'] = Ensure-AISecret
+
+  # NetworkPolicy antes que los pods: cada pod nace ya con su red restringida.
+  Apply-Red $cp
 
   Step 'Aplicando Services y StatefulSet de PostgreSQL'
   $ok = Apply-Component 'app.kubernetes.io/component=database'
@@ -1027,6 +1078,10 @@ if (-not $Tag) {
 
 Write-Host "SOLOServis -> Kubernetes | topologia=$Topologia contexto=$(if ($Context) { $Context } else { '(el del kubeconfig)' }) namespace=$Namespace fases=$FromPhase..$ToPhase" -ForegroundColor Cyan
 Write-Host "Kubeconfig: $(Split-Path $Kubeconfig -Leaf) | tag=$Tag registry=$(if ($Registry) { $Registry } else { '(sin definir)' })" -ForegroundColor Cyan
+
+Write-Host 'Comprobando si la plataforma permite NetworkPolicy (puede abrir el navegador para el login OIDC)' -ForegroundColor DarkGray
+$script:Red = Get-RedState
+Write-Host "NetworkPolicy: $(Get-RedText)" -ForegroundColor Cyan
 
 $phases = @{
   0 = { Phase0 }; 1 = { Phase1 }; 2 = { Phase2 }; 3 = { Phase3 }; 4 = { Phase4 }

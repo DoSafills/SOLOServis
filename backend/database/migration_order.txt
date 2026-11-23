@@ -96,3 +96,7 @@
 
 # TAL-191: fusiona productos activos duplicados; idempotente.
 042_merge_duplicate_products.sql
+
+# 043: foto de perfil en user_account (avatar_data + avatar_mime); la sirve
+# User API desde la base, sin carpeta ni volumen escribible.
+043_user_profile.sql

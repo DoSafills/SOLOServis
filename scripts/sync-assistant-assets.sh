@@ -12,7 +12,9 @@ set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
 src="$root/assistant"
 dst="$root/backend/internal/assistant/assets"
-dirs="config prompts context"
+# `evals` se copia para que los casos de evaluación viajen con el binario y los
+# tests puedan recorrerlos sin leer rutas del repo.
+dirs="config prompts context evals"
 
 copy_into() {
     target="$1"
@@ -38,4 +40,4 @@ fi
 rm -rf "$dst"
 mkdir -p "$dst"
 copy_into "$dst"
-echo "Copiado assistant/{config,prompts,context} -> backend/internal/assistant/assets"
+echo "Copiado assistant/{config,prompts,context,evals} -> backend/internal/assistant/assets"
