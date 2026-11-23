@@ -18,6 +18,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -49,6 +50,27 @@ var refrigeradores = products.WriteCategory{
 
 // ------------------------------------------------------------------ fakes
 
+// fakeTx cumple pgx.Tx para los dobles de prueba. Solo se ejercitan Commit y
+// Rollback; los demás métodos del pgx.Tx embebido no se llaman.
+type fakeTx struct {
+	pgx.Tx
+	commits   int
+	rollbacks int
+	commitErr error
+}
+
+// Commit simula el cierre de la transacción del ítem y cuenta la llamada.
+func (t *fakeTx) Commit(context.Context) error {
+	t.commits++
+	return t.commitErr
+}
+
+// Rollback simula la reversión de la transacción del ítem.
+func (t *fakeTx) Rollback(context.Context) error {
+	t.rollbacks++
+	return nil
+}
+
 type fakeRuns struct {
 	run                Run
 	storeID            int32
@@ -59,6 +81,7 @@ type fakeRuns struct {
 	images             map[int32]string // imagen activa por id de producto
 	addImageErr        error
 	saveBatchErr       error // error del INSERT por lote de scraped_data
+	beginErr           error // error al abrir la transacción del ítem
 
 	imageCalls  []string // "id|url" de cada llamada a AddImageIfMissing
 	opened      []any
@@ -70,6 +93,7 @@ type fakeRuns struct {
 	finished    []any
 	baseline    []int32
 	baselineErr error
+	txs         []*fakeTx // transacciones abiertas por Processor
 }
 
 func (f *fakeRuns) OpenRun(_ context.Context, name string, baseURL *string, storeID int32, scraperType string) (int32, error) {
@@ -123,7 +147,21 @@ func (f *fakeRuns) SaveScrapedBatch(_ context.Context, _ int32, items []ScrapedI
 	}
 	return nil
 }
-func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error) {
+
+// BeginTx simula la apertura de la transacción del ítem (TAL-191).
+func (f *fakeRuns) BeginTx(context.Context) (pgx.Tx, error) {
+	if f.beginErr != nil {
+		return nil, f.beginErr
+	}
+	tx := &fakeTx{}
+	f.txs = append(f.txs, tx)
+	return tx, nil
+}
+
+// FindProductTx simula la búsqueda de identidad dentro de la transacción:
+// sku, marca+modelo, tienda+URL y, por último, marca+nombre+categoría+tienda
+// (TAL-191).
+func (f *fakeRuns) FindProductTx(_ context.Context, _ pgx.Tx, sku, brand, model, name, categorySlug string, storeID int32, productURL string) (ExistingProduct, bool, error) {
 	if f.findErr != nil {
 		return ExistingProduct{}, false, f.findErr
 	}
@@ -134,14 +172,18 @@ func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string, stor
 		return p, true, nil
 	}
 	path, _, _ := strings.Cut(productURL, "?")
-	p, ok := f.existing[fmt.Sprintf("%d|%s", storeID, path)]
-	return p, ok && productURL != "", nil
+	if p, ok := f.existing[fmt.Sprintf("%d|%s", storeID, path)]; ok && productURL != "" {
+		return p, true, nil
+	}
+	nameKey := fmt.Sprintf("%s|%s|%s|%d", strings.ToLower(brand), strings.ToLower(name), categorySlug, storeID)
+	p, ok := f.existing[nameKey]
+	return p, ok && brand != "" && name != "" && categorySlug != "", nil
 }
 
 // AddImageIfMissing simula al repositorio: registra la llamada, devuelve
 // addImageErr si está definido y guarda la imagen solo si el producto no
 // tiene una. Devuelve true si la guardó.
-func (f *fakeRuns) AddImageIfMissing(_ context.Context, productID int32, imageURL string) (bool, error) {
+func (f *fakeRuns) AddImageIfMissingTx(_ context.Context, _ pgx.Tx, productID int32, imageURL string) (bool, error) {
 	f.imageCalls = append(f.imageCalls, fmt.Sprintf("%d|%s", productID, imageURL))
 	if f.addImageErr != nil {
 		return false, f.addImageErr
@@ -155,11 +197,11 @@ func (f *fakeRuns) AddImageIfMissing(_ context.Context, productID int32, imageUR
 	f.images[productID] = imageURL
 	return true, nil
 }
-func (f *fakeRuns) EnsureBrand(_ context.Context, name string) (int32, error) {
+func (f *fakeRuns) EnsureBrandTx(_ context.Context, _ pgx.Tx, name string) (int32, error) {
 	f.brands = append(f.brands, name)
 	return 77, nil
 }
-func (f *fakeRuns) ProductID(context.Context, pgtype.UUID) (int32, error) { return 500, nil }
+func (f *fakeRuns) ProductIDTx(context.Context, pgx.Tx, pgtype.UUID) (int32, error) { return 500, nil }
 
 type fakeCatalog struct {
 	category      products.WriteCategory
@@ -177,7 +219,7 @@ func (c *fakeCatalog) ResolveCategory(_ context.Context, ref products.CategoryRe
 	}
 	return c.category, c.resolveErr
 }
-func (c *fakeCatalog) Create(_ context.Context, w products.ProductWrite) (pgtype.UUID, error) {
+func (c *fakeCatalog) CreateTx(_ context.Context, _ pgx.Tx, w products.ProductWrite) (pgtype.UUID, error) {
 	c.created = append(c.created, w)
 	var id pgtype.UUID
 	_ = id.Scan(newProductID)
@@ -193,7 +235,7 @@ type fakeOffers struct {
 	watcherCalls int // llamadas a PriceDropWatchers
 }
 
-func (o *fakeOffers) UpsertOffer(_ context.Context, w pricing.OfferWrite) (int32, bool, *string, error) {
+func (o *fakeOffers) UpsertOfferTx(_ context.Context, _ pgx.Tx, w pricing.OfferWrite) (int32, bool, *string, error) {
 	o.written = append(o.written, w)
 	return int32(40 + len(o.written)), o.previous == nil, o.previous, o.upsertErr
 }

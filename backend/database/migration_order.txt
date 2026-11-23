@@ -93,3 +93,6 @@
 # TAL-247: la rama del asistente la traía como 022, pero ese número ya lo usa
 # develop. Va al final para no cambiar el checksum de una migración aplicada.
 029_ai_comparison_query.sql
+
+# TAL-191: fusiona productos activos duplicados; idempotente.
+042_merge_duplicate_products.sql
