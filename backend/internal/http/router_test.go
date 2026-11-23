@@ -395,7 +395,7 @@ func TestComparisonRouter_RutasRegistradas(t *testing.T) {
 	}
 }
 
-// Ingestion API (TAL-77): todas las rutas exigen admin o INTERNAL_API_TOKEN.
+// Ingestion API (TAL-77): todas las rutas exigen admin o INGESTION_API_TOKEN (TAL-199).
 func TestIngestionRouter_RutasRegistradas(t *testing.T) {
 	want := []string{
 		"GET /health",
@@ -422,5 +422,26 @@ func TestIngestionRouter_RutasRegistradas(t *testing.T) {
 	}
 	if len(got) != len(want) {
 		t.Errorf("rutas registradas = %v, quiero exactamente %v", got, want)
+	}
+}
+
+// TestIngestionRouter_AceptaElTokenDeIngestion comprueba que /ingestion/* deja
+// pasar INGESTION_API_TOKEN (TAL-199, H3): el body vacío llega al handler y
+// responde 422 sin consultar la base. Que INTERNAL_API_TOKEN ya no sirva se
+// prueba con PostgreSQL (integration), porque cae en la búsqueda de sesión.
+func TestIngestionRouter_AceptaElTokenDeIngestion(t *testing.T) {
+	const ingestionToken = "token-de-ingestion-de-prueba-con-32-chars"
+	t.Setenv("INGESTION_API_TOKEN", ingestionToken)
+	t.Setenv("INTERNAL_API_TOKEN", "")
+	router := NewIngestionRouter(nil, "http://localhost:5173")
+
+	req := httptest.NewRequest(http.MethodPost, "/ingestion/runs", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+ingestionToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, quiero 422; body = %s", rec.Code, rec.Body.String())
 	}
 }

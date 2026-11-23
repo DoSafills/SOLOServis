@@ -1,7 +1,7 @@
 // Package authz autentica y autoriza con los tokens de sesión de Auth API:
-// RequireAdmin protege las escrituras del catálogo (TAL-70; también acepta el
-// INTERNAL_API_TOKEN de servicios internos) y RequireSession identifica al
-// usuario dueño de un recurso (TAL-76).
+// RequireAdmin protege las escrituras del catálogo (TAL-70; también acepta un
+// token de servicio: INTERNAL_API_TOKEN en general, INGESTION_API_TOKEN en
+// /ingestion/*) y RequireSession identifica al usuario dueño de un recurso (TAL-76).
 package authz
 
 import (
@@ -65,14 +65,15 @@ type Authorizer struct {
 	logger       *slog.Logger
 }
 
-// New crea el autorizador. Un serviceToken más corto que
+// New crea el autorizador con el almacén de sesiones, el token de servicio que
+// acepta RequireAdmin y el logger. Un serviceToken más corto que
 // MinServiceTokenLength se ignora: solo quedan habilitadas las sesiones admin.
 func New(sessions SessionStore, serviceToken string, logger *slog.Logger) *Authorizer {
 	a := &Authorizer{sessions: sessions, logger: logger}
 	if len(serviceToken) >= MinServiceTokenLength {
 		a.serviceToken = []byte(serviceToken)
 	} else if serviceToken != "" {
-		logger.Warn("INTERNAL_API_TOKEN ignorado: debe tener al menos 32 caracteres")
+		logger.Warn("token de servicio ignorado: debe tener al menos 32 caracteres")
 	}
 	return a
 }

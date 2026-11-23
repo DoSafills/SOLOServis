@@ -15,7 +15,7 @@ import (
 )
 
 // Handler atiende Ingestion API. Todas las rutas exigen admin o
-// INTERNAL_API_TOKEN (authz.RequireAdmin en el router).
+// INGESTION_API_TOKEN, el token del scraper (ingestionOnly en el router, TAL-199).
 type Handler struct {
 	runs      RunStore
 	processor *Processor
@@ -117,7 +117,10 @@ func (h *Handler) AddItems(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.processor.Process(r.Context(), id, storeID, run.Source, request.Items))
 }
 
-// FinishRun atiende POST /ingestion/runs/{id}/finish.
+// FinishRun atiende POST /ingestion/runs/{id}/finish: valida el body, cierra
+// la corrida con su estado real (finalStatus) y responde la corrida como el
+// GET. Con los contadores del scraper, o si ingestion rechazó todos los ítems,
+// evalúa además si hay que avisar a los administradores (TAL-211, TAL-250).
 func (h *Handler) FinishRun(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseRunID(w, r)
 	if !ok {
@@ -132,28 +135,59 @@ func (h *Handler) FinishRun(w http.ResponseWriter, r *http.Request) {
 	var v httpx.Validator
 	v.Check(request.Status == StatusSuccess || request.Status == StatusFailed, "status", "one_of", "status debe ser success o failed")
 	v.MaxLength("errorMessage", message, MaxErrorMessage)
-	counters, hasCounters := finishCounters(&v, request)
+	counters := finishCounters(&v, request)
 	if !v.Valid() {
 		httpx.WriteValidation(w, r, v.Errors())
 		return
 	}
 
+	run, err := h.runs.GetRun(r.Context(), id)
+	if err != nil {
+		h.writeRunError(w, r, err)
+		return
+	}
+	status, message := finalStatus(request.Status, message, run)
+	if status != request.Status {
+		h.logger.Warn("ingestion_run_all_items_failed", "runId", id, "recordsFailed", run.RecordsFailed)
+	}
 	var msg *string
 	if message != "" {
 		msg = &message
 	}
-	if err := h.runs.FinishRun(r.Context(), id, request.Status, msg); err != nil {
+	if err := h.runs.FinishRun(r.Context(), id, status, msg); err != nil {
 		h.writeRunError(w, r, err)
 		return
 	}
-	if hasCounters {
-		h.checkDegradation(r.Context(), id, counters)
-	}
+	h.checkDegradation(r.Context(), id, counters)
 	h.writeRun(w, r, id)
 }
 
+// finalStatus decide con qué estado y mensaje se cierra la corrida.
+//
+// Recibe el estado y el mensaje que pidió el scraper y la corrida tal como
+// está en scrape_run. Si el scraper dice success pero ingestion no procesó
+// ningún ítem y rechazó al menos uno, la corrida se cierra failed: el scraper
+// no ve el resultado de cada ítem y antes quedaban corridas "exitosas" con
+// 26/26 ítems fallidos (TAL-250). El mensaje del scraper, si trae uno, se
+// conserva a continuación del nuestro. Devuelve el estado y el mensaje finales.
+func finalStatus(requested, message string, run Run) (string, string) {
+	if requested != StatusSuccess || run.RecordsProcessed > 0 || run.RecordsFailed <= 0 {
+		return requested, message
+	}
+	reason := fmt.Sprintf("Ingestion rechazó los %d ítems de la corrida.", run.RecordsFailed)
+	if message != "" {
+		reason += " " + message
+	}
+	if runes := []rune(reason); len(runes) > MaxErrorMessage {
+		reason = string(runes[:MaxErrorMessage])
+	}
+	return StatusFailed, reason
+}
+
 // checkDegradation evalúa la corrida recién cerrada y avisa a los
-// administradores cuando la tienda entregó mucho menos de lo habitual.
+// administradores cuando la tienda entregó mucho menos de lo habitual o
+// cuando ingestion rechazó todos sus ítems. Recibe el id de la corrida y los
+// contadores del scraper (en cero si no los envió).
 //
 // Es deliberadamente tolerante: si no hay tienda, si el historial no se puede
 // leer o si Notification API falla, deja un warning en el log y la corrida
@@ -170,12 +204,17 @@ func (h *Handler) checkDegradation(ctx context.Context, id int32, counters Count
 		}
 		return
 	}
-	baseline, err := h.runs.RecentFound(ctx, *run.StoreID, id, thresholds.BaselineRuns)
-	if err != nil {
-		h.logger.Warn("ingestion_degradation_without_baseline", "runId", id, "error", err)
-		baseline = nil
+	verdict := allItemsFailed(run)
+	if counters.Found > 0 {
+		baseline, err := h.runs.RecentFound(ctx, *run.StoreID, id, thresholds.BaselineRuns)
+		if err != nil {
+			h.logger.Warn("ingestion_degradation_without_baseline", "runId", id, "error", err)
+			baseline = nil
+		}
+		scraper := EvaluateDegradation(counters, baseline, thresholds)
+		verdict.Reasons = append(verdict.Reasons, scraper.Reasons...)
+		verdict.Degraded = verdict.Degraded || scraper.Degraded
 	}
-	verdict := EvaluateDegradation(counters, baseline, thresholds)
 	if !verdict.Degraded {
 		return
 	}
@@ -205,10 +244,10 @@ func (h *Handler) checkDegradation(ctx context.Context, id int32, counters Count
 
 // finishCounters valida los contadores opcionales del cierre de corrida.
 //
-// Devuelve los contadores y si el cliente envió al menos uno. Un valor
-// negativo o mayor que MaxCounterValue es un error de validación por campo;
-// los campos ausentes quedan en cero y no alteran la evaluación.
-func finishCounters(v *httpx.Validator, request FinishRequest) (Counters, bool) {
+// Devuelve los contadores. Un valor negativo o mayor que MaxCounterValue es
+// un error de validación por campo; los campos ausentes quedan en cero y no
+// alteran la evaluación.
+func finishCounters(v *httpx.Validator, request FinishRequest) Counters {
 	var counters Counters
 	entries := []struct {
 		field  string
@@ -221,12 +260,10 @@ func finishCounters(v *httpx.Validator, request FinishRequest) (Counters, bool) 
 		{"itemsDuplicated", request.ItemsDuplicated, &counters.Duplicated},
 		{"pagesFailed", request.PagesFailed, &counters.PagesFailed},
 	}
-	provided := false
 	for _, entry := range entries {
 		if entry.value == nil {
 			continue
 		}
-		provided = true
 		switch {
 		case *entry.value < 0:
 			v.Add(entry.field, "min", entry.field+" no puede ser negativo")
@@ -236,7 +273,7 @@ func finishCounters(v *httpx.Validator, request FinishRequest) (Counters, bool) 
 			*entry.target = *entry.value
 		}
 	}
-	return counters, provided
+	return counters
 }
 
 // GetRun atiende GET /ingestion/runs/{id}.

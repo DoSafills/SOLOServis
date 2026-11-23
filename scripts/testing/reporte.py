@@ -10,6 +10,7 @@ estados en un reporte Markdown. Solo usa la libreria estandar de Python 3.9+.
     python scripts/testing/reporte.py --smoke            # suma el pod de test de k8s
     python scripts/testing/reporte.py --salud            # suma el health check del cluster
     python scripts/testing/reporte.py --errores          # suma los errores recurrentes del cluster
+    python scripts/testing/reporte.py --recursos         # suma el consumo de CPU y memoria de los pods
 
 Sale con codigo 1 si alguna prueba falla, para poder usarlo en CI.
 """
@@ -358,6 +359,47 @@ def suite_errores(raw_dir: Path) -> Suite:
     return suite
 
 
+# ----------------------------------------------------------------- recursos
+
+
+def suite_recursos(raw_dir: Path) -> Suite:
+    """Consumo de recursos (TAL-207): corre scripts/testing/recursos.py durante 30 s.
+
+    Cada pod es un caso: falla si pasa el 90 % de su limit de memoria o se
+    reinicia. Los avisos (CPU saturada o frenada) cuentan como aprobados y se
+    listan aparte. No genera carga: mide el clúster tal como está."""
+    suite = Suite("recursos", "Kubernetes (consumo de recursos)", "python scripts/testing/recursos.py")
+    if not which("kubectl"):
+        suite.reason = "no se encontró `kubectl` en el PATH"
+        return suite
+    result = raw_dir / "recursos.json"
+    started = time.monotonic()
+    code, out = run([sys.executable, str(ROOT / "scripts" / "testing" / "recursos.py"), "--json", str(result),
+                     "--md", str(raw_dir / "recursos.md")], ROOT, timeout=300)
+    suite.seconds = time.monotonic() - started
+    (raw_dir / "recursos.txt").write_text(out, encoding="utf-8")
+    if code not in (0, 1) or not result.exists():
+        suite.reason = trim(out, 2).replace("ERROR: ", "") or "no se pudo consultar el clúster"
+        return suite
+    data = json.loads(result.read_text(encoding="utf-8"))
+    warnings = []
+    for status, service, detail in data["evaluacion"]:
+        suite.cases.append(Case(service, FAIL if status == "FALLA" else OK, detail))
+        if status == "AVISO":
+            warnings.append(f"- **{service}:** {detail}")
+    if warnings:
+        suite.notes += ["**Avisos (no son fallas):**", "", *warnings, ""]
+    # La tabla de consumo y la cuota, tal como las escribe recursos.py en --md.
+    md = (raw_dir / "recursos.md").read_text(encoding="utf-8") if (raw_dir / "recursos.md").exists() else ""
+    body = md.split("\n|", 1)
+    if len(body) == 2:
+        tables = "|" + body[1].split("\n## Evaluación", 1)[0]
+        tables = tables.replace("## Cuota del namespace", "**Cuota del namespace:**")
+        suite.notes += [tables.strip(), ""]
+    suite.status = FAIL if suite.count(FAIL) else OK
+    return suite
+
+
 # ------------------------------------------------- PostgreSQL desechable
 
 
@@ -537,6 +579,8 @@ def main() -> int:
                         help="suma el health check del despliegue (scripts/testing/salud.py)")
     parser.add_argument("--errores", action="store_true",
                         help="suma los errores recurrentes del despliegue (scripts/testing/errores.py)")
+    parser.add_argument("--recursos", action="store_true",
+                        help="suma el consumo de CPU y memoria de los pods (recursos.py, 30 s, sin carga)")
     parser.add_argument("--postgres-docker", action="store_true",
                         help="levanta un PostgreSQL 18 desechable para los tests de integración")
     parser.add_argument("--python", default=sys.executable,
@@ -589,6 +633,9 @@ def main() -> int:
         if args.errores:
             print("Suite errores: juntando los errores del despliegue…", flush=True)
             suites.append(suite_errores(raw_dir))
+        if args.recursos:
+            print("Suite recursos: midiendo CPU y memoria de los pods…", flush=True)
+            suites.append(suite_recursos(raw_dir))
     finally:
         if started_pg:
             stop_postgres()
@@ -599,7 +646,7 @@ def main() -> int:
         "Rama": f"`{git('rev-parse', '--abbrev-ref', 'HEAD')}`",
         "Commit": f"`{commit}`{dirty}",
         "Suites pedidas": ", ".join(chosen + (["smoke"] if args.smoke else []) + (["salud"] if args.salud else [])
-                                  + (["errores"] if args.errores else [])),
+                                  + (["errores"] if args.errores else []) + (["recursos"] if args.recursos else [])),
         "Tests de integración": integration,
         "Go": version(["go", "version"]),
         "Python": version([args.python, "--version"]),

@@ -87,12 +87,16 @@ comparados.
 | Se envía | No se envía |
 | --- | --- |
 | `category.name` | `imageUrl` |
-| `products[].id`, `name`, `brand`, `model` | datos de `user_account` |
-| `products[].bestPrice`, `bestStore`, `offerCount` | sesiones, tokens, correos |
-| `attributes[]` (clave, etiqueta, tipo, unidad, valores, `differs`) | historial de precios |
-| `specifications[]` (nombre, unidad, valores, `differs`) | reseñas |
+| `products[].name`, `brand`, `model` | datos de `user_account` |
+| `products[].bestPrice`, `bestStore`, `offerCount`, `lastUpdated` | sesiones, tokens, correos |
+| `attributes[]` (etiqueta, unidad, valores, `differs`) | historial de precios |
+| `specifications[]` (nombre, unidad, valores, `differs`), sin las que repiten un atributo | reseñas |
+| | UUID del producto, clave y tipo del atributo |
 | | resto del catálogo |
 | | credenciales o claves de API |
+
+El JSON no pasa de `context.maxBytes` (`config/limits.json`, 8192 bytes); si
+se pasa, el backend quita filas y lo registra como `assistant_context_trimmed`.
 
 `context/comparison-context.schema.json` valida ese payload. Cualquier campo
 fuera de la allowlist rompe la validación y se descarta antes de llamar al
