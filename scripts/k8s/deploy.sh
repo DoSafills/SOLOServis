@@ -283,7 +283,18 @@ build_rendered() {
     return 1
   fi
 }
+# apply_selector aplica del render los objetos con la etiqueta $1 y devuelve el
+# codigo de salida de kubectl.
 apply_selector() { k apply -f "$RENDERED" -l "$1" 2>&1 | show; return "${PIPESTATUS[0]}"; }
+
+# apply_selector_server_side hace lo mismo con server-side apply. El apply normal
+# guarda una copia del objeto en la anotacion last-applied-configuration, que no
+# puede pasar de 256 KB, y el ConfigMap de migraciones ya ronda ese tamano.
+# --force-conflicts toma los campos que antes dejo el apply normal.
+apply_selector_server_side() {
+  k apply --server-side --force-conflicts -f "$RENDERED" -l "$1" 2>&1 | show
+  return "${PIPESTATUS[0]}"
+}
 
 # NetworkPolicy (TAL-197). RED se calcula una vez antes de las fases (no dentro
 # de build_rendered, que corre en un subshell):
@@ -470,6 +481,45 @@ phase3() {
 
 # ---------------------------------------------------------------- FASE 4
 
+# create_secret_from_values crea un Secret generico con los pares CLAVE=valor
+# que recibe despues del nombre. Cada valor va a un archivo temporal con
+# permisos 600 y kubectl lo lee con --from-file, asi nunca aparece en la linea
+# de comandos ni en la lista de procesos (TAL-199, H11). Los archivos se borran
+# en el mismo paso. Devuelve el codigo de salida de kubectl.
+create_secret_from_values() {
+  local name=$1 dir pair key rc
+  shift
+  dir="$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/soloservis-secret.XXXXXX")" || return 1
+  local args=()
+  for pair in "$@"; do
+    key="${pair%%=*}"
+    (umask 077 && printf '%s' "${pair#*=}" >"$dir/$key")
+    args+=("--from-file=$key=$dir/$key")
+  done
+  k create secret generic "$name" "${args[@]}" >/dev/null 2>&1
+  rc=$?
+  rm -rf "$dir"
+  return "$rc"
+}
+
+# random_hex imprime N caracteres hexadecimales aleatorios (de /dev/urandom).
+random_hex() { LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c "$1"; }
+
+# ensure_token_secret crea el Secret <nombre> con la clave <clave> y un token
+# aleatorio de 64 caracteres si no existe; si existe, lo reutiliza. Sin la
+# etiqueta part-of: sobrevive a la limpieza de la Fase 1. Imprime el estado
+# para el checkpoint.
+ensure_token_secret() {
+  local name=$1 key=$2
+  if k get secret "$name" -o name >/dev/null 2>&1; then
+    echo "OK (Secret $name existente)"
+  elif create_secret_from_values "$name" "$key=$(random_hex 64)"; then
+    echo "OK (Secret $name creado)"
+  else
+    echo "ERROR (no se pudo crear $name)"
+  fi
+}
+
 # Reutiliza postgres-secret si existe (la contrasena vive tambien dentro del
 # volumen, asi que no se cambia sola). Si no existe, lo crea con una contrasena
 # aleatoria, salvo que el PVC ya tenga datos: no coincidiria con la guardada.
@@ -485,10 +535,8 @@ ensure_postgres_secret() {
     return 2
   fi
   # 48 caracteres hex: seguros dentro de DATABASE_URL sin escapar.
-  local pw
-  pw="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 48)"
-  if k create secret generic postgres-secret --from-literal=POSTGRES_USER=postgres \
-      --from-literal=POSTGRES_DB=soloservis --from-literal=POSTGRES_PASSWORD="$pw" >/dev/null 2>&1; then
+  if create_secret_from_values postgres-secret POSTGRES_USER=postgres \
+      POSTGRES_DB=soloservis "POSTGRES_PASSWORD=$(random_hex 48)"; then
     k label secret postgres-secret app.kubernetes.io/name=postgres app.kubernetes.io/component=database >/dev/null 2>&1
     cp_set "Credenciales BD" "OK (Secret postgres-secret creado con contrasena aleatoria)"
     return 0
@@ -502,30 +550,21 @@ ensure_postgres_secret() {
 # existe; si no, se crea a partir de AI_API_KEY en el entorno del despliegue.
 # Sin clave no se detiene el despliegue: el asistente responde 503
 # ai_unavailable y el resto del sitio funciona igual.
-# La clave nunca se imprime ni se pasa por la linea de comandos: va por un
-# archivo temporal con permisos 600 que se borra en el mismo paso.
+# La clave nunca se imprime ni se pasa por la linea de comandos: va por
+# create_secret_from_values (archivo temporal con permisos 600).
 ensure_ai_secret() {
   if k get secret soloservis-ai -o name >/dev/null 2>&1; then
     echo "OK (Secret soloservis-ai existente)"
     return 0
   fi
-  local key tmp
-  key="${AI_API_KEY:-}"
-  if [ -z "$key" ]; then
+  if [ -z "${AI_API_KEY:-}" ]; then
     echo "AVISO (sin AI_API_KEY: el asistente respondera 503 hasta crear el Secret soloservis-ai)"
     return 0
   fi
-  tmp="$(umask 077 && mktemp "${TMPDIR:-/tmp}/soloservis-ai.XXXXXX")" || {
-    echo "AVISO (no se pudo crear el archivo temporal para la clave)"
-    return 0
-  }
-  printf '%s' "$key" >"$tmp"
-  if k create secret generic soloservis-ai --from-file=AI_API_KEY="$tmp" >/dev/null 2>&1; then
-    rm -f "$tmp"
+  if create_secret_from_values soloservis-ai "AI_API_KEY=$AI_API_KEY"; then
     echo "OK (Secret soloservis-ai creado con AI_API_KEY)"
     return 0
   fi
-  rm -f "$tmp"
   echo "AVISO (no se pudo crear soloservis-ai: el asistente respondera 503)"
   return 0
 }
@@ -534,17 +573,11 @@ phase4() {
   cp_reset
   local err
   err="$(build_rendered)" || stop_phase 4 "kustomize: $err"
-  # Token de servicio (scraper y llamadas internas). Fuera de git y sin la
-  # etiqueta part-of: sobrevive a la limpieza de la Fase 1.
-  if k get secret soloservis-internal -o name >/dev/null 2>&1; then
-    cp_set "Token interno" "OK (Secret soloservis-internal existente)"
-  else
-    local token
-    token="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 64)"
-    if k create secret generic soloservis-internal --from-literal=INTERNAL_API_TOKEN="$token" >/dev/null 2>&1; then
-      cp_set "Token interno" "OK (Secret soloservis-internal creado)"
-    else cp_set "Token interno" ERROR; fi
-  fi
+  # Tokens de servicio, fuera de git (TAL-199). El interno es admin en las
+  # APIs y lo usan las llamadas entre ellas; el del scraper solo abre su API
+  # de control y /ingestion/*. Ninguno se imprime.
+  cp_set "Token interno" "$(ensure_token_secret soloservis-internal INTERNAL_API_TOKEN)"
+  cp_set "Token del scraper" "$(ensure_token_secret soloservis-scraper SCRAPER_TOKEN)"
   # Credenciales de PostgreSQL, fuera de git (TAL-98). Va antes del StatefulSet,
   # que las lee. La contrasena nunca se imprime.
   ensure_postgres_secret
@@ -583,7 +616,7 @@ phase5() {
   step "Recreando Job soloservis-migrate (los Jobs son inmutables)"
   k delete job soloservis-migrate --ignore-not-found --wait=true --timeout=120s 2>&1 | show
   apply_selector app.kubernetes.io/component=config >/dev/null
-  apply_selector app.kubernetes.io/component=migrations || stop_phase 5 "kubectl apply fallo"
+  apply_selector_server_side app.kubernetes.io/component=migrations || stop_phase 5 "kubectl apply fallo"
   step "Esperando el Job (max 5 min)"
   for i in $(seq 1 60); do
     succeeded="$(k get job soloservis-migrate -o 'jsonpath={.status.succeeded}' 2>/dev/null)"

@@ -87,10 +87,11 @@ spec:
               value: "165,166,167"
             - name: PAUSA
               value: "0.4"
-            # Para las rutas internas. Nunca se imprime.
-            - name: INTERNAL_API_TOKEN
+            # Token del scraper: abre /ingestion/* y la API del scraper
+            # (TAL-199). Nunca se imprime.
+            - name: SCRAPER_TOKEN
               valueFrom:
-                secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+                secretKeyRef: {name: soloservis-scraper, key: SCRAPER_TOKEN, optional: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -63,9 +63,10 @@ El nginx del frontend (`docker/frontend/default.conf.template`) enruta por path,
 |---|---|---|
 | `/products`, `/product-categories`, `/categories`, `/stores`, `/services` | comercial | GET |
 | `/auth` | usuarios | GET, POST |
+| `/users` | usuarios | todos (perfil con sesión; la foto `GET /users/{publicID}/avatar` es pública). Body hasta 3 MB, en nginx y en el Ingress |
 | `/favorites`, `/cart`, `/search`, `/comparisons`, `/reviews`, `/watchlist` | comercial | todos (cada API valida la sesión) |
 
-**Pricing, User, Notification e Ingestion no se publican.** Solo se llaman por la red interna del clúster (ver [§7](#7-ejemplos-de-uso-de-la-app-desplegada)).
+**Pricing, Notification e Ingestion no se publican.** Solo se llaman por la red interna del clúster (ver [§7](#7-ejemplos-de-uso-de-la-app-desplegada)).
 
 **Topología de respaldo: `consolidado`.** Las 14 APIs en un solo Deployment `backend` (3 pods y 4 Services en total). Sirve si la cuota no alcanza: `-Topologia consolidado` / `--topologia consolidado`. Para el frontend y para quien llame a las APIs, las dos topologías son idénticas.
 
@@ -244,7 +245,7 @@ Requests por pod en `dominios`: comercial 50m/128Mi, usuarios 25m/64Mi, ingestio
 | 1 | Borra el despliegue anterior. **Conserva el PVC y los Secrets** | no quedan recursos `part-of=soloservis` |
 | 2 | Elige la StorageClass (prueba que un PVC quede Bound y escribible) y genera `k8s/overlays/uct` | `kubectl kustomize` compila |
 | 3 | `docker build` y `docker push` de las 3 imágenes (frontend, backend y scraper) | cada imagen OK |
-| 4 | Crea los Secrets `postgres-secret` (contraseña aleatoria), `soloservis-internal` (token) y `soloservis-ai` (desde `AI_API_KEY` del entorno) si no existen, aplica las NetworkPolicy si la plataforma lo permite y despliega PostgreSQL | `postgres-0` Ready |
+| 4 | Crea los Secrets `postgres-secret` (contraseña aleatoria), `soloservis-internal` (token interno), `soloservis-scraper` (token del scraper) y `soloservis-ai` (desde `AI_API_KEY` del entorno) si no existen, aplica las NetworkPolicy si la plataforma lo permite y despliega PostgreSQL | `postgres-0` Ready |
 | 5 | Job de migraciones (`migration_order.txt`) | `schema_migrations` = archivos del manifiesto |
 | 6 | APIs: `comercial`, `usuarios` e `ingestion` (o `backend`), más `scraper-api` | cada API Ready y con `/health` → `database: connected`; scraper Ready y `/health` → `ok` |
 | 7 | Frontend (nginx) | Ready y `/products` responde a través de nginx |
@@ -272,19 +273,19 @@ El script guarda el registry, el tag y la StorageClass elegida en `k8s/overlays/
 
 ## 5. Pod de test
 
-Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **No escribe nada en la base:** solo hace lecturas, y los dos POST van sin token y se rechazan antes de tocarla. Detecta solo la topología (dominios o consolidado). Son 29 verificaciones de las APIs en `dominios`, más hasta 6 del scraper cuando `scraper-api` está desplegado.
+Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **No escribe nada en la base:** solo hace lecturas, y los dos POST van sin token y se rechazan antes de tocarla. Detecta solo la topología (dominios o consolidado). Son 30 verificaciones de las APIs en `dominios`, más hasta 6 del scraper cuando `scraper-api` está desplegado.
 
 | Verificación | Qué espera |
 |---|---|
 | `/health` de `comercial`, `usuarios` e `ingestion` | 200, `"service"` con el nombre del dominio y `"database":"connected"` |
 | Una lectura por API pública (product, store, service, pricing, search, comparison, review, user) | 200 con datos |
 | Rutas con sesión o internas, sin token: `/favorites`, `/cart`, `/comparisons/products`, `/comparisons/services/1`, `POST /reviews/product/{id}`, `/watchlist?userId=1`, `/notifications?userId=1`, `POST /notifications`, `/auth/validate`, `/ingestion/runs` | 401: mandar un `userId` no basta (TAL-125) |
-| Ruta interna con `INTERNAL_API_TOKEN`: `GET /ingestion/runs` | 200 |
+| Ingestion con el token del scraper (`soloservis-scraper`): `GET /ingestion/runs` | 200 |
 | Aislamiento: `comercial` no sirve `/auth` ni `/ingestion`; `usuarios` e `ingestion` no sirven `/products` | 404 |
-| nginx del frontend: `/` → app, `/products` → comercial, `/auth` → usuarios | 200, 200, 401 |
+| nginx del frontend: `/` → app, `/products` → comercial, `/auth` → usuarios, `/users` → usuarios | 200, 200, 401, 200 |
 | Scraper: `/health`, `/ready` | 200 y `"status"` esperado |
 | Scraper sin token: `/stores`, `/runs` | 401 |
-| Scraper con `INTERNAL_API_TOKEN`: `/stores`, `/runs` | 200 |
+| Scraper con su token (`soloservis-scraper`): `/stores`, `/runs` | 200 |
 
 Lo corre la Fase 10 del deploy. Para correrlo solo:
 
@@ -333,7 +334,7 @@ Cada llamada lleva un `X-Request-ID` propio (`t165-05-productos-pagina`), el mis
 - TAL-166: valores válidos, inválidos, incompletos y límite, y la forma de cada salida (problem+json, `request_id`, camelCase, sin detalles internos).
 - TAL-167: la última corrida real de cada tienda, del scraper a Ingestion API, al catálogo y al gateway.
 
-**No escribe en la base:** las únicas escrituras son pedidos que Ingestion API y Auth API rechazan al decodificar o validar, antes de la consulta. El token de servicio sale de `soloservis-internal` y no se imprime. Ocupa un pod con 2 contenedores de 25m/64Mi (límite 100m/64Mi).
+**No escribe en la base:** las únicas escrituras son pedidos que Ingestion API y Auth API rechazan al decodificar o validar, antes de la consulta. El token sale de `soloservis-scraper` y no se imprime. Ocupa un pod con 2 contenedores de 25m/64Mi (límite 100m/64Mi).
 
 ```bash
 python scripts/testing/llamadas.py --ventanas
@@ -421,7 +422,7 @@ El scraper no se publica: se llega por `port-forward` (o desde el backend).
 
 ```bash
 kubectl port-forward svc/scraper-api 8095:8095
-TOKEN="$(kubectl get secret soloservis-internal -o jsonpath='{.data.INTERNAL_API_TOKEN}' | base64 -d)"
+TOKEN="$(kubectl get secret soloservis-scraper -o jsonpath='{.data.SCRAPER_TOKEN}' | base64 -d)"
 curl -sS -X POST http://127.0.0.1:8095/runs \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"store":"ripley-cl"}'
@@ -560,7 +561,7 @@ kubectl delete all,ingress,configmap,job,pvc -l app.kubernetes.io/part-of=solose
 ```
 
 ```bash
-kubectl delete secret postgres-secret soloservis-internal soloservis-ai --ignore-not-found
+kubectl delete secret postgres-secret soloservis-internal soloservis-scraper soloservis-ai --ignore-not-found
 ```
 
 ---
@@ -655,12 +656,12 @@ En la topología consolidada, todas están en `svc/backend`.
 kubectl port-forward svc/ingestion 8094:8080
 ```
 
-En otra terminal, lee el token de servicio y consulta las ejecuciones del scraper:
+En otra terminal, lee el token del scraper (el único que abre `/ingestion/*`, además de una sesión admin) y consulta sus ejecuciones:
 
 ```powershell
-$raw = kubectl get secret soloservis-internal -o jsonpath='{.data.INTERNAL_API_TOKEN}'
-$INTERNAL = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($raw))
-curl.exe -s -H "Authorization: Bearer $INTERNAL" "http://localhost:8094/ingestion/runs"
+$raw = kubectl get secret soloservis-scraper -o jsonpath='{.data.SCRAPER_TOKEN}'
+$TOKEN = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($raw))
+curl.exe -s -H "Authorization: Bearer $TOKEN" "http://localhost:8094/ingestion/runs"
 ```
 
 **bash**
@@ -670,11 +671,11 @@ kubectl port-forward svc/ingestion 8094:8080
 ```
 
 ```bash
-INTERNAL=$(kubectl get secret soloservis-internal -o jsonpath='{.data.INTERNAL_API_TOKEN}' | base64 -d)
-curl -s -H "Authorization: Bearer $INTERNAL" "http://localhost:8094/ingestion/runs"
+TOKEN=$(kubectl get secret soloservis-scraper -o jsonpath='{.data.SCRAPER_TOKEN}' | base64 -d)
+curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8094/ingestion/runs"
 ```
 
-El contrato completo para el scraper está en `backend/README.md`, §12.7. **No compartas el token:** permite escribir en el catálogo.
+El contrato completo para el scraper está en `backend/README.md`, §12.7. **No compartas el token:** permite cargar ofertas al catálogo.
 
 ---
 
@@ -744,8 +745,8 @@ docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/c
 
 **Seguridad:**
 - **Postgres:** la contraseña de `postgres-secret` la genera el script al azar en cada namespace y no está en git. Solo es accesible dentro del clúster (Service `ClusterIP`, el Ingress publica solo el frontend). `docker/compose.yml` sigue con credenciales de desarrollo, solo para uso local.
-- **Token interno:** el token de `soloservis-internal` lo genera el script al azar en cada namespace y no está en git. El pod de test lo usa sin imprimirlo.
+- **Tokens de servicio (TAL-199):** el script genera dos al azar en cada namespace, fuera de git, y los pasa a `kubectl` por archivos temporales con permisos 600 (no quedan en la lista de procesos). `soloservis-internal` (`INTERNAL_API_TOKEN`) solo lo reciben `comercial` e `ingestion` (o `backend`): es admin en las APIs y lo usan las llamadas internas a notification. `soloservis-scraper` (`SCRAPER_TOKEN`) lo reciben el scraper, su CronJob y los Jobs de test: abre la API del scraper y `/ingestion/*`, nada más. `usuarios` no recibe ninguno.
 - **Orden de arranque:** cada pod de API tiene un initContainer (`espera-postgres`, con `pg_isready`) y queda en `Init` hasta que PostgreSQL acepta conexiones. Además, la API hace ping a la base al iniciar y su readiness (`/health`) exige la conexión. No suma a la cuota: corre antes que el contenedor principal y pide menos que él.
 - **Pods:** todos corren sin root, con `readOnlyRootFilesystem` y sin capabilities. Cumplen Pod Security `restricted`.
 - **Red (TAL-197):** `components/red` niega todo el tráfico por defecto y permite solo Ingress → frontend, frontend → APIs, APIs → PostgreSQL, scraper → ingestion, ingestion → comercial, el CronJob y los Jobs hacia lo que usan, DNS y la salida a internet del scraper (y de comercial, para el proveedor de IA). El script la aplica solo si `kubectl auth can-i create networkpolicies` responde `yes`. **Hoy UCT responde `no`**: el rol del namespace solo puede leerlas, así que se omiten y la Fase 0 lo informa. Si algún día se aplican y algo deja de responder, `-SinRed` las borra en el siguiente deploy.
-- **Gateway (TAL-197):** nginx envía CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` y `Permissions-Policy` (`docker/frontend/security-headers.conf`), oculta su versión y rechaza con 400 las rutas con `%2F`, `%5C` o segmentos `..`. HSTS lo pone el Ingress de UCT.
+- **Gateway (TAL-197):** nginx envía CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` y `Permissions-Policy` (`docker/frontend/security-headers.conf`), oculta su versión y rechaza con 400 las rutas con `%2F`, `%5C` o segmentos `..`. HSTS lo pone el Ingress de UCT. El certificado que sirve hoy el Ingress es el de prueba del controlador (`Kubernetes Ingress Controller Fake Certificate`), así que el navegador avisa; es de la plataforma, no del repo.

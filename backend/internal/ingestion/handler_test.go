@@ -466,7 +466,7 @@ func TestFinishRunAlertsWhenDegraded(t *testing.T) {
 }
 
 // TestFinishRunWithoutCountersDoesNotAlert deja claro que el contrato viejo
-// sigue funcionando: sin contadores no se evalúa nada.
+// sigue funcionando: sin contadores y con una corrida sana no hay alerta.
 func TestFinishRunWithoutCountersDoesNotAlert(t *testing.T) {
 	e := withStore(newEnv())
 	e.runs.baseline = []int32{30}
@@ -475,6 +475,91 @@ func TestFinishRunWithoutCountersDoesNotAlert(t *testing.T) {
 
 	if len(e.alerts.sent) != 0 {
 		t.Fatalf("avisos = %d; quiero 0", len(e.alerts.sent))
+	}
+}
+
+// ------------------------------------------------------------------ TAL-250
+
+// TestFinalStatus cubre la regla que corrige el estado pedido por el scraper:
+// solo un success sin ítems procesados y con alguno rechazado pasa a failed.
+func TestFinalStatus(t *testing.T) {
+	long := strings.Repeat("x", MaxErrorMessage)
+	tests := []struct {
+		name       string
+		requested  string
+		message    string
+		processed  int32
+		failed     int32
+		wantStatus string
+		wantMsg    string
+	}{
+		{"success con todo rechazado", StatusSuccess, "", 0, 26, StatusFailed, "Ingestion rechazó los 26 ítems de la corrida."},
+		{"conserva el mensaje del scraper", StatusSuccess, "2 páginas caídas", 0, 3, StatusFailed,
+			"Ingestion rechazó los 3 ítems de la corrida. 2 páginas caídas"},
+		{"recorta al largo máximo", StatusSuccess, long, 0, 1, StatusFailed,
+			string([]rune("Ingestion rechazó los 1 ítems de la corrida. " + long)[:MaxErrorMessage])},
+		{"success con algo procesado", StatusSuccess, "", 1, 25, StatusSuccess, ""},
+		{"success sin ítems", StatusSuccess, "", 0, 0, StatusSuccess, ""},
+		{"failed queda igual", StatusFailed, "timeout", 0, 26, StatusFailed, "timeout"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			run := Run{RecordsProcessed: tc.processed, RecordsFailed: tc.failed}
+			status, msg := finalStatus(tc.requested, tc.message, run)
+			if status != tc.wantStatus || msg != tc.wantMsg {
+				t.Fatalf("finalStatus = (%q, %q), quiero (%q, %q)", status, msg, tc.wantStatus, tc.wantMsg)
+			}
+			if n := len([]rune(msg)); n > MaxErrorMessage {
+				t.Fatalf("mensaje de %d caracteres supera %d", n, MaxErrorMessage)
+			}
+		})
+	}
+}
+
+// TestFinishRunAllItemsFailed recorre el cierre por HTTP: la corrida con todos
+// los ítems rechazados queda failed y avisa aunque el scraper no mande
+// contadores; una corrida sana no cambia, y un error al leer la corrida se
+// responde sin cerrarla.
+func TestFinishRunAllItemsFailed(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		processed  int32
+		failed     int32
+		getErr     error
+		wantHTTP   int
+		wantStatus any // estado con que se cerró; nil si no se cerró
+		wantAlerts int
+	}{
+		{"success con 26/26 fallidos queda failed y avisa", `{"status":"success"}`, 0, 26, nil, 200, StatusFailed, 1},
+		{"también con contadores del scraper", `{"status":"success","itemsFound":26,"itemsSent":26}`, 0, 26, nil, 200, StatusFailed, 1},
+		{"failed del scraper también avisa", `{"status":"failed","errorMessage":"x"}`, 0, 5, nil, 200, StatusFailed, 1},
+		{"corrida sana no cambia", `{"status":"success"}`, 20, 6, nil, 200, StatusSuccess, 0},
+		{"corrida inexistente", `{"status":"success"}`, 0, 0, ErrRunNotFound, 404, nil, 0},
+		{"error al leer la corrida", `{"status":"success"}`, 0, 0, errors.New("db caída"), 500, nil, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := withStore(newEnv())
+			e.runs.run.RecordsProcessed, e.runs.run.RecordsFailed = tc.processed, tc.failed
+			e.runs.getErr = tc.getErr
+
+			requireStatus(t, e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", tc.body), tc.wantHTTP)
+
+			var closed any
+			if e.runs.finished != nil {
+				closed = e.runs.finished[1]
+			}
+			if closed != tc.wantStatus {
+				t.Fatalf("cerrada con %v, quiero %v", closed, tc.wantStatus)
+			}
+			if len(e.alerts.sent) != tc.wantAlerts {
+				t.Fatalf("avisos = %d, quiero %d (log: %s)", len(e.alerts.sent), tc.wantAlerts, e.logs.String())
+			}
+			if tc.wantAlerts > 0 && !strings.Contains(e.alerts.sent[0].Message, "rechazó los") {
+				t.Fatalf("message = %q", e.alerts.sent[0].Message)
+			}
+		})
 	}
 }
 

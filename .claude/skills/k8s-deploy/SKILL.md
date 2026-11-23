@@ -25,7 +25,7 @@ Guía completa: `k8s/README.md`. Reglas generales en el `AGENTS.md` de la raíz
 | 1 | Borra el despliegue anterior; **conserva PVC y Secrets** |
 | 2 | Elige StorageClass y genera `k8s/overlays/uct` |
 | 3 | `docker build` + `docker push` de frontend, backend y scraper |
-| 4 | Crea `postgres-secret` y `soloservis-internal` si faltan; despliega PostgreSQL |
+| 4 | Crea `postgres-secret`, `soloservis-internal`, `soloservis-scraper` y `soloservis-ai` si faltan; despliega PostgreSQL |
 | 5 | Job de migraciones según `migration_order.txt` |
 | 6 | APIs + `scraper-api` (`/health` con `database: connected`) |
 | 7 | Frontend (nginx) |

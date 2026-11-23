@@ -15,6 +15,10 @@ from pathlib import Path
 
 from scraper.errors import ConfigError
 
+# Same floor as the backend (authz.MinServiceTokenLength): a shorter bearer
+# token is too easy to guess for an API that starts runs and tasks.
+MIN_TOKEN_LENGTH = 32
+
 RATE_UNITS: dict[str, float] = {"s": 1.0, "min": 60.0, "h": 3600.0}
 
 
@@ -195,12 +199,16 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         raise ConfigError("SCRAPER_TASK_HISTORY_LIMIT must be >= 1")
     if not 1 <= settings.ingestion_batch_size <= 100:
         raise ConfigError("INGESTION_BATCH_SIZE must be between 1 and 100")
+    if settings.api_token and len(settings.api_token) < MIN_TOKEN_LENGTH:
+        # Refuse to start rather than serve the control API behind a weak
+        # token (TAL-199, H10). An empty token still starts: the API answers 503.
+        raise ConfigError(f"SCRAPER_API_TOKEN must be at least {MIN_TOKEN_LENGTH} characters")
     if (
         settings.ingestion_url
         and settings.ingestion_token
-        and len(settings.ingestion_token) < 32
+        and len(settings.ingestion_token) < MIN_TOKEN_LENGTH
     ):
         # A short token can never authenticate, so refuse to start instead of
         # disabling ingestion silently.
-        raise ConfigError("INGESTION_API_TOKEN must be at least 32 characters")
+        raise ConfigError(f"INGESTION_API_TOKEN must be at least {MIN_TOKEN_LENGTH} characters")
     return settings

@@ -107,3 +107,7 @@
 
 # TAL-194: función manual cleanup_obsolete_data(meses, dry_run); no se ejecuta sola.
 045_cleanup_obsolete_data.sql
+# TAL-241: borra productos, usuarios y marcas del seed (rescata los precios
+# que el scraper dejó en una oferta demo) y repara las tildes cp850 del seed.
+044_delete_demo_seed.sql
+045_fix_seed_encoding_cp850.sql
