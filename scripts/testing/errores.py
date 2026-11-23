@@ -164,7 +164,10 @@ def short(moment: dt.datetime | None) -> str:
 
 # ---------------------------------------------------------------- logs de pods
 
-NGINX_ACCESS = re.compile(r'^(\S+) - \S+ \[[^\]]+\] "(\S+) (\S+)[^"]*" (\d{3}) \d+ "[^"]*" "([^"]*)" "([^"]*)"')
+# El request_id al final lo agrega el log_format del gateway desde TAL-251;
+# las líneas anteriores no lo traen y siguen calzando.
+NGINX_ACCESS = re.compile(r'^(\S+) - \S+ \[[^\]]+\] "(\S+) (\S+)[^"]*" (\d{3}) \d+ "[^"]*" "([^"]*)" "([^"]*)"'
+                          r'(?: request_id=([A-Za-z0-9-]+))?')
 NGINX_ERROR = re.compile(r"^\d{4}/\d\d/\d\d \d\d:\d\d:\d\d \[(warn|error|crit|alert|emerg)\] \d+#\d+: (?:\*\d+ )?(.*)")
 UVICORN = re.compile(r'"(\S+) (\S+) HTTP/[\d.]+" (\d{3})')
 PYLOG = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ (WARNING|ERROR|CRITICAL) (\S+): (.*)")
@@ -183,7 +186,10 @@ def app_name(pod: dict) -> str:
 
 
 def parse_go(origin: str, stamp: dt.datetime | None, line: str) -> Event | None:
-    """Linea JSON de slog: AccessLog con status >= 400 o un WARN/ERROR propio."""
+    """Linea JSON de slog: AccessLog con status >= 400 o un WARN/ERROR propio.
+
+    En el AccessLog el `code` del problem+json (TAL-250) va como causa: así los
+    4xx de una misma ruta se separan por code sin dejar de ser un status."""
     if not line.startswith("{"):
         return None
     try:
@@ -196,7 +202,7 @@ def parse_go(origin: str, stamp: dt.datetime | None, line: str) -> Event | None:
         if status < 400:
             return None
         return Event(LOGS, origin, f"{entry.get('method')} {norm_path(entry.get('path', ''))}", str(status),
-                     "", stamp, request_id, grave=status >= 500, test=request_id.startswith(SALUD_PREFIX))
+                     str(entry.get("code") or ""), stamp, request_id, grave=status >= 500, test=request_id.startswith(SALUD_PREFIX))
     level = entry.get("level", "")
     if level not in ("WARN", "ERROR"):
         return None
@@ -208,17 +214,22 @@ def parse_go(origin: str, stamp: dt.datetime | None, line: str) -> Event | None:
 
 
 def parse_nginx(stamp: dt.datetime | None, line: str, markers: list[dt.datetime]) -> Event | None:
-    """Linea del nginx del frontend. Anota los pedidos internos como marcas de prueba."""
+    """Linea del nginx del frontend. Anota los pedidos internos como marcas de prueba.
+
+    Si la linea trae request_id (TAL-251) queda como ejemplo del grupo, para
+    buscar la misma llamada en el AccessLog del backend, y un id `salud-...`
+    marca el pedido como prueba igual que en los logs de Go."""
     match = NGINX_ACCESS.match(line)
     if match:
-        _client, method, path, status, agent, forwarded = match.groups()
+        _client, method, path, status, agent, forwarded, request_id = match.groups()
+        request_id = request_id or ""
         internal = forwarded in ("-", "127.0.0.1") and agent.startswith(("curl/", "Wget"))
         if internal and stamp:
             markers.append(stamp)
         if int(status) < 400:
             return None
-        return Event(NGINX, "frontend", f"{method} {norm_path(path)}", status, "", stamp,
-                     grave=int(status) >= 500, test=internal)
+        return Event(NGINX, "frontend", f"{method} {norm_path(path)}", status, "", stamp, request_id,
+                     grave=int(status) >= 500, test=internal or request_id.startswith(SALUD_PREFIX))
     match = NGINX_ERROR.match(line)
     if match:
         level, message = match.groups()

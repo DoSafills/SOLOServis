@@ -44,7 +44,7 @@ El script termina con código `1` si alguna prueba falla, así que sirve como pa
 - los reinicios, los Jobs fallidos y los eventos Warning;
 - las corridas fallidas de `scrape_run` y del SQLite del scraper, y las alertas `scraper_degraded`.
 
-Muestra los recurrentes con su primera y última vez y un `request_id` o una corrida de ejemplo. Es de solo lectura.
+Muestra los recurrentes con su primera y última vez y un `request_id` o una corrida de ejemplo. Es de solo lectura. En los 4xx de Go la causa es el `code` del problem+json (TAL-250), y las líneas del nginx traen el mismo `request_id` que recibió el backend (TAL-251), así una llamada se sigue de punta a punta.
 
 ```bash
 python scripts/testing/errores.py --md errores.md
