@@ -73,6 +73,7 @@ func TestSessionTokensAreStoredHashed(t *testing.T) {
 	body := fmt.Sprintf(`{"email":"ana@mail.cl","password":%q}`, testPassword)
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Refresh-In-Body", "1")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
