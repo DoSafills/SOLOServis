@@ -100,3 +100,7 @@
 # 043: foto de perfil en user_account (avatar_data + avatar_mime); la sirve
 # User API desde la base, sin carpeta ni volumen escribible.
 043_user_profile.sql
+
+# TAL-188: fusiona proveedores duplicados, índice único por nombre normalizado
+# y enlaza "Falabella Scraper" con su tienda; idempotente.
+044_data_integrity.sql
