@@ -184,11 +184,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 // ChangePassword atiende POST /auth/change-password: verifica la contraseña
 // actual del usuario de la sesión y guarda la nueva con el mismo hash de
-// register y login. Recibe currentPassword y newPassword; responde 204 sin
-// cuerpo, 401 con un mensaje genérico si la actual no coincide (no revela si
-// la cuenta existe), 422 si la nueva no cumple las reglas de registro y 429
-// si no hay cupo para PBKDF2 (TAL-201). La sesión la exige el middleware, así
-// que el id del usuario sale del token y nunca del body.
+// register y login. El UPDATE y la revocación de las demás sesiones van en una
+// sola transacción: si algo falla, la contraseña y las sesiones quedan como
+// estaban. Recibe currentPassword y newPassword; responde 204 sin cuerpo, 401
+// con un mensaje genérico si la actual no coincide (no revela si la cuenta
+// existe), 422 si la nueva no cumple las reglas de registro y 429 si no hay
+// cupo para PBKDF2 (TAL-201). La sesión la exige el middleware, así que el id
+// del usuario sale del token y nunca del body.
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	session, ok := authz.SessionFrom(r.Context())
 	if !ok {
@@ -242,7 +244,14 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
-	tag, err := h.db.Exec(r.Context(), `UPDATE user_account SET password_hash=$1, updated_at=NOW()
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	tag, err := tx.Exec(r.Context(), `UPDATE user_account SET password_hash=$1, updated_at=NOW()
 		WHERE id=$2 AND active`, newHash, session.UserID)
 	if err != nil {
 		httpx.WriteInternal(w, r, h.logger, err)
@@ -250,6 +259,21 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if tag.RowsAffected() == 0 {
 		writeError(w, r, http.StatusUnauthorized, "Credenciales inválidas.")
+		return
+	}
+	// Cambiar la contraseña invalida las demás sesiones del usuario: si el
+	// cambio se hace porque la cuenta estaba comprometida, los refresh tokens
+	// viejos no pueden seguir emitiendo access tokens. La sesión actual se
+	// identifica por el bearer token de la request, nunca por un dato del body,
+	// y el borrado va en la misma transacción que el UPDATE.
+	if _, err := tx.Exec(r.Context(), `DELETE FROM user_session
+		WHERE user_id=$1 AND id <> (SELECT id FROM user_session WHERE user_id=$1 AND access_token_hash=$2)`,
+		session.UserID, tokenHash(bearerToken(r))); err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

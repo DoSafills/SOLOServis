@@ -126,6 +126,7 @@ func TestAuthAPI(t *testing.T) {
 			rules: []rule{
 				qRow("SELECT password_hash FROM user_account", testPasswordHash),
 				qExec("UPDATE user_account SET password_hash", 1),
+				qExec("DELETE FROM user_session", 1),
 			},
 			wantStatus: http.StatusNoContent},
 		{name: "change-password/sin sesión", method: http.MethodPost, target: "/auth/change-password", token: "-",

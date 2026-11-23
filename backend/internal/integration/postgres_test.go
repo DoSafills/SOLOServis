@@ -228,6 +228,37 @@ func TestIntegracion_Usuarios(t *testing.T) {
 	}
 }
 
+// TestIntegracion_CambioDePasswordRevocaOtrasSesiones comprueba que cambiar la
+// contraseña invalida las demás sesiones del usuario y conserva la actual, y
+// que una contraseña actual incorrecta no revoca nada.
+func TestIntegracion_CambioDePasswordRevocaOtrasSesiones(t *testing.T) {
+	e := newEnv(t)
+	first, email := e.register("cambio-clave")
+	var second session
+	_ = json.Unmarshal(e.expect(http.StatusOK, "usuarios", "POST", "/auth/login", "",
+		map[string]any{"email": email, "password": "Clave12345!"}), &second)
+
+	// Una contraseña actual incorrecta no toca las sesiones.
+	e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/change-password", first.AccessToken,
+		map[string]any{"currentPassword": "incorrecta", "newPassword": "NuevaClave123!"})
+	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 2 {
+		t.Fatalf("sesiones tras contraseña incorrecta = %d, quiero 2", n)
+	}
+
+	// El cambio correcto desde la primera sesión revoca la segunda.
+	e.expect(http.StatusNoContent, "usuarios", "POST", "/auth/change-password", first.AccessToken,
+		map[string]any{"currentPassword": "Clave12345!", "newPassword": "NuevaClave123!"})
+	e.expect(http.StatusUnauthorized, "usuarios", "GET", "/auth/validate", second.AccessToken, nil)
+	e.expect(http.StatusOK, "usuarios", "GET", "/auth/validate", first.AccessToken, nil)
+	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 1 {
+		t.Fatalf("sesiones tras el cambio = %d, quiero 1 (la actual)", n)
+	}
+	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1 AND access_token_hash = $2`,
+		first.UserID, hash(first.AccessToken)); n != 1 {
+		t.Fatalf("sesión actual = %d, quiero 1", n)
+	}
+}
+
 // sessionExpiry devuelve cuánto les falta a los vencimientos del access y del
 // refresh de la sesión del access token dado, según el reloj de la base.
 func (e *env) sessionExpiry(accessToken string) (access, refresh time.Duration) {
