@@ -27,7 +27,7 @@ def settings(tmp_path: Path) -> Settings:
             "SCRAPER_RATE_LIMIT": "1000/s",
             "SCRAPER_MAX_RETRIES": "2",
             "SCRAPER_BACKOFF_BASE": "0",
-            "SCRAPER_API_TOKEN": "test-token-that-is-long-enough",
+            "SCRAPER_API_TOKEN": "test-token-that-is-long-enough-for-32",
         }
     )
 

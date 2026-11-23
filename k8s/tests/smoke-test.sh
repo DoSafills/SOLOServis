@@ -13,7 +13,9 @@ set -u
 
 FRONTEND=http://frontend:80
 SCRAPER=http://scraper-api:8095
-TOKEN=${INTERNAL_API_TOKEN:-}
+# Token del scraper (Secret soloservis-scraper, TAL-199): abre la API del
+# scraper y /ingestion/*. Nunca se imprime.
+TOKEN=${SCRAPER_TOKEN:-}
 pass=0
 fail=0
 
@@ -69,7 +71,7 @@ else
     check "scraper /stores con token" 200 "$SCRAPER/stores" '"stores"' "$TOKEN"
     check "scraper /runs con token" 200 "$SCRAPER/runs" '"runs"' "$TOKEN"
   else
-    echo "OMITIDA: el Secret soloservis-internal no existe"
+    echo "OMITIDA: el Secret soloservis-scraper no existe"
   fi
 fi
 
@@ -99,11 +101,11 @@ check "notification POST /notifications" 401 "$COMERCIAL/notifications" '' '' PO
 check "auth      GET /auth/validate" 401 "$USUARIOS/auth/validate"
 check "ingestion GET /ingestion/runs" 401 "$INGESTION/ingestion/runs"
 
-echo "== Ruta interna con INTERNAL_API_TOKEN -> 200"
+echo "== Ingestion con el token del scraper -> 200"
 if [ -n "$TOKEN" ]; then
   check "ingestion GET /ingestion/runs" 200 "$INGESTION/ingestion/runs" '' "$TOKEN"
 else
-  echo "OMITIDA: el Secret soloservis-internal no existe"
+  echo "OMITIDA: el Secret soloservis-scraper no existe"
 fi
 
 if [ "$TOPOLOGIA" = dominios ]; then

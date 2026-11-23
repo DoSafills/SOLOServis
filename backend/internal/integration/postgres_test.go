@@ -41,6 +41,7 @@ func newEnv(t *testing.T) *env {
 	}
 	t.Cleanup(pool.Close)
 	t.Setenv("INTERNAL_API_TOKEN", internalToken)
+	t.Setenv("INGESTION_API_TOKEN", ingestionToken)
 
 	// Servidores sin arrancar: sus URLs se conocen antes de armar los routers,
 	// porque pricing e ingestion leen NOTIFICATION_API_URL al construirse.
@@ -522,12 +523,12 @@ func TestIntegracion_IngestionNotificaAComercial(t *testing.T) {
 	var run struct {
 		ID int32 `json:"id"`
 	}
-	data := e.expect(http.StatusCreated, "ingestion", "POST", "/ingestion/runs", internalToken,
+	data := e.expect(http.StatusCreated, "ingestion", "POST", "/ingestion/runs", ingestionToken,
 		map[string]any{"source": map[string]any{"name": source, "baseUrl": "https://integracion.test"}, "storeId": store})
 	_ = json.Unmarshal(data, &run)
 	item := func(price int) {
 		t.Helper()
-		e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/items", run.ID), internalToken, map[string]any{"items": []any{
+		e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/items", run.ID), ingestionToken, map[string]any{"items": []any{
 			map[string]any{"externalId": "lg-gm53", "product": map[string]any{"name": "Refrigerador LG", "brand": "LG", "model": "GM53"},
 				"offer": map[string]any{"price": price, "productUrl": "https://integracion.test/" + e.tag}},
 		}})
@@ -549,8 +550,13 @@ func TestIntegracion_IngestionNotificaAComercial(t *testing.T) {
 		WHERE o.store_id = $1`, store); n != 2 {
 		t.Errorf("historial de la oferta = %d, quiero 2", n)
 	}
-	e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/finish", run.ID), internalToken, map[string]any{"status": "success"})
+	e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/finish", run.ID), ingestionToken, map[string]any{"status": "success"})
 	e.expect(http.StatusUnauthorized, "ingestion", "GET", "/ingestion/runs", "", nil)
+	// Cada token sirve solo para lo suyo (TAL-199, H3): el interno no abre
+	// ingestion y el del scraper no es admin en comercial.
+	e.expect(http.StatusUnauthorized, "ingestion", "GET", "/ingestion/runs", internalToken, nil)
+	e.expect(http.StatusUnauthorized, "comercial", "POST", "/notifications", ingestionToken,
+		map[string]any{"userId": s.UserID, "type": "t", "title": "t", "message": "m"})
 }
 
 // Cada usuario solo lee y modifica lo suyo: el usuario sale del token, nunca

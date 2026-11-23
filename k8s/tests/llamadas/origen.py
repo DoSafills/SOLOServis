@@ -14,10 +14,10 @@ propia ventana lo que recibió cada servicio.
 
 Es de solo lectura: las únicas escrituras son pedidos que la API rechaza al
 decodificar o validar, antes de llegar a la base. El token de servicio viene
-del Secret soloservis-internal y nunca se escribe en la salida.
+del Secret soloservis-scraper (TAL-199) y nunca se escribe en la salida.
 
 Variables: TICKETS (por defecto, todos los de ESCENARIOS), PAUSA (segundos entre
-llamadas, para poder leer las ventanas), INTERNAL_API_TOKEN (opcional).
+llamadas, para poder leer las ventanas), SCRAPER_TOKEN (opcional).
 Sale con código 1 si alguna verificación falla.
 """
 
@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from collections.abc import Callable
 
 PROXY = os.environ.get("PROXY", "http://127.0.0.1:9000")
-TOKEN = os.environ.get("INTERNAL_API_TOKEN", "")
+TOKEN = os.environ.get("SCRAPER_TOKEN", "")
 PAUSA = float(os.environ.get("PAUSA", "0.4"))
 EXTRACTO = int(os.environ.get("EXTRACTO", "600"))
 TROZO_REGISTRO = 8000  # largo de cada línea @@@REGISTRO (el runtime corta las líneas de más de 16 KB)
