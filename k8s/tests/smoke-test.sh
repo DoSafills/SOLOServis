@@ -118,6 +118,7 @@ echo "== nginx del frontend -> pod de cada dominio"
 check "frontend /" 200 "$FRONTEND/" 'id="root"'
 check "frontend /products -> comercial" 200 "$FRONTEND/products?limit=1" '"id"'
 check "frontend /auth -> usuarios" 401 "$FRONTEND/auth/validate"
+check "frontend /users -> usuarios" 200 "$FRONTEND/users" 'user-api-ready'
 
 echo "Resultado: $pass OK, $fail fallas"
 [ "$fail" -eq 0 ]

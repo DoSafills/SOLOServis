@@ -63,9 +63,10 @@ El nginx del frontend (`docker/frontend/default.conf.template`) enruta por path,
 |---|---|---|
 | `/products`, `/product-categories`, `/categories`, `/stores`, `/services` | comercial | GET |
 | `/auth` | usuarios | GET, POST |
+| `/users` | usuarios | todos (perfil con sesión; la foto `GET /users/{publicID}/avatar` es pública). Body hasta 3 MB, en nginx y en el Ingress |
 | `/favorites`, `/cart`, `/search`, `/comparisons`, `/reviews`, `/watchlist` | comercial | todos (cada API valida la sesión) |
 
-**Pricing, User, Notification e Ingestion no se publican.** Solo se llaman por la red interna del clúster (ver [§7](#7-ejemplos-de-uso-de-la-app-desplegada)).
+**Pricing, Notification e Ingestion no se publican.** Solo se llaman por la red interna del clúster (ver [§7](#7-ejemplos-de-uso-de-la-app-desplegada)).
 
 **Topología de respaldo: `consolidado`.** Las 14 APIs en un solo Deployment `backend` (3 pods y 4 Services en total). Sirve si la cuota no alcanza: `-Topologia consolidado` / `--topologia consolidado`. Para el frontend y para quien llame a las APIs, las dos topologías son idénticas.
 
@@ -272,7 +273,7 @@ El script guarda el registry, el tag y la StorageClass elegida en `k8s/overlays/
 
 ## 5. Pod de test
 
-Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **No escribe nada en la base:** solo hace lecturas, y los dos POST van sin token y se rechazan antes de tocarla. Detecta solo la topología (dominios o consolidado). Son 29 verificaciones de las APIs en `dominios`, más hasta 6 del scraper cuando `scraper-api` está desplegado.
+Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **No escribe nada en la base:** solo hace lecturas, y los dos POST van sin token y se rechazan antes de tocarla. Detecta solo la topología (dominios o consolidado). Son 30 verificaciones de las APIs en `dominios`, más hasta 6 del scraper cuando `scraper-api` está desplegado.
 
 | Verificación | Qué espera |
 |---|---|
@@ -281,7 +282,7 @@ Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/
 | Rutas con sesión o internas, sin token: `/favorites`, `/cart`, `/comparisons/products`, `/comparisons/services/1`, `POST /reviews/product/{id}`, `/watchlist?userId=1`, `/notifications?userId=1`, `POST /notifications`, `/auth/validate`, `/ingestion/runs` | 401: mandar un `userId` no basta (TAL-125) |
 | Ruta interna con `INTERNAL_API_TOKEN`: `GET /ingestion/runs` | 200 |
 | Aislamiento: `comercial` no sirve `/auth` ni `/ingestion`; `usuarios` e `ingestion` no sirven `/products` | 404 |
-| nginx del frontend: `/` → app, `/products` → comercial, `/auth` → usuarios | 200, 200, 401 |
+| nginx del frontend: `/` → app, `/products` → comercial, `/auth` → usuarios, `/users` → usuarios | 200, 200, 401, 200 |
 | Scraper: `/health`, `/ready` | 200 y `"status"` esperado |
 | Scraper sin token: `/stores`, `/runs` | 401 |
 | Scraper con `INTERNAL_API_TOKEN`: `/stores`, `/runs` | 200 |
@@ -748,4 +749,4 @@ docker/<api>/Dockerfile           imagen de cada API por separado (solo docker/c
 - **Orden de arranque:** cada pod de API tiene un initContainer (`espera-postgres`, con `pg_isready`) y queda en `Init` hasta que PostgreSQL acepta conexiones. Además, la API hace ping a la base al iniciar y su readiness (`/health`) exige la conexión. No suma a la cuota: corre antes que el contenedor principal y pide menos que él.
 - **Pods:** todos corren sin root, con `readOnlyRootFilesystem` y sin capabilities. Cumplen Pod Security `restricted`.
 - **Red (TAL-197):** `components/red` niega todo el tráfico por defecto y permite solo Ingress → frontend, frontend → APIs, APIs → PostgreSQL, scraper → ingestion, ingestion → comercial, el CronJob y los Jobs hacia lo que usan, DNS y la salida a internet del scraper (y de comercial, para el proveedor de IA). El script la aplica solo si `kubectl auth can-i create networkpolicies` responde `yes`. **Hoy UCT responde `no`**: el rol del namespace solo puede leerlas, así que se omiten y la Fase 0 lo informa. Si algún día se aplican y algo deja de responder, `-SinRed` las borra en el siguiente deploy.
-- **Gateway (TAL-197):** nginx envía CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` y `Permissions-Policy` (`docker/frontend/security-headers.conf`), oculta su versión y rechaza con 400 las rutas con `%2F`, `%5C` o segmentos `..`. HSTS lo pone el Ingress de UCT.
+- **Gateway (TAL-197):** nginx envía CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` y `Permissions-Policy` (`docker/frontend/security-headers.conf`), oculta su versión y rechaza con 400 las rutas con `%2F`, `%5C` o segmentos `..`. HSTS lo pone el Ingress de UCT. El certificado que sirve hoy el Ingress es el de prueba del controlador (`Kubernetes Ingress Controller Fake Certificate`), así que el navegador avisa; es de la plataforma, no del repo.
