@@ -270,6 +270,21 @@ func TestCatalogIntegration_ListPaginaYFiltroAntiguo(t *testing.T) {
 	repo := NewRepository(pool)
 	ctx := context.Background()
 
+	// Seis productos propios para tener dos páginas, tres de ellos bajo
+	// Computación (TAL-241: el seed ya no trae productos).
+	tag := fmt.Sprintf("tal241-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE name LIKE $1`, "%"+tag)
+	})
+	for i, slug := range []string{"refrigeradores", "refrigeradores", "refrigeradores", "notebooks", "notebooks", "notebooks"} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO product (category_id, category_ref, name)
+			SELECT c.legacy_product_category_id, c.id, $2 FROM categories c WHERE c.slug = $1`,
+			slug, fmt.Sprintf("Producto %d %s", i, tag)); err != nil {
+			t.Fatalf("crear producto %s: %v", slug, err)
+		}
+	}
+
 	var active int64
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM product WHERE active`).Scan(&active); err != nil {
 		t.Fatal(err)

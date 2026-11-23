@@ -20,6 +20,9 @@ type comparisonFixture struct {
 	repo                    *Repository
 	userA, userB            int32
 	p1, p2, inactive, other Product
+	// extra son cuatro refrigeradores más para llenar una comparación (TAL-241:
+	// el test ya no depende de los productos del seed).
+	extra []Product
 }
 
 func newComparisonFixture(t *testing.T) comparisonFixture {
@@ -73,6 +76,9 @@ func newComparisonFixture(t *testing.T) comparisonFixture {
 	f.p1 = product("Refri Uno", inRefrigeradores, true)
 	f.p2 = product("Refri Dos", inRefrigeradores, true)
 	f.inactive = product("Refri Inactivo", inRefrigeradores, false)
+	for i := 1; i <= 4; i++ {
+		f.extra = append(f.extra, product(fmt.Sprintf("Refri Extra %d", i), inRefrigeradores, true))
+	}
 	f.other = product("Lavadora", `INSERT INTO product (category_id, name, active)
 		SELECT id, $1, $2 FROM product_category WHERE name = 'Lavado' RETURNING id, public_id::text, category_id`, true)
 
@@ -233,17 +239,12 @@ func TestComparisonIntegration_GuardadasYPropiedad(t *testing.T) {
 	if err := f.repo.AddItem(ctx, f.userA, id, f.p1); !errors.Is(err, ErrAlreadyIncluded) {
 		t.Fatalf("repetido = %v", err)
 	}
-	var extra []int32
-	if err := f.pool.QueryRow(ctx, `SELECT array_agg(id ORDER BY id) FROM product
-		WHERE category_id = $1 AND active AND id <> ALL($2)`, f.p1.CategoryID, []int32{f.p1.ID, f.p2.ID}).Scan(&extra); err != nil || len(extra) < 4 {
-		t.Fatalf("faltan productos de la categoría para llenar la comparación: %v %v", extra, err)
-	}
-	for _, pid := range extra[:3] {
-		if err := f.repo.AddItem(ctx, f.userA, id, Product{ID: pid, CategoryID: f.p1.CategoryID}); err != nil {
-			t.Fatalf("agregar %d: %v", pid, err)
+	for _, p := range f.extra[:3] {
+		if err := f.repo.AddItem(ctx, f.userA, id, p); err != nil {
+			t.Fatalf("agregar %d: %v", p.ID, err)
 		}
 	}
-	if err := f.repo.AddItem(ctx, f.userA, id, Product{ID: extra[3], CategoryID: f.p1.CategoryID}); !errors.Is(err, ErrComparisonFull) {
+	if err := f.repo.AddItem(ctx, f.userA, id, f.extra[3]); !errors.Is(err, ErrComparisonFull) {
 		t.Fatalf("sexto producto = %v, quiero ErrComparisonFull", err)
 	}
 
@@ -255,7 +256,7 @@ func TestComparisonIntegration_GuardadasYPropiedad(t *testing.T) {
 		t.Fatal(err)
 	}
 	header, _ = f.repo.Get(ctx, f.userA, id)
-	if len(header.ProductIDs) != 4 || header.ProductIDs[0] != f.p2.ID || header.ProductIDs[3] != extra[2] {
+	if len(header.ProductIDs) != 4 || header.ProductIDs[0] != f.p2.ID || header.ProductIDs[3] != f.extra[2].ID {
 		t.Fatalf("productos tras quitar = %v", header.ProductIDs)
 	}
 
