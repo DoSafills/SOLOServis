@@ -117,6 +117,16 @@ server {
         include /etc/nginx/soloservis-proxy.conf;
     }
 
+    # Perfil del usuario: nombre y foto. User API valida la sesión en las
+    # escrituras; la foto se sirve pública porque un <img> no puede enviar el
+    # bearer token. 3m cubre la imagen de 2 MB más el sobre multipart (nginx
+    # trae 1m por defecto y rechazaría la subida).
+    location ~ ^/users(/.*)?$ {
+        client_max_body_size 3m;
+        proxy_pass http://${USER_UPSTREAM};
+        include /etc/nginx/soloservis-proxy.conf;
+    }
+
     # Datos del usuario: cada API valida el token de sesión.
     location ~ ^/favorites(/.*)?$ {
         proxy_pass http://${FAVORITES_UPSTREAM};

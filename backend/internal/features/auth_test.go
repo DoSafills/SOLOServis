@@ -120,6 +120,38 @@ func TestAuthAPI(t *testing.T) {
 			rules:      []rule{qFail("DELETE FROM user_session", errBoom)},
 			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 
+		// POST /auth/change-password
+		{name: "change-password/feliz", method: http.MethodPost, target: "/auth/change-password",
+			body: `{"currentPassword":"` + testPassword + `","newPassword":"NuevaClave123"}`,
+			rules: []rule{
+				qRow("SELECT password_hash FROM user_account", testPasswordHash),
+				qExec("UPDATE user_account SET password_hash", 1),
+				qExec("DELETE FROM user_session", 1),
+			},
+			wantStatus: http.StatusNoContent},
+		{name: "change-password/sin sesión", method: http.MethodPost, target: "/auth/change-password", token: "-",
+			body:       `{"currentPassword":"` + testPassword + `","newPassword":"NuevaClave123"}`,
+			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
+		{name: "change-password/reglas", method: http.MethodPost, target: "/auth/change-password",
+			body:       `{"currentPassword":"","newPassword":"corta"}`,
+			wantStatus: http.StatusUnprocessableEntity, wantCode: httpx.CodeValidationFailed,
+			wantFields: []string{"currentPassword/required", "newPassword/min"}},
+		{name: "change-password/actual incorrecta", method: http.MethodPost, target: "/auth/change-password",
+			body:       `{"currentPassword":"otra-clave-123","newPassword":"NuevaClave123"}`,
+			rules:      []rule{qRow("SELECT password_hash FROM user_account", testPasswordHash)},
+			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
+		{name: "change-password/usuario inexistente", method: http.MethodPost, target: "/auth/change-password",
+			body:       `{"currentPassword":"` + testPassword + `","newPassword":"NuevaClave123"}`,
+			rules:      []rule{qNoRows("SELECT password_hash FROM user_account")},
+			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
+		{name: "change-password/error interno", method: http.MethodPost, target: "/auth/change-password",
+			body: `{"currentPassword":"` + testPassword + `","newPassword":"NuevaClave123"}`,
+			rules: []rule{
+				qRow("SELECT password_hash FROM user_account", testPasswordHash),
+				qFail("UPDATE user_account SET password_hash", errBoom),
+			},
+			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
+
 		// POST /auth/logout-all
 		{name: "logout-all/feliz", method: http.MethodPost, target: "/auth/logout-all",
 			rules:      []rule{qExec(logoutAll, 3)},

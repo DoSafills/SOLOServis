@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/apiutil"
+	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 	"github.com/jackc/pgx/v5"
 )
@@ -71,6 +72,13 @@ type authInput struct {
 	Email        string `json:"email"`
 	Password     string `json:"password"`
 	RefreshToken string `json:"refreshToken"`
+}
+
+// changePasswordInput es el cuerpo de POST /auth/change-password. No reusa
+// authInput porque ese acepta name, email y refreshToken, que aquí no aplican.
+type changePasswordInput struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
 }
 
 // Register atiende POST /auth/register: crea la cuenta y emite tokens.
@@ -172,6 +180,103 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	h.loginFailures.Reset(input.Email)
 	h.issueTokens(w, r, userID, http.StatusOK, sessionLifetime)
+}
+
+// ChangePassword atiende POST /auth/change-password: verifica la contraseña
+// actual del usuario de la sesión y guarda la nueva con el mismo hash de
+// register y login. El UPDATE y la revocación de las demás sesiones van en una
+// sola transacción: si algo falla, la contraseña y las sesiones quedan como
+// estaban. Recibe currentPassword y newPassword; responde 204 sin cuerpo, 401
+// con un mensaje genérico si la actual no coincide (no revela si la cuenta
+// existe), 422 si la nueva no cumple las reglas de registro y 429 si no hay
+// cupo para PBKDF2 (TAL-201). La sesión la exige el middleware, así que el id
+// del usuario sale del token y nunca del body.
+func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	session, ok := authz.SessionFrom(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized,
+			"Se requiere un token de acceso válido (Authorization: Bearer <token>).")
+		return
+	}
+	var input changePasswordInput
+	if err := httpx.DecodeJSON(w, r, &input, maxAuthBodyBytes); err != nil {
+		httpx.WriteDecodeError(w, r, err)
+		return
+	}
+
+	var v httpx.Validator
+	v.Required("currentPassword", input.CurrentPassword)
+	v.Check(len(input.CurrentPassword) <= maxPasswordBytes, "currentPassword", "max_length",
+		fmt.Sprintf("currentPassword no puede superar %d bytes", maxPasswordBytes))
+	v.Required("newPassword", input.NewPassword)
+	v.Check(len(input.NewPassword) >= minPasswordLength, "newPassword", "min",
+		fmt.Sprintf("newPassword debe tener al menos %d caracteres", minPasswordLength))
+	v.Check(len(input.NewPassword) <= maxPasswordBytes, "newPassword", "max_length",
+		fmt.Sprintf("newPassword no puede superar %d bytes", maxPasswordBytes))
+	if !valid(w, r, &v) {
+		return
+	}
+
+	var currentHash string
+	err := h.db.QueryRow(r.Context(), `SELECT password_hash FROM user_account WHERE id=$1 AND active`,
+		session.UserID).Scan(&currentHash)
+	if err != nil {
+		h.dbError(w, r, err, http.StatusUnauthorized, "Credenciales inválidas.")
+		return
+	}
+	if !h.passwordSlots.Acquire(r.Context()) {
+		httpx.WriteRateLimited(w, r, passwordBusyRetry, passwordBusyDetail)
+		return
+	}
+	matches := checkPassword(currentHash, input.CurrentPassword)
+	h.passwordSlots.Release()
+	if !matches {
+		writeError(w, r, http.StatusUnauthorized, "Credenciales inválidas.")
+		return
+	}
+	if !h.passwordSlots.Acquire(r.Context()) {
+		httpx.WriteRateLimited(w, r, passwordBusyRetry, passwordBusyDetail)
+		return
+	}
+	newHash, err := passwordHash(input.NewPassword)
+	h.passwordSlots.Release()
+	if err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	tx, err := h.db.Begin(r.Context())
+	if err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	tag, err := tx.Exec(r.Context(), `UPDATE user_account SET password_hash=$1, updated_at=NOW()
+		WHERE id=$2 AND active`, newHash, session.UserID)
+	if err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		writeError(w, r, http.StatusUnauthorized, "Credenciales inválidas.")
+		return
+	}
+	// Cambiar la contraseña invalida las demás sesiones del usuario: si el
+	// cambio se hace porque la cuenta estaba comprometida, los refresh tokens
+	// viejos no pueden seguir emitiendo access tokens. La sesión actual se
+	// identifica por el bearer token de la request, nunca por un dato del body,
+	// y el borrado va en la misma transacción que el UPDATE.
+	if _, err := tx.Exec(r.Context(), `DELETE FROM user_session
+		WHERE user_id=$1 AND id <> (SELECT id FROM user_session WHERE user_id=$1 AND access_token_hash=$2)`,
+		session.UserID, tokenHash(bearerToken(r))); err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		httpx.WriteInternal(w, r, h.logger, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // dummyPasswordHash devuelve un hash con el mismo formato e iteraciones que

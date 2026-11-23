@@ -54,6 +54,10 @@ export default defineConfig(({ mode }) => {
           target: "http://127.0.0.1:8088",
           changeOrigin: true,
         },
+        "/users": {
+          target: "http://127.0.0.1:8084",
+          changeOrigin: true,
+        },
         "/services": {
           target: "http://127.0.0.1:8083",
           changeOrigin: true,

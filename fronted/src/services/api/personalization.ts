@@ -15,6 +15,7 @@ export interface AuthUser {
   userId: number;
   name: string;
   email: string;
+  avatarUrl?: string | null;
 }
 
 export interface AuthSession extends AuthUser {
@@ -103,7 +104,9 @@ export async function request<T>(
     {
       ...init,
       headers: {
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(init?.body && !(init.body instanceof FormData)
+          ? { "Content-Type": "application/json" }
+          : {}),
         ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}),
         ...init?.headers,
       },
@@ -159,6 +162,7 @@ export async function request<T>(
 
 function getApiName(baseUrl: string, path: string): string {
   if (path === "/auth" || path.startsWith("/auth/")) return "Auth API";
+  if (path === "/users" || path.startsWith("/users/")) return "User API";
   if (
     path === "/products" ||
     path.startsWith("/products/") ||
@@ -248,6 +252,14 @@ export function hasStoredAuthSession(userId: number): boolean {
 
 function storeAuthSession(session: AuthSession): void {
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+}
+
+// updateStoredAuthUser mezcla los campos editables del perfil en la sesión
+// guardada, para que el nombre y la foto sigan ahí tras recargar la página.
+function updateStoredAuthUser(patch: Partial<Pick<AuthUser, "name" | "avatarUrl">>): void {
+  const session = getStoredAuthSession();
+  if (!session) return;
+  storeAuthSession({ ...session, ...patch });
 }
 
 async function refreshAuthSession(session: AuthSession): Promise<AuthSession | null> {
@@ -411,6 +423,50 @@ export async function logoutAccount(): Promise<void> {
   } finally {
     localStorage.removeItem(AUTH_SESSION_KEY);
   }
+}
+
+// updateAccountName cambia el nombre con PATCH /users/me y lo sincroniza en la
+// sesión guardada. Devuelve el perfil que respondió el backend.
+export async function updateAccountName(name: string): Promise<AuthUser> {
+  const profile = await request<{
+    id: number;
+    name: string;
+    email: string;
+    avatarUrl: string | null;
+  }>(API_URLS.users, "/users/me", { method: "PATCH", body: JSON.stringify({ name }) });
+  const updated: AuthUser = {
+    userId: profile.id,
+    name: profile.name,
+    email: profile.email,
+    avatarUrl: profile.avatarUrl,
+  };
+  updateStoredAuthUser({ name: updated.name, avatarUrl: updated.avatarUrl });
+  return updated;
+}
+
+// uploadAccountAvatar sube la foto (multipart, campo avatar) y devuelve la URL
+// pública que responde el backend. El componente valida tipo y tamaño antes.
+export async function uploadAccountAvatar(file: File): Promise<string> {
+  const form = new FormData();
+  form.append("avatar", file);
+  const body = await request<{ avatarUrl: string }>(API_URLS.users, "/users/me/avatar", {
+    method: "POST",
+    body: form,
+  });
+  updateStoredAuthUser({ avatarUrl: body.avatarUrl });
+  return body.avatarUrl;
+}
+
+// changeAccountPassword cambia la contraseña de la sesión. Un ApiError con
+// status 401 significa que la contraseña actual no coincide.
+export async function changeAccountPassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  await request<void>(API_URLS.auth, "/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
 }
 
 export async function getSearchHistory(userId: number): Promise<SearchHistoryEntry[]> {

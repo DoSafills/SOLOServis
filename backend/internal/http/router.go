@@ -101,7 +101,7 @@ func corsMiddleware(frontendURL string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", frontendURL)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
 			if req.Method == http.MethodOptions {
@@ -251,6 +251,7 @@ func registerServiceRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) 
 }
 
 func registerUserRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	profile := newProfileHandler(db, logger)
 	r.Get("/users", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
@@ -261,6 +262,11 @@ func registerUserRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	// El token debe ser del mismo usuario que se pide; otro id responde 404,
 	// como si no existiera (TAL-125, H4: la sesión la valida authz).
 	session := authz.New(authz.NewPostgresSessions(db), "", logger).RequireSession
+	// Perfil: el usuario sale de la sesión, nunca de la ruta ni del body.
+	r.With(session).Patch("/users/me", profile.PatchMe)
+	r.With(session).Post("/users/me/avatar", profile.UploadAvatar)
+	// La foto se sirve sin sesión: un <img> no puede enviar el bearer token.
+	r.Get("/users/{publicID}/avatar", profile.GetAvatar)
 	r.With(session).Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) {
 		current, _ := authz.SessionFrom(req.Context())
 		if chi.URLParam(req, "id") != strconv.Itoa(int(current.UserID)) {
