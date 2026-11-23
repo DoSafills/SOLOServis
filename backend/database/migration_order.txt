@@ -101,6 +101,9 @@
 # User API desde la base, sin carpeta ni volumen escribible.
 043_user_profile.sql
 
+# TAL-188: fusiona proveedores duplicados, índice único por nombre normalizado
+# y enlaza "Falabella Scraper" con su tienda; idempotente.
+044_data_integrity.sql
 # TAL-241: borra productos, usuarios y marcas del seed (rescata los precios
 # que el scraper dejó en una oferta demo) y repara las tildes cp850 del seed.
 044_delete_demo_seed.sql
