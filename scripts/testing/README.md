@@ -51,3 +51,27 @@ python scripts/testing/errores.py --md errores.md
 ```
 
 El tráfico de nuestras pruebas no cuenta: los pedidos con `X-Request-ID: salud-…` (los manda `salud.py`) y los que caen a menos de `--ventana` segundos (120 por defecto) de un pedido interno en el nginx o del Job de smoke test. Los logs de los pods solo cubren desde el último arranque de cada contenedor.
+
+## Consumo del asistente de IA
+
+`consumo_ia.py` lee la auditoría del asistente (`ai_comparison_query`, migración 029) y responde cuánto se gastó, quién consumió y qué errores se repitieron. Es de solo lectura: abre una sesión `READ ONLY`.
+
+```bash
+python scripts/testing/consumo_ia.py              # PostgreSQL de docker compose
+python scripts/testing/consumo_ia.py --cluster    # PostgreSQL del clúster con kubectl
+python scripts/testing/consumo_ia.py --dias 30    # ventana de 30 días (7 por defecto)
+python scripts/testing/consumo_ia.py --json       # salida para procesar
+```
+
+| Bloque | Qué muestra |
+| --- | --- |
+| Resumen | Consultas, cuántas fueron al proveedor y cuántas a la caché, tokens de entrada y salida, latencia media y p95 |
+| Por día | El mismo consumo agrupado por fecha |
+| Por usuario | `anónimo` es lo normal: la ruta es pública y solo guarda `user_id` con sesión |
+| Por proveedor y modelo | Para comparar el efecto de cambiar `AI_MODEL` |
+| Errores | Mensajes agrupados: clave, cuota o red |
+| Preguntas repetidas | Las que la caché ya resuelve gratis |
+
+Las consultas están en `docs/sql/consumo_ia.sql`, con un marcador `-- name:` por bloque. Se pueden correr a mano con `psql -v dias=7 -f docs/sql/consumo_ia.sql`.
+
+Termina con código `1` si no hay consultas en la ventana o si falta la migración 029.

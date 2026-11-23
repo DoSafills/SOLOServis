@@ -787,7 +787,7 @@ internal/authz/
 
 | Componente | Responsabilidad |
 |---|---|
-| Auth API | Registro, login, refresh y logout. |
+| Auth API | Registro, login, refresh, logout y cierre de todas las sesiones. |
 | Authz | Validación de sesiones y permisos. |
 | User API | Información asociada a los usuarios. |
 | INTERNAL_API_TOKEN | Autorización de operaciones internas. |
@@ -1703,7 +1703,7 @@ Orden de validación (TAL-78 §3): id de ruta (400) → decodificación (400/413
 
 ### Respuestas
 
-`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (el slug de la hoja de nivel 3; `null` si no tiene) y `attributes` con valores tipados. Respuesta real del `PUT` con el body de arriba:
+`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (el slug de la hoja de nivel 3; `null` si no tiene) y `attributes` con valores tipados. Desde TAL-237 también viajan `updatedAt` (producto) y `lastUpdated` (cada oferta), ambos en RFC 3339 UTC: sin ellos la ficha no podía decir cuándo se verificó el precio. Respuesta real del `PUT` con el body de arriba:
 
 ```http
 PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
