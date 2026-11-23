@@ -24,7 +24,7 @@ y CI:
 | --- | --- |
 | `TestEvalCasesAreWellFormed` | Versión de la suite, ids únicos, `expect` válido, `mustIncludeAny` presente en los casos de respuesta, pregunta dentro del límite real |
 | `TestEvalRefusalPhraseMatchesPrompt` | `refusalExpected` es idéntica a la del prompt: una sola fuente de verdad |
-| `TestEvalFixtureRespectsAllowlist` | El contexto de ejemplo tiene 2–5 productos, no usa claves fuera de `allowed-fields.json` y no incluye ningún campo prohibido |
+| `TestEvalFixtureRespectsAllowlist` | El fixture tiene 2–5 productos y el contexto que se arma con él (lo que recibe el modelo) no usa claves fuera de `allowed-fields.json` ni incluye ningún campo prohibido |
 
 ## Capa 2 — contra el modelo real (opt-in)
 

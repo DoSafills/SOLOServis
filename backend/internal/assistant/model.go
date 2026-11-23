@@ -33,6 +33,7 @@ const (
 	DefaultPerMinute       = 10
 	DefaultPerDay          = 100
 	DefaultTimeout         = 10 * time.Second
+	DefaultMaxContextBytes = 8192
 	DefaultRejectionPhrase = "Solo puedo responder sobre los productos que estás comparando."
 )
 
@@ -83,6 +84,11 @@ type Limits struct {
 		TTLSeconds int      `json:"ttlSeconds"`
 		KeyFields  []string `json:"keyFields"`
 	} `json:"cache"`
+	// Context.MaxBytes es el tope del JSON de productos que recibe el modelo
+	// (TAL-181). Si la matriz lo pasa, encodeModelContext quita filas.
+	Context struct {
+		MaxBytes int `json:"maxBytes"`
+	} `json:"context"`
 }
 
 // Request es el body de POST /comparisons/assistant. Solo IDs y pregunta.
