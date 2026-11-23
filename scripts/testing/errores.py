@@ -20,7 +20,8 @@ Un grupo es recurrente si aparece --min veces o mas. Se muestra con su primer y
 ultimo momento y un request_id (o id de corrida) de ejemplo.
 
 Trafico de pruebas: lo que hace este equipo (pod de test, salud.py) tambien
-deja 4xx. Se marca como prueba un pedido con X-Request-ID `salud-...` o que cae
+deja 4xx. Se marca como prueba un pedido con X-Request-ID `salud-...` o
+`carga-...` (los manda carga.py, TAL-206) o que cae
 a menos de --ventana segundos de un pedido interno (curl/Wget sin
 X-Forwarded-For) en el nginx o del Job de smoke test. Es una heuristica: un
 error real en esa ventana tambien quedaria marcado como prueba.
@@ -56,7 +57,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from salud import API_SERVICES, ClusterError, kget, kubectl, sql  # noqa: E402
 
 UTC = dt.timezone.utc
-SALUD_PREFIX = "salud-"
+# X-Request-ID de nuestras pruebas: salud.py (TAL-164) y carga.py (TAL-206).
+SALUD_PREFIX = ("salud-", "carga-")
 TEST_JOB = "soloservis-smoke-test"
 
 # Fuentes, en el orden en que se muestran.
