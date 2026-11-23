@@ -15,7 +15,7 @@ import (
 )
 
 // Handler atiende Ingestion API. Todas las rutas exigen admin o
-// INTERNAL_API_TOKEN (authz.RequireAdmin en el router).
+// INGESTION_API_TOKEN, el token del scraper (ingestionOnly en el router, TAL-199).
 type Handler struct {
 	runs      RunStore
 	processor *Processor

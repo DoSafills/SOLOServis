@@ -1,5 +1,5 @@
 # Non-secret runtime configuration. The token comes from the
-# soloservis-internal Secret, never from here.
+# soloservis-scraper Secret, never from here.
 apiVersion: v1
 kind: ConfigMap
 metadata:

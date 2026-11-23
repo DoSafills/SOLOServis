@@ -45,13 +45,14 @@ spec:
             - configMapRef:
                 name: scraper-config
           env:
-            # The control API and Ingestion share the internal service token.
+            # Token propio del scraper (TAL-199): abre su API de control y
+            # /ingestion/*, nada más. El pod no recibe INTERNAL_API_TOKEN.
             - name: SCRAPER_API_TOKEN
               valueFrom:
-                secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+                secretKeyRef: {name: soloservis-scraper, key: SCRAPER_TOKEN, optional: true}
             - name: INGESTION_API_TOKEN
               valueFrom:
-                secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+                secretKeyRef: {name: soloservis-scraper, key: SCRAPER_TOKEN, optional: true}
           volumeMounts:
             - name: data
               mountPath: /data

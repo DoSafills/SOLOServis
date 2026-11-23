@@ -80,6 +80,15 @@ func adminOnly(db *pgxpool.Pool, logger *slog.Logger) func(http.Handler) http.Ha
 	return authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
 }
 
+// ingestionOnly protege /ingestion/*: sesión con rol admin o INGESTION_API_TOKEN,
+// el token que usa el scraper (TAL-199, H3). INTERNAL_API_TOKEN no sirve aquí y
+// INGESTION_API_TOKEN no sirve en ninguna otra ruta: si alguien compromete el
+// pod del scraper, puede cargar ofertas pero no es admin del resto de las APIs.
+// Recibe el pool para validar sesiones y el logger; devuelve el middleware.
+func ingestionOnly(db *pgxpool.Pool, logger *slog.Logger) func(http.Handler) http.Handler {
+	return authz.New(authz.NewPostgresSessions(db), os.Getenv("INGESTION_API_TOKEN"), logger).RequireAdmin
+}
+
 // newRouter arma el router de una API: middlewares del estándar TAL-78, CORS,
 // GET /health y las rutas de cada registrar. Recibe el nombre que responde
 // /health, el pool de PostgreSQL, el origen permitido por CORS y los
@@ -233,9 +242,9 @@ func registerIngestionRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger
 		pricing.NewHTTPNotifier(), logger)
 	handler := ingestion.NewHandler(runs, processor, ingestion.NewHTTPNotifier(), logger)
 
-	// Solo el scraper (INTERNAL_API_TOKEN) o un admin.
+	// Solo el scraper (INGESTION_API_TOKEN) o un admin.
 	r.Group(func(r chi.Router) {
-		r.Use(adminOnly(db, logger))
+		r.Use(ingestionOnly(db, logger))
 		r.Post("/ingestion/runs", handler.OpenRun)
 		r.Get("/ingestion/runs", handler.ListRuns)
 		r.Get("/ingestion/runs/{id}", handler.GetRun)
