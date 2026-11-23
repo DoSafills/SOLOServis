@@ -65,11 +65,15 @@ spec:
             # notification está en otro dominio: sin esta URL el proceso no arranca.
             - name: NOTIFICATION_API_URL
               value: http://comercial:8080
-            # Token de servicio (scraper/admin). Lo crea el script de deploy;
-            # sin él, las escrituras quedan solo para sesiones admin.
+            # Token interno: solo para avisar a notification (comercial).
             - name: INTERNAL_API_TOKEN
               valueFrom:
                 secretKeyRef: {name: soloservis-internal, key: INTERNAL_API_TOKEN, optional: true}
+            # Token del scraper (TAL-199): el único que abre /ingestion/*,
+            # además de una sesión admin. Lo crea el script de deploy.
+            - name: INGESTION_API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: soloservis-scraper, key: SCRAPER_TOKEN, optional: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

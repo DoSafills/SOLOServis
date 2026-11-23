@@ -212,21 +212,20 @@ func TestIntegration_ComparisonAPIPropiedad(t *testing.T) {
 	ana := createSession(t, pool, "client", "ana-"+suffix)
 	beto := createSession(t, pool, "client", "beto-"+suffix)
 
+	// Dos refrigeradores propios del test (TAL-241: el seed ya no trae productos).
 	var ids []string
-	rows, err := pool.Query(ctx, `
-		SELECT p.public_id::text FROM product p JOIN categories c ON c.id = p.category_ref
-		WHERE c.slug = 'refrigeradores' AND p.active ORDER BY p.id LIMIT 2`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE public_id::text = ANY($1)`, ids)
+	})
+	for _, name := range []string{"Refri E2E A ", "Refri E2E B "} {
 		var id string
-		_ = rows.Scan(&id)
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO product (category_id, category_ref, name)
+			SELECT c.legacy_product_category_id, c.id, $1 FROM categories c WHERE c.slug = 'refrigeradores'
+			RETURNING public_id::text`, name+suffix).Scan(&id); err != nil {
+			t.Fatalf("crear refrigerador: %v", err)
+		}
 		ids = append(ids, id)
-	}
-	rows.Close()
-	if len(ids) != 2 {
-		t.Fatalf("se necesitan 2 refrigeradores en la BD, hay %d", len(ids))
 	}
 
 	do := func(method, path, token, body string) *httptest.ResponseRecorder {

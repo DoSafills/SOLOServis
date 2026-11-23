@@ -26,10 +26,7 @@ func TestGetOfferByID(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	var offerID int32
-	if err := pool.QueryRow(ctx, `SELECT id FROM product_offer ORDER BY id LIMIT 1`).Scan(&offerID); err != nil {
-		t.Fatalf("select test offer: %v", err)
-	}
+	offerID := repositoryTestOffer(t, pool)
 
 	offer, err := NewRepository(pool).GetOfferByID(ctx, offerID)
 	if err != nil {
@@ -281,10 +278,7 @@ func TestUpsertOfferRejectsInvalidCurrencyAndForeignKeys(t *testing.T) {
 func TestOfferRejectsNegativePrice(t *testing.T) {
 	ctx := context.Background()
 	pool := repositoryTestPool(t)
-	var offerID int32
-	if err := pool.QueryRow(ctx, `SELECT id FROM product_offer ORDER BY id LIMIT 1`).Scan(&offerID); err != nil {
-		t.Fatalf("select test offer: %v", err)
-	}
+	offerID := repositoryTestOffer(t, pool)
 	if _, err := pool.Exec(ctx, `UPDATE product_offer SET price = -1 WHERE id = $1`, offerID); err == nil {
 		t.Fatal("negative offer price was accepted")
 	}
@@ -305,35 +299,48 @@ func repositoryTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// repositoryTestProductAndStores crea un producto activo y dos tiendas propias
+// del test (TAL-241: el seed ya no trae productos). Al terminar los borra, y
+// con ellos las ofertas y el historial que el test haya creado.
 func repositoryTestProductAndStores(t *testing.T, pool *pgxpool.Pool) (int32, []int32) {
 	t.Helper()
 	ctx := context.Background()
+	tag := fmt.Sprintf("tal241-%d", time.Now().UnixNano())
 	var productID int32
-	if err := pool.QueryRow(ctx, `
-		SELECT id FROM product WHERE active = true ORDER BY id LIMIT 1`).Scan(&productID); err != nil {
-		t.Fatalf("select test product: %v", err)
-	}
-
-	rows, err := pool.Query(ctx, `SELECT id FROM store WHERE active = true ORDER BY id LIMIT 2`)
-	if err != nil {
-		t.Fatalf("select test stores: %v", err)
-	}
-	defer rows.Close()
 	var storeIDs []int32
-	for rows.Next() {
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE id = $1`, productID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM store WHERE id = ANY($1)`, storeIDs)
+	})
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO product (category_id, category_ref, name)
+		SELECT c.legacy_product_category_id, c.id, $1 FROM categories c WHERE c.slug = 'refrigeradores'
+		RETURNING id`, "Producto "+tag).Scan(&productID); err != nil {
+		t.Fatalf("create test product: %v", err)
+	}
+	for _, name := range []string{"Tienda A ", "Tienda B "} {
 		var storeID int32
-		if err := rows.Scan(&storeID); err != nil {
-			t.Fatalf("scan test store: %v", err)
+		if err := pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, name+tag).Scan(&storeID); err != nil {
+			t.Fatalf("create test store: %v", err)
 		}
 		storeIDs = append(storeIDs, storeID)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate test stores: %v", err)
-	}
-	if len(storeIDs) < 2 {
-		t.Fatal("need at least two active stores for repository tests")
-	}
 	return productID, storeIDs
+}
+
+// repositoryTestOffer crea una oferta sobre un producto y una tienda propios
+// del test, con una fila de historial (la anota el trigger de 010).
+func repositoryTestOffer(t *testing.T, pool *pgxpool.Pool) int32 {
+	t.Helper()
+	productID, storeIDs := repositoryTestProductAndStores(t, pool)
+	var offerID int32
+	if err := pool.QueryRow(context.Background(), `
+		INSERT INTO product_offer (product_id, store_id, price, product_url)
+		VALUES ($1, $2, 1000, $3) RETURNING id`,
+		productID, storeIDs[0], fmt.Sprintf("https://example.test/tal241-%d", time.Now().UnixNano())).Scan(&offerID); err != nil {
+		t.Fatalf("create test offer: %v", err)
+	}
+	return offerID
 }
 
 func repositoryTestUpsertParams(t *testing.T, productID, storeID int32, price, currency, productURL string, available bool) generated.UpsertProductOfferParams {

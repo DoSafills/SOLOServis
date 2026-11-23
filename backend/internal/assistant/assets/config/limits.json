@@ -29,5 +29,8 @@
     "enabled": true,
     "ttlSeconds": 86400,
     "keyFields": ["sortedProductIds", "normalizedQuestion"]
+  },
+  "context": {
+    "maxBytes": 8192
   }
 }

@@ -41,7 +41,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	tag := "tal77-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	source := "Scraper " + tag
 	brand := "Marca " + tag
-	var storeID, otherStoreID, userID int32
+	var storeID, otherStoreID, userID, lgBrandID int32
 
 	// Limpieza registrada antes de crear datos.
 	t.Cleanup(func() {
@@ -51,6 +51,10 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = ANY($1)`, []int32{storeID, otherStoreID})
 		_, _ = pool.Exec(ctx, `DELETE FROM brand WHERE name = $1`, brand)
 		_, _ = pool.Exec(ctx, `DELETE FROM user_account WHERE id = $1`, userID)
+		// Sin productos del seed, EnsureBrand puede crear LG: se borra si quedó
+		// sin productos, para no dejar una marca vacía en la base.
+		_, _ = pool.Exec(ctx, `DELETE FROM brand b WHERE b.id = $1
+			AND NOT EXISTS (SELECT 1 FROM product p WHERE p.brand_id = b.id)`, lgBrandID)
 	})
 	must := func(err error, what string) {
 		t.Helper()
@@ -68,6 +72,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	runs := NewRepository(pool)
 	brandID, err := runs.EnsureBrand(ctx, "LG")
 	must(err, "buscar marca LG")
+	lgBrandID = brandID
 	for _, variant := range []string{"lg", "L.G."} {
 		variantID, err := runs.EnsureBrand(ctx, variant)
 		must(err, "buscar variante de marca "+variant)
@@ -123,16 +128,21 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	}
 
 	// 2. Lote mixto.
+	// Un producto ya catalogado, de marca LG, creado por el test (TAL-241: el
+	// seed ya no trae productos). El nombre termina en el tag para la limpieza.
 	var seedPublicID string
-	must(pool.QueryRow(ctx, `SELECT p.public_id::text FROM product p JOIN brand b ON b.id = p.brand_id
-		WHERE b.name = 'LG' AND p.model = 'GM53'`).Scan(&seedPublicID), "producto del seed")
+	seedModel := strings.ToUpper("GM53-" + tag)
+	must(pool.QueryRow(ctx, `
+		INSERT INTO product (category_id, category_ref, brand_id, name, model)
+		SELECT c.legacy_product_category_id, c.id, $1, $2, $3 FROM categories c WHERE c.slug = 'refrigeradores'
+		RETURNING public_id::text`, brandID, "Refri catalogado "+tag, seedModel).Scan(&seedPublicID), "producto catalogado")
 
 	result := items(run.ID,
 		map[string]any{"externalId": "e-1", "product": map[string]any{"sku": tag + "-1", "name": "Refri " + tag,
 			"brand": brand, "model": "M1", "categorySlug": "refrigeradores", "attributes": map[string]any{"capacidad_litros": 350}},
 			"offer": map[string]any{"price": 300000, "productUrl": "https://tienda.example.test/p/1"}},
 		map[string]any{"externalId": "e-2", "product": map[string]any{"sku": tag + "-sku-de-la-tienda",
-			"name": "lo que diga la tienda", "brand": "lg", "model": "gm53"},
+			"name": "lo que diga la tienda", "brand": "lg", "model": strings.ToLower(seedModel)},
 			"offer": map[string]any{"price": 888888}},
 		map[string]any{"externalId": "e-3", "product": map[string]any{"sku": tag + "-3", "name": "Sin atributo",
 			"categorySlug": "refrigeradores"}, "offer": map[string]any{"price": 1}},
@@ -147,7 +157,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 		t.Fatalf("resultados = %v, quiero %v", statuses, want)
 	}
 	if result.Results[1].ProductID != seedPublicID {
-		t.Fatal("un SKU desconocido con marca + modelo del seed debe encontrar ese producto, no duplicarlo")
+		t.Fatal("un SKU desconocido con marca + modelo de un producto catalogado debe encontrar ese producto, no duplicarlo")
 	}
 
 	// El producto nuevo quedó con categoría, atributos y la marca creada.
@@ -160,7 +170,7 @@ func TestIngestionIntegration_FlujoCompleto(t *testing.T) {
 	if categorySlug != "refrigeradores" || brandName != brand || capacity != "350" {
 		t.Fatalf("producto creado = %s %s %s", categorySlug, brandName, capacity)
 	}
-	// El producto del seed no se modificó (el nombre del ítem se ignora).
+	// El producto catalogado no se modificó (el nombre del ítem se ignora).
 	var seedName string
 	must(pool.QueryRow(ctx, `SELECT name FROM product WHERE public_id = $1::uuid`, seedPublicID).Scan(&seedName), "seed")
 	if seedName == "lo que diga la tienda" {
@@ -733,5 +743,91 @@ func TestIngestionIntegration_VariantesDeColorYFalsosPositivos(t *testing.T) {
 		WHERE lower(b.name) = lower($1) AND c.slug = 'refrigeradores'`, brand).Scan(&total), "productos")
 	if total != 2 {
 		t.Fatalf("productos de la marca = %d, quiero 2 (variantes juntas, distinto aparte)", total)
+	}
+}
+
+// Integración TAL-250: una corrida que el scraper cierra como success pero en
+// la que ingestion rechazó todos los ítems queda failed en scrape_run, con el
+// motivo en error_message, y no entra en la mediana de RecentFound. Una con
+// algún ítem procesado se cierra como success. Se omite sin TEST_DATABASE_URL.
+func TestIngestionIntegration_EstadoRealDeLaCorrida(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL no definida: se omite el test de integración")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	tag := "tal250-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	var storeID int32
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM data_source WHERE name = $1`, "Scraper "+tag)
+		_, _ = pool.Exec(ctx, `DELETE FROM store WHERE id = $1`, storeID)
+	})
+	if err := pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda "+tag).Scan(&storeID); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	r := chi.NewRouter()
+	r.Use(httpx.RequestID)
+	r.Post("/ingestion/runs/{id}/finish", NewHandler(repo, nil, nil, logger).FinishRun)
+
+	tests := []struct {
+		name       string
+		processed  int
+		failed     int
+		wantStatus string
+		wantMsg    string
+	}{
+		{"todo rechazado", 0, 26, StatusFailed, "Ingestion rechazó los 26 ítems de la corrida."},
+		{"algo procesado", 20, 6, StatusSuccess, ""},
+	}
+	var ids []int32
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			id, err := repo.OpenRun(ctx, "Scraper "+tag, nil, storeID, "http")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, id)
+			if err := repo.AddCounters(ctx, id, tc.processed+tc.failed, tc.processed, tc.failed); err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/ingestion/runs/%d/finish", id),
+				strings.NewReader(`{"status":"success"}`))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("finish = %d %s", rec.Code, rec.Body.String())
+			}
+			var status string
+			var msg *string
+			if err := pool.QueryRow(ctx, `SELECT status, error_message FROM scrape_run WHERE id = $1`, id).
+				Scan(&status, &msg); err != nil {
+				t.Fatal(err)
+			}
+			got := ""
+			if msg != nil {
+				got = *msg
+			}
+			if status != tc.wantStatus || got != tc.wantMsg {
+				t.Fatalf("scrape_run = (%q, %q), quiero (%q, %q)", status, got, tc.wantStatus, tc.wantMsg)
+			}
+		})
+	}
+
+	found, err := repo.RecentFound(ctx, storeID, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(found) != "[26]" {
+		t.Fatalf("RecentFound = %v; solo la corrida exitosa (26 encontrados) cuenta para la mediana", found)
 	}
 }

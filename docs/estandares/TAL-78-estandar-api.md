@@ -168,6 +168,7 @@ if !v.Valid() {
    | `status` | `200` |
    | `duration_ms` | `12.4` |
    | `bytes` | `5321` |
+   | `code` | `validation_failed` (solo si la respuesta fue problem+json; TAL-250) |
 
 3. **Qué NO se loguea nunca:**
    - bodies completos de request o response;
