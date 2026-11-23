@@ -107,3 +107,6 @@
 
 # TAL-194: función manual cleanup_obsolete_data(meses, dry_run); no se ejecuta sola.
 045_cleanup_obsolete_data.sql
+
+# TAL-192: índices de búsqueda, ofertas, reseñas, favoritos y FK; quita índice duplicado de sesiones.
+046_index_review.sql
