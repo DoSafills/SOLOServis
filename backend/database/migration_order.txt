@@ -115,3 +115,7 @@
 
 # TAL-192: índices de búsqueda, ofertas, reseñas, favoritos y FK; quita índice duplicado de sesiones.
 046_index_review.sql
+
+
+
+#Recordar la eliminacion de las migracions y seeds al llegar a main
