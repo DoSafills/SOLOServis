@@ -228,6 +228,155 @@ func TestIntegracion_Usuarios(t *testing.T) {
 	}
 }
 
+// TestIntegracion_CambioDePasswordRevocaOtrasSesiones comprueba que cambiar la
+// contraseña invalida las demás sesiones del usuario y conserva la actual, y
+// que una contraseña actual incorrecta no revoca nada.
+func TestIntegracion_CambioDePasswordRevocaOtrasSesiones(t *testing.T) {
+	e := newEnv(t)
+	first, email := e.register("cambio-clave")
+	var second session
+	_ = json.Unmarshal(e.expect(http.StatusOK, "usuarios", "POST", "/auth/login", "",
+		map[string]any{"email": email, "password": "Clave12345!"}), &second)
+
+	// Una contraseña actual incorrecta no toca las sesiones.
+	e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/change-password", first.AccessToken,
+		map[string]any{"currentPassword": "incorrecta", "newPassword": "NuevaClave123!"})
+	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 2 {
+		t.Fatalf("sesiones tras contraseña incorrecta = %d, quiero 2", n)
+	}
+
+	// El cambio correcto desde la primera sesión revoca la segunda.
+	e.expect(http.StatusNoContent, "usuarios", "POST", "/auth/change-password", first.AccessToken,
+		map[string]any{"currentPassword": "Clave12345!", "newPassword": "NuevaClave123!"})
+	e.expect(http.StatusUnauthorized, "usuarios", "GET", "/auth/validate", second.AccessToken, nil)
+	e.expect(http.StatusOK, "usuarios", "GET", "/auth/validate", first.AccessToken, nil)
+	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 1 {
+		t.Fatalf("sesiones tras el cambio = %d, quiero 1 (la actual)", n)
+	}
+	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1 AND access_token_hash = $2`,
+		first.UserID, hash(first.AccessToken)); n != 1 {
+		t.Fatalf("sesión actual = %d, quiero 1", n)
+	}
+}
+
+// sessionExpiry devuelve cuánto les falta a los vencimientos del access y del
+// refresh de la sesión del access token dado, según el reloj de la base.
+func (e *env) sessionExpiry(accessToken string) (access, refresh time.Duration) {
+	e.t.Helper()
+	var accessSeconds, refreshSeconds float64
+	err := e.pool.QueryRow(context.Background(), `SELECT EXTRACT(EPOCH FROM access_expires_at-NOW())::float8,
+		EXTRACT(EPOCH FROM refresh_expires_at-NOW())::float8 FROM user_session WHERE access_token_hash = $1`,
+		hash(accessToken)).Scan(&accessSeconds, &refreshSeconds)
+	if err != nil {
+		e.t.Fatalf("sesión no encontrada: %v", err)
+	}
+	return time.Duration(accessSeconds * float64(time.Second)), time.Duration(refreshSeconds * float64(time.Second))
+}
+
+// near indica si got está a menos de 5 segundos de want.
+func near(got, want time.Duration) bool {
+	diff := got - want
+	return diff > -5*time.Second && diff < 5*time.Second
+}
+
+// TAL-200: vencimiento absoluto, poda y tope de sesiones, cierre de todas las
+// sesiones y cuentas desactivadas, contra PostgreSQL real.
+func TestIntegracion_Sesiones(t *testing.T) {
+	e := newEnv(t)
+	refresh := func(token string) session {
+		t.Helper()
+		var renewed session
+		data := e.expect(http.StatusOK, "usuarios", "POST", "/auth/refresh", "", map[string]any{"refreshToken": token})
+		if err := json.Unmarshal(data, &renewed); err != nil || renewed.AccessToken == "" {
+			t.Fatalf("refresh: %s", data)
+		}
+		return renewed
+	}
+
+	t.Run("el refresh hereda el vencimiento de la sesión", func(t *testing.T) {
+		s, _ := e.register("vence")
+		access, session := e.sessionExpiry(s.AccessToken)
+		if !near(access, 15*time.Minute) || !near(session, 30*24*time.Hour) {
+			t.Fatalf("sesión nueva: access en %v y refresh en %v, quiero 15m y 720h", access, session)
+		}
+		// Una sesión a la que le queda una hora: rotarla no la extiende.
+		if _, err := e.pool.Exec(context.Background(), `UPDATE user_session SET refresh_expires_at = NOW() + INTERVAL '1 hour'
+			WHERE access_token_hash = $1`, hash(s.AccessToken)); err != nil {
+			t.Fatal(err)
+		}
+		renewed := refresh(s.RefreshToken)
+		if _, session := e.sessionExpiry(renewed.AccessToken); !near(session, time.Hour) {
+			t.Fatalf("tras el refresh vence en %v, quiero 1h", session)
+		}
+		// Si quedan 2 minutos, el access token tampoco dura más.
+		if _, err := e.pool.Exec(context.Background(), `UPDATE user_session SET refresh_expires_at = NOW() + INTERVAL '2 minutes'
+			WHERE access_token_hash = $1`, hash(renewed.AccessToken)); err != nil {
+			t.Fatal(err)
+		}
+		last := refresh(renewed.RefreshToken)
+		if access, session := e.sessionExpiry(last.AccessToken); !near(access, 2*time.Minute) || !near(session, 2*time.Minute) {
+			t.Fatalf("access en %v y refresh en %v, quiero 2m los dos", access, session)
+		}
+		// Vencida, ya no se puede rotar.
+		if _, err := e.pool.Exec(context.Background(), `UPDATE user_session SET refresh_expires_at = NOW() - INTERVAL '1 second'
+			WHERE access_token_hash = $1`, hash(last.AccessToken)); err != nil {
+			t.Fatal(err)
+		}
+		e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/refresh", "", map[string]any{"refreshToken": last.RefreshToken})
+	})
+
+	t.Run("cada login poda las vencidas y respeta el tope", func(t *testing.T) {
+		first, email := e.register("tope")
+		if _, err := e.pool.Exec(context.Background(), `INSERT INTO user_session
+			(user_id, access_token_hash, refresh_token_hash, access_expires_at, refresh_expires_at)
+			VALUES ($1, $2, $3, NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day')`,
+			first.UserID, hash(e.tag+"-vencido-a"), hash(e.tag+"-vencido-r")); err != nil {
+			t.Fatal(err)
+		}
+		var last session
+		for i := 0; i < 11; i++ {
+			data := e.expect(http.StatusOK, "usuarios", "POST", "/auth/login", "", map[string]any{"email": email, "password": "Clave12345!"})
+			_ = json.Unmarshal(data, &last)
+		}
+		if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 10 {
+			t.Errorf("sesiones tras 12 inicios = %d, quiero 10", n)
+		}
+		if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1 AND refresh_expires_at <= NOW()`, first.UserID); n != 0 {
+			t.Errorf("sesiones vencidas sin borrar = %d", n)
+		}
+		// La más antigua (la del registro) es la que salió; la última sigue.
+		e.expect(http.StatusUnauthorized, "usuarios", "GET", "/auth/validate", first.AccessToken, nil)
+		e.expect(http.StatusOK, "usuarios", "GET", "/auth/validate", last.AccessToken, nil)
+
+		// logout-all cierra todas, incluida la que lo pide.
+		e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/logout-all", "", nil)
+		e.expect(http.StatusNoContent, "usuarios", "POST", "/auth/logout-all", last.AccessToken, nil)
+		if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 0 {
+			t.Errorf("sesiones tras logout-all = %d, quiero 0", n)
+		}
+		e.expect(http.StatusUnauthorized, "usuarios", "GET", "/auth/validate", last.AccessToken, nil)
+		e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/logout-all", last.AccessToken, nil)
+	})
+
+	t.Run("una cuenta desactivada pierde sus sesiones", func(t *testing.T) {
+		s, email := e.register("inactiva")
+		if _, err := e.pool.Exec(context.Background(), `UPDATE user_account SET active = FALSE WHERE id = $1`, s.UserID); err != nil {
+			t.Fatal(err)
+		}
+		e.expect(http.StatusUnauthorized, "usuarios", "GET", "/auth/validate", s.AccessToken, nil)
+		e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/refresh", "", map[string]any{"refreshToken": s.RefreshToken})
+		// Mismo 401 que un email inexistente.
+		_, inactive := e.do("usuarios", "POST", "/auth/login", "", map[string]any{"email": email, "password": "Clave12345!"})
+		_, missing := e.do("usuarios", "POST", "/auth/login", "", map[string]any{"email": "nadie-" + e.tag + "@integracion.test", "password": "Clave12345!"})
+		var a, b struct{ Code, Detail string }
+		_ = json.Unmarshal(inactive, &a)
+		_ = json.Unmarshal(missing, &b)
+		if a.Code != "unauthorized" || a != b {
+			t.Errorf("login de cuenta inactiva = %s, de email inexistente = %s", inactive, missing)
+		}
+	})
+}
+
 // Dominio comercial: cada API escribe y lee sus tablas, y las que llaman a
 // otra API (favorites, cart, review, watchlist) lo hacen por HTTP al mismo
 // proceso.
@@ -283,8 +432,15 @@ func TestIntegracion_Comercial(t *testing.T) {
 		data := e.expect(http.StatusCreated, "comercial", "POST", "/reviews/product/"+productID, s.AccessToken,
 			map[string]any{"rating": 4, "title": e.tag, "content": "integración"})
 		_ = json.Unmarshal(data, &review)
-		if data := e.expect(http.StatusOK, "comercial", "GET", "/reviews/product/"+productID, "", nil); !strings.Contains(string(data), e.tag) {
+		listed := e.expect(http.StatusOK, "comercial", "GET", "/reviews/product/"+productID, "", nil)
+		if !strings.Contains(string(listed), e.tag) {
 			t.Errorf("la reseña no aparece en el listado")
+		}
+		// TAL-200 (H12): el autor va por nombre y el userId interno no se publica.
+		for _, body := range [][]byte{data, listed} {
+			if strings.Contains(string(body), `"userId"`) || !strings.Contains(string(body), `"author":"Test beto"`) {
+				t.Errorf("la reseña debe mostrar author y no userId: %s", body)
+			}
 		}
 		if n := e.count(`SELECT count(*) FROM product_review WHERE user_id = $1 AND title = $2`, user, e.tag); n != 1 {
 			t.Errorf("product_review en la base = %d", n)
@@ -414,14 +570,18 @@ func TestIntegracion_AccesoCruzado(t *testing.T) {
 	t.Run("review", func(t *testing.T) {
 		var review struct {
 			ID     string `json:"id"`
-			UserID int32  `json:"userId"`
+			Author string `json:"author"`
 		}
-		// El userId del body se ignora: la reseña queda a nombre del token.
+		// El userId del body se ignora: la reseña queda a nombre del token. La
+		// respuesta ya no trae el userId (TAL-200, H12): se comprueba en la base.
 		data := e.expect(http.StatusCreated, "comercial", "POST", "/reviews/product/"+productID, ana.AccessToken,
 			map[string]any{"userId": beto.UserID, "rating": 5, "title": e.tag})
 		_ = json.Unmarshal(data, &review)
-		if review.UserID != ana.UserID {
-			t.Errorf("autor de la reseña = %d, quiero %d (el del token)", review.UserID, ana.UserID)
+		if review.Author != "Test ana-idor" {
+			t.Errorf("autor de la reseña = %q, quiero el del token (Test ana-idor)", review.Author)
+		}
+		if n := e.count(`SELECT count(*) FROM product_review WHERE user_id = $1 AND title = $2`, ana.UserID, e.tag); n != 1 {
+			t.Errorf("reseñas de ana con el título del test = %d, quiero 1", n)
 		}
 		e.expect(http.StatusNotFound, "comercial", "PUT", "/reviews/"+review.ID, beto.AccessToken,
 			map[string]any{"userId": ana.UserID, "rating": 1})
