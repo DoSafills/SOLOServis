@@ -336,7 +336,7 @@ spec:
       ports:
         - {protocol: TCP, port: 5432}
 ---
-# 14. Pods de test (k8s/tests y k8s/tests/llamadas, etiqueta component=test):
+# 14. Pod de test (k8s/tests: smoke test y visor de llamadas, etiqueta component=test):
 # llegan al gateway, a cada API directo y al scraper, que es lo que verifican.
 # No llegan a PostgreSQL.
 apiVersion: networking.k8s.io/v1

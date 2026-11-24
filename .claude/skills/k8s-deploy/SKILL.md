@@ -60,16 +60,28 @@ El tag por defecto es el commit actual (`git rev-parse --short HEAD`). Sin
 
 ## Pod de test
 
-`k8s/tests/smoke-test.sh` corre dentro del clúster con `curlimages/curl`. Sólo
-lee: los dos POST van sin token y se rechazan antes de tocar la base. Cubre
-APIs, frontend, aislamiento entre dominios y, si `scraper-api` existe, sus
-`/health`, `/ready`, `/stores` y `/runs`.
+El Job `soloservis-smoke-test` (`k8s/tests`) tiene tres contenedores en un pod:
+
+- `smoke-test` corre `k8s/tests/smoke-test.sh` con `curlimages/curl`. Cubre
+  APIs, frontend, aislamiento entre dominios y, si `scraper-api` existe, sus
+  `/health`, `/ready`, `/stores` y `/runs`.
+- `origen` y el sidecar nativo `destino` son el visor de llamadas
+  (TAL-165/166/167): `origen.py` envía, `destino.py` muestra lo que recibe cada
+  servicio. Escenarios en `escenarios.py` y `flujo.py`.
+
+Sólo lee: los POST van sin token o con bodies que se rechazan antes de tocar
+la base. El Job pasa solo si `smoke-test` y `origen` salen con 0.
 
 ```bash
 kubectl apply -k k8s/tests
-kubectl wait --for=condition=complete job/soloservis-smoke-test --timeout=180s
-kubectl logs job/soloservis-smoke-test
+kubectl wait --for=condition=complete job/soloservis-smoke-test --timeout=600s
+kubectl logs job/soloservis-smoke-test -c smoke-test
+kubectl logs -f job/soloservis-smoke-test -c origen    # ventana 1: lo enviado
+kubectl logs -f job/soloservis-smoke-test -c destino   # ventana 2: lo recibido
 ```
+
+`python scripts/testing/llamadas.py --ventanas` relanza el Job, abre las dos
+ventanas y deja el reporte lado a lado en `docs/reportes/testing/`.
 
 ## Verificación sin desplegar
 
@@ -78,6 +90,7 @@ kubectl kustomize k8s/overlays/uct
 bash scripts/k8s/validate-manifests.sh   # esquema de la API, sin tocar el clúster
 docker compose -f docker/compose.yml config --quiet
 sh -n k8s/tests/smoke-test.sh
+python -m py_compile k8s/tests/origen.py k8s/tests/destino.py k8s/tests/escenarios.py k8s/tests/flujo.py
 sh -n scripts/k8s/deploy.sh
 ```
 

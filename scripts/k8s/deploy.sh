@@ -8,7 +8,8 @@
 #   dominios     (por defecto) 3 Deployments por contexto de negocio, misma imagen
 #                y API_DOMAIN distinto: comercial (11 APIs), usuarios e ingestion.
 #   consolidado  (respaldo) las 14 APIs en un solo Deployment "backend".
-# La Fase 10 corre el pod de test (k8s/tests): solo lecturas, no escribe nada.
+# La Fase 10 corre el pod de test (k8s/tests): smoke test y visor de llamadas
+# en un solo Job; solo lecturas, no escribe nada.
 # NetworkPolicy (k8s/components/red, TAL-197): si la plataforma permite crearlas,
 # la Fase 4 aplica una red que niega todo por defecto y abre solo lo que la app
 # usa. Si no (hoy UCT), se omiten. --sin-red las desactiva y borra las que haya.
@@ -763,34 +764,58 @@ phase9() {
 
 # ---------------------------------------------------------------- FASE 10
 
-# Pod de test (k8s/tests): un Job con curl que verifica health, una lectura por
-# API, rutas protegidas, aislamiento entre dominios y el nginx. Solo lee.
+# visor_summary lee por stdin el log del contenedor origen y escribe solo el
+# bloque final de resumen del visor de llamadas: desde la ultima linea
+# "Resumen" hasta el final, sin las lineas @@@REGISTRO (el JSON para
+# scripts/testing/llamadas.py). Si no hay resumen (origen no termino), escribe
+# las ultimas 15 lineas para ver donde se corto.
+visor_summary() {
+  awk '/^@@@REGISTRO / { next }
+       { line[++n] = $0; if ($0 ~ /Resumen/) start = n }
+       END {
+         if (!start) { start = n - 14; if (start < 1) start = 1 }
+         for (i = start; i <= n; i++) print line[i]
+       }'
+}
+
+# Pod de test (k8s/tests): un Job con tres contenedores. smoke-test (curl)
+# verifica health, una lectura por API, rutas protegidas, aislamiento entre
+# dominios y el nginx; origen y el sidecar destino son el visor de llamadas
+# (TAL-165/166/167). El Job termina bien solo si smoke-test y origen pasan.
+# Solo lee.
 phase10() {
   cp_reset
-  local state=timeout i succeeded failed summary
+  local state=timeout i succeeded failed smoke visor summary
   step "Recreando el Job soloservis-smoke-test (los Jobs son inmutables)"
   k delete job soloservis-smoke-test --ignore-not-found --wait=true --timeout=120s 2>&1 | show
   k apply -k "$REPO_ROOT/k8s/tests" 2>&1 | show
   [ "${PIPESTATUS[0]}" = 0 ] || { cp_set "Pod de test" ERROR; stop_phase 10 "kubectl apply -k k8s/tests fallo"; }
-  step "Esperando el Job (max 3 min)"
-  for i in $(seq 1 60); do
+  step "Esperando el Job (max 10 min)"
+  for i in $(seq 1 200); do
     succeeded="$(k get job soloservis-smoke-test -o 'jsonpath={.status.succeeded}' 2>/dev/null)"
     failed="$(k get job soloservis-smoke-test -o 'jsonpath={.status.failed}' 2>/dev/null)"
     [ "${succeeded:-0}" -ge 1 ] && { state=complete; break; }
     [ "${failed:-0}" -ge 1 ] && { state=failed; break; }
     sleep 3
   done
-  echo "${C_DIM}  Resultado del pod de test:${C_OFF}"
-  k logs job/soloservis-smoke-test 2>&1 | show
-  summary="$(k logs job/soloservis-smoke-test 2>/dev/null | sed -n 's/^Resultado: //p')"
+  echo "${C_DIM}  Resultado del smoke test:${C_OFF}"
+  k logs job/soloservis-smoke-test -c smoke-test 2>&1 | show
+  smoke="$(k logs job/soloservis-smoke-test -c smoke-test 2>/dev/null | sed -n 's/^Resultado: //p' | head -1)"
+  echo "${C_DIM}  Resultado del visor de llamadas (contenedor origen):${C_OFF}"
+  k logs job/soloservis-smoke-test -c origen 2>&1 | visor_summary | show
+  visor="$(k logs job/soloservis-smoke-test -c origen 2>/dev/null | sed -n 's/^Resultado: //p' | head -1)"
+  summary="smoke: $smoke | visor: $visor"
   if [ "$state" != complete ]; then
-    cp_set "Pod de test" "ERROR ($state $summary)"
+    cp_set "Pod de test" "ERROR ($state; $summary)"
     k get events --sort-by=.lastTimestamp 2>&1 | tail -10 | show
     stop_phase 10 "alguna verificacion del pod de test fallo (ver las lineas FALLA)"
   fi
   cp_set "Pod de test" "OK ($summary)"
   cp_set Bloqueos ninguno
   checkpoint 10
+  echo "${C_DIM}Visor de llamadas, una terminal por ventana (el Job se borra 1 h despues de terminar):${C_OFF}"
+  echo "${C_DIM}  kubectl logs job/soloservis-smoke-test -c origen${C_OFF}"
+  echo "${C_DIM}  kubectl logs job/soloservis-smoke-test -c destino${C_OFF}"
   echo "${C_GREEN}Para abrir la app:${C_OFF}"
   echo "${C_GREEN}  $(frontend_url)${C_OFF}"
 }
