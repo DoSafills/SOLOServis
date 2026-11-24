@@ -73,13 +73,16 @@ trazabilidad; el payload se envía tal cual.
 | Campo | Tipo | Obligatorio | Regla |
 | --- | --- | --- | --- |
 | `schemaVersion` | string | sí | Constante `"1.0"` (§8). |
-| `entityType` | string | sí | Constante `"product"`. `"service"` se rechaza hasta que exista contrato de ingesta. |
+| `entityType` | string | sí | `"product"` o `"service"`. Un ítem de servicio usa `provider` + `service` + `offer` en vez de `product` (§9.3). |
 | `externalId` | string | no | ≤ 255. Identificador propio de la tienda, si lo publica. Se guarda en `scraped_data.external_id`. |
-| `externalUrl` | string | sí | URL `http(s)` absoluta, ≤ 2048. Es la página del producto. El spec debe declarar un selector, una plantilla o un suplemento JSON-LD; **nunca** se usa la URL del listado como sustituto. |
+| `externalUrl` | string | sí | URL `http(s)` absoluta, ≤ 2048. Es la página del producto. El spec debe declarar un selector, una plantilla o un suplemento JSON-LD; **nunca** se usa la URL del listado como sustituto. En un servicio sin URL por plan, se permite la URL del listado si el `externalId` identifica el plan (§9.3). |
 | `source` | objeto | no | §2.1. |
-| `product` | objeto | sí | §3. |
+| `product` | objeto | sí¹ | §3. |
 | `offer` | objeto | sí | §4. |
 | `provenance` | objeto | sí | §5. |
+
+¹ No aplica a `entityType: "service"`: ese sobre lleva `provider` y `service`
+(§9.3).
 
 `to_dict()` omite los campos opcionales vacíos; no emite `null`. Un campo
 presente pero vacío y un campo ausente son equivalentes para el consumidor.
@@ -342,9 +345,11 @@ cuando cambia una tienda.
 | Cambiar un límite heredado del backend | No cambia la versión: se sincroniza con el contrato de ingesta. |
 | Cambiar selectores de una tienda | No cambia la versión: es configuración. |
 
-`entityType` está fijado a `"product"`. `"service"` está reservado y se rechaza
-en `BundleSpec.from_parser_config` hasta que exista un contrato de ingesta para
-servicios; emitirlo hoy produciría registros que el backend no sabe procesar.
+`entityType` puede ser `"product"` o `"service"`. El valor `"product"` sigue
+siendo el de los specs que no declaran `target`. El sobre de servicio usa
+`provider` + `service` + `offer` y exige `externalUrl` igual que el de producto
+(§9.3). El crawler v1 solo emite productos; el contrato de servicio es del
+scraper v2.
 
 ---
 
@@ -412,6 +417,62 @@ cliente asíncrono. Cambia el momento, no el body:
 La diferencia deliberada con v1 es que v2 envía al final, no por página: el
 catálogo y la base local son la fuente de verdad, y el envío es una proyección
 idempotente de esa verdad.
+
+### 9.3 Servicios (issue #191)
+
+Un spec con `"target": "service"` (schemaVersion `1.2`) declara el proveedor y
+produce ítems de servicio. El sobre cambia el payload, no la identidad:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "entityType": "service",
+  "externalId": "internet-fibra-600-megas",
+  "externalUrl": "https://www.entel.cl/hogar/internet",
+  "provider": { "slug": "entel", "name": "Entel" },
+  "service": {
+    "name": "Fibra 600",
+    "categorySlug": "internet-fibra-optica",
+    "attributes": { "velocidad_bajada_mbps": 600, "velocidad_subida_mbps": 600 }
+  },
+  "offer": {
+    "price": "15990.00",
+    "currency": "CLP",
+    "billingPeriod": "monthly",
+    "contractPeriod": "12 meses",
+    "available": true
+  },
+  "provenance": { "...": "§5" }
+}
+```
+
+| Campo | Tipo | Obligatorio | Regla |
+| --- | --- | --- | --- |
+| `provider.slug` | string | sí | `^[a-z0-9-]{1,64}$`. Identidad del proveedor en `provider.slug`; si no existe se crea. |
+| `provider.name` | string | sí | ≤ 150. Nombre visible; no sobrescribe uno ya curado. |
+| `service.name` | string | sí | ≤ 255. Nombre del plan. |
+| `service.categorySlug` | string | sí | Categoría de `categories` con `item_type = 'service'` (hoy `internet-fibra-optica`). |
+| `service.description` | string | no | ≤ 5000. |
+| `service.imageUrl` | string | no | URL `http(s)` absoluta. |
+| `service.attributes` | objeto | no | Se validan contra `category_attributes`, igual que los de producto. |
+| `offer.price` | número o texto | sí | Hasta 10 enteros y 2 decimales. |
+| `offer.currency` | string | no | ISO 4217; por defecto `CLP`. |
+| `offer.billingPeriod` | string | no | `monthly`, `yearly` o `one_time`; por defecto `monthly`. |
+| `offer.installationCost` | número o texto | no | Monto ≥ 0. |
+| `offer.contractPeriod` | string | no | ≤ 50, texto libre (`"12 meses"`, `"Sin permanencia"`). |
+| `offer.available` | boolean | no | Por defecto `true`. |
+| `offer.coverageSummary` | string | no | ≤ 2000. |
+| `offer.additionalCosts` | string | no | ≤ 2000. |
+
+**Identidad.** El backend reconoce un plan por `(provider_id, external_id)`
+cuando el ítem trae `externalId`; sin él, por `(provider_id, externalUrl)` sin
+query string. Hace falta el id porque algunos proveedores publican varios planes
+en una sola URL (Entel). La categoría de servicio debe existir en `categories` y
+tener equivalencia en `service_category`; si no, el ítem responde 422
+`not_enabled`. Los atributos se guardan en `service_attribute_value`.
+
+El body se envía a `POST /ingestion/runs/{id}/services`, en lotes de 1 a 100.
+La corrida se abre con `"targetType": "service"` y sin `storeId`.
 
 ---
 

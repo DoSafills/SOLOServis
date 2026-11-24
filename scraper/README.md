@@ -47,7 +47,10 @@ scraper/
 ├── stores/
 │   ├── falabella-cl/spec.json
 │   ├── ripley-cl/spec.json
-│   └── mercadolibre-cl/spec.json
+│   ├── mercadolibre-cl/spec.json
+│   ├── entel-cl/spec.json       # servicio (issue #191)
+│   ├── movistar-cl/spec.json    # servicio
+│   └── gtd-cl/spec.json         # servicio
 ├── src/scraper/
 │   ├── config.py          # Settings from the environment
 │   ├── errors.py          # exception hierarchy
@@ -231,11 +234,14 @@ a load error, never a silently ignored selector.
 
 | Key | Required | Rule |
 | --- | --- | --- |
-| `schemaVersion` | yes | `"1.0"` or `"1.1"`. New blocks require `"1.1"`. |
+| `schemaVersion` | yes | `"1.0"`, `"1.1"` or `"1.2"`. `target`/`provider` and the service contract require `"1.2"`. |
+| `target` | no | `"product"` (default) or `"service"`; elige las rutas de campos permitidas. |
 | `store.slug` | yes | `^[a-z0-9][a-z0-9-]{0,63}$`, unique. |
 | `store.name` | yes | Human label, also `DATA_SOURCE.name`. |
 | `store.baseUrl` | yes | Absolute `http(s)` origin. |
-| `store.storeId` | yes | `>= 1`, must match `DATA_SOURCE.store_id`. |
+| `store.storeId` | product only | `>= 1`, must match `DATA_SOURCE.store_id`. Un spec de servicio no lleva tienda. |
+| `provider.slug` | service only | `^[a-z0-9][a-z0-9-]{0,63}$`; identidad en `provider.slug` de la Ingestion API. |
+| `provider.name` | service only | Human label, ≤ 150. |
 | `match.hosts` | yes | Non-empty hostnames, lowercase. |
 | `match.pathPrefixes` | no | Paths starting with `/`; empty means the whole host. |
 | `match.detect` | no | Selector (or `{selector, minMatches}`) that proves the page belongs to the store. Requires `"1.1"`. |
@@ -251,6 +257,39 @@ a load error, never a silently ignored selector.
 | `detail` | no | Product-page enrichment (§4.7). Requires `"1.1"`. |
 | `rules.dedupeBy` | no | `externalId` (default) or `externalUrl`. |
 | `rules.rejectIfMissing` | no | Defaults to every `required` field plus `externalUrl`. |
+
+### 4.1.1 Service specs (`target: "service"`)
+
+Un spec de servicio describe planes de un proveedor, no productos de una tienda.
+Declara `target`, `provider` y rutas `service.*`; `store.storeId` se omite y la
+corrida se abre con `targetType: "service"`.
+
+```json
+{
+  "schemaVersion": "1.2",
+  "target": "service",
+  "store": { "slug": "entel-cl", "name": "Entel", "baseUrl": "https://www.entel.cl" },
+  "provider": { "slug": "entel", "name": "Entel" },
+  "match": { "hosts": ["www.entel.cl"], "pathPrefixes": ["/hogar/internet"] },
+  "listing": { "url": "https://www.entel.cl/hogar/internet", "root": "swiper-slide[data-ph2-precio]" },
+  "item": {
+    "externalId": { "selector": "[data-ph2-ficha-id]", "attribute": "data-ph2-ficha-id" },
+    "externalUrl": { "template": "https://www.entel.cl/hogar/internet#{externalId}" },
+    "fields": {
+      "service.name": { "selector": "h3[slot=\"plan-name\"]", "type": "string", "required": true },
+      "service.categorySlug": { "value": "internet-fibra-optica", "type": "slug" },
+      "service.attributes.velocidad_bajada_mbps": { "selector": "ads-card-planes-hibrida", "regex": "máxima\\s+([\\d.]+)\\s*Mbps", "type": "integer" },
+      "offer.price": { "selector": "[slot=\"price\"]", "attribute": "eds-text", "type": "money", "required": true }
+    }
+  },
+  "rules": { "dedupeBy": "externalId" }
+}
+```
+
+Los specs de servicio publicados son `entel-cl`, `movistar-cl` y `gtd-cl`;
+`tests/fixtures/entel-cl/listing.html` guarda el HTML real usado por las pruebas.
+Si el proveedor publica varios planes en una sola URL, el `externalId` es la
+identidad: el backend no distingue dos planes por la misma URL.
 
 ### 4.2 Reading a value (`ValueSpec`)
 
@@ -309,6 +348,16 @@ offer.shippingCost      offer.shippingFree      offer.available
 offer.stock             offer.condition         offer.productUrl
 ```
 
+Para `target: "service"` las rutas permitidas son:
+
+```
+service.name            service.categorySlug    service.description
+service.imageUrl        service.attributes.<key>
+offer.price             offer.currency          offer.billingPeriod
+offer.installationCost  offer.contractPeriod    offer.available
+offer.coverageSummary   offer.additionalCosts
+```
+
 Each field declares a `type`:
 
 | Type | Result |
@@ -325,9 +374,11 @@ Optional keys per field: `required` (default `false`), `default`, `currency`
 
 Hard contract requirements (rejected at load time if absent):
 
-* `product.name` and `offer.price` must exist and set `"required": true`.
-* `product.categorySlug` must exist.
-* `externalUrl` must be declared.
+* Producto: `product.name` and `offer.price` must exist and set `"required": true`;
+  `product.categorySlug` must exist.
+* Servicio: `service.name` and `offer.price` must exist and set
+  `"required": true`; `service.categorySlug` must exist.
+* `externalUrl` must be declared (in both targets).
 
 `offer.condition` is mapped through Spanish aliases (`nuevo` → `new`,
 `usado` → `used`, `reacondicionado` → `refurbished`). `offer.currency` extracts
@@ -778,8 +829,10 @@ moves on; the process is not killed abruptly.
 
 The client speaks the same contract as v1:
 
-1. `POST /ingestion/runs` — opens a remote run with `storeId`.
-2. `POST /ingestion/runs/{id}/items` — batches of 1..100.
+1. `POST /ingestion/runs` — opens a remote run. Product runs send `storeId`;
+   service runs send `"targetType": "service"` and no `storeId`.
+2. `POST /ingestion/runs/{id}/items` — batches of 1..100 products;
+   `POST /ingestion/runs/{id}/services` — batches of 1..100 services.
 3. `POST /ingestion/runs/{id}/finish` — `success` or `failed`.
 
 Ingestion is enabled only when `INGESTION_API_URL` is set and

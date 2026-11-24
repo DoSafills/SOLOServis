@@ -15,6 +15,9 @@ from typing import Any
 
 from scraper.errors import SpecError
 from scraper.models import (
+    TARGET_PRODUCT,
+    TARGET_SERVICE,
+    TARGETS,
     CrawlRules,
     DetailSpec,
     DetectRule,
@@ -27,8 +30,8 @@ from scraper.models import (
     ValueSpec,
 )
 
-SPEC_SCHEMA_VERSION = "1.1"
-SUPPORTED_SPEC_VERSIONS = frozenset({"1.0", "1.1"})
+SPEC_SCHEMA_VERSION = "1.2"
+SUPPORTED_SPEC_VERSIONS = frozenset({"1.0", "1.1", "1.2"})
 
 FIELD_TYPES = frozenset({"string", "money", "integer", "boolean", "url", "slug"})
 MODES = frozenset({"text", "attr", "html", "list"})
@@ -80,10 +83,48 @@ OFFER_FIELDS = frozenset(
 REQUIRED_BY_CONTRACT = ("product.name", "offer.price")
 REQUIRED_PATH = "product.categorySlug"
 
+#: Contrato de un servicio (issue #191). ``service.attributes.<key>`` se trata
+#: aparte, igual que el de producto.
+SERVICE_FIELDS = frozenset(
+    {
+        "service.name",
+        "service.categorySlug",
+        "service.description",
+        "service.imageUrl",
+    }
+)
+SERVICE_OFFER_FIELDS = frozenset(
+    {
+        "offer.price",
+        "offer.currency",
+        "offer.billingPeriod",
+        "offer.installationCost",
+        "offer.contractPeriod",
+        "offer.available",
+        "offer.coverageSummary",
+        "offer.additionalCosts",
+    }
+)
+SERVICE_REQUIRED_BY_CONTRACT = ("service.name", "offer.price")
+SERVICE_REQUIRED_PATH = "service.categorySlug"
+SERVICE_ATTRIBUTE_PREFIX = "service.attributes."
+
 _TOP_KEYS = frozenset(
-    {"schemaVersion", "store", "match", "listing", "item", "rules", "crawl", "detail"}
+    {
+        "schemaVersion",
+        "store",
+        "match",
+        "listing",
+        "item",
+        "rules",
+        "crawl",
+        "detail",
+        "target",
+        "provider",
+    }
 )
 _STORE_KEYS = frozenset({"slug", "name", "baseUrl", "storeId"})
+_PROVIDER_KEYS = frozenset({"slug", "name"})
 _MATCH_KEYS = frozenset({"hosts", "pathPrefixes", "detect"})
 _DETECT_KEYS = frozenset({"selector", "minMatches"})
 _LISTING_KEYS = frozenset({"url", "root", "pagination", "allowEmpty"})
@@ -274,10 +315,32 @@ def _check_template(path: str, where: str, template: str, known: set[str]) -> No
             )
 
 
-def _field_path(path: str, where: str, raw: Any) -> str:
-    """Validate a contract path: a product field, an offer field or an attribute."""
+def _field_path(path: str, where: str, raw: Any, target: str = TARGET_PRODUCT) -> str:
+    """Validate a contract path for the spec target (product or service)."""
     name = _string(path, where, raw)
     assert name is not None
+    if target == TARGET_SERVICE:
+        if name in SERVICE_FIELDS or name in SERVICE_OFFER_FIELDS:
+            return name
+        if name.startswith(SERVICE_ATTRIBUTE_PREFIX):
+            attr_key = name[len(SERVICE_ATTRIBUTE_PREFIX) :]
+            if not _ATTR_KEY_RE.match(attr_key):
+                raise _fail(
+                    path,
+                    where,
+                    f"{attr_key!r} is not a valid attribute key (lowercase, digits, underscore)",
+                )
+            return name
+        known = (
+            ", ".join(sorted(SERVICE_FIELDS | SERVICE_OFFER_FIELDS))
+            + ", service.attributes.<key>"
+        )
+        raise _fail(
+            path,
+            where,
+            f"unknown field {name!r} for a service spec; expected one of: {known}",
+        )
+
     if name in PRODUCT_FIELDS or name in OFFER_FIELDS:
         return name
     prefix = "product.attributes."
@@ -400,7 +463,7 @@ def _crawl_rules(path: str, raw: Any) -> CrawlRules:
 
 
 def _supplements(
-    path: str, raw: Any, field_paths: set[str]
+    path: str, raw: Any, field_paths: set[str], spec_target: str = TARGET_PRODUCT
 ) -> tuple[Supplement, ...]:
     """Parse ``item.supplements``: extra sources for values the card omits.
 
@@ -423,7 +486,11 @@ def _supplements(
     seen: set[str] = set()
     for target, supplement_raw in raw.items():
         where = f"spec.item.supplements.{target}"
-        resolved = "externalUrl" if target == "externalUrl" else _field_path(path, where, target)
+        resolved = (
+            "externalUrl"
+            if target == "externalUrl"
+            else _field_path(path, where, target, spec_target)
+        )
         if resolved != "externalUrl" and resolved not in field_paths:
             raise _fail(
                 path,
@@ -457,7 +524,7 @@ def _supplements(
     return tuple(supplements)
 
 
-def _detail_spec(path: str, raw: Any) -> DetailSpec:
+def _detail_spec(path: str, raw: Any, spec_target: str = TARGET_PRODUCT) -> DetailSpec:
     """Parse ``detail``: root, page detection, external id and enrichable fields."""
     obj = _object(path, "spec.detail", raw, _DETAIL_KEYS)
     root = _string(path, "spec.detail.root", obj.get("root"), required=False)
@@ -479,7 +546,9 @@ def _detail_spec(path: str, raw: Any) -> DetailSpec:
     fields: list[FieldSpec] = []
     seen: set[str] = set()
     for field_path, field_raw in fields_raw.items():
-        resolved = _field_path(path, f"spec.detail.fields.{field_path}", field_path)
+        resolved = _field_path(
+            path, f"spec.detail.fields.{field_path}", field_path, spec_target
+        )
         if resolved in seen:
             raise _fail(path, f"spec.detail.fields.{resolved}", "declared twice")
         seen.add(resolved)
@@ -536,6 +605,40 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
                 f"requires schemaVersion {SPEC_SCHEMA_VERSION!r}",
             )
 
+    target_type = (
+        _string(
+            label,
+            "spec.target",
+            top.get("target"),
+            required=False,
+            choices=TARGETS,
+        )
+        or TARGET_PRODUCT
+    )
+    provider_raw = top.get("provider")
+    provider_slug = ""
+    provider_name = ""
+    if target_type == TARGET_SERVICE:
+        provider_obj = _object(label, "spec.provider", provider_raw, _PROVIDER_KEYS)
+        provider_slug = _string(
+            label, "spec.provider.slug", provider_obj.get("slug"), pattern=_SLUG_RE
+        )
+        assert provider_slug is not None
+        provider_name = _string(label, "spec.provider.name", provider_obj.get("name"))
+        assert provider_name is not None
+    elif provider_raw is not None:
+        raise _fail(label, "spec.provider", "is only valid when 'target' is 'service'")
+    if (
+        top.get("target") is not None
+        or provider_raw is not None
+        or target_type != TARGET_PRODUCT
+    ) and schema_version != SPEC_SCHEMA_VERSION:
+        raise _fail(
+            label,
+            "spec.target",
+            f"'target' and 'provider' require schemaVersion {SPEC_SCHEMA_VERSION!r}",
+        )
+
     store = _object(label, "spec.store", top.get("store"), _STORE_KEYS)
     slug = _string(label, "spec.store.slug", store.get("slug"), pattern=_SLUG_RE)
     assert slug is not None
@@ -544,7 +647,10 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
     assert base_url is not None
     if not base_url.startswith(("http://", "https://")):
         raise _fail(label, "spec.store.baseUrl", "must start with http:// or https://")
-    store_id = _int(label, "spec.store.storeId", store.get("storeId"), minimum=1)
+    if target_type == TARGET_SERVICE and store.get("storeId") is None:
+        store_id = 0
+    else:
+        store_id = _int(label, "spec.store.storeId", store.get("storeId"), minimum=1)
 
     match = _object(label, "spec.match", top.get("match"), _MATCH_KEYS)
     hosts = _string_list(label, "spec.match.hosts", match.get("hosts"))
@@ -638,35 +744,48 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
     fields: list[FieldSpec] = []
     seen: set[str] = set()
     for field_path, field_raw in fields_raw.items():
-        resolved = _field_path(label, f"spec.item.fields.{field_path}", field_path)
+        resolved = _field_path(
+            label, f"spec.item.fields.{field_path}", field_path, target_type
+        )
         if resolved in seen:
             raise _fail(label, f"spec.item.fields.{resolved}", "declared twice")
         seen.add(resolved)
         fields.append(_field_spec(label, resolved, field_raw))
 
-    for required_path in REQUIRED_BY_CONTRACT:
-        spec = next((f for f in fields if f.path == required_path), None)
+    required_by_contract = (
+        SERVICE_REQUIRED_BY_CONTRACT
+        if target_type == TARGET_SERVICE
+        else REQUIRED_BY_CONTRACT
+    )
+    required_path = (
+        SERVICE_REQUIRED_PATH if target_type == TARGET_SERVICE else REQUIRED_PATH
+    )
+    for required_field in required_by_contract:
+        spec = next((f for f in fields if f.path == required_field), None)
         if spec is None:
             raise _fail(
                 label,
                 "spec.item.fields",
-                f"{required_path} is required by the ingestion contract",
+                f"{required_field} is required by the ingestion contract",
             )
         if not spec.required:
             raise _fail(
                 label,
-                f"spec.item.fields.{required_path}",
+                f"spec.item.fields.{required_field}",
                 "must set 'required': true (the contract cannot send an empty value)",
             )
-    if not any(f.path == REQUIRED_PATH for f in fields):
+    if not any(f.path == required_path for f in fields):
         raise _fail(
             label,
             "spec.item.fields",
-            f"{REQUIRED_PATH} is required by the ingestion contract",
+            f"{required_path} is required by the ingestion contract",
         )
 
     supplements = _supplements(
-        label, item_raw.get("supplements"), {field.path for field in fields}
+        label,
+        item_raw.get("supplements"),
+        {field.path for field in fields},
+        target_type,
     )
     # ``externalUrl`` has exactly one source: the card/template or a supplement.
     # Allowing both would leave a fallback nobody reads and hide a broken spec.
@@ -741,7 +860,11 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
         missing = tuple(missing_list)
 
     crawl = _crawl_rules(label, top["crawl"]) if top.get("crawl") is not None else None
-    detail = _detail_spec(label, top["detail"]) if top.get("detail") is not None else None
+    detail = (
+        _detail_spec(label, top["detail"], target_type)
+        if top.get("detail") is not None
+        else None
+    )
     if crawl is not None and crawl.link_selector is None and detail is None:
         raise _fail(
             label,
@@ -780,6 +903,9 @@ def parse_spec(raw: Any, path: str | Path) -> StoreSpec:
         reject_if_missing=missing,
         crawl=crawl,
         detail=detail,
+        target_type=target_type,
+        provider_slug=provider_slug,
+        provider_name=provider_name,
         digest=digest,
         path=Path(path),
     )

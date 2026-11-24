@@ -175,7 +175,7 @@ class _RecordingIngestion:
         self.opened: list[tuple[str, int]] = []
         self.finished: list[dict] = []
 
-    async def open_run(self, name, base_url, store_id, scraper_type):
+    async def open_run(self, name, base_url, store_id, scraper_type, target_type="product"):
         self.opened.append((name, store_id))
         return SimpleNamespace(id=77)
 

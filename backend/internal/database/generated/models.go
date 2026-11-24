@@ -54,6 +54,24 @@ func (ns NullUserRole) Value() (driver.Value, error) {
 	return string(ns.UserRole), nil
 }
 
+// Auditoría del asistente de comparación: pregunta, respuesta, proveedor, tokens y latencia.
+type AiComparisonQuery struct {
+	ID           int64              `json:"id"`
+	UserID       pgtype.Int4        `json:"user_id"`
+	ProductIds   []pgtype.UUID      `json:"product_ids"`
+	Question     string             `json:"question"`
+	Answer       pgtype.Text        `json:"answer"`
+	Provider     pgtype.Text        `json:"provider"`
+	Model        pgtype.Text        `json:"model"`
+	PromptTokens pgtype.Int4        `json:"prompt_tokens"`
+	OutputTokens pgtype.Int4        `json:"output_tokens"`
+	LatencyMs    pgtype.Int4        `json:"latency_ms"`
+	Cached       bool               `json:"cached"`
+	Success      bool               `json:"success"`
+	ErrorMessage pgtype.Text        `json:"error_message"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
 type AiQueryProcess struct {
 	ID             int32            `json:"id"`
 	SearchQueryID  int32            `json:"search_query_id"`
@@ -177,6 +195,7 @@ type Product struct {
 	CreatedAt   pgtype.Timestamp `json:"created_at"`
 	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
 	CategoryRef pgtype.Int4      `json:"category_ref"`
+	SearchText  pgtype.Text      `json:"search_text"`
 }
 
 type ProductAttributeValue struct {
@@ -311,6 +330,7 @@ type Provider struct {
 	Active            bool             `json:"active"`
 	CreatedAt         pgtype.Timestamp `json:"created_at"`
 	UpdatedAt         pgtype.Timestamp `json:"updated_at"`
+	Slug              string           `json:"slug"`
 }
 
 type ProviderLocation struct {
@@ -393,6 +413,15 @@ type Service struct {
 	Active      bool             `json:"active"`
 	CreatedAt   pgtype.Timestamp `json:"created_at"`
 	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	CategoryRef pgtype.Int4      `json:"category_ref"`
+}
+
+type ServiceAttributeValue struct {
+	ServiceID    int32          `json:"service_id"`
+	CategoryID   int32          `json:"category_id"`
+	AttributeID  int32          `json:"attribute_id"`
+	Value        string         `json:"value"`
+	ValueNumeric pgtype.Numeric `json:"value_numeric"`
 }
 
 type ServiceCategory struct {
@@ -620,6 +649,8 @@ type UserAccount struct {
 	CreatedAt     pgtype.Timestamp `json:"created_at"`
 	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
 	EmailVerified bool             `json:"email_verified"`
+	AvatarData    []byte           `json:"avatar_data"`
+	AvatarMime    pgtype.Text      `json:"avatar_mime"`
 }
 
 type UserSession struct {

@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.2",
+  "target": "service",
+  "store": {
+    "slug": "gtd-cl",
+    "name": "GTD",
+    "baseUrl": "https://www.gtd.cl"
+  },
+  "provider": { "slug": "gtd", "name": "GTD" },
+  "match": {
+    "hosts": ["www.gtd.cl"],
+    "pathPrefixes": ["/hogar/productos-hogar-internet-fibra"]
+  },
+  "listing": {
+    "url": "https://www.gtd.cl/hogar/productos-hogar-internet-fibra/",
+    "root": "div.card-productos",
+    "allowEmpty": false
+  },
+  "item": {
+    "externalId": {
+      "selector": "a[data-element=\"url\"]",
+      "attribute": "href",
+      "regex": "idproducto=(\\d+)"
+    },
+    "externalUrl": {
+      "selector": "a[target=\"_blank\"]",
+      "attribute": "href",
+      "transform": "absolute_url"
+    },
+    "fields": {
+      "service.name": {
+        "selector": "h3",
+        "type": "string",
+        "transform": "collapse_ws",
+        "required": true
+      },
+      "service.categorySlug": { "value": "internet-fibra-optica", "type": "slug" },
+      "service.description": {
+        "selector": ".card-productos__titulo-producto p",
+        "type": "string",
+        "transform": "collapse_ws"
+      },
+      "service.attributes.velocidad_bajada_mbps": {
+        "selector": ".card-productos__container-general",
+        "regex": "Velocidad máxima\\s*(\\d+)\\s*Mbps",
+        "type": "integer"
+      },
+      "service.attributes.velocidad_subida_mbps": {
+        "selector": ".card-productos__container-general",
+        "regex": "Velocidad máxima\\s*(\\d+)\\s*Mbps",
+        "type": "integer"
+      },
+      "offer.price": {
+        "selector": "h2[data-element=\"precioDescuento\"]",
+        "attribute": "data-value",
+        "type": "money",
+        "required": true,
+        "currency": "CLP"
+      },
+      "offer.currency": { "value": "CLP", "type": "string" },
+      "offer.billingPeriod": { "value": "monthly", "type": "string" },
+      "offer.installationCost": {
+        "selector": ".card-productos__container-general",
+        "regex": "instalación:\\s*\\$([\\d.]+)",
+        "type": "money",
+        "currency": "CLP"
+      },
+      "offer.contractPeriod": {
+        "selector": ".card-productos__container-general",
+        "regex": "por\\s+(\\d+\\s*meses)",
+        "type": "string"
+      },
+      "offer.available": { "value": true, "type": "boolean" }
+    }
+  },
+  "rules": {
+    "dedupeBy": "externalId",
+    "rejectIfMissing": [
+      "externalId",
+      "externalUrl",
+      "service.name",
+      "service.attributes.velocidad_bajada_mbps",
+      "service.attributes.velocidad_subida_mbps",
+      "offer.price"
+    ]
+  }
+}

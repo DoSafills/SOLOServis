@@ -114,3 +114,5 @@
 045_cleanup_obsolete_data.sql
 # TAL-192: índices de búsqueda, ofertas, reseñas, favoritos y FK; quita índice duplicado de sesiones.
 046_index_review.sql
+# issue #191: slug de proveedor, categoría unificada del servicio y atributos dinámicos.
+047_service_ingestion.sql

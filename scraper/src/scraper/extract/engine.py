@@ -26,11 +26,15 @@ from scraper.extract.transforms import (
     coerce_currency,
 )
 from scraper.models import (
+    TARGET_SERVICE,
     FieldSpec,
     Item,
     Offer,
     Product,
     Provenance,
+    Provider,
+    Service,
+    ServiceOffer,
     Source,
     StoreSpec,
     Supplement,
@@ -41,6 +45,7 @@ from scraper.validate import validate_item
 PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z0-9_.]+)\}")
 
 ATTRIBUTE_PREFIX = "product.attributes."
+SERVICE_ATTRIBUTE_PREFIX = "service.attributes."
 
 
 @dataclass(slots=True)
@@ -111,6 +116,22 @@ _OFFER_ATTRS = {
     "offer.stock": "stock",
     "offer.condition": "condition",
     "offer.productUrl": "product_url",
+}
+_SERVICE_ATTRS = {
+    "service.name": "name",
+    "service.categorySlug": "category_slug",
+    "service.description": "description",
+    "service.imageUrl": "image_url",
+}
+_SERVICE_OFFER_ATTRS = {
+    "offer.price": "price",
+    "offer.currency": "currency",
+    "offer.billingPeriod": "billing_period",
+    "offer.installationCost": "installation_cost",
+    "offer.contractPeriod": "contract_period",
+    "offer.available": "available",
+    "offer.coverageSummary": "coverage_summary",
+    "offer.additionalCosts": "additional_costs",
 }
 
 
@@ -196,12 +217,22 @@ def apply_detail(item: Item, values: dict[str, Any]) -> list[str]:
         return []
     old_product = replace(item.product, attributes=dict(item.product.attributes))
     old_offer = replace(item.offer)
+    old_service = (
+        replace(item.service, attributes=dict(item.service.attributes))
+        if item.service is not None
+        else None
+    )
+    old_service_offer = (
+        replace(item.service_offer) if item.service_offer is not None else None
+    )
     for path, value in values.items():
         _set_path(item, path, value)
     errors = validate_item(item)
     if errors:
         item.product = old_product
         item.offer = old_offer
+        item.service = old_service
+        item.service_offer = old_service_offer
         return [f"detail merge rejected: {error}" for error in errors]
     return []
 
@@ -209,10 +240,23 @@ def apply_detail(item: Item, values: dict[str, Any]) -> list[str]:
 def _set_path(item: Item, path: str, value: Any) -> None:
     """Write ``value`` at a contract ``path`` on ``item``.
 
-    Accepts ``product.attributes.<key>``, a known product field or a known
-    offer field; anything else raises :class:`ExtractionError` because it would
+    Accepts the attribute prefixes and the declared product, service and offer
+    paths; anything else raises :class:`ExtractionError` because it would
     silently change a shape ingestion does not understand.
     """
+    if item.entity_type == TARGET_SERVICE:
+        if path.startswith(SERVICE_ATTRIBUTE_PREFIX):
+            if item.service is not None:
+                item.service.attributes[path[len(SERVICE_ATTRIBUTE_PREFIX) :]] = value
+            return
+        if path in _SERVICE_ATTRS and item.service is not None:
+            setattr(item.service, _SERVICE_ATTRS[path], value)
+            return
+        if path in _SERVICE_OFFER_ATTRS and item.service_offer is not None:
+            setattr(item.service_offer, _SERVICE_OFFER_ATTRS[path], value)
+            return
+        raise ExtractionError(f"detail field {path!r} is not a service contract path")
+
     if path.startswith(ATTRIBUTE_PREFIX):
         key = path[len(ATTRIBUTE_PREFIX) :]
         item.product.attributes[key] = value
@@ -584,7 +628,7 @@ def _read_field(
         if value is None:
             return None
         if isinstance(value, list):
-            if not path.startswith(ATTRIBUTE_PREFIX):
+            if not path.startswith((ATTRIBUTE_PREFIX, SERVICE_ATTRIBUTE_PREFIX)):
                 reasons.append(f"{path}: selector matched several values for a scalar field")
                 return None
             raw[path] = value
@@ -652,11 +696,54 @@ def _build_item(
 ) -> Item:
     """Assemble the ``Item`` sent to ingestion from the extracted values.
 
-    Splits ``product.attributes.<key>`` into the attribute map, fills the offer
-    defaults the contract requires (currency, shipping, condition, product URL)
-    and records the provenance of the page that produced the card. Returns the
-    item; validation happens in the caller.
+    For a product spec it splits ``product.attributes.<key>`` into the attribute
+    map, fills the offer defaults the contract requires (currency, shipping,
+    condition, product URL) and records provenance. For a service spec it does
+    the same with ``service.attributes.<key>``, the provider and the service
+    offer. Returns the item; validation happens in the caller.
     """
+    provenance = Provenance(
+        scraped_at=scraped_at,
+        page_url=page_url,
+        run_id=run_id,
+        config_id=config_id,
+    )
+    if spec.target_type == TARGET_SERVICE:
+        attributes = {
+            path[len(SERVICE_ATTRIBUTE_PREFIX) :]: value
+            for path, value in values.items()
+            if path.startswith(SERVICE_ATTRIBUTE_PREFIX) and value not in (None, "")
+        }
+        service = Service(
+            name=values.get("service.name") or "",
+            category_slug=values.get("service.categorySlug"),
+            description=values.get("service.description"),
+            image_url=values.get("service.imageUrl"),
+            attributes=attributes,
+        )
+        offer = ServiceOffer(
+            price=values.get("offer.price") or "",
+            currency=values.get("offer.currency") or _price_currency(spec),
+            billing_period=values.get("offer.billingPeriod") or "monthly",
+            installation_cost=values.get("offer.installationCost"),
+            contract_period=values.get("offer.contractPeriod"),
+            available=bool(values.get("offer.available", True)),
+            coverage_summary=values.get("offer.coverageSummary"),
+            additional_costs=values.get("offer.additionalCosts"),
+        )
+        return Item(
+            product=Product(),
+            offer=Offer(),
+            external_url=external_url,
+            external_id=external_id,
+            entity_type=TARGET_SERVICE,
+            provider=Provider(slug=spec.provider_slug, name=spec.provider_name),
+            service=service,
+            service_offer=offer,
+            source=source,
+            provenance=provenance,
+        )
+
     attributes = {
         path[len(ATTRIBUTE_PREFIX) :]: value
         for path, value in values.items()
@@ -683,12 +770,6 @@ def _build_item(
         stock=values.get("offer.stock"),
         condition=values.get("offer.condition") or "new",
         product_url=values.get("offer.productUrl") or external_url,
-    )
-    provenance = Provenance(
-        scraped_at=scraped_at,
-        page_url=page_url,
-        run_id=run_id,
-        config_id=config_id,
     )
     return Item(
         product=product,

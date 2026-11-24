@@ -22,6 +22,7 @@ from scraper.errors import ScraperError, SpecError
 from scraper.ingestion import IngestionClient
 from scraper.models import (
     RUN_STATUS_SUCCESS,
+    TARGET_SERVICE,
     DataSource,
     ScraperConfig,
     StoreSpec,
@@ -153,7 +154,7 @@ def cmd_export(args: argparse.Namespace) -> int:
         raise SpecError(args.store or "", "unknown store")
     exported = 0
     for spec in selected:
-        pair = repo.config_by_base_url(settings.db_path, spec.base_url)
+        pair = repo.config_by_base_url(settings.db_path, spec.base_url, spec.target_type)
         if pair is None:
             print(f"{spec.slug}: not registered yet; run it once first", file=sys.stderr)
             continue
@@ -219,13 +220,15 @@ def _ensure_pair(settings: Settings, spec: StoreSpec) -> tuple[DataSource, Scrap
         settings.db_path,
         name=spec.name,
         base_url=spec.base_url,
-        store_id=spec.store_id,
+        store_id=None if spec.target_type == TARGET_SERVICE else spec.store_id,
+        source_type="provider" if spec.target_type == TARGET_SERVICE else "web",
+        target_type=spec.target_type,
         rate_limit=settings.rate_limit,
         spec_slug=spec.slug,
         spec_version=spec.schema_version,
         spec_hash=spec.digest,
     )
-    pair = repo.config_by_base_url(settings.db_path, spec.base_url)
+    pair = repo.config_by_base_url(settings.db_path, spec.base_url, spec.target_type)
     assert pair is not None
     return pair
 

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net/url"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -24,20 +25,27 @@ import (
 // Las consultas del ítem van por la transacción del ítem (TAL-191): producto,
 // imagen y oferta se aplican juntos o no se aplica nada.
 type RunStore interface {
-	OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType string) (int32, error)
+	OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType, targetType string) (int32, error)
 	GetRun(ctx context.Context, id int32) (Run, error)
 	ListRuns(ctx context.Context, limit, offset int) ([]Run, int64, error)
 	FinishRun(ctx context.Context, id int32, status string, message *string) error
 	ItemsTarget(ctx context.Context, id int32) (int32, error)
+	ServiceTarget(ctx context.Context, id int32) (Run, error)
 	AddCounters(ctx context.Context, id int32, found, processed, failed int) error
 	RecentFound(ctx context.Context, storeID, excludeRunID int32, limit int) ([]int32, error)
-	SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, raw json.RawMessage) error
+	SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, entityType string, raw json.RawMessage) error
 	SaveScrapedBatch(ctx context.Context, runID int32, items []ScrapedItem) error
 	BeginTx(ctx context.Context) (pgx.Tx, error)
 	FindProductTx(ctx context.Context, tx pgx.Tx, sku, brand, model, name, categorySlug string, storeID int32, productURL string) (ExistingProduct, bool, error)
 	AddImageIfMissingTx(ctx context.Context, tx pgx.Tx, productID int32, imageURL string) (bool, error)
 	EnsureBrandTx(ctx context.Context, tx pgx.Tx, name string) (int32, error)
 	ProductIDTx(ctx context.Context, tx pgx.Tx, publicID pgtype.UUID) (int32, error)
+	ResolveServiceCategory(ctx context.Context, slug string) (ServiceCategory, error)
+	EnsureProviderTx(ctx context.Context, tx pgx.Tx, slug, name string) (int32, error)
+	FindServiceOfferTx(ctx context.Context, tx pgx.Tx, providerID int32, externalID, serviceURL string) (int32, bool, error)
+	CreateServiceTx(ctx context.Context, tx pgx.Tx, write ServiceWrite) (int32, string, error)
+	ServicePublicIDTx(ctx context.Context, tx pgx.Tx, id int32) (string, error)
+	UpsertServiceOfferTx(ctx context.Context, tx pgx.Tx, write ServiceOfferWrite) (int32, error)
 }
 
 // Catalog crea productos con las reglas de Product API (TAL-70);
@@ -204,6 +212,301 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, store
 		pricing.NotifyPriceDrop(ctx, p.offers, p.notifier, p.logger, saved, *previous)
 	}
 	return result
+}
+
+// ProcessServices aplica cada servicio del lote por separado, igual que
+// Process con los productos: un ítem inválido no detiene a los demás. Al final
+// guarda los ítems en scraped_data como entity_type 'service' y suma los
+// contadores de la corrida. Recibe la ejecución y los ítems; devuelve el
+// resultado de cada uno y los totales (issue #191).
+func (p *Processor) ProcessServices(ctx context.Context, runID int32, items []ServiceItem) BatchResult {
+	result := BatchResult{RunID: runID, Received: len(items), Results: make([]ItemResult, 0, len(items))}
+	for i, item := range items {
+		r := p.processServiceItem(ctx, runID, i, item)
+		if r.Status == ItemFailed {
+			result.Failed++
+		} else {
+			result.Processed++
+		}
+		result.Results = append(result.Results, r)
+	}
+	p.saveServices(ctx, runID, items)
+	if err := p.runs.AddCounters(ctx, runID, result.Received, result.Processed, result.Failed); err != nil {
+		p.logger.ErrorContext(ctx, "ingestion_counters_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
+	}
+	return result
+}
+
+// processServiceItem procesa un servicio del lote dentro de una sola
+// transacción: resuelve la categoría y valida sus atributos, asegura el
+// proveedor, reutiliza el servicio si la URL de la oferta ya existe o lo crea,
+// y registra la oferta con su historial si el precio cambió. Si algo falla, la
+// transacción se revierte completa. Devuelve el resultado del ítem; nunca
+// detiene el lote.
+func (p *Processor) processServiceItem(ctx context.Context, runID int32, index int, item ServiceItem) ItemResult {
+	result := ItemResult{Index: index, ExternalID: strings.TrimSpace(item.ExternalID)}
+	fail := func(errs ...httpx.FieldError) ItemResult {
+		result.Status, result.Errors = ItemFailed, errs
+		return result
+	}
+	internal := func(stage string, err error) ItemResult {
+		p.logger.ErrorContext(ctx, "ingestion_service_failed", slog.Int("run_id", int(runID)),
+			slog.Int("index", index), slog.String("stage", stage), slog.String("error", err.Error()))
+		return fail(httpx.FieldError{Field: "", Code: codeInternalError,
+			Message: "error interno al procesar el servicio; ver el log del servicio"})
+	}
+
+	item, offer, errs := validateServiceItem(item)
+	if len(errs) > 0 {
+		return fail(errs...)
+	}
+
+	category, err := p.runs.ResolveServiceCategory(ctx, item.Service.CategorySlug)
+	if errors.Is(err, ErrServiceCategoryNotFound) {
+		return fail(httpx.FieldError{Field: "service.categorySlug", Code: "not_found",
+			Message: "service.categorySlug no existe en el catálogo de categorías"})
+	}
+	if err != nil {
+		return internal("resolve_category", err)
+	}
+	if category.ItemType != "service" {
+		return fail(httpx.FieldError{Field: "service.categorySlug", Code: "not_enabled",
+			Message: "service.categorySlug no está habilitada para servicios"})
+	}
+	if category.LegacyID == nil {
+		return fail(httpx.FieldError{Field: "service.categorySlug", Code: "not_enabled",
+			Message: "service.categorySlug no tiene equivalencia en el catálogo de servicios"})
+	}
+
+	values, attrErrs := categories.ValidateAttributes(category.Attributes, item.Service.Attributes)
+	if len(attrErrs) > 0 {
+		return fail(prefixErrors("service.", attrErrs)...)
+	}
+
+	tx, err := p.runs.BeginTx(ctx)
+	if err != nil {
+		return internal("begin_tx", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	providerID, err := p.runs.EnsureProviderTx(ctx, tx, item.Provider.Slug, item.Provider.Name)
+	if err != nil {
+		return internal("ensure_provider", err)
+	}
+
+	serviceID, found, err := p.runs.FindServiceOfferTx(ctx, tx, providerID, item.ExternalID, item.ExternalURL)
+	if err != nil {
+		return internal("find_service", err)
+	}
+	if found {
+		result.ServiceID, err = p.runs.ServicePublicIDTx(ctx, tx, serviceID)
+		if err != nil {
+			return internal("service_public_id", err)
+		}
+		result.Status = ItemUpdated
+	} else {
+		serviceID, result.ServiceID, err = p.runs.CreateServiceTx(ctx, tx, ServiceWrite{
+			CategoryID: *category.LegacyID, CategoryRef: category.ID,
+			Name: item.Service.Name, Description: item.Service.Description,
+			ImageURL: item.Service.ImageURL, Attributes: values,
+		})
+		if err != nil {
+			return internal("create_service", err)
+		}
+		result.Status = ItemCreated
+	}
+
+	offer.ServiceID, offer.ProviderID = serviceID, providerID
+	offer.ServiceURL = item.ExternalURL
+	if item.ExternalID != "" {
+		offer.ExternalID = &item.ExternalID
+	}
+	offerID, err := p.runs.UpsertServiceOfferTx(ctx, tx, offer)
+	if err != nil {
+		return internal("upsert_service_offer", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return internal("commit", err)
+	}
+	committed = true
+	result.OfferID = offerID
+	return result
+}
+
+// validateServiceItem normaliza el ítem de servicio y valida sus campos con
+// las mismas reglas que el resto de la API. Devuelve el ítem normalizado, la
+// oferta lista para guardar (sin ids) y los errores por campo, prefijados por
+// provider., service. u offer.
+func validateServiceItem(item ServiceItem) (ServiceItem, ServiceOfferWrite, []httpx.FieldError) {
+	item.ExternalID = strings.TrimSpace(item.ExternalID)
+	item.ExternalURL = strings.TrimSpace(item.ExternalURL)
+	item.Provider.Slug = strings.TrimSpace(item.Provider.Slug)
+	item.Provider.Name = strings.TrimSpace(item.Provider.Name)
+	item.Service.Name = strings.TrimSpace(item.Service.Name)
+	item.Service.CategorySlug = categories.CanonicalCategorySlug(item.Service.CategorySlug)
+	item.Service.Description = strings.TrimSpace(item.Service.Description)
+	item.Service.ImageURL = strings.TrimSpace(item.Service.ImageURL)
+
+	var v httpx.Validator
+	v.MaxLength("externalId", item.ExternalID, MaxExternalID)
+	v.Required("externalUrl", item.ExternalURL)
+	v.MaxLength("externalUrl", item.ExternalURL, MaxServiceURL)
+	v.Check(item.ExternalURL == "" || isHTTPURL(item.ExternalURL), "externalUrl", "format",
+		"externalUrl debe ser una URL http(s) válida")
+
+	v.Required("provider.slug", item.Provider.Slug)
+	v.MaxLength("provider.slug", item.Provider.Slug, MaxProviderSlug)
+	v.Check(item.Provider.Slug == "" || validServiceSlug(item.Provider.Slug), "provider.slug", "format",
+		"provider.slug debe tener entre 1 y 64 caracteres: minúsculas, dígitos o guiones")
+	v.Required("provider.name", item.Provider.Name)
+	v.MaxLength("provider.name", item.Provider.Name, MaxProviderName)
+
+	v.Required("service.name", item.Service.Name)
+	v.MaxLength("service.name", item.Service.Name, MaxServiceName)
+	v.Required("service.categorySlug", item.Service.CategorySlug)
+	v.MaxLength("service.categorySlug", item.Service.CategorySlug, 64)
+	v.Check(item.Service.CategorySlug == "" || validServiceSlug(item.Service.CategorySlug),
+		"service.categorySlug", "format",
+		"service.categorySlug debe tener entre 1 y 64 caracteres: minúsculas, dígitos o guiones")
+	v.MaxLength("service.description", item.Service.Description, products.MaxDescriptionLength)
+	v.Check(item.Service.ImageURL == "" || isHTTPURL(item.Service.ImageURL), "service.imageUrl", "format",
+		"service.imageUrl debe ser una URL http(s) válida")
+
+	var offerV httpx.Validator
+	offer := ServiceOfferWrite{Currency: "CLP", Available: true}
+	if item.Offer.Price == nil {
+		offerV.Add("price", "required", "price es obligatorio")
+	} else {
+		offer.Price = serviceMoney(&offerV, "price", item.Offer.Price)
+	}
+
+	offer.Currency = strings.TrimSpace(item.Offer.Currency)
+	if offer.Currency == "" {
+		offer.Currency = "CLP"
+	}
+	offerV.Check(products.ValidateCurrencyCode(offer.Currency) == nil, "currency", "format",
+		"currency debe tener exactamente tres letras mayúsculas (ISO 4217)")
+
+	offer.BillingPeriod = optionalText(item.Offer.BillingPeriod, "monthly")
+	if offer.BillingPeriod != nil {
+		offerV.MaxLength("billingPeriod", *offer.BillingPeriod, 30)
+		offerV.Check(serviceBillingPeriods[*offer.BillingPeriod],
+			"billingPeriod", "one_of", "billingPeriod debe ser monthly, yearly o one_time")
+	}
+
+	if item.Offer.InstallationCost != nil {
+		cost := serviceMoney(&offerV, "installationCost", item.Offer.InstallationCost)
+		offer.InstallationCost = &cost
+	}
+	offer.ContractPeriod = optionalText(item.Offer.ContractPeriod, "")
+	checkOptionalLength(&offerV, "contractPeriod", offer.ContractPeriod, 50)
+	offer.CoverageSummary = optionalText(item.Offer.CoverageSummary, "")
+	checkOptionalLength(&offerV, "coverageSummary", offer.CoverageSummary, MaxServiceSummary)
+	offer.AdditionalCosts = optionalText(item.Offer.AdditionalCosts, "")
+	checkOptionalLength(&offerV, "additionalCosts", offer.AdditionalCosts, MaxServiceSummary)
+	if item.Offer.Available != nil {
+		offer.Available = *item.Offer.Available
+	}
+
+	errs := append(v.Errors(), prefixErrors("offer.", offerV.Errors())...)
+	return item, offer, errs
+}
+
+// serviceBillingPeriods son los períodos de cobro que entiende el catálogo.
+var serviceBillingPeriods = map[string]bool{"monthly": true, "yearly": true, "one_time": true}
+
+// serviceMoneyPattern acota lo que cabe en service_offer.price NUMERIC(12,2).
+var serviceMoneyPattern = regexp.MustCompile(`^\d{1,10}(\.\d{1,2})?$`)
+
+// serviceMoney valida un monto de la oferta de servicio y devuelve su texto
+// decimal. Registra el error por campo cuando no es válido.
+func serviceMoney(v *httpx.Validator, field string, value *json.Number) string {
+	text := strings.TrimSpace(value.String())
+	switch {
+	case strings.HasPrefix(text, "-"):
+		v.Add(field, "min", field+" debe ser mayor o igual a 0")
+		return ""
+	case !serviceMoneyPattern.MatchString(text):
+		v.Add(field, "format", field+" debe ser un monto con hasta 10 enteros y 2 decimales")
+		return ""
+	}
+	return text
+}
+
+// optionalText recorta el texto y devuelve un puntero; con el texto vacío (y
+// sin fallback) devuelve nil para que la base guarde NULL, no "".
+func optionalText(value, fallback string) *string {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		text = fallback
+	}
+	if text == "" {
+		return nil
+	}
+	return &text
+}
+
+// checkOptionalLength valida el largo de un texto opcional ya normalizado.
+func checkOptionalLength(v *httpx.Validator, field string, value *string, max int) {
+	if value != nil {
+		v.MaxLength(field, *value, max)
+	}
+}
+
+// validServiceSlug comprueba el formato de slug de proveedor y categoría.
+func validServiceSlug(value string) bool {
+	if value == "" || len(value) > MaxProviderSlug {
+		return false
+	}
+	if strings.HasPrefix(value, "-") || strings.HasSuffix(value, "-") || strings.Contains(value, "--") {
+		return false
+	}
+	for _, r := range value {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// saveServices guarda los ítems de servicio tal como llegaron en scraped_data
+// con entity_type 'service'. Un fallo del lote se reintenta ítem por ítem y
+// solo se registra en el log, como en el camino de producto.
+func (p *Processor) saveServices(ctx context.Context, runID int32, items []ServiceItem) {
+	rows := make([]ScrapedItem, 0, len(items))
+	for _, item := range items {
+		raw, err := json.Marshal(item)
+		if err != nil {
+			p.logger.WarnContext(ctx, "ingestion_save_scraped_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
+			continue
+		}
+		row := ScrapedItem{EntityType: TargetService, Raw: raw}
+		if id := strings.TrimSpace(item.ExternalID); id != "" && len(id) <= MaxExternalID {
+			row.ExternalID = &id
+		}
+		if u := strings.TrimSpace(item.ExternalURL); u != "" {
+			row.ExternalURL = &u
+		}
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 {
+		return
+	}
+	err := p.runs.SaveScrapedBatch(ctx, runID, rows)
+	if err == nil {
+		return
+	}
+	p.logger.WarnContext(ctx, "ingestion_save_scraped_batch_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
+	for _, row := range rows {
+		if err := p.runs.SaveScraped(ctx, runID, row.ExternalID, row.ExternalURL, row.EntityType, row.Raw); err != nil {
+			p.logger.WarnContext(ctx, "ingestion_save_scraped_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
+		}
+	}
 }
 
 // createProduct valida categoría y atributos con TAL-70/72 y crea el producto
@@ -390,7 +693,7 @@ func (p *Processor) save(ctx context.Context, runID int32, items []Item) {
 			p.logger.WarnContext(ctx, "ingestion_save_scraped_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
 			continue
 		}
-		row := ScrapedItem{Raw: raw}
+		row := ScrapedItem{EntityType: TargetProduct, Raw: raw}
 		if id := strings.TrimSpace(item.ExternalID); id != "" && len(id) <= MaxExternalID {
 			row.ExternalID = &id
 		}
@@ -410,7 +713,7 @@ func (p *Processor) save(ctx context.Context, runID int32, items []Item) {
 	// Si el INSERT del lote falla (por ejemplo, un ítem que jsonb rechaza),
 	// se guarda ítem por ítem para no perder los demás, como antes de TAL-205.
 	for _, row := range rows {
-		if err := p.runs.SaveScraped(ctx, runID, row.ExternalID, row.ExternalURL, row.Raw); err != nil {
+		if err := p.runs.SaveScraped(ctx, runID, row.ExternalID, row.ExternalURL, TargetProduct, row.Raw); err != nil {
 			p.logger.WarnContext(ctx, "ingestion_save_scraped_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
 		}
 	}

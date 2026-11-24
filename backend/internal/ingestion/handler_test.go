@@ -48,6 +48,15 @@ var refrigeradores = products.WriteCategory{
 	},
 }
 
+// internet es la categoría de servicio de prueba: dos atributos obligatorios.
+var internet = ServiceCategory{
+	ID: 20, Name: "Internet Fibra Óptica", ItemType: "service", LegacyID: int32p(2),
+	Attributes: []categories.Attribute{
+		{ID: 30, Key: "velocidad_bajada_mbps", DataType: "integer", Required: true, Min: floatp(1), Max: floatp(10000)},
+		{ID: 31, Key: "velocidad_subida_mbps", DataType: "integer", Required: true, Min: floatp(1), Max: floatp(10000)},
+	},
+}
+
 // ------------------------------------------------------------------ fakes
 
 // fakeTx cumple pgx.Tx para los dobles de prueba. Solo se ejercitan Commit y
@@ -94,10 +103,20 @@ type fakeRuns struct {
 	baseline    []int32
 	baselineErr error
 	txs         []*fakeTx // transacciones abiertas por Processor
+
+	// Servicios (issue #191).
+	serviceCategory    ServiceCategory
+	serviceCategoryErr error
+	providerIDs        map[string]int32 // slug → id
+	serviceExisting    map[string]int32 // "providerID|url" → service_id
+	serviceCreates     []ServiceWrite
+	serviceOffers      []ServiceOfferWrite
+	serviceErr         error
 }
 
-func (f *fakeRuns) OpenRun(_ context.Context, name string, baseURL *string, storeID int32, scraperType string) (int32, error) {
-	f.opened = []any{name, baseURL, storeID, scraperType}
+// OpenRun registra los argumentos de la corrida y devuelve un id fijo.
+func (f *fakeRuns) OpenRun(_ context.Context, name string, baseURL *string, storeID int32, scraperType, targetType string) (int32, error) {
+	f.opened = []any{name, baseURL, storeID, scraperType, targetType}
 	return 3, f.openErr
 }
 func (f *fakeRuns) GetRun(context.Context, int32) (Run, error) { return f.run, f.getErr }
@@ -109,6 +128,77 @@ func (f *fakeRuns) FinishRun(_ context.Context, id int32, status string, msg *st
 	return f.finishErr
 }
 func (f *fakeRuns) ItemsTarget(context.Context, int32) (int32, error) { return f.storeID, f.targetErr }
+
+// ServiceTarget devuelve la corrida configurada como si fuera de servicios.
+func (f *fakeRuns) ServiceTarget(_ context.Context, id int32) (Run, error) {
+	if f.getErr != nil {
+		return Run{}, f.getErr
+	}
+	run := f.run
+	run.ID = id
+	return run, nil
+}
+
+// ResolveServiceCategory devuelve la categoría configurada para el test.
+func (f *fakeRuns) ResolveServiceCategory(context.Context, string) (ServiceCategory, error) {
+	return f.serviceCategory, f.serviceCategoryErr
+}
+
+// EnsureProviderTx simula el alta o búsqueda del proveedor por slug.
+func (f *fakeRuns) EnsureProviderTx(_ context.Context, _ pgx.Tx, slug, _ string) (int32, error) {
+	if f.serviceErr != nil {
+		return 0, f.serviceErr
+	}
+	if f.providerIDs == nil {
+		f.providerIDs = map[string]int32{}
+	}
+	if id, ok := f.providerIDs[slug]; ok {
+		return id, nil
+	}
+	id := int32(100 + len(f.providerIDs) + 1)
+	f.providerIDs[slug] = id
+	return id, nil
+}
+
+// FindServiceOfferTx busca la oferta ya catalogada por id del plan o por URL.
+func (f *fakeRuns) FindServiceOfferTx(_ context.Context, _ pgx.Tx, providerID int32, externalID, serviceURL string) (int32, bool, error) {
+	if f.serviceErr != nil {
+		return 0, false, f.serviceErr
+	}
+	var key string
+	if externalID != "" {
+		key = fmt.Sprintf("%d|#%s", providerID, externalID)
+	} else {
+		path, _, _ := strings.Cut(serviceURL, "?")
+		key = fmt.Sprintf("%d|%s", providerID, path)
+	}
+	id, ok := f.serviceExisting[key]
+	return id, ok, nil
+}
+
+// CreateServiceTx simula el alta del servicio y devuelve id y public_id.
+func (f *fakeRuns) CreateServiceTx(_ context.Context, _ pgx.Tx, write ServiceWrite) (int32, string, error) {
+	if f.serviceErr != nil {
+		return 0, "", f.serviceErr
+	}
+	f.serviceCreates = append(f.serviceCreates, write)
+	id := int32(200 + len(f.serviceCreates))
+	return id, fmt.Sprintf("svc-%d", id), nil
+}
+
+// ServicePublicIDTx devuelve el public_id simulado de un servicio existente.
+func (f *fakeRuns) ServicePublicIDTx(_ context.Context, _ pgx.Tx, id int32) (string, error) {
+	return fmt.Sprintf("svc-%d", id), nil
+}
+
+// UpsertServiceOfferTx registra la oferta y devuelve un id estable.
+func (f *fakeRuns) UpsertServiceOfferTx(_ context.Context, _ pgx.Tx, write ServiceOfferWrite) (int32, error) {
+	if f.serviceErr != nil {
+		return 0, f.serviceErr
+	}
+	f.serviceOffers = append(f.serviceOffers, write)
+	return int32(300 + len(f.serviceOffers)), nil
+}
 func (f *fakeRuns) AddCounters(_ context.Context, _ int32, found, processed, failed int) error {
 	f.counters = []int{found, processed, failed}
 	return nil
@@ -121,7 +211,7 @@ func (f *fakeRuns) RecentFound(_ context.Context, _, _ int32, _ int) ([]int32, e
 
 // SaveScraped simula el guardado de una fila de scraped_data (el respaldo
 // cuando falla el lote): cuenta la llamada y anota su external_id.
-func (f *fakeRuns) SaveScraped(_ context.Context, _ int32, externalID, _ *string, _ json.RawMessage) error {
+func (f *fakeRuns) SaveScraped(_ context.Context, _ int32, externalID, _ *string, _ string, _ json.RawMessage) error {
 	f.singles++
 	id := ""
 	if externalID != nil {
@@ -282,7 +372,9 @@ type env struct {
 
 func newEnv() *env {
 	return &env{
-		runs:     &fakeRuns{storeID: 2, run: Run{ID: 3, Source: "Ripley scraper", Status: StatusRunning}, existing: map[string]ExistingProduct{}},
+		runs: &fakeRuns{storeID: 2, run: Run{ID: 3, Source: "Ripley scraper", Status: StatusRunning},
+			existing: map[string]ExistingProduct{}, serviceExisting: map[string]int32{},
+			serviceCategory: internet},
 		catalog:  &fakeCatalog{category: refrigeradores},
 		offers:   &fakeOffers{},
 		notifier: &fakeNotifier{},
@@ -302,6 +394,7 @@ func (e *env) serve(t *testing.T, method, target, body string) *httptest.Respons
 	r.Get("/ingestion/runs", h.ListRuns)
 	r.Get("/ingestion/runs/{id}", h.GetRun)
 	r.Post("/ingestion/runs/{id}/items", h.AddItems)
+	r.Post("/ingestion/runs/{id}/services", h.AddServices)
 	r.Post("/ingestion/runs/{id}/finish", h.FinishRun)
 
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
@@ -1227,5 +1320,186 @@ func TestPriceDropped(t *testing.T) {
 		if got := priceDropped(tc.previous, tc.current); got != tc.want {
 			t.Errorf("priceDropped(%q, %q) = %v, quiero %v", tc.previous, tc.current, got, tc.want)
 		}
+	}
+}
+
+// ------------------------------------------------------------ servicios
+
+// serviceItemJSON arma un ítem de servicio válido con los campos indicados ya
+// serializados; los atributos por defecto cumplen los dos obligatorios.
+func serviceItemJSON(overrides string) string {
+	item := `{
+		"externalUrl": "https://entel.cl/planes/fibra-600?utm=1",
+		"provider": {"slug": "entel", "name": "Entel"},
+		"service": {
+			"name": "Plan Fibra 600",
+			"categorySlug": "internet-fibra-optica",
+			"attributes": {"velocidad_bajada_mbps": 600, "velocidad_subida_mbps": 600}
+		},
+		"offer": {"price": 29990, "billingPeriod": "monthly"}`
+	if overrides != "" {
+		item += `, ` + overrides
+	}
+	return item + `}`
+}
+
+// TestAddServices prueba el lote de servicios: alta, categoría inválida,
+// atributos faltantes, campos inválidos y corrida de producto rechazada.
+func TestAddServices(t *testing.T) {
+	t.Run("crea el servicio y su oferta", func(t *testing.T) {
+		e := newEnv()
+		rec := e.serve(t, http.MethodPost, "/ingestion/runs/3/services", `{"items":[`+serviceItemJSON("")+`]}`)
+		requireStatus(t, rec, http.StatusOK)
+		var result BatchResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Processed != 1 || result.Failed != 0 || len(result.Results) != 1 {
+			t.Fatalf("resultado = %+v", result)
+		}
+		if result.Results[0].Status != ItemCreated || result.Results[0].ServiceID != "svc-201" {
+			t.Fatalf("ítem = %+v", result.Results[0])
+		}
+		if len(e.runs.serviceCreates) != 1 || len(e.runs.serviceOffers) != 1 {
+			t.Fatalf("creados = %d, ofertas = %d", len(e.runs.serviceCreates), len(e.runs.serviceOffers))
+		}
+		if e.runs.serviceCreates[0].CategoryID != 2 || e.runs.serviceCreates[0].CategoryRef != 20 {
+			t.Fatalf("categoría escrita = %+v", e.runs.serviceCreates[0])
+		}
+		if got := e.runs.serviceOffers[0]; got.Price != "29990" || got.ServiceURL != "https://entel.cl/planes/fibra-600?utm=1" || !got.Available {
+			t.Fatalf("oferta = %+v", got)
+		}
+		if e.runs.saved[0] != "" {
+			t.Fatalf("guardados = %v", e.runs.saved)
+		}
+	})
+
+	t.Run("reutiliza el servicio por URL del proveedor", func(t *testing.T) {
+		e := newEnv()
+		e.runs.serviceExisting = map[string]int32{"101|https://entel.cl/planes/fibra-600": 250}
+		rec := e.serve(t, http.MethodPost, "/ingestion/runs/3/services", `{"items":[`+serviceItemJSON("")+`]}`)
+		requireStatus(t, rec, http.StatusOK)
+		var result BatchResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Results[0].Status != ItemUpdated || result.Results[0].ServiceID != "svc-250" {
+			t.Fatalf("ítem = %+v", result.Results[0])
+		}
+		if len(e.runs.serviceCreates) != 0 {
+			t.Fatalf("no debía crear servicio: %d", len(e.runs.serviceCreates))
+		}
+	})
+
+	t.Run("reutiliza el servicio por id del plan", func(t *testing.T) {
+		e := newEnv()
+		e.runs.serviceExisting = map[string]int32{"101|#plan-1": 260}
+		item := `{
+			"externalId": "plan-1",
+			"externalUrl": "https://entel.cl/hogar/internet",
+			"provider": {"slug": "entel", "name": "Entel"},
+			"service": {"name": "Fibra 600", "categorySlug": "internet-fibra-optica",
+				"attributes": {"velocidad_bajada_mbps": 600, "velocidad_subida_mbps": 600}},
+			"offer": {"price": 29990}}`
+		rec := e.serve(t, http.MethodPost, "/ingestion/runs/3/services", `{"items":[`+item+`]}`)
+		requireStatus(t, rec, http.StatusOK)
+		var result BatchResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Results[0].Status != ItemUpdated || result.Results[0].ServiceID != "svc-260" {
+			t.Fatalf("ítem = %+v", result.Results[0])
+		}
+		if len(e.runs.serviceCreates) != 0 {
+			t.Fatalf("no debía crear servicio: %d", len(e.runs.serviceCreates))
+		}
+		if e.runs.serviceOffers[0].ExternalID == nil || *e.runs.serviceOffers[0].ExternalID != "plan-1" {
+			t.Fatalf("external id guardado = %+v", e.runs.serviceOffers[0].ExternalID)
+		}
+	})
+
+	t.Run("errores por ítem", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			item  string
+			want  []string
+			setup func(*env)
+		}{
+			{"sin URL", serviceItemJSON(`"externalUrl": ""`), []string{"externalUrl/required"}, nil},
+			{"URL inválida", serviceItemJSON(`"externalUrl": "ftp://x"`), []string{"externalUrl/format"}, nil},
+			{"slug inválido", serviceItemJSON(`"provider": {"slug": "Entel SA", "name": "Entel"}`), []string{"provider.slug/format"}, nil},
+			{"sin precio", `{
+				"externalUrl": "https://entel.cl/planes/fibra-600",
+				"provider": {"slug": "entel", "name": "Entel"},
+				"service": {"name": "Plan Fibra 600", "categorySlug": "internet-fibra-optica",
+					"attributes": {"velocidad_bajada_mbps": 600, "velocidad_subida_mbps": 600}},
+				"offer": {}}`, []string{"offer.price/required"}, nil},
+			{"precio negativo", serviceItemJSON(`"offer": {"price": -1}`), []string{"offer.price/min"}, nil},
+			{"período inválido", serviceItemJSON(`"offer": {"price": 1000, "billingPeriod": "semanal"}`), []string{"offer.billingPeriod/one_of"}, nil},
+			{"atributo faltante", `{
+				"externalUrl": "https://entel.cl/planes/fibra-600",
+				"provider": {"slug": "entel", "name": "Entel"},
+				"service": {"name": "Plan Fibra 600", "categorySlug": "internet-fibra-optica",
+					"attributes": {"velocidad_bajada_mbps": 600}},
+				"offer": {"price": 29990}}`,
+				[]string{"service.attributes.velocidad_subida_mbps/required"}, nil},
+			{"categoría inexistente", serviceItemJSON(""), []string{"service.categorySlug/not_found"},
+				func(e *env) { e.runs.serviceCategoryErr = ErrServiceCategoryNotFound }},
+			{"categoría de producto", serviceItemJSON(""), []string{"service.categorySlug/not_enabled"},
+				func(e *env) { e.runs.serviceCategory = ServiceCategory{ID: 1, ItemType: "product"} }},
+			{"categoría sin legado", serviceItemJSON(""), []string{"service.categorySlug/not_enabled"},
+				func(e *env) { e.runs.serviceCategory = ServiceCategory{ID: 20, ItemType: "service"} }},
+			{"error interno", serviceItemJSON(""), []string{"/internal_error"},
+				func(e *env) { e.runs.serviceErr = errBoom }},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				e := newEnv()
+				if tc.setup != nil {
+					tc.setup(e)
+				}
+				rec := e.serve(t, http.MethodPost, "/ingestion/runs/3/services", `{"items":[`+tc.item+`]}`)
+				requireStatus(t, rec, http.StatusOK)
+				var result BatchResult
+				if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				if result.Results[0].Status != ItemFailed || !reflect.DeepEqual(codes(result.Results[0]), tc.want) {
+					t.Fatalf("errores = %v, quiero %v", codes(result.Results[0]), tc.want)
+				}
+				if strings.Contains(rec.Body.String(), "relation") {
+					t.Fatal("el body expone el error interno")
+				}
+			})
+		}
+	})
+
+	t.Run("lote vacío", func(t *testing.T) {
+		rec := newEnv().serve(t, http.MethodPost, "/ingestion/runs/3/services", `{"items":[]}`)
+		requireStatus(t, rec, http.StatusUnprocessableEntity)
+	})
+
+	t.Run("corrida de producto rechazada", func(t *testing.T) {
+		e := newEnv()
+		e.runs.getErr = ErrRunTargetMismatch
+		rec := e.serve(t, http.MethodPost, "/ingestion/runs/3/services", `{"items":[`+serviceItemJSON("")+`]}`)
+		requireStatus(t, rec, http.StatusConflict)
+	})
+}
+
+// TestOpenRunService comprueba que una corrida de servicio no exige storeId y
+// que su targetType viaja al repositorio.
+func TestOpenRunService(t *testing.T) {
+	e := newEnv()
+	rec := e.serve(t, http.MethodPost, "/ingestion/runs",
+		`{"source":{"name":"Entel"},"targetType":"service"}`)
+	requireStatus(t, rec, http.StatusCreated)
+	if e.runs.opened[2] != int32(0) || e.runs.opened[4] != TargetService {
+		t.Fatalf("OpenRun = %v", e.runs.opened)
+	}
+
+	rec = newEnv().serve(t, http.MethodPost, "/ingestion/runs", `{"source":{"name":"x"},"targetType":"otro"}`)
+	requireStatus(t, rec, http.StatusUnprocessableEntity)
+	if got := problemFields(t, rec); !reflect.DeepEqual(got, []string{"targetType/one_of"}) {
+		t.Fatalf("errores = %v", got)
 	}
 }

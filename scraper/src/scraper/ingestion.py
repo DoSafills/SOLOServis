@@ -3,7 +3,8 @@
 The contract is the same one the v1 crawler speaks:
 
 * ``POST /ingestion/runs`` opens a run (one per local ``SCRAPE_RUN``);
-* ``POST /ingestion/runs/{id}/items`` sends 1..100 items;
+* ``POST /ingestion/runs/{id}/items`` sends 1..100 products;
+* ``POST /ingestion/runs/{id}/services`` sends 1..100 services (issue #191);
 * ``POST /ingestion/runs/{id}/finish`` closes it as ``success`` or ``failed``.
 
 The client is disabled unless both a URL and a token of at least 32 characters
@@ -23,7 +24,7 @@ import httpx
 
 from scraper.config import Settings
 from scraper.errors import IngestionError
-from scraper.models import Item
+from scraper.models import TARGET_SERVICE, Item
 
 TRANSIENT_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 
@@ -59,6 +60,7 @@ class ItemResult:
     status: str
     external_id: str | None = None
     product_id: str | None = None
+    service_id: str | None = None
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
@@ -68,6 +70,7 @@ class ItemResult:
             status=str(payload.get("status") or ""),
             external_id=payload.get("externalId"),
             product_id=payload.get("productId"),
+            service_id=payload.get("serviceId"),
             errors=list(payload.get("errors") or []),
         )
 
@@ -129,12 +132,25 @@ class IngestionClient:
         )
 
     async def open_run(
-        self, source_name: str, base_url: str | None, store_id: int, scraper_type: str = "http"
+        self,
+        source_name: str,
+        base_url: str | None,
+        store_id: int,
+        scraper_type: str = "http",
+        target_type: str = "product",
     ) -> IngestionRun:
+        """Abre una corrida en Ingestion.
+
+        Recibe la fuente, la tienda (0 en corridas de servicio), el tipo de
+        scraper y el objetivo (``product`` o ``service``). Devuelve la corrida
+        creada; ``targetType`` viaja en el body para que el backend sepa qué
+        endpoint de ítems aceptará.
+        """
         payload = {
             "source": {"name": source_name, "baseUrl": base_url or ""},
             "storeId": store_id,
             "scraperType": scraper_type,
+            "targetType": target_type,
         }
         status, body = await self._call("/ingestion/runs", payload)
         if status != 201:
@@ -142,13 +158,23 @@ class IngestionClient:
         return IngestionRun.from_payload(body)
 
     async def send_items(self, run_id: int, items: list[Item]) -> BatchResult:
+        """Envía 1..100 ítems en lotes al endpoint que corresponde a su tipo.
+
+        Recibe la corrida y los ítems; elige ``/items`` para productos y
+        ``/services`` para servicios. Devuelve el resultado agregado.
+        """
         if not items:
             raise ValueError("send_items needs at least one item")
+        endpoint = (
+            f"/ingestion/runs/{run_id}/services"
+            if items[0].entity_type == TARGET_SERVICE
+            else f"/ingestion/runs/{run_id}/items"
+        )
         merged = BatchResult(run_id=run_id)
         for offset in range(0, len(items), self.batch_size):
             chunk = items[offset : offset + self.batch_size]
             status, body = await self._call(
-                f"/ingestion/runs/{run_id}/items",
+                endpoint,
                 {"items": [item.to_ingestion() for item in chunk]},
             )
             if status != 200:

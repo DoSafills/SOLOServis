@@ -14,12 +14,25 @@ from scraper.spec.schema import parse_spec
 
 def test_all_shipped_specs_load(specs):
     slugs = {spec.slug for spec in specs}
-    assert slugs == {"falabella-cl", "ripley-cl", "mercadolibre-cl"}
+    assert slugs == {
+        "falabella-cl",
+        "ripley-cl",
+        "mercadolibre-cl",
+        "entel-cl",
+        "movistar-cl",
+        "gtd-cl",
+    }
     for spec in specs:
         assert spec.digest
-        assert spec.field("product.name").required is True
-        assert spec.field("offer.price").required is True
-        assert spec.field("product.categorySlug") is not None
+        if spec.target_type == "service":
+            assert spec.field("service.name").required is True
+            assert spec.field("offer.price").required is True
+            assert spec.field("service.categorySlug") is not None
+            assert spec.provider_slug
+        else:
+            assert spec.field("product.name").required is True
+            assert spec.field("offer.price").required is True
+            assert spec.field("product.categorySlug") is not None
 
 
 def test_unknown_top_level_key_is_rejected():
@@ -142,7 +155,14 @@ def test_missing_file_is_a_spec_error(tmp_path):
 def test_shipped_specs_are_the_only_ones():
     # Guard against an accidental spec being added without updating the docs.
     found = sorted(path.parent.name for path in STORES.glob("*/spec.json"))
-    assert found == ["falabella-cl", "mercadolibre-cl", "ripley-cl"]
+    assert found == [
+        "entel-cl",
+        "falabella-cl",
+        "gtd-cl",
+        "mercadolibre-cl",
+        "movistar-cl",
+        "ripley-cl",
+    ]
 
 
 def test_regex_must_compile():
@@ -161,11 +181,20 @@ def test_regex_needs_a_value_read_from_the_page():
 
 def test_store_ids_are_unique_and_pinned(specs):
     # Ingestion maps offers by store id, so a duplicate or a silent change
-    # would put products in the wrong store.
-    mapping = {spec.slug: spec.store_id for spec in specs}
+    # would put products in the wrong store. Los specs de servicio no tienen
+    # tienda (storeId 0) y se validan aparte.
+    mapping = {
+        spec.slug: spec.store_id
+        for spec in specs
+        if spec.target_type != "service"
+    }
     assert mapping == {
         "falabella-cl": 1,
         "ripley-cl": 4,
         "mercadolibre-cl": 6,
     }
     assert len(set(mapping.values())) == len(mapping)
+    for spec in specs:
+        if spec.target_type == "service":
+            assert spec.store_id == 0
+            assert spec.provider_slug

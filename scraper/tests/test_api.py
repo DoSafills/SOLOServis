@@ -50,7 +50,7 @@ def test_control_api_end_to_end(settings, monkeypatch):
             assert (await client.get("/health")).json() == {"status": "ok"}
             ready = await client.get("/ready")
             assert ready.status_code == 200
-            assert ready.json()["stores"] == 3
+            assert ready.json()["stores"] == 6
             assert ready.json()["ingestion"].startswith("disabled:")
 
             assert (await client.get("/stores")).status_code == 401
@@ -62,6 +62,9 @@ def test_control_api_end_to_end(settings, monkeypatch):
                 "falabella-cl",
                 "ripley-cl",
                 "mercadolibre-cl",
+                "entel-cl",
+                "movistar-cl",
+                "gtd-cl",
             }
 
             keyed = {**headers, "Idempotency-Key": "schedule-2026-11-03"}

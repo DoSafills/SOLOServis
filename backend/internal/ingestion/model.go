@@ -22,6 +22,15 @@ var (
 	ErrStoreNotFound       = errors.New("store not found")
 	ErrSourceStoreMismatch = errors.New("source belongs to another store")
 	ErrSourceInactive      = errors.New("source is inactive")
+	// ErrRunTargetMismatch separa las corridas de producto de las de servicio:
+	// cada endpoint de ítems acepta solo su tipo (issue #191).
+	ErrRunTargetMismatch = errors.New("run target type does not match the endpoint")
+)
+
+// Tipos de objetivo de una corrida (scraper_config.target_type).
+const (
+	TargetProduct = "product"
+	TargetService = "service"
 )
 
 // Límites.
@@ -35,6 +44,11 @@ const (
 	DefaultScraper    = "http"
 	DefaultListLimit  = 20
 	MaxListLimit      = 100
+	MaxServiceName    = 255 // service.name
+	MaxProviderName   = 150 // provider.name
+	MaxProviderSlug   = 64  // provider.slug
+	MaxServiceURL     = 2048
+	MaxServiceSummary = 2000
 	StatusRunning     = "running"
 	StatusSuccess     = "success"
 	StatusFailed      = "failed"
@@ -63,11 +77,13 @@ const (
 
 // Run es una ejecución del scraper (scrape_run) con su fuente.
 type Run struct {
-	ID               int32      `json:"id"`
-	Source           string     `json:"source"`
-	SourceURL        *string    `json:"sourceUrl"`
-	StoreID          *int32     `json:"storeId"`
-	ScraperType      *string    `json:"scraperType"`
+	ID          int32   `json:"id"`
+	Source      string  `json:"source"`
+	SourceURL   *string `json:"sourceUrl"`
+	StoreID     *int32  `json:"storeId"`
+	ScraperType *string `json:"scraperType"`
+	// TargetType distingue producto de servicio (scraper_config.target_type).
+	TargetType       string     `json:"targetType"`
 	Status           string     `json:"status"`
 	StartedAt        time.Time  `json:"startedAt"`
 	FinishedAt       *time.Time `json:"finishedAt"`
@@ -78,10 +94,15 @@ type Run struct {
 }
 
 // OpenRunRequest es el body de POST /ingestion/runs.
+//
+// `targetType` es opcional y vale "product" por defecto, para no romper a los
+// scraper que ya corren. Las corridas de servicio (issue #191) no exigen
+// `storeId`: la fuente es un proveedor y no una tienda.
 type OpenRunRequest struct {
 	Source      SourceInput `json:"source"`
 	StoreID     int32       `json:"storeId"`
 	ScraperType string      `json:"scraperType"`
+	TargetType  string      `json:"targetType"`
 }
 
 type SourceInput struct {
@@ -108,6 +129,54 @@ type FinishRequest struct {
 // ItemsRequest es el body de POST /ingestion/runs/{id}/items.
 type ItemsRequest struct {
 	Items []Item `json:"items"`
+}
+
+// ServicesRequest es el body de POST /ingestion/runs/{id}/services.
+type ServicesRequest struct {
+	Items []ServiceItem `json:"items"`
+}
+
+// ServiceItem es un servicio (plan) con su oferta en el proveedor de la
+// corrida, ya normalizado por el scraper (issue #191).
+//
+// `externalUrl` es la identidad dentro del proveedor: un plan nuevo del mismo
+// proveedor es una URL nueva. `externalId` es opcional y solo se guarda para
+// auditoría.
+type ServiceItem struct {
+	ExternalID  string             `json:"externalId"`
+	ExternalURL string             `json:"externalUrl"`
+	Provider    ProviderInput      `json:"provider"`
+	Service     ServiceFields      `json:"service"`
+	Offer       ServiceOfferFields `json:"offer"`
+}
+
+// ProviderInput identifica al proveedor del servicio. `slug` es la identidad
+// estable; `name` es el nombre visible.
+type ProviderInput struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
+// ServiceFields son los datos del plan. La categoría es un slug de la tabla
+// unificada `categories` y sus atributos se validan contra ella.
+type ServiceFields struct {
+	Name         string                     `json:"name"`
+	CategorySlug string                     `json:"categorySlug"`
+	Description  string                     `json:"description"`
+	ImageURL     string                     `json:"imageUrl"`
+	Attributes   map[string]json.RawMessage `json:"attributes"`
+}
+
+// ServiceOfferFields es el precio y las condiciones del plan en un proveedor.
+type ServiceOfferFields struct {
+	Price            *json.Number `json:"price"`
+	Currency         string       `json:"currency"`
+	BillingPeriod    string       `json:"billingPeriod"`
+	InstallationCost *json.Number `json:"installationCost"`
+	ContractPeriod   string       `json:"contractPeriod"`
+	Available        *bool        `json:"available"`
+	CoverageSummary  string       `json:"coverageSummary"`
+	AdditionalCosts  string       `json:"additionalCosts"`
 }
 
 // Item es un producto con su oferta en la tienda de la ejecución, ya
@@ -137,6 +206,7 @@ type ItemResult struct {
 	ExternalID string             `json:"externalId,omitempty"`
 	Status     string             `json:"status"`
 	ProductID  string             `json:"productId,omitempty"`
+	ServiceID  string             `json:"serviceId,omitempty"`
 	OfferID    int32              `json:"offerId,omitempty"`
 	Errors     []httpx.FieldError `json:"errors,omitempty"`
 }

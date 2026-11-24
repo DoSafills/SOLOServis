@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.2",
+  "target": "service",
+  "store": {
+    "slug": "entel-cl",
+    "name": "Entel",
+    "baseUrl": "https://www.entel.cl"
+  },
+  "provider": { "slug": "entel", "name": "Entel" },
+  "match": {
+    "hosts": ["www.entel.cl"],
+    "pathPrefixes": ["/hogar/internet"]
+  },
+  "listing": {
+    "url": "https://www.entel.cl/hogar/internet",
+    "root": "swiper-slide[data-ph2-precio]",
+    "allowEmpty": false
+  },
+  "item": {
+    "externalId": { "selector": "[data-ph2-ficha-id]", "attribute": "data-ph2-ficha-id" },
+    "externalUrl": {
+      "template": "https://www.entel.cl/hogar/internet#{externalId}"
+    },
+    "fields": {
+      "service.name": {
+        "selector": "h3[slot=\"plan-name\"]",
+        "type": "string",
+        "transform": "collapse_ws",
+        "required": true
+      },
+      "service.categorySlug": { "value": "internet-fibra-optica", "type": "slug" },
+      "service.description": {
+        "selector": "h3[slot=\"plan-category\"]",
+        "type": "string",
+        "transform": "collapse_ws"
+      },
+      "service.attributes.velocidad_bajada_mbps": {
+        "selector": "ads-card-planes-hibrida",
+        "regex": "máxima\\s+([\\d.]+)\\s*Mbps",
+        "type": "integer"
+      },
+      "service.attributes.velocidad_subida_mbps": {
+        "selector": "ads-card-planes-hibrida",
+        "regex": "máxima\\s+([\\d.]+)\\s*Mbps",
+        "type": "integer"
+      },
+      "offer.price": {
+        "selector": "[slot=\"price\"]",
+        "attribute": "eds-text",
+        "type": "money",
+        "required": true,
+        "currency": "CLP"
+      },
+      "offer.currency": { "value": "CLP", "type": "string" },
+      "offer.billingPeriod": { "value": "monthly", "type": "string" },
+      "offer.contractPeriod": {
+        "selector": "[slot=\"months\"]",
+        "attribute": "eds-text",
+        "regex": "(\\d+\\s*meses)",
+        "type": "string"
+      },
+      "offer.available": { "value": true, "type": "boolean" }
+    }
+  },
+  "rules": {
+    "dedupeBy": "externalId",
+    "rejectIfMissing": [
+      "externalId",
+      "externalUrl",
+      "service.name",
+      "service.attributes.velocidad_bajada_mbps",
+      "service.attributes.velocidad_subida_mbps",
+      "offer.price"
+    ]
+  }
+}

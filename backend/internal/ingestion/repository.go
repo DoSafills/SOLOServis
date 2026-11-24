@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -29,20 +30,39 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 }
 
 // OpenRun crea (o reutiliza) la fuente y su configuración y abre una
-// ejecución en estado running. La fuente queda enlazada a storeID.
-func (r *Repository) OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType string) (int32, error) {
+// ejecución en estado running. Recibe el nombre de la fuente, su URL base, la
+// tienda (0 en corridas de servicio), el tipo de scraper y el objetivo
+// ("product" o "service").
+//
+// Una corrida de producto exige una tienda activa y enlaza la fuente a ella.
+// Una corrida de servicio deja `store_id` NULL y marca la fuente como
+// `provider`: el proveedor viaja en cada ítem, no en la fuente (issue #191).
+func (r *Repository) OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType, targetType string) (int32, error) {
+	if targetType == "" {
+		targetType = TargetProduct
+	}
+	sourceType := "store"
+	var storeArg *int32
+	if targetType == TargetService {
+		sourceType = "provider"
+	} else if storeID > 0 {
+		storeArg = &storeID
+	}
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
 
-	var storeExists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM store WHERE id = $1 AND active)`, storeID).Scan(&storeExists); err != nil {
-		return 0, err
-	}
-	if !storeExists {
-		return 0, ErrStoreNotFound
+	if storeArg != nil {
+		var storeExists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM store WHERE id = $1 AND active)`, *storeArg).Scan(&storeExists); err != nil {
+			return 0, err
+		}
+		if !storeExists {
+			return 0, ErrStoreNotFound
+		}
 	}
 
 	var (
@@ -52,33 +72,33 @@ func (r *Repository) OpenRun(ctx context.Context, name string, baseURL *string, 
 	)
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO data_source (name, base_url, source_type, store_id)
-		VALUES ($1, $2, 'store', $3)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (name) DO UPDATE
 		    SET base_url = COALESCE(EXCLUDED.base_url, data_source.base_url), updated_at = NOW()
-		RETURNING id, store_id, active`, name, baseURL, storeID).Scan(&sourceID, &sourceStoreID, &active); err != nil {
+		RETURNING id, store_id, active`, name, baseURL, sourceType, storeArg).Scan(&sourceID, &sourceStoreID, &active); err != nil {
 		return 0, err
 	}
 	switch {
 	case !active:
 		return 0, ErrSourceInactive
-	case sourceStoreID == nil:
+	case sourceStoreID == nil && storeArg != nil:
 		// Fuente existente sin tienda (p. ej. creada antes de TAL-77): se enlaza.
-		if _, err := tx.Exec(ctx, `UPDATE data_source SET store_id = $2 WHERE id = $1`, sourceID, storeID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE data_source SET store_id = $2 WHERE id = $1`, sourceID, *storeArg); err != nil {
 			return 0, err
 		}
-	case *sourceStoreID != storeID:
+	case storeArg != nil && *sourceStoreID != *storeArg:
 		return 0, ErrSourceStoreMismatch
 	}
 
 	var configID int32
 	err = tx.QueryRow(ctx, `
 		SELECT id FROM scraper_config
-		WHERE data_source_id = $1 AND scraper_type = $2 AND target_type = 'product' AND active
-		ORDER BY id LIMIT 1`, sourceID, scraperType).Scan(&configID)
+		WHERE data_source_id = $1 AND scraper_type = $2 AND target_type = $3 AND active
+		ORDER BY id LIMIT 1`, sourceID, scraperType, targetType).Scan(&configID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `
 			INSERT INTO scraper_config (data_source_id, scraper_type, target_type)
-			VALUES ($1, $2, 'product') RETURNING id`, sourceID, scraperType).Scan(&configID)
+			VALUES ($1, $2, $3) RETURNING id`, sourceID, scraperType, targetType).Scan(&configID)
 	}
 	if err != nil {
 		return 0, err
@@ -93,7 +113,8 @@ func (r *Repository) OpenRun(ctx context.Context, name string, baseURL *string, 
 }
 
 const runColumnsSQL = `
-SELECT r.id, ds.name, ds.base_url, ds.store_id, sc.scraper_type, r.status, r.started_at, r.finished_at,
+SELECT r.id, ds.name, ds.base_url, ds.store_id, sc.scraper_type, COALESCE(sc.target_type, 'product'),
+       r.status, r.started_at, r.finished_at,
        COALESCE(r.records_found, 0), COALESCE(r.records_processed, 0), COALESCE(r.records_failed, 0),
        r.error_message
 FROM scrape_run r
@@ -103,9 +124,9 @@ JOIN data_source ds ON ds.id = sc.data_source_id`
 // scanRun convierte una fila de la consulta de ejecuciones en un Run.
 func scanRun(row pgx.Row) (Run, error) {
 	var run Run
-	err := row.Scan(&run.ID, &run.Source, &run.SourceURL, &run.StoreID, &run.ScraperType, &run.Status,
-		&run.StartedAt, &run.FinishedAt, &run.RecordsFound, &run.RecordsProcessed, &run.RecordsFailed,
-		&run.ErrorMessage)
+	err := row.Scan(&run.ID, &run.Source, &run.SourceURL, &run.StoreID, &run.ScraperType, &run.TargetType,
+		&run.Status, &run.StartedAt, &run.FinishedAt, &run.RecordsFound, &run.RecordsProcessed,
+		&run.RecordsFailed, &run.ErrorMessage)
 	return run, err
 }
 
@@ -149,8 +170,9 @@ func (r *Repository) FinishRun(ctx context.Context, id int32, status string, mes
 	return ErrRunClosed
 }
 
-// ItemsTarget valida que la ejecución acepte ítems y devuelve la tienda de
-// su fuente: ErrRunNotFound, ErrRunClosed o ErrRunWithoutStore.
+// ItemsTarget valida que la ejecución acepte productos y devuelve la tienda de
+// su fuente: ErrRunNotFound, ErrRunClosed, ErrRunWithoutStore o
+// ErrRunTargetMismatch si la corrida es de servicios.
 func (r *Repository) ItemsTarget(ctx context.Context, id int32) (int32, error) {
 	run, err := r.GetRun(ctx, id)
 	if err != nil {
@@ -159,10 +181,30 @@ func (r *Repository) ItemsTarget(ctx context.Context, id int32) (int32, error) {
 	if run.Status != StatusRunning && run.Status != "pending" {
 		return 0, ErrRunClosed
 	}
+	if run.TargetType == TargetService {
+		return 0, ErrRunTargetMismatch
+	}
 	if run.StoreID == nil {
 		return 0, ErrRunWithoutStore
 	}
 	return *run.StoreID, nil
+}
+
+// ServiceTarget valida que la ejecución acepte servicios y la devuelve.
+// Las corridas de servicio no tienen tienda, así que no se exige store_id.
+// Devuelve ErrRunNotFound, ErrRunClosed o ErrRunTargetMismatch.
+func (r *Repository) ServiceTarget(ctx context.Context, id int32) (Run, error) {
+	run, err := r.GetRun(ctx, id)
+	if err != nil {
+		return Run{}, err
+	}
+	if run.Status != StatusRunning && run.Status != "pending" {
+		return Run{}, ErrRunClosed
+	}
+	if run.TargetType != TargetService {
+		return Run{}, ErrRunTargetMismatch
+	}
+	return run, nil
 }
 
 // AddCounters suma los resultados de un lote a la ejecución.
@@ -202,18 +244,22 @@ func (r *Repository) RecentFound(ctx context.Context, storeID, excludeRunID int3
 }
 
 // SaveScraped guarda el ítem recibido (JSON normalizado) para auditoría.
-func (r *Repository) SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, raw json.RawMessage) error {
+// Recibe la ejecución, los identificadores en el origen, el tipo de entidad
+// ("product" o "service") y el JSON del ítem.
+func (r *Repository) SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, entityType string, raw json.RawMessage) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO scraped_data (scrape_run_id, external_id, external_url, entity_type, raw_data)
-		VALUES ($1, $2, $3, 'product', $4)`, runID, externalID, externalURL, raw)
+		VALUES ($1, $2, $3, $4, $5)`, runID, externalID, externalURL, entityType, raw)
 	return err
 }
 
 // ScrapedItem es una fila de scraped_data: el ítem recibido como JSON y sus
-// identificadores en la tienda (nil si no vinieron).
+// identificadores en el origen (nil si no vinieron). EntityType vacío se
+// guarda como 'product' para conservar el comportamiento anterior.
 type ScrapedItem struct {
 	ExternalID  *string
 	ExternalURL *string
+	EntityType  string
 	Raw         json.RawMessage
 }
 
@@ -224,16 +270,21 @@ type ScrapedItem struct {
 func (r *Repository) SaveScrapedBatch(ctx context.Context, runID int32, items []ScrapedItem) error {
 	externalIDs := make([]*string, len(items))
 	externalURLs := make([]*string, len(items))
+	entityTypes := make([]string, len(items))
 	raws := make([]string, len(items))
 	for i, item := range items {
-		externalIDs[i], externalURLs[i], raws[i] = item.ExternalID, item.ExternalURL, string(item.Raw)
+		entityType := item.EntityType
+		if entityType == "" {
+			entityType = TargetProduct
+		}
+		externalIDs[i], externalURLs[i], entityTypes[i], raws[i] = item.ExternalID, item.ExternalURL, entityType, string(item.Raw)
 	}
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO scraped_data (scrape_run_id, external_id, external_url, entity_type, raw_data)
-		SELECT $1, t.external_id, t.external_url, 'product', t.raw::jsonb
-		FROM unnest($2::text[], $3::text[], $4::text[]) WITH ORDINALITY
-		     AS t(external_id, external_url, raw, position)
-		ORDER BY t.position`, runID, externalIDs, externalURLs, raws)
+		SELECT $1, t.external_id, t.external_url, t.entity_type, t.raw::jsonb
+		FROM unnest($2::text[], $3::text[], $4::text[], $5::text[]) WITH ORDINALITY
+		     AS t(external_id, external_url, entity_type, raw, position)
+		ORDER BY t.position`, runID, externalIDs, externalURLs, entityTypes, raws)
 	return err
 }
 
@@ -436,4 +487,243 @@ func productID(ctx context.Context, q rowQuerier, publicID pgtype.UUID) (int32, 
 	var id int32
 	err := q.QueryRow(ctx, `SELECT id FROM product WHERE public_id = $1`, publicID).Scan(&id)
 	return id, err
+}
+
+// ---------------------------------------------------------------------
+// Servicios (issue #191)
+// ---------------------------------------------------------------------
+
+// Errores de categoría de servicio que el procesador traduce a 422.
+var (
+	ErrServiceCategoryNotFound = errors.New("service category not found")
+)
+
+// ServiceCategory es la categoría unificada de un servicio (tabla categories)
+// con su equivalencia legada y sus definiciones de atributos.
+type ServiceCategory struct {
+	ID         int32                  // categories.id → service.category_ref
+	Name       string                 // categories.name
+	ItemType   string                 // categories.item_type ("service" esperado)
+	LegacyID   *int32                 // service_category.id → service.category_id
+	Attributes []categories.Attribute // definiciones para validar los valores
+}
+
+// ResolveServiceCategory busca por slug una categoría activa de tipo servicio y
+// devuelve su fila unificada y sus definiciones de atributos ordenadas por
+// display_order. Devuelve ErrServiceCategoryNotFound si el slug no existe.
+// No verifica el item_type: eso lo decide el procesador para responder con un
+// mensaje que distinga "no existe" de "no está habilitada para servicios".
+func (r *Repository) ResolveServiceCategory(ctx context.Context, slug string) (ServiceCategory, error) {
+	var category ServiceCategory
+	err := r.db.QueryRow(ctx, `
+		SELECT id, name, item_type, legacy_service_category_id
+		FROM categories
+		WHERE slug = $1 AND active`, slug).Scan(&category.ID, &category.Name, &category.ItemType, &category.LegacyID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ServiceCategory{}, ErrServiceCategoryNotFound
+	}
+	if err != nil {
+		return ServiceCategory{}, err
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT id, key, label, data_type, unit, required, comparable, filterable,
+		       min_value::float8, max_value::float8, max_length, allowed_values, display_order
+		FROM category_attributes
+		WHERE category_id = $1
+		ORDER BY display_order, id`, category.ID)
+	if err != nil {
+		return ServiceCategory{}, err
+	}
+	defer rows.Close()
+
+	category.Attributes = make([]categories.Attribute, 0)
+	for rows.Next() {
+		var attribute categories.Attribute
+		if err := rows.Scan(&attribute.ID, &attribute.Key, &attribute.Label, &attribute.DataType,
+			&attribute.Unit, &attribute.Required, &attribute.Comparable, &attribute.Filterable,
+			&attribute.Min, &attribute.Max, &attribute.MaxLength, &attribute.AllowedValues,
+			&attribute.DisplayOrder); err != nil {
+			return ServiceCategory{}, err
+		}
+		category.Attributes = append(category.Attributes, attribute)
+	}
+	return category, rows.Err()
+}
+
+// ServiceWrite son los datos validados de un servicio nuevo. CategoryID es la
+// fila legada de service_category (NOT NULL en el esquema) y CategoryRef la
+// categoría unificada que usan los atributos.
+type ServiceWrite struct {
+	CategoryID  int32
+	CategoryRef int32
+	Name        string
+	Description string
+	ImageURL    string
+	Attributes  []categories.Value
+}
+
+// CreateServiceTx inserta un servicio y sus atributos dentro de la
+// transacción del ítem. Devuelve el id interno y el public_id como texto.
+func (r *Repository) CreateServiceTx(ctx context.Context, tx pgx.Tx, write ServiceWrite) (int32, string, error) {
+	var (
+		id       int32
+		publicID string
+	)
+	err := tx.QueryRow(ctx, `
+		INSERT INTO service (category_id, category_ref, name, description, image_url)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''))
+		RETURNING id, public_id::text`,
+		write.CategoryID, write.CategoryRef, write.Name, write.Description, write.ImageURL).
+		Scan(&id, &publicID)
+	if err != nil {
+		return 0, "", err
+	}
+	if err := insertServiceAttributeValues(ctx, tx, id, write); err != nil {
+		return 0, "", err
+	}
+	return id, publicID, nil
+}
+
+// insertServiceAttributeValues guarda los atributos validados del servicio en
+// service_attribute_value, con value_numeric para los tipos numéricos. Es el
+// espejo de products.insertAttributeValues.
+func insertServiceAttributeValues(ctx context.Context, tx pgx.Tx, serviceID int32, write ServiceWrite) error {
+	if len(write.Attributes) == 0 {
+		return nil
+	}
+	attributeIDs := make([]int32, 0, len(write.Attributes))
+	values := make([]string, 0, len(write.Attributes))
+	numerics := make([]string, 0, len(write.Attributes))
+	for _, value := range write.Attributes {
+		attributeIDs = append(attributeIDs, value.AttributeID)
+		values = append(values, value.Text)
+		if value.DataType == "integer" || value.DataType == "decimal" {
+			numerics = append(numerics, value.Text)
+		} else {
+			numerics = append(numerics, "")
+		}
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO service_attribute_value (service_id, category_id, attribute_id, value, value_numeric)
+		SELECT $1, $2, v.attribute_id, v.value, NULLIF(v.numeric_text, '')::numeric
+		FROM unnest($3::int[], $4::text[], $5::text[]) AS v(attribute_id, value, numeric_text)`,
+		serviceID, write.CategoryRef, attributeIDs, values, numerics)
+	return err
+}
+
+// ServicePublicIDTx devuelve el public_id (UUID como texto) del servicio
+// indicado, leído dentro de la transacción del ítem.
+func (r *Repository) ServicePublicIDTx(ctx context.Context, tx pgx.Tx, id int32) (string, error) {
+	var publicID string
+	err := tx.QueryRow(ctx, `SELECT public_id::text FROM service WHERE id = $1`, id).Scan(&publicID)
+	return publicID, err
+}
+
+// EnsureProviderTx devuelve el proveedor con ese slug o lo crea. El slug es la
+// identidad; el nombre solo se usa al crearlo y no sobrescribe lo curado.
+func (r *Repository) EnsureProviderTx(ctx context.Context, tx pgx.Tx, slug, name string) (int32, error) {
+	var id int32
+	err := tx.QueryRow(ctx, `
+		INSERT INTO provider (slug, name) VALUES ($1, $2)
+		ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug
+		RETURNING id`, slug, name).Scan(&id)
+	return id, err
+}
+
+// FindServiceOfferTx busca un plan ya catalogado. Si el ítem trae
+// “externalId“, esa es la identidad (proveedor + id del plan), porque hay
+// proveedores que publican varios planes en una sola URL. Sin id, compara la
+// URL de la oferta sin query string (los proveedores agregan parámetros de
+// seguimiento). Devuelve el service_id y true si existe.
+func (r *Repository) FindServiceOfferTx(ctx context.Context, tx pgx.Tx, providerID int32, externalID, serviceURL string) (int32, bool, error) {
+	var serviceID int32
+	var err error
+	if externalID != "" {
+		err = tx.QueryRow(ctx, `
+			SELECT service_id
+			FROM service_offer
+			WHERE provider_id = $1 AND external_id = $2
+			ORDER BY id LIMIT 1`, providerID, externalID).Scan(&serviceID)
+	} else {
+		err = tx.QueryRow(ctx, `
+			SELECT service_id
+			FROM service_offer
+			WHERE provider_id = $1
+			  AND service_url IS NOT NULL
+			  AND split_part(btrim(service_url), '?', 1) = split_part(btrim($2), '?', 1)
+			ORDER BY id LIMIT 1`, providerID, serviceURL).Scan(&serviceID)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return serviceID, true, nil
+}
+
+// ServiceOfferWrite son los datos validados de la oferta de un plan.
+type ServiceOfferWrite struct {
+	ServiceID        int32
+	ProviderID       int32
+	ExternalID       *string
+	Price            string
+	Currency         string
+	BillingPeriod    *string
+	InstallationCost *string
+	ContractPeriod   *string
+	Available        bool
+	CoverageSummary  *string
+	AdditionalCosts  *string
+	ServiceURL       string
+}
+
+// UpsertServiceOfferTx registra o actualiza la oferta del plan en el proveedor
+// y agrega una fila al historial solo cuando el precio cambió. Devuelve el id
+// de la oferta.
+func (r *Repository) UpsertServiceOfferTx(ctx context.Context, tx pgx.Tx, write ServiceOfferWrite) (int32, error) {
+	var priceChanged bool
+	err := tx.QueryRow(ctx, `
+		SELECT NOT EXISTS (
+			SELECT 1 FROM service_offer
+			WHERE service_id = $1 AND provider_id = $2 AND price = $3::numeric)`,
+		write.ServiceID, write.ProviderID, write.Price).Scan(&priceChanged)
+	if err != nil {
+		return 0, err
+	}
+
+	var offerID int32
+	err = tx.QueryRow(ctx, `
+		INSERT INTO service_offer (
+			service_id, provider_id, external_id, price, currency, billing_period,
+			installation_cost, contract_period, available, coverage_summary,
+			additional_costs_summary, service_url, last_updated)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+		ON CONFLICT (service_id, provider_id) DO UPDATE SET
+			external_id = EXCLUDED.external_id,
+			price = EXCLUDED.price,
+			currency = EXCLUDED.currency,
+			billing_period = EXCLUDED.billing_period,
+			installation_cost = EXCLUDED.installation_cost,
+			contract_period = EXCLUDED.contract_period,
+			available = EXCLUDED.available,
+			coverage_summary = EXCLUDED.coverage_summary,
+			additional_costs_summary = EXCLUDED.additional_costs_summary,
+			service_url = EXCLUDED.service_url,
+			last_updated = NOW()
+		RETURNING id`,
+		write.ServiceID, write.ProviderID, write.ExternalID, write.Price, write.Currency,
+		write.BillingPeriod, write.InstallationCost, write.ContractPeriod, write.Available,
+		write.CoverageSummary, write.AdditionalCosts, write.ServiceURL).Scan(&offerID)
+	if err != nil {
+		return 0, err
+	}
+	if !priceChanged {
+		return offerID, nil
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO service_price_history (service_offer_id, price) VALUES ($1, $2)`,
+		offerID, write.Price)
+	return offerID, err
 }

@@ -28,8 +28,18 @@ MAX_DESCRIPTION = 5000
 MAX_URL = 2048
 MAX_SLUG = 64
 MAX_SOURCE_NAME = 150
+MAX_PROVIDER_NAME = 150
+MAX_SUMMARY = 2000
 
 CONDITIONS = frozenset({"new", "used", "refurbished"})
+
+#: Períodos de cobro que acepta la Ingestion API para una oferta de servicio.
+SERVICE_BILLING_PERIODS = frozenset({"monthly", "yearly", "one_time"})
+
+#: Objetivos de corrida del scraper y de ``scraper_config.target_type``.
+TARGET_PRODUCT = "product"
+TARGET_SERVICE = "service"
+TARGETS = frozenset({TARGET_PRODUCT, TARGET_SERVICE})
 
 RUN_STATUS_PENDING = "pending"
 RUN_STATUS_RUNNING = "running"
@@ -193,6 +203,11 @@ class StoreSpec:
     reject_if_missing: tuple[str, ...] = ()
     crawl: CrawlRules | None = None
     detail: DetailSpec | None = None
+    #: ``product`` (por defecto) o ``service``. Un spec de servicio declara el
+    #: proveedor y campos ``service.*``; no usa ``storeId``.
+    target_type: str = TARGET_PRODUCT
+    provider_slug: str = ""
+    provider_name: str = ""
     digest: str = ""
     path: Path | None = None
 
@@ -208,7 +223,9 @@ class StoreSpec:
             "schemaVersion": self.schema_version,
             "slug": self.slug,
             "name": self.name,
+            "targetType": self.target_type,
             "storeId": self.store_id,
+            "provider": self.provider_slug or None,
             "digest": self.digest,
             "path": str(self.path) if self.path else None,
             "crawl": self.crawl is not None,
@@ -299,6 +316,69 @@ class Offer:
 
 
 @dataclass(slots=True)
+class Provider:
+    """El proveedor de un servicio: identidad estable (slug) y nombre visible."""
+
+    slug: str = ""
+    name: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return _compact({"slug": self.slug, "name": self.name})
+
+
+@dataclass(slots=True)
+class Service:
+    """Un plan de servicio, normalizado para la Ingestion API (issue #191)."""
+
+    name: str = ""
+    category_slug: str | None = None
+    description: str | None = None
+    image_url: str | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": self.name,
+            "categorySlug": self.category_slug,
+            "description": self.description,
+            "imageUrl": self.image_url,
+        }
+        if self.attributes:
+            payload["attributes"] = {
+                key: _json_value(value) for key, value in sorted(self.attributes.items())
+            }
+        return _compact(payload)
+
+
+@dataclass(slots=True)
+class ServiceOffer:
+    """Precio y condiciones de un plan en un proveedor."""
+
+    price: str = ""
+    currency: str = "CLP"
+    billing_period: str | None = "monthly"
+    installation_cost: str | None = None
+    contract_period: str | None = None
+    available: bool = True
+    coverage_summary: str | None = None
+    additional_costs: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return _compact(
+            {
+                "price": self.price,
+                "currency": self.currency,
+                "billingPeriod": self.billing_period,
+                "installationCost": self.installation_cost,
+                "contractPeriod": self.contract_period,
+                "available": self.available,
+                "coverageSummary": self.coverage_summary,
+                "additionalCosts": self.additional_costs,
+            }
+        )
+
+
+@dataclass(slots=True)
 class Source:
     name: str
     base_url: str
@@ -336,13 +416,22 @@ class Provenance:
 
 @dataclass(slots=True)
 class Item:
-    """One product card, store-independent and ready for review or ingestion."""
+    """One card, store-independent and ready for review or ingestion.
+
+    Un ítem de producto usa ``product`` + ``offer``; uno de servicio
+    (``entity_type == "service"``) usa ``provider`` + ``service`` +
+    ``service_offer``. Los dos caminos comparten identidad, procedencia y
+    ``to_ingestion``, que elige el body según el tipo.
+    """
 
     product: Product
     offer: Offer
     external_url: str = ""
     external_id: str | None = None
     entity_type: str = "product"
+    provider: Provider | None = None
+    service: Service | None = None
+    service_offer: ServiceOffer | None = None
     source: Source | None = None
     provenance: Provenance = field(default_factory=Provenance)
 
@@ -351,25 +440,45 @@ class Item:
         return self.external_id or self.external_url
 
     def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "schemaVersion": SCHEMA_VERSION,
-            "entityType": self.entity_type,
-            "externalId": self.external_id,
-            "externalUrl": self.external_url,
-            "product": self.product.to_dict(),
-            "offer": self.offer.to_dict(),
-            "provenance": self.provenance.to_dict(),
-        }
+        if self.entity_type == TARGET_SERVICE:
+            payload: dict[str, Any] = {
+                "schemaVersion": SCHEMA_VERSION,
+                "entityType": self.entity_type,
+                "externalId": self.external_id,
+                "externalUrl": self.external_url,
+                "provider": (self.provider or Provider()).to_dict(),
+                "service": (self.service or Service()).to_dict(),
+                "offer": (self.service_offer or ServiceOffer()).to_dict(),
+                "provenance": self.provenance.to_dict(),
+            }
+        else:
+            payload = {
+                "schemaVersion": SCHEMA_VERSION,
+                "entityType": self.entity_type,
+                "externalId": self.external_id,
+                "externalUrl": self.external_url,
+                "product": self.product.to_dict(),
+                "offer": self.offer.to_dict(),
+                "provenance": self.provenance.to_dict(),
+            }
         if self.source is not None:
             payload["source"] = self.source.to_dict()
         return _compact(payload)
 
     def to_ingestion(self) -> dict[str, Any]:
-        """Project the record onto the exact body of ``POST /runs/{id}/items``."""
-        payload: dict[str, Any] = {
-            "product": self.product.to_dict(),
-            "offer": self.offer.to_dict(),
-        }
+        """Project the record onto the exact body of the ingestion endpoint."""
+        if self.entity_type == TARGET_SERVICE:
+            payload: dict[str, Any] = {
+                "externalUrl": self.external_url,
+                "provider": (self.provider or Provider()).to_dict(),
+                "service": (self.service or Service()).to_dict(),
+                "offer": (self.service_offer or ServiceOffer()).to_dict(),
+            }
+        else:
+            payload = {
+                "product": self.product.to_dict(),
+                "offer": self.offer.to_dict(),
+            }
         if self.external_id:
             payload["externalId"] = self.external_id
         return payload
