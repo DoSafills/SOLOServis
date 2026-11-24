@@ -50,13 +50,17 @@ def mismo_precio(a, b) -> bool:
 
 
 def ultima_corrida(corridas: list[dict], tienda: dict) -> dict | None:
-    """Devuelve la corrida terminada más reciente de una tienda que tenga ingestionRunId, o None.
+    """Devuelve la corrida exitosa más reciente de una tienda que tenga ingestionRunId, o None.
 
-    scraper-api informa la tienda de cada corrida por el nombre del spec (o de
-    la fuente), así que se compara con el slug y con el nombre."""
+    Solo cuentan las corridas ``success``: una corrida fallida (por ejemplo,
+    Mercado Libre, que responde con un desafío JavaScript) no dejó datos que
+    recorrer, y tomarla como referencia hacía fallar el visor por un motivo que
+    no es de comunicación. scraper-api informa la tienda de cada corrida por el
+    nombre del spec (o de la fuente), así que se compara con el slug y con el
+    nombre."""
     nombres = {tienda.get("slug"), tienda.get("name")}
     propias = [r for r in corridas if r.get("store") in nombres and r.get("ingestionRunId")
-               and r.get("status") not in ("pending", "running")]
+               and r.get("status") == "success"]
     return max(propias, key=lambda r: r.get("startedAt") or "", default=None)
 
 
@@ -78,6 +82,15 @@ def flujo_completo(v: Visor, ctx: dict) -> None:
         return
     tiendas = (r_tiendas.json() or {}).get("stores", [])
     corridas = (r_corridas.json() or {}).get("runs", [])
+    # Los specs de servicio (issue #191) también aparecen en /stores para que
+    # el CronJob los dispare, pero no tienen tienda ni ofertas en el catálogo
+    # de productos: se omiten en este recorrido.
+    tiendas = [
+        tienda
+        for tienda in tiendas
+        if tienda.get("targetType", "product") == "product"
+        and (tienda.get("storeId") or 0) > 0
+    ]
     recorridas = 0
     for tienda in tiendas:
         corrida = ultima_corrida(corridas, tienda)

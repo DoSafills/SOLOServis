@@ -337,7 +337,7 @@ Cada llamada lleva un `X-Request-ID` propio (`t165-05-productos-pagina`), el mis
 
 - TAL-165: parámetros de cada API, la misma llamada por el gateway y directo, lo que el gateway bloquea, autenticación y 10 lecturas simultáneas.
 - TAL-166: valores válidos, inválidos, incompletos y límite, y la forma de cada salida (problem+json, `request_id`, camelCase, sin detalles internos).
-- TAL-167: la última corrida real de cada tienda, del scraper a Ingestion API, al catálogo y al gateway.
+- TAL-167: la última corrida exitosa de cada tienda de producto, del scraper a Ingestion API, al catálogo y al gateway. Las corridas fallidas y los specs de servicio se omiten: no dejan datos de producto que recorrer.
 
 **No escribe en la base:** las únicas escrituras son pedidos que Ingestion API y Auth API rechazan al decodificar o validar, antes de la consulta. El token sale de `soloservis-scraper` y no se imprime. Suma 2 contenedores de 25m/64Mi (límite 100m/64Mi) al pod de test; no ocupa un pod aparte. En el deploy corre con `PAUSA=0` para no alargar la Fase 10.
 
