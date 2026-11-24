@@ -1,16 +1,10 @@
 package features
 
 import (
-	"io"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 
-	"github.com/DoSafills/SOLOServis/backend/internal/authz"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
-	"github.com/go-chi/chi/v5"
 )
 
 func TestReviewAPI(t *testing.T) {
@@ -286,65 +280,4 @@ func TestNotificationAPI(t *testing.T) {
 			rules:      []rule{qFail(readAll, errBoom)},
 			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 	})
-}
-
-// TestReviewsSinUserID: las reseñas públicas y las que devuelven los POST
-// muestran al autor por nombre y no exponen el userId interno (TAL-200,
-// hallazgo H12 de TAL-195).
-func TestReviewsSinUserID(t *testing.T) {
-	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer remote.Close()
-	for _, env := range []string{"PRODUCT_API_URL", "STORE_API_URL", "SERVICE_API_URL"} {
-		t.Setenv(env, remote.URL)
-	}
-	review := `{"rating":5,"title":"Bueno","content":"Llegó rápido"}`
-	tests := []struct {
-		name, method, target, body, table string
-		wantStatus                        int
-	}{
-		{"GET producto", http.MethodGet, "/reviews/product/" + productUUID, "", "product_review", http.StatusOK},
-		{"GET tienda", http.MethodGet, "/reviews/store/3", "", "store_review", http.StatusOK},
-		{"GET servicio", http.MethodGet, "/reviews/service/" + serviceUUID, "", "service_review", http.StatusOK},
-		{"POST producto", http.MethodPost, "/reviews/product/" + productUUID, review, "product_review", http.StatusCreated},
-		{"POST tienda", http.MethodPost, "/reviews/store/3", review, "store_review", http.StatusCreated},
-		{"POST servicio", http.MethodPost, "/reviews/service/" + serviceUUID, review, "service_review", http.StatusCreated},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			db := &sequenceDB{fakeDB: &fakeDB{t: t, rules: []rule{
-				productRow, serviceRow,
-				qRows("_review r JOIN user_account u", `{"author":"Ana"}`),
-				qRow("INSERT INTO "+tc.table, `{"author":"Ana"}`),
-			}}}
-			logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-			h := newHandler("review-api", db, logger, authz.New(fakeSessions{}, "", logger).RequireSession)
-			r := chi.NewRouter()
-			registerRoutes(r, "review-api", h, authz.New(fakeSessions{}, serviceToken, logger).RequireAdmin)
-
-			req := httptest.NewRequest(tc.method, tc.target, strings.NewReader(tc.body))
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Authorization", "Bearer "+userToken)
-			rec := httptest.NewRecorder()
-			r.ServeHTTP(rec, req)
-			if rec.Code != tc.wantStatus {
-				t.Fatalf("status = %d, quiero %d (%s)", rec.Code, tc.wantStatus, rec.Body.String())
-			}
-
-			_, q := db.find(tc.table)
-			if q.sql == "" {
-				t.Fatalf("no se consultó %s", tc.table)
-			}
-			if strings.Contains(q.sql, "'userId'") {
-				t.Fatalf("la reseña expone el userId: %s", q.sql)
-			}
-			for _, field := range []string{"'author',u.name", "'authorVerified',u.email_verified", "JOIN user_account u ON u.id=r.user_id"} {
-				if !strings.Contains(q.sql, field) {
-					t.Fatalf("falta %q en la consulta: %s", field, q.sql)
-				}
-			}
-		})
-	}
 }

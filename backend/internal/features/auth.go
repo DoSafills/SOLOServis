@@ -434,6 +434,7 @@ func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternal(w, r, h.logger, err)
 		return
 	}
+	clearRefreshCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
