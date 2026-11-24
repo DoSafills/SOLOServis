@@ -74,6 +74,15 @@ func newEnv(t *testing.T) *env {
 // do llama a un dominio por HTTP y devuelve el código y el cuerpo.
 func (e *env) do(domain, method, path, token string, body any) (int, []byte) {
 	e.t.Helper()
+	status, data, _ := e.request(domain, method, path, token, "", body)
+	return status, data
+}
+
+// request llama a un dominio por HTTP. Si refreshToken no está vacío viaja en
+// la cookie refresh_token, como lo manda el navegador (TAL-248). Devuelve el
+// código, el cuerpo y el refresh token que la respuesta dejó en esa cookie.
+func (e *env) request(domain, method, path, token, refreshToken string, body any) (int, []byte, string) {
+	e.t.Helper()
 	var reader io.Reader
 	if body != nil {
 		encoded, _ := json.Marshal(body)
@@ -89,13 +98,22 @@ func (e *env) do(domain, method, path, token string, body any) (int, []byte) {
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	if refreshToken != "" {
+		req.AddCookie(&http.Cookie{Name: "refresh_token", Value: refreshToken})
+	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		e.t.Fatalf("%s %s: %v", method, path, err)
 	}
 	defer res.Body.Close()
 	data, _ := io.ReadAll(res.Body)
-	return res.StatusCode, data
+	var cookie string
+	for _, c := range res.Cookies() {
+		if c.Name == "refresh_token" {
+			cookie = c.Value
+		}
+	}
+	return res.StatusCode, data, cookie
 }
 
 // expect falla si el código no es el esperado y devuelve el cuerpo.
@@ -118,10 +136,53 @@ func (e *env) count(query string, args ...any) int {
 	return n
 }
 
+// session es lo que devuelven register, login y refresh. El refresh token no
+// viene en el JSON sino en la cookie httpOnly refresh_token (TAL-248).
 type session struct {
 	UserID       int32  `json:"userId"`
 	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken"`
+	RefreshToken string `json:"-"`
+}
+
+// authenticate llama a una ruta de usuarios que abre una sesión (register,
+// login o refresh), exige el código want y arma la sesión: el access token
+// sale del JSON y el refresh token de la cookie. Falla si el JSON trae el
+// refresh token, que sin X-Refresh-In-Body solo viaja en la cookie.
+func (e *env) authenticate(want int, path, refreshToken string, body any) session {
+	e.t.Helper()
+	status, data, cookie := e.request("usuarios", "POST", path, "", refreshToken, body)
+	if status != want {
+		e.t.Fatalf("usuarios POST %s = %d %s, quiero %d", path, status, data, want)
+	}
+	var s session
+	if err := json.Unmarshal(data, &s); err != nil || s.UserID == 0 || s.AccessToken == "" || cookie == "" {
+		e.t.Fatalf("%s no abrió una sesión (cookie refresh_token %q): %s", path, cookie, data)
+	}
+	if strings.Contains(string(data), `"refreshToken"`) {
+		e.t.Fatalf("%s devolvió el refresh token en el JSON: %s", path, data)
+	}
+	s.RefreshToken = cookie
+	return s
+}
+
+// login inicia sesión con la contraseña de register.
+func (e *env) login(email string) session {
+	e.t.Helper()
+	return e.authenticate(http.StatusOK, "/auth/login", "", map[string]any{"email": email, "password": "Clave12345!"})
+}
+
+// refresh rota la sesión mandando el refresh token en la cookie.
+func (e *env) refresh(refreshToken string) session {
+	e.t.Helper()
+	return e.authenticate(http.StatusOK, "/auth/refresh", refreshToken, nil)
+}
+
+// refreshRejected comprueba que el refresh token ya no sirve (401).
+func (e *env) refreshRejected(refreshToken string) {
+	e.t.Helper()
+	if status, data, _ := e.request("usuarios", "POST", "/auth/refresh", "", refreshToken, nil); status != http.StatusUnauthorized {
+		e.t.Fatalf("usuarios POST /auth/refresh = %d %s, quiero 401", status, data)
+	}
 }
 
 // register crea un usuario por usuarios (POST /auth/register) y lo borra al
@@ -130,12 +191,8 @@ type session struct {
 func (e *env) register(name string) (session, string) {
 	e.t.Helper()
 	email := name + "-" + e.tag + "@integracion.test"
-	data := e.expect(http.StatusCreated, "usuarios", "POST", "/auth/register", "",
+	s := e.authenticate(http.StatusCreated, "/auth/register", "",
 		map[string]any{"name": "Test " + name, "email": email, "password": "Clave12345!"})
-	var s session
-	if err := json.Unmarshal(data, &s); err != nil || s.UserID == 0 || s.AccessToken == "" {
-		e.t.Fatalf("register: %s", data)
-	}
 	e.t.Cleanup(func() {
 		_, _ = e.pool.Exec(context.Background(), `DELETE FROM user_account WHERE id = $1`, s.UserID)
 	})
@@ -209,12 +266,9 @@ func TestIntegracion_Usuarios(t *testing.T) {
 		t.Errorf("sesiones con el hash de los tokens = %d, quiero 1", n)
 	}
 
-	loginData := e.expect(http.StatusOK, "usuarios", "POST", "/auth/login", "",
-		map[string]any{"email": email, "password": "Clave12345!"})
-	var loggedIn session
-	if err := json.Unmarshal(loginData, &loggedIn); err != nil || loggedIn.UserID != s.UserID ||
-		loggedIn.AccessToken == "" || loggedIn.RefreshToken == "" || loggedIn.AccessToken == s.AccessToken {
-		t.Fatalf("login did not return a new session for the persisted account: %s (%v)", loginData, err)
+	loggedIn := e.login(email)
+	if loggedIn.UserID != s.UserID || loggedIn.AccessToken == s.AccessToken {
+		t.Fatalf("el login no abrió una sesión nueva para la cuenta: %+v", loggedIn)
 	}
 	e.expect(http.StatusOK, "usuarios", "GET", "/auth/validate", loggedIn.AccessToken, nil)
 	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1 AND access_token_hash = $2`,
@@ -233,9 +287,8 @@ func TestIntegracion_Usuarios(t *testing.T) {
 	e.expect(http.StatusUnauthorized, "usuarios", "GET", path, "", nil)
 
 	// refresh rota la sesión: el refresh token viejo deja de servir.
-	var renewed session
-	_ = json.Unmarshal(e.expect(http.StatusOK, "usuarios", "POST", "/auth/refresh", "", map[string]any{"refreshToken": s.RefreshToken}), &renewed)
-	e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/refresh", "", map[string]any{"refreshToken": s.RefreshToken})
+	renewed := e.refresh(s.RefreshToken)
+	e.refreshRejected(s.RefreshToken)
 
 	// logout borra la sesión.
 	e.expect(http.StatusNoContent, "usuarios", "POST", "/auth/logout", renewed.AccessToken, nil)
@@ -251,9 +304,7 @@ func TestIntegracion_Usuarios(t *testing.T) {
 func TestIntegracion_CambioDePasswordRevocaOtrasSesiones(t *testing.T) {
 	e := newEnv(t)
 	first, email := e.register("cambio-clave")
-	var second session
-	_ = json.Unmarshal(e.expect(http.StatusOK, "usuarios", "POST", "/auth/login", "",
-		map[string]any{"email": email, "password": "Clave12345!"}), &second)
+	second := e.login(email)
 
 	// Una contraseña actual incorrecta no toca las sesiones.
 	e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/change-password", first.AccessToken,
@@ -300,15 +351,6 @@ func near(got, want time.Duration) bool {
 // sesiones y cuentas desactivadas, contra PostgreSQL real.
 func TestIntegracion_Sesiones(t *testing.T) {
 	e := newEnv(t)
-	refresh := func(token string) session {
-		t.Helper()
-		var renewed session
-		data := e.expect(http.StatusOK, "usuarios", "POST", "/auth/refresh", "", map[string]any{"refreshToken": token})
-		if err := json.Unmarshal(data, &renewed); err != nil || renewed.AccessToken == "" {
-			t.Fatalf("refresh: %s", data)
-		}
-		return renewed
-	}
 
 	t.Run("el refresh hereda el vencimiento de la sesión", func(t *testing.T) {
 		s, _ := e.register("vence")
@@ -321,7 +363,7 @@ func TestIntegracion_Sesiones(t *testing.T) {
 			WHERE access_token_hash = $1`, hash(s.AccessToken)); err != nil {
 			t.Fatal(err)
 		}
-		renewed := refresh(s.RefreshToken)
+		renewed := e.refresh(s.RefreshToken)
 		if _, session := e.sessionExpiry(renewed.AccessToken); !near(session, time.Hour) {
 			t.Fatalf("tras el refresh vence en %v, quiero 1h", session)
 		}
@@ -330,7 +372,7 @@ func TestIntegracion_Sesiones(t *testing.T) {
 			WHERE access_token_hash = $1`, hash(renewed.AccessToken)); err != nil {
 			t.Fatal(err)
 		}
-		last := refresh(renewed.RefreshToken)
+		last := e.refresh(renewed.RefreshToken)
 		if access, session := e.sessionExpiry(last.AccessToken); !near(access, 2*time.Minute) || !near(session, 2*time.Minute) {
 			t.Fatalf("access en %v y refresh en %v, quiero 2m los dos", access, session)
 		}
@@ -339,7 +381,7 @@ func TestIntegracion_Sesiones(t *testing.T) {
 			WHERE access_token_hash = $1`, hash(last.AccessToken)); err != nil {
 			t.Fatal(err)
 		}
-		e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/refresh", "", map[string]any{"refreshToken": last.RefreshToken})
+		e.refreshRejected(last.RefreshToken)
 	})
 
 	t.Run("cada login poda las vencidas y respeta el tope", func(t *testing.T) {
@@ -352,8 +394,7 @@ func TestIntegracion_Sesiones(t *testing.T) {
 		}
 		var last session
 		for i := 0; i < 11; i++ {
-			data := e.expect(http.StatusOK, "usuarios", "POST", "/auth/login", "", map[string]any{"email": email, "password": "Clave12345!"})
-			_ = json.Unmarshal(data, &last)
+			last = e.login(email)
 		}
 		if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 10 {
 			t.Errorf("sesiones tras 12 inicios = %d, quiero 10", n)
@@ -381,7 +422,7 @@ func TestIntegracion_Sesiones(t *testing.T) {
 			t.Fatal(err)
 		}
 		e.expect(http.StatusUnauthorized, "usuarios", "GET", "/auth/validate", s.AccessToken, nil)
-		e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/refresh", "", map[string]any{"refreshToken": s.RefreshToken})
+		e.refreshRejected(s.RefreshToken)
 		// Mismo 401 que un email inexistente.
 		_, inactive := e.do("usuarios", "POST", "/auth/login", "", map[string]any{"email": email, "password": "Clave12345!"})
 		_, missing := e.do("usuarios", "POST", "/auth/login", "", map[string]any{"email": "nadie-" + e.tag + "@integracion.test", "password": "Clave12345!"})
@@ -553,7 +594,7 @@ func TestIntegracion_IngestionNotificaAComercial(t *testing.T) {
 	_ = json.Unmarshal(data, &run)
 	item := func(price int) {
 		t.Helper()
-		e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/items", run.ID), internalToken, map[string]any{"items": []any{
+		e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/items", run.ID), ingestionToken, map[string]any{"items": []any{
 			map[string]any{"externalId": "lg-gm53", "product": map[string]any{"name": "Refrigerador LG", "brand": brand, "model": "GM53"},
 				"offer": map[string]any{"price": price, "productUrl": "https://integracion.test/" + e.tag}},
 		}})
