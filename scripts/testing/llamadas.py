@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Corre el visor de llamadas en el clúster y deja la evidencia (TAL-165).
 
-El visor es el Job k8s/tests/llamadas: el contenedor `origen` hace las llamadas
-de prueba y el sidecar `destino` registra lo que recibe cada servicio. Este
-script:
+El visor corre en el pod de test (Job soloservis-smoke-test, k8s/tests), junto
+al smoke test de la Fase 10: el contenedor `origen` hace las llamadas de prueba
+y el sidecar `destino` registra lo que recibe cada servicio. Este script:
 
-  1. recrea el Job con los tickets y la pausa pedidos;
+  1. recrea el Job del pod de test con los tickets y la pausa pedidos;
   2. con --ventanas abre dos terminales, una con `kubectl logs -f` de cada
      contenedor (en Windows, dos PowerShell; en otro sistema imprime los
      comandos);
@@ -16,8 +16,9 @@ script:
      y lo que recibió el destino.
 
 Solo lectura: el Job no escribe en la base y este script solo hace kubectl
-apply/delete del Job, get y logs. Usa el kubectl y el namespace del contexto
-actual. Solo la librería estándar de Python 3.9+.
+apply/delete del Job, get y logs. El reporte cubre el visor; el resultado del
+smoke test queda en `kubectl logs job/soloservis-smoke-test -c smoke-test`.
+Usa el kubectl y el namespace del contexto actual. Solo la librería estándar de Python 3.9+.
 
     python scripts/testing/llamadas.py --ventanas
     python scripts/testing/llamadas.py --tickets 166 --pausa 1
@@ -39,9 +40,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-KUSTOMIZE = ROOT / "k8s/tests/llamadas"
-JOB = "soloservis-llamadas"
-SMOKE_JOB = "soloservis-smoke-test"
+KUSTOMIZE = ROOT / "k8s/tests"
+JOB = "soloservis-smoke-test"
 API_DEPLOYMENTS = ("comercial", "usuarios", "ingestion", "backend")
 TRANSIENT = ("Unable to connect", "TLS handshake timeout", "no such host", "i/o timeout",
              "connection reset", "forcibly closed", "error reading from error stream", "EOF")
@@ -98,14 +98,10 @@ def manifiesto(tickets: str | None, pausa: float) -> str:
 
 
 def lanzar(tickets: str | None, pausa: float) -> None:
-    """Borra el Job anterior (los Jobs son inmutables) y aplica el nuevo.
+    """Borra el Job del pod de test (los Jobs son inmutables) y aplica el nuevo.
 
-    También borra el Job del smoke test si ya terminó, para dejar margen en la
-    cuota de memoria del namespace."""
-    smoke = kubectl(["get", "job", SMOKE_JOB, "-o", "jsonpath={.status.succeeded}{.status.failed}"], check=False)
-    if smoke.strip():
-        print(f"Borrando el Job terminado {SMOKE_JOB} para liberar cuota")
-        kubectl(["delete", "job", SMOKE_JOB, "--ignore-not-found", "--wait=true", "--timeout=120s"])
+    Recibe los tickets ("165,166", o None para los del Job) y la pausa en
+    segundos. No devuelve nada; lanza ClusterError si kubectl falla."""
     kubectl(["delete", "job", JOB, "--ignore-not-found", "--wait=true", "--timeout=120s"])
     print(kubectl(["apply", "-f", "-"], stdin=manifiesto(tickets, pausa)).strip())
 
@@ -279,7 +275,7 @@ def main() -> int:
     parser.add_argument("--ventanas", action="store_true", help="abre una terminal por contenedor con kubectl logs -f")
     parser.add_argument("--solo-reporte", action="store_true", help="no relanza el Job: arma el reporte del último")
     parser.add_argument("--md", type=Path, help="ruta del reporte (por defecto docs/reportes/testing/llamadas-…md)")
-    parser.add_argument("--timeout", type=int, default=900, help="segundos máximos de espera del Job")
+    parser.add_argument("--timeout", type=int, default=600, help="segundos máximos de espera del Job")
     args = parser.parse_args()
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
