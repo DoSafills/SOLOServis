@@ -197,8 +197,9 @@ func TestAuthAPI(t *testing.T) {
 
 		// POST /auth/logout-all
 		{name: "logout-all/feliz", method: http.MethodPost, target: "/auth/logout-all",
-			rules:      []rule{qExec(logoutAll, 3)},
-			wantStatus: http.StatusNoContent},
+			rules:         []rule{qExec(logoutAll, 3)},
+			wantStatus:    http.StatusNoContent,
+			wantSetCookie: expiredRefreshCookieSet},
 		{name: "logout-all/sin token", method: http.MethodPost, target: "/auth/logout-all", token: "-",
 			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
 		{name: "logout-all/token vencido o inexistente", method: http.MethodPost, target: "/auth/logout-all", token: "otro-token",
