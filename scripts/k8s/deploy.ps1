@@ -1106,7 +1106,17 @@ function Phase10 {
   $vlog = @(K logs job/soloservis-smoke-test -c origen)
   Show (Get-VisorSummary $vlog)
   $visor = "$(@($vlog | Where-Object { $_ -match '^Resultado:' })[0])" -replace '^Resultado: ', ''
+  if (-not $smoke) { $smoke = 'sin resultado' }
+  if (-not $visor) { $visor = 'sin resultado' }
   $summary = "smoke: $smoke | visor: $visor"
+  if (-not $log -and -not $vlog) {
+    # Sin logs: el pod no llego a correr (por ejemplo, el sidecar destino no
+    # paso su startupProbe) o Kubernetes ya lo borro al vencer el plazo.
+    Write-Host '  Sin logs: el pod no llego a correr o Kubernetes ya lo borro. Estado del pod:' -ForegroundColor Yellow
+    $pods = @(K get pods -l job-name=soloservis-smoke-test -o wide)
+    if ($pods) { Show $pods } else { Show @('(no queda ningun pod del Job)') }
+    Show (K get job soloservis-smoke-test -o 'jsonpath={.status.conditions[*].message}')
+  }
   if ($state -ne 'complete') {
     $cp['Pod de test'] = "ERROR ($state; $summary)"
     Show (K get events --sort-by=.lastTimestamp) -Tail 10

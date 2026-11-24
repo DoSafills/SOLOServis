@@ -804,7 +804,15 @@ phase10() {
   echo "${C_DIM}  Resultado del visor de llamadas (contenedor origen):${C_OFF}"
   k logs job/soloservis-smoke-test -c origen 2>&1 | visor_summary | show
   visor="$(k logs job/soloservis-smoke-test -c origen 2>/dev/null | sed -n 's/^Resultado: //p' | head -1)"
-  summary="smoke: $smoke | visor: $visor"
+  summary="smoke: ${smoke:-sin resultado} | visor: ${visor:-sin resultado}"
+  if [ -z "$smoke" ] && [ -z "$visor" ]; then
+    # Sin logs: el pod no llego a correr (por ejemplo, el sidecar destino no
+    # paso su startupProbe) o Kubernetes ya lo borro al vencer el plazo.
+    echo "${C_YELLOW}  Sin logs: el pod no llego a correr o Kubernetes ya lo borro. Estado del pod:${C_OFF}"
+    k get pods -l job-name=soloservis-smoke-test -o wide 2>&1 | show
+    k get job soloservis-smoke-test -o 'jsonpath={.status.conditions[*].message}' 2>&1 | show
+    echo
+  fi
   if [ "$state" != complete ]; then
     cp_set "Pod de test" "ERROR ($state; $summary)"
     k get events --sort-by=.lastTimestamp 2>&1 | tail -10 | show
