@@ -105,17 +105,12 @@
 # y enlaza "Falabella Scraper" con su tienda; idempotente.
 044_data_integrity.sql
 
+
 # TAL-241: borra productos, usuarios y marcas del seed (rescata los precios
 # que el scraper dejó en una oferta demo) y repara las tildes cp850 del seed.
 044_delete_demo_seed.sql
 045_fix_seed_encoding_cp850.sql
-
 # TAL-194: función manual cleanup_obsolete_data(meses, dry_run); no se ejecuta sola.
 045_cleanup_obsolete_data.sql
-
 # TAL-192: índices de búsqueda, ofertas, reseñas, favoritos y FK; quita índice duplicado de sesiones.
 046_index_review.sql
-
-
-
-#Recordar la eliminacion de las migracions y seeds al llegar a main
