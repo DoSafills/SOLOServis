@@ -119,3 +119,8 @@
 
 # TAL-209: huella estructural por corrida y tabla source_change_event; aditiva e idempotente.
 047_source_change_event.sql
+
+# 048: producto de demostración completo (SKU SEED-WHIRLPOOL-WRS571CIHZ) con
+# ofertas en Falabella, Ripley y Lider, historial de 12+ meses y atributos;
+# idempotente, sin usuarios ni reseñas.
+048_seed_producto_demo.sql
