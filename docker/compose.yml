@@ -1,6 +1,7 @@
 # SOLOServis en local con la arquitectura consolidada (TAL-109): PostgreSQL,
-# los 3 procesos de dominio y el scraper. Es la misma topología "dominios" de
-# Kubernetes (k8s/components/dominios).
+# los 3 procesos de dominio, el gateway (nginx del frontend) y el scraper. Es
+# la misma topología "dominios" de Kubernetes (k8s/components/dominios): el
+# navegador entra por el gateway y él enruta cada prefijo a su proceso.
 #
 #   docker compose --env-file .env -f docker/compose.yml up -d --build
 #
@@ -131,6 +132,44 @@ services:
       postgres:
         condition: service_healthy
       comercial:
+        condition: service_healthy
+
+  # Gateway: el nginx del frontend, igual que en el clúster. Publica la SPA en
+  # 8443 (el mismo puerto que `pnpm dev`, no correr los dos a la vez) y
+  # enruta /products, /auth, /cart, ... a los procesos de dominio. Sin este
+  # servicio, en local cada API se prueba por su puerto y nadie valida el
+  # enrutamiento ni el problem+json que ve el navegador.
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend/Dockerfile
+    image: soloservis/frontend:local
+    container_name: soloservis_frontend
+    restart: unless-stopped
+    environment:
+      # Mismos destinos que k8s/components/dominios: el dominio sirve todas
+      # sus APIs en el puerto 8080.
+      PRODUCT_UPSTREAM: comercial:8080
+      STORE_UPSTREAM: comercial:8080
+      SERVICE_UPSTREAM: comercial:8080
+      AUTH_UPSTREAM: usuarios:8080
+      FAVORITES_UPSTREAM: comercial:8080
+      CART_UPSTREAM: comercial:8080
+      SEARCH_UPSTREAM: comercial:8080
+      COMPARISON_UPSTREAM: comercial:8080
+      REVIEW_UPSTREAM: comercial:8080
+      WATCHLIST_UPSTREAM: comercial:8080
+    ports:
+      - "8443:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      comercial:
+        condition: service_healthy
+      usuarios:
         condition: service_healthy
 
   scraper:
