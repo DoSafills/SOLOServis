@@ -74,6 +74,11 @@ func FromService(
 		if offer.CoverageSummary.Valid {
 			result.Coverage = offer.CoverageSummary.String
 		}
+
+		// URL pública del plan en el proveedor, para el enlace del detalle.
+		if offer.ServiceUrl.Valid {
+			result.ServiceURL = offer.ServiceUrl.String
+		}
 	}
 
 	for _, point := range history {

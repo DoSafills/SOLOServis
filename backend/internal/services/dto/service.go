@@ -18,7 +18,11 @@ type ServiceDetail struct {
 	Benefits         []string          `json:"benefits"`
 	Coverage         string            `json:"coverage"`
 	Image            string            `json:"image"`
-	PriceHistory     []PricePoint      `json:"priceHistory"`
+	// ServiceURL es la página del plan en el proveedor; el frontend la usa
+	// para el botón "ir al servicio". Vacía en las ofertas antiguas que no
+	// la registraron.
+	ServiceURL   string       `json:"serviceUrl"`
+	PriceHistory []PricePoint `json:"priceHistory"`
 }
 
 type PricePoint struct {

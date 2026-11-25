@@ -136,7 +136,10 @@ func TestList_VacioDevuelveArreglo(t *testing.T) {
 func TestGetByPublicID_Feliz(t *testing.T) {
 	store := &fakeStore{
 		service: generated.GetServiceByPublicIDRow{ID: 7, PublicID: uuidOf(t, testServiceID), Name: "Fibra 600", CategoryName: "Internet"},
-		offers:  []generated.ListServiceOffersRow{{ID: 3, ServiceID: 7, ProviderName: "Movistar"}},
+		offers: []generated.ListServiceOffersRow{{
+			ID: 3, ServiceID: 7, ProviderName: "Movistar",
+			ServiceUrl: pgtype.Text{String: "https://catalogo.movistar.cl/planes/600", Valid: true},
+		}},
 	}
 	rec, _ := serve(t, store, "/services/"+testServiceID)
 	requireStatus(t, rec, http.StatusOK)
@@ -149,6 +152,16 @@ func TestGetByPublicID_Feliz(t *testing.T) {
 	}
 	if body.ID != testServiceID || body.Name != "Fibra 600" || body.OfferID != 3 {
 		t.Fatalf("body = %+v", body)
+	}
+	if body.ServiceURL != "https://catalogo.movistar.cl/planes/600" {
+		t.Fatalf("serviceUrl = %q", body.ServiceURL)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["serviceUrl"] != "https://catalogo.movistar.cl/planes/600" {
+		t.Fatalf("json serviceUrl = %v", raw["serviceUrl"])
 	}
 }
 
