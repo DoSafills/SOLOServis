@@ -66,6 +66,12 @@ def test_control_api_end_to_end(settings, monkeypatch):
                 "movistar-cl",
                 "gtd-cl",
             }
+            entel = next(store for store in stores if store["slug"] == "entel-cl")
+            assert entel["targetType"] == "service"
+            assert entel["provider"] == "entel"
+            ripley = next(store for store in stores if store["slug"] == "ripley-cl")
+            assert ripley["targetType"] == "product"
+            assert ripley["provider"] is None
 
             keyed = {**headers, "Idempotency-Key": "schedule-2026-11-03"}
             first = await client.post("/runs", json={"store": "ripley-cl"}, headers=keyed)
