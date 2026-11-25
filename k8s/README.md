@@ -273,7 +273,12 @@ El script guarda el registry, el tag y la StorageClass elegida en `k8s/overlays/
 
 ## 5. Pod de test
 
-Un Job (`soloservis-smoke-test`, imagen `curlimages/curl`) que corre `k8s/tests/smoke-test.sh` **dentro del clúster** y termina. **No escribe nada en la base:** solo hace lecturas, y los dos POST van sin token y se rechazan antes de tocarla. Detecta solo la topología (dominios o consolidado). Son 30 verificaciones de las APIs en `dominios`, más hasta 6 del scraper cuando `scraper-api` está desplegado.
+Un Job (`soloservis-smoke-test`) que corre **dentro del clúster** y termina. Su pod tiene tres contenedores:
+
+- `smoke-test` (`curlimages/curl`) corre `k8s/tests/smoke-test.sh`: las verificaciones de la tabla de abajo.
+- `origen` y el sidecar `destino` (`python:3.13-alpine`) son el [visor de llamadas](#visor-de-llamadas).
+
+El Job termina en `Complete` solo si `smoke-test` y `origen` pasan. **No escribe nada en la base:** solo hace lecturas, y los POST van sin token o con bodies que la API rechaza antes de tocarla. Detecta solo la topología (dominios o consolidado). El smoke test hace 30 verificaciones de las APIs en `dominios`, más hasta 6 del scraper cuando `scraper-api` está desplegado.
 
 | Verificación | Qué espera |
 |---|---|
@@ -312,18 +317,18 @@ kubectl apply -k k8s/tests
 ```
 
 ```bash
-kubectl wait --for=condition=complete job/soloservis-smoke-test --timeout=180s
+kubectl wait --for=condition=complete job/soloservis-smoke-test --timeout=600s
 ```
 
 ```bash
-kubectl logs job/soloservis-smoke-test
+kubectl logs job/soloservis-smoke-test -c smoke-test
 ```
 
 Cada línea dice `OK` o `FALLA` con el código HTTP y la URL; la última es `Resultado: N OK, M fallas`. El Job termina en `Complete` si todo pasa y en `Failed` si algo falla. Se borra solo una hora después.
 
 ### Visor de llamadas
 
-Otro Job, aparte de la fase 10: `soloservis-llamadas` (`k8s/tests/llamadas`). Simula el uso de las APIs y el flujo scraper → ingestion → catálogo → gateway, y muestra cada llamada en dos ventanas:
+Corre en el mismo pod de test, junto al smoke test, así que la Fase 10 lo ejecuta en cada deploy y muestra su resumen. Simula el uso de las APIs y el flujo scraper → ingestion → catálogo → gateway, y muestra cada llamada en dos ventanas:
 
 - `origen` corre los escenarios y muestra lo que envía, lo que le vuelve y si coincide con lo esperado.
 - `destino` es un sidecar que hace de proxy: muestra lo que le llega a cada servicio y lo que responde.
@@ -334,28 +339,28 @@ Cada llamada lleva un `X-Request-ID` propio (`t165-05-productos-pagina`), el mis
 - TAL-166: valores válidos, inválidos, incompletos y límite, y la forma de cada salida (problem+json, `request_id`, camelCase, sin detalles internos).
 - TAL-167: la última corrida real de cada tienda, del scraper a Ingestion API, al catálogo y al gateway.
 
-**No escribe en la base:** las únicas escrituras son pedidos que Ingestion API y Auth API rechazan al decodificar o validar, antes de la consulta. El token sale de `soloservis-scraper` y no se imprime. Ocupa un pod con 2 contenedores de 25m/64Mi (límite 100m/64Mi).
+**No escribe en la base:** las únicas escrituras son pedidos que Ingestion API y Auth API rechazan al decodificar o validar, antes de la consulta. El token sale de `soloservis-scraper` y no se imprime. Suma 2 contenedores de 25m/64Mi (límite 100m/64Mi) al pod de test; no ocupa un pod aparte. En el deploy corre con `PAUSA=0` para no alargar la Fase 10.
 
 ```bash
 python scripts/testing/llamadas.py --ventanas
 ```
 
-Recrea el Job, abre dos PowerShell (`ORIGEN` y `DESTINO`) con `kubectl logs -f` y, al terminar, deja en `docs/reportes/testing/llamadas-<fecha>.md` cada llamada lado a lado, con la línea del AccessLog del backend o del nginx que tiene el mismo id. `--tickets 166` corre uno solo y `--pausa 1` hace más lenta la secuencia. A mano:
+Recrea el Job del pod de test (con smoke test incluido), abre dos PowerShell (`ORIGEN` y `DESTINO`) con `kubectl logs -f` y, al terminar, deja en `docs/reportes/testing/llamadas-<fecha>.md` cada llamada lado a lado, con la línea del AccessLog del backend o del nginx que tiene el mismo id. `--tickets 166` corre uno solo y `--pausa 1` hace más lenta la secuencia. A mano:
 
 ```bash
-kubectl delete job soloservis-llamadas --ignore-not-found
+kubectl delete job soloservis-smoke-test --ignore-not-found
 ```
 
 ```bash
-kubectl apply -k k8s/tests/llamadas
+kubectl apply -k k8s/tests
 ```
 
 ```bash
-kubectl logs -f job/soloservis-llamadas -c origen
+kubectl logs -f job/soloservis-smoke-test -c origen
 ```
 
 ```bash
-kubectl logs -f job/soloservis-llamadas -c destino
+kubectl logs -f job/soloservis-smoke-test -c destino
 ```
 
 ---
@@ -731,8 +736,8 @@ k8s/
 │   ├── consolidado/              Deployment "backend" con las 14 APIs + destino del nginx (respaldo)
 │   ├── espera-postgres/          initContainer que espera a PostgreSQL; lo incluyen las dos topologías
 │   └── red/                      NetworkPolicy: niega todo y abre solo lo que la app usa (si hay permiso)
-├── tests/                        pod de test: Job + smoke-test.sh (solo lecturas)
-│   └── llamadas/                 visor de llamadas: Job con origen y destino
+├── tests/                        pod de test: Job con smoke-test.sh y el visor de llamadas
+│                                 (origen.py, destino.py, escenarios.py, flujo.py); solo lecturas
 └── overlays/uct/                 GENERADO por el script (ignorado por git): namespace, imágenes,
                                   StorageClass, host y los .sql de backend/database/migrations
 scripts/k8s/deploy.ps1            despliegue por fases (PowerShell 5.1+)

@@ -11,7 +11,8 @@
                  y API_DOMAIN distinto: comercial (11 APIs), usuarios (auth, user)
                  e ingestion.
     consolidado  (respaldo) las 14 APIs en un solo Deployment "backend".
-  La Fase 10 corre el pod de test (k8s/tests): solo lecturas, no escribe nada.
+  La Fase 10 corre el pod de test (k8s/tests): smoke test y visor de llamadas
+  en un solo Job; solo lecturas, no escribe nada.
 
   NetworkPolicy (k8s/components/red, TAL-197): si la plataforma permite crearlas
   (kubectl auth can-i create networkpolicies), la Fase 4 aplica una red que niega
@@ -1061,8 +1062,26 @@ function Phase9 {
 
 # ---------------------------------------------------------------- FASE 10
 
-# Pod de test (k8s/tests): un Job con curl que verifica health, una lectura por
-# API, rutas protegidas, aislamiento entre dominios y el nginx. Solo lee.
+# Get-VisorSummary devuelve, del log del contenedor origen ($Log, lineas), solo
+# el bloque final de resumen del visor de llamadas: desde la linea "Resumen"
+# hasta el final, sin las lineas @@@REGISTRO (el JSON para
+# scripts/testing/llamadas.py). Si no hay resumen (origen no termino),
+# devuelve las ultimas 15 lineas para ver donde se corto.
+function Get-VisorSummary([string[]]$Log) {
+  $Log = @($Log | Where-Object { $_ -notmatch '^@@@REGISTRO ' })
+  $start = -1
+  for ($i = $Log.Count - 1; $i -ge 0; $i--) {
+    if ($Log[$i] -match 'Resumen') { $start = $i; break }
+  }
+  if ($start -lt 0) { return @($Log | Select-Object -Last 15) }
+  return @($Log[$start..($Log.Count - 1)])
+}
+
+# Pod de test (k8s/tests): un Job con tres contenedores. smoke-test (curl)
+# verifica health, una lectura por API, rutas protegidas, aislamiento entre
+# dominios y el nginx; origen y el sidecar destino son el visor de llamadas
+# (TAL-165/166/167). El Job termina bien solo si smoke-test y origen pasan.
+# Solo lee.
 function Phase10 {
   $cp = [ordered]@{}
   Step 'Recreando el Job soloservis-smoke-test (los Jobs son inmutables)'
@@ -1070,27 +1089,46 @@ function Phase10 {
   Show (K apply -k (Join-Path $RepoRoot 'k8s/tests'))
   if ($script:KExit -ne 0) { $cp['Pod de test'] = 'ERROR'; Stop-Phase 10 $cp 'kubectl apply -k k8s/tests fallo' }
 
-  Step 'Esperando el Job (max 3 min)'
+  Step 'Esperando el Job (max 10 min)'
   $state = 'timeout'
-  $deadline = (Get-Date).AddSeconds(180)
+  $deadline = (Get-Date).AddSeconds(600)
   while ((Get-Date) -lt $deadline) {
     $j = KJson get job soloservis-smoke-test
     if ($j -and $j.status.succeeded -ge 1) { $state = 'complete'; break }
     if ($j -and $j.status.failed -ge 1) { $state = 'failed'; break }
     Start-Sleep -Seconds 3
   }
-  Write-Host '  Resultado del pod de test:' -ForegroundColor DarkGray
-  $log = @(K logs job/soloservis-smoke-test)
+  Write-Host '  Resultado del smoke test:' -ForegroundColor DarkGray
+  $log = @(K logs job/soloservis-smoke-test -c smoke-test)
   Show $log
-  $summary = "$(@($log | Where-Object { $_ -match '^Resultado:' })[0])" -replace '^Resultado: ', ''
+  $smoke = "$(@($log | Where-Object { $_ -match '^Resultado:' })[0])" -replace '^Resultado: ', ''
+  Write-Host '  Resultado del visor de llamadas (contenedor origen):' -ForegroundColor DarkGray
+  $vlog = @(K logs job/soloservis-smoke-test -c origen)
+  Show (Get-VisorSummary $vlog)
+  $visor = "$(@($vlog | Where-Object { $_ -match '^Resultado:' })[0])" -replace '^Resultado: ', ''
+  if (-not $smoke) { $smoke = 'sin resultado' }
+  if (-not $visor) { $visor = 'sin resultado' }
+  $summary = "smoke: $smoke | visor: $visor"
+  if (-not $log -and -not $vlog) {
+    # Sin logs: el pod no llego a correr (por ejemplo, el sidecar destino no
+    # paso su startupProbe) o Kubernetes ya lo borro al vencer el plazo.
+    Write-Host '  Sin logs: el pod no llego a correr o Kubernetes ya lo borro. Estado del pod:' -ForegroundColor Yellow
+    $pods = @(K get pods -l job-name=soloservis-smoke-test -o wide)
+    if ($pods) { Show $pods } else { Show @('(no queda ningun pod del Job)') }
+    Show (K get job soloservis-smoke-test -o 'jsonpath={.status.conditions[*].message}')
+  }
   if ($state -ne 'complete') {
-    $cp['Pod de test'] = "ERROR ($state $summary)"
+    $cp['Pod de test'] = "ERROR ($state; $summary)"
     Show (K get events --sort-by=.lastTimestamp) -Tail 10
     Stop-Phase 10 $cp 'alguna verificacion del pod de test fallo (ver las lineas FALLA)'
   }
   $cp['Pod de test'] = "OK ($summary)"
   $cp['Bloqueos'] = 'ninguno'
   Checkpoint 10 $cp
+
+  Write-Host 'Visor de llamadas, una terminal por ventana (el Job se borra 1 h despues de terminar):' -ForegroundColor DarkGray
+  Write-Host '  kubectl logs job/soloservis-smoke-test -c origen' -ForegroundColor DarkGray
+  Write-Host '  kubectl logs job/soloservis-smoke-test -c destino' -ForegroundColor DarkGray
 
   Write-Host 'Para abrir la app:' -ForegroundColor Green
   Write-Host "  $(Get-FrontendUrl)" -ForegroundColor Green

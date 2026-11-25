@@ -60,8 +60,7 @@ EOF
 done
 
 mkdir -p "$TMP"
-check "tests (pod de pruebas)" "$ROOT/k8s/tests"
-check "tests (visor de llamadas)" "$ROOT/k8s/tests/llamadas"
+check "tests (pod de pruebas con el visor de llamadas)" "$ROOT/k8s/tests"
 
 if [ "$failed" -ne 0 ]; then
   echo "FALLA: hay manifiestos que la API de Kubernetes rechazaria."
