@@ -110,7 +110,12 @@
 # que el scraper dejó en una oferta demo) y repara las tildes cp850 del seed.
 044_delete_demo_seed.sql
 045_fix_seed_encoding_cp850.sql
+
 # TAL-194: función manual cleanup_obsolete_data(meses, dry_run); no se ejecuta sola.
 045_cleanup_obsolete_data.sql
+
 # TAL-192: índices de búsqueda, ofertas, reseñas, favoritos y FK; quita índice duplicado de sesiones.
 046_index_review.sql
+
+# TAL-209: huella estructural por corrida y tabla source_change_event; aditiva e idempotente.
+047_source_change_event.sql

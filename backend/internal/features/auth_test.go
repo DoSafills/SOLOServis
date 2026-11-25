@@ -25,7 +25,8 @@ var testPasswordHash = func() string {
 // Reglas de issueTokens: lee el usuario, poda sus sesiones (TAL-200) y
 // guarda la nueva.
 var (
-	userProfile = qRow("SELECT name,email FROM user_account", "Ana", "ana@mail.cl")
+	userProfile = qRow("SELECT name,email,public_id::text,avatar_mime IS NOT NULL",
+		"Ana", "ana@mail.cl", "00000000-0000-0000-0000-000000000007", true)
 	pruneSessions = qExec("DELETE FROM user_session WHERE user_id=$1 AND", 0)
 	saveSession   = qExec("INSERT INTO user_session", 1)
 )
@@ -74,7 +75,7 @@ func TestAuthAPI(t *testing.T) {
 		{name: "login/feliz", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
 			rules:         []rule{qRow(findUser, int32(7), testPasswordHash), userProfile, pruneSessions, saveSession},
 			wantStatus:    http.StatusOK,
-			wantBody:      `"accessToken"`,
+			wantBody:      `"avatarUrl":"/users/00000000-0000-0000-0000-000000000007/avatar"`,
 			wantBodyNot:   `"refreshToken"`,
 			wantSetCookie: refreshCookieSet},
 		{name: "login/refreshToken en el body", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
@@ -97,7 +98,7 @@ func TestAuthAPI(t *testing.T) {
 			rules:      []rule{qFail(findUser, errBoom)},
 			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
 		{name: "login/usuario desactivado al emitir tokens", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
-			rules:      []rule{qRow(findUser, int32(7), testPasswordHash), qNoRows("SELECT name,email FROM user_account")},
+			rules:      []rule{qRow(findUser, int32(7), testPasswordHash), qNoRows("SELECT name,email,public_id")},
 			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
 		{name: "login/falla al podar sesiones", method: http.MethodPost, target: "/auth/login", body: login, token: "-",
 			rules:      []rule{qRow(findUser, int32(7), testPasswordHash), userProfile, qFail(pruneSessions.sql, errBoom)},
@@ -119,12 +120,11 @@ func TestAuthAPI(t *testing.T) {
 			wantBody:      `"accessToken"`,
 			wantBodyNot:   `"refreshToken"`,
 			wantSetCookie: refreshCookieSet},
-		{name: "refresh/cuenta desactivada", method: http.MethodPost, target: "/auth/refresh", body: `{"refreshToken":"r"}`, token: "-",
-			rules:      []rule{qRow(rotate, int32(7), float64(3600)), qNoRows("SELECT name,email FROM user_account")},
+		{name: "refresh/sin token", method: http.MethodPost, target: "/auth/refresh", body: `{}`, token: "-",
 			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
-		{name: "refresh/reglas", method: http.MethodPost, target: "/auth/refresh", body: `{}`, token: "-",
-			wantStatus: http.StatusUnprocessableEntity, wantCode: httpx.CodeValidationFailed,
-			wantFields: []string{"refreshToken/required"}},
+		{name: "refresh/cuenta desactivada", method: http.MethodPost, target: "/auth/refresh", body: `{"refreshToken":"r"}`, token: "-",
+			rules:      []rule{qRow(rotate, int32(7), float64(3600)), qNoRows("SELECT name,email,public_id")},
+			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
 		{name: "refresh/vencido", method: http.MethodPost, target: "/auth/refresh", body: `{"refreshToken":"r"}`, token: "-",
 			rules:      []rule{qNoRows(rotate)},
 			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
@@ -154,6 +154,14 @@ func TestAuthAPI(t *testing.T) {
 		{name: "logout/error interno", method: http.MethodPost, target: "/auth/logout",
 			rules:      []rule{qFail("DELETE FROM user_session", errBoom)},
 			wantStatus: http.StatusInternalServerError, wantCode: httpx.CodeInternalError},
+
+		// POST /auth/logout-all
+		{name: "logout-all/feliz", method: http.MethodPost, target: "/auth/logout-all",
+			rules:         []rule{qExec("DELETE FROM user_session WHERE user_id", 1)},
+			wantStatus:    http.StatusNoContent,
+			wantSetCookie: expiredRefreshCookieSet},
+		{name: "logout-all/sin sesión", method: http.MethodPost, target: "/auth/logout-all", token: "-",
+			wantStatus: http.StatusUnauthorized, wantCode: httpx.CodeUnauthorized},
 
 		// POST /auth/change-password
 		{name: "change-password/feliz", method: http.MethodPost, target: "/auth/change-password",

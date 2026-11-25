@@ -1172,7 +1172,11 @@ ON CONFLICT (
     (COALESCE(normalize_product_offer_url(product_url), ''))
 )
 DO UPDATE SET
-    price = EXCLUDED.price,
+    price = CASE
+        WHEN (EXCLUDED.price IS NULL OR EXCLUDED.price <= 0) AND product_offer.price > 0
+            THEN product_offer.price
+        ELSE EXCLUDED.price
+    END,
     currency = EXCLUDED.currency,
     product_url = EXCLUDED.product_url,
     available = EXCLUDED.available,
