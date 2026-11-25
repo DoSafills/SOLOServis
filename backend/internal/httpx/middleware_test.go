@@ -101,6 +101,61 @@ func TestAccessLog_CamposYNivel(t *testing.T) {
 	}
 }
 
+// TestAccessLog_RegistraCodeDelProblem comprueba que la línea http_request
+// lleve el code estable del problem+json (TAL-250), incluido el de Recover y
+// el de un middleware que envuelve el writer, y que no aparezca en una
+// respuesta normal ni en un error escrito sin WriteProblem.
+func TestAccessLog_RegistraCodeDelProblem(t *testing.T) {
+	tests := []struct {
+		name     string
+		handler  http.HandlerFunc
+		wantCode any
+	}{
+		{"422 validation_failed", func(w http.ResponseWriter, r *http.Request) {
+			WriteValidation(w, r, []FieldError{{Field: "name", Code: "required", Message: "x"}})
+		}, "validation_failed"},
+		{"404 de ruta inexistente", func(w http.ResponseWriter, r *http.Request) { WriteRouteNotFound(w, r) }, CodeNotFound},
+		{"429 rate_limited", func(w http.ResponseWriter, r *http.Request) {
+			WriteRateLimited(w, r, 0, "espera")
+		}, CodeRateLimited},
+		{"panic responde internal_error", func(http.ResponseWriter, *http.Request) { panic("boom") }, CodeInternalError},
+		{"writer envuelto por otro middleware", func(w http.ResponseWriter, r *http.Request) {
+			WriteProblem(struct{ http.ResponseWriter }{w}, r, http.StatusConflict, CodeConflict, "x")
+		}, CodeConflict},
+		{"se queda con el primer code", func(w http.ResponseWriter, r *http.Request) {
+			WriteProblem(w, r, http.StatusBadRequest, CodeMalformedJSON, "x")
+			WriteProblem(w, r, http.StatusInternalServerError, CodeInternalError, "y")
+		}, CodeMalformedJSON},
+		{"200 no lleva code", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) }, nil},
+		{"http.Error no lleva code", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "x", http.StatusBadRequest)
+		}, nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			logger := NewLogger(&logs, slog.LevelInfo)
+			req := httptest.NewRequest(http.MethodPost, "/products", nil)
+
+			chain(logger, tc.handler).ServeHTTP(httptest.NewRecorder(), req)
+
+			var access map[string]any
+			for _, entry := range logLines(t, &logs) {
+				if entry["msg"] == "http_request" {
+					access = entry
+				}
+			}
+			if access == nil {
+				t.Fatalf("no hay línea http_request: %s", logs.String())
+			}
+			if got := access["code"]; got != tc.wantCode {
+				t.Fatalf("log[code] = %v, quiero %v", got, tc.wantCode)
+			}
+		})
+	}
+}
+
 func TestAccessLog_NoRegistraBody(t *testing.T) {
 	var logs bytes.Buffer
 	logger := NewLogger(&logs, slog.LevelInfo)

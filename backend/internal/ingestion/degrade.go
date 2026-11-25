@@ -125,6 +125,20 @@ func EvaluateDegradation(counters Counters, baseline []int32, thresholds Thresho
 	return Degradation{Degraded: len(reasons) > 0, Reasons: reasons}
 }
 
+// allItemsFailed revisa lo que ingestion registró de la corrida, sin mirar
+// los contadores del scraper: si no procesó ningún ítem y rechazó al menos
+// uno, la tienda no entregó nada utilizable (TAL-250). Sirve también con
+// scrapers que no envían contadores. Devuelve el veredicto con su razón.
+func allItemsFailed(run Run) Degradation {
+	if run.RecordsProcessed > 0 || run.RecordsFailed <= 0 {
+		return Degradation{}
+	}
+	return Degradation{
+		Degraded: true,
+		Reasons:  []string{fmt.Sprintf("ingestion rechazó los %d ítems enviados", run.RecordsFailed)},
+	}
+}
+
 // median devuelve la mediana de `values` sin modificar la entrada.
 //
 // Con un número par de elementos toma el menor de los dos centrales, para

@@ -51,6 +51,10 @@ func registerRoutes(r chi.Router, name string, h *Handler, admin func(http.Handl
 		r.Post("/auth/refresh", h.Refresh)
 		r.Post("/auth/logout", h.Logout)
 		r.Get("/auth/validate", h.ValidateToken)
+		// Cambiar la contraseña y cerrar todas las sesiones actúan en nombre
+		// de un usuario: exigen sesión.
+		r.With(h.requireSession).Post("/auth/change-password", h.ChangePassword)
+		r.With(h.requireSession).Post("/auth/logout-all", h.LogoutAll)
 	case "favorites-api":
 		r.Group(func(r chi.Router) {
 			r.Use(h.requireSession)

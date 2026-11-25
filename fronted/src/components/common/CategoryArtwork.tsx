@@ -60,10 +60,20 @@ const artworkByIcon: Record<CategoryIconName, string> = {
 interface Props {
   name: string;
   type: "product" | "service";
+  /** Ícono explícito (el del árbol NV); si falta se infiere del nombre. */
+  icon?: CategoryIconName;
 }
 
-export default function CategoryArtwork({ name, type }: Props) {
-  const icon = type === "product" ? getProductCategoryIcon(name) : getServiceCategoryIcon(name);
+/**
+ * Ilustración de una categoría con emoji de respaldo si la imagen falla.
+ * @param props.name Nombre de la categoría.
+ * @param props.type Si es categoría de producto o de servicio.
+ * @param props.icon Ícono del árbol NV; por defecto se infiere del nombre.
+ * @returns La imagen de la categoría o su emoji equivalente.
+ */
+export default function CategoryArtwork({ name, type, icon: iconProp }: Props) {
+  const icon =
+    iconProp ?? (type === "product" ? getProductCategoryIcon(name) : getServiceCategoryIcon(name));
   const artworkUrl = `${API_URLS.products}/categories/artworks/${artworkByIcon[icon]}`;
   const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(null);
 

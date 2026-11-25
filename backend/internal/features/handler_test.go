@@ -159,21 +159,26 @@ type apiCase struct {
 	name        string
 	method      string
 	target      string
-	body        string // JSON; vacío = sin body
-	contentType string // por defecto application/json si hay body
-	token       string // por defecto userToken; "-" = sin Authorization
+	body        string            // JSON; vacío = sin body
+	contentType string            // por defecto application/json si hay body
+	token       string            // por defecto userToken; "-" = sin Authorization
+	cookie      string            // header Cookie de la request
+	headers     map[string]string // headers adicionales
 	rules       []rule
 	commitErr   error
 	remote      map[string]string // path → JSON de las otras APIs; un path ausente responde 503
 
-	wantStatus int
-	wantCode   string   // code del problem; vacío en respuestas exitosas
-	wantFields []string // "campo/code" de errors[], en orden
-	wantBody   string   // fragmento del body exitoso
+	wantStatus    int
+	wantCode      string   // code del problem; vacío en respuestas exitosas
+	wantFields    []string // "campo/code" de errors[], en orden
+	wantBody      string   // fragmento del body exitoso
+	wantBodyNot   string   // fragmento que no debe aparecer en el body
+	wantSetCookie []string // fragmentos que debe contener algún Set-Cookie
 }
 
 func runCases(t *testing.T, api string, cases []apiCase) {
 	t.Helper()
+	t.Setenv("AUTH_COOKIE_SECURE", "true")
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -219,11 +224,26 @@ func runCases(t *testing.T, api string, cases []apiCase) {
 			default:
 				req.Header.Set("Authorization", "Bearer "+tc.token)
 			}
+			if tc.cookie != "" {
+				req.Header.Set("Cookie", tc.cookie)
+			}
+			for key, value := range tc.headers {
+				req.Header.Set(key, value)
+			}
 			rec := httptest.NewRecorder()
 			r.ServeHTTP(rec, req)
 
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, quiero %d (%s)", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			setCookies := strings.Join(rec.Header().Values("Set-Cookie"), "\n")
+			for _, want := range tc.wantSetCookie {
+				if !strings.Contains(setCookies, want) {
+					t.Fatalf("Set-Cookie = %q, quiero que contenga %q", setCookies, want)
+				}
+			}
+			if tc.wantBodyNot != "" && strings.Contains(rec.Body.String(), tc.wantBodyNot) {
+				t.Fatalf("body = %s, no debe contener %s", rec.Body.String(), tc.wantBodyNot)
 			}
 			if tc.wantCode == "" {
 				checkSuccess(t, rec, tc.wantBody)

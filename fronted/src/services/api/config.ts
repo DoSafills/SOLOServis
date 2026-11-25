@@ -5,6 +5,7 @@ export const API_URLS = {
   services: import.meta.env.VITE_SERVICES_API_URL ?? import.meta.env.VITE_SERVICE_API_URL ?? "",
   search: import.meta.env.VITE_SEARCH_API_URL ?? "",
   auth: import.meta.env.VITE_AUTH_API_URL ?? "",
+  users: import.meta.env.VITE_USERS_API_URL ?? "",
   favorites: import.meta.env.VITE_FAVORITES_API_URL ?? "",
   cart: import.meta.env.VITE_CART_API_URL ?? "",
   comparison: import.meta.env.VITE_COMPARISON_API_URL ?? "",

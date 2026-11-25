@@ -451,7 +451,8 @@ Las variables pueden obtenerse del entorno de ejecución o del archivo `.env`.
 | `SERVICE_API_URL` | Dirección interna de Service API. |
 | `PRICING_API_URL` | Dirección interna de Pricing API. |
 | `NOTIFICATION_API_URL` | Dirección interna de Notification API. |
-| `INTERNAL_API_TOKEN` | Token para operaciones internas autorizadas (mínimo 32 caracteres; si es más corto se ignora). |
+| `INTERNAL_API_TOKEN` | Token para operaciones internas autorizadas (mínimo 32 caracteres; si es más corto se ignora). No abre `/ingestion/*`. |
+| `INGESTION_API_TOKEN` | Token del scraper: lo único que abre `/ingestion/*` además de una sesión admin, y no sirve en ninguna otra ruta (TAL-199). Mínimo 32 caracteres. |
 | `AI_PROVIDER` | Proveedor del asistente de comparación (`auto` por defecto: Gemini con `AI_API_KEY`). En el clúster es `compatible` (DeepSeek). |
 | `AI_MODEL` | Modelo del asistente (`gemini-3.5-flash` por defecto; en el clúster `deepseek-chat`). |
 | `AI_API_KEY` | Clave del proveedor. **Solo backend.** Sin ella `auto` responde 503 `ai_unavailable`: la ruta no genera texto propio. En el clúster vive en el Secret `soloservis-ai`. |
@@ -476,6 +477,7 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/soloservis
 API_DOMAIN=
 GATEWAY_URL=
 INTERNAL_API_TOKEN=
+INGESTION_API_TOKEN=
 LOG_LEVEL=
 ```
 
@@ -635,6 +637,10 @@ Documentación complementaria:
 database/Readme.md
 ```
 
+## 10.5 Migraciones recientes
+
+- `042_merge_duplicate_products.sql` (TAL-191): fusiona productos activos duplicados que comparten marca, categoría y nombre normalizado. Conserva el producto con más ofertas, mueve las ofertas (con su historial de precios) e imágenes, y copia atributos y especificaciones que falten al superviviente. Es idempotente, termina sin hacer nada si no quedan duplicados y aborta si un duplicado tiene datos de usuario (interés, reseña, carrito o comparación) para fusionarlo a mano. Está al final de `migration_order.txt`.
+
 ---
 
 # 11. Acceso a datos y sqlc
@@ -787,6 +793,7 @@ internal/authz/
 | Authz | Validación de sesiones y permisos. |
 | User API | Información asociada a los usuarios. |
 | INTERNAL_API_TOKEN | Autorización de operaciones internas. |
+| INGESTION_API_TOKEN | Autorización del scraper, solo en `/ingestion/*`. |
 
 ## 13.2 Reglas de seguridad
 
@@ -798,23 +805,6 @@ internal/authz/
 - Los errores no deben revelar credenciales ni información sensible.
 
 Por ejemplo, enviar un `userId` diferente en una solicitud no debe permitir acceder a la información de otro usuario.
-
-## 13.3 Límite de solicitudes (TAL-201)
-
-Todos los límites responden **429** `rate_limited` en formato problem+json y con la cabecera `Retry-After` en segundos (`httpx.WriteRateLimited`).
-
-| Capa | Qué limita | Valor | Dónde |
-| --- | --- | --- | --- |
-| Gateway (nginx) | `POST /auth/login` y `/auth/register` por IP | 20 por minuto, ráfaga de 10 | `docker/frontend/default.conf.template` |
-| Gateway (nginx) | Resto de las APIs por IP | 30 por segundo, ráfaga de 60 | `docker/frontend/proxy.conf` |
-| Auth API | Logins fallidos por email (un email inexistente también cuenta) | 10 en 15 minutos; un login correcto reinicia la cuenta | `internal/features/auth.go` |
-| Auth API | Cálculos de PBKDF2 simultáneos (login y registro) | 2 a la vez; espera máxima de 2 s | `internal/features/auth.go` |
-| Search API | Búsquedas guardadas por usuario | 50; la siguiente responde 422 `name/max` | `internal/features/catalog.go` |
-| Search API | Historial de búsqueda por usuario | 100; al insertar se borran las más antiguas | `internal/features/catalog.go` |
-
-- Los contadores de la Auth API viven en memoria (`internal/ratelimit`): se reinician con el pod y suponen **una réplica** del dominio `usuarios`. Con más réplicas cada una contaría por su lado.
-- El gateway toma la IP del cliente de `X-Forwarded-For` solo si el salto anterior es de red privada (`real_ip_recursive`). Si el proxy de la plataforma no reenvía la IP real, todos los clientes comparten un cupo; por eso los límites del gateway son holgados y la Auth API cuenta además por email.
-- Llamar directo a `usuarios:8080` desde dentro del clúster se salta el gateway, pero no los límites de la Auth API.
 
 ---
 
@@ -851,9 +841,29 @@ PostgreSQL
 
 La API de Ingestion administra ejecuciones de integración y procesa los productos y ofertas recibidos.
 
+Cada ítem se procesa en **una sola transacción**: producto, imagen, oferta e historial de precios se confirman juntos o se revierten juntos (`internal/ingestion/processor.go`). Un fallo a mitad de camino no deja productos huérfanos ni productos sin su oferta.
+
 Cuando un ítem coincide con un producto ya catalogado (por SKU, marca + modelo o tienda + URL de la oferta), Ingestion solo actualiza la oferta: el catálogo lo cura el admin. La única excepción es la imagen (TAL-243): si el producto no tiene ninguna imagen activa y el ítem trae `product.imageUrl`, se guarda como imagen principal. Nunca reemplaza una imagen existente ni reactiva una URL que el admin desactivó.
 
-Las operaciones internas están protegidas por autorización administrativa o `INTERNAL_API_TOKEN`, según corresponda.
+Las rutas de Ingestion aceptan una sesión admin o `INGESTION_API_TOKEN`, el token del scraper. `INTERNAL_API_TOKEN` no las abre, y el token del scraper no sirve en ninguna otra API: si alguien compromete el pod del scraper, puede cargar ofertas pero no es admin del resto (TAL-199).
+
+## 14.1 Importar el catálogo local del scraper (`cmd/ingestion-import`)
+
+`cmd/ingestion-import` carga en PostgreSQL los archivos que el scraper deja en `out/catalog/<tienda>/*.json`. No escribe la base por su cuenta: envía cada ítem al mismo `Processor` de Ingestion API, así las reglas de producto, oferta e imagen son las mismas que en la carga por HTTP. Desde `backend/`:
+
+```bash
+go run ./cmd/ingestion-import -dir ../scraper/out/catalog/ripley-cl -store-id 4
+```
+
+| Flag | Regla |
+|---|---|
+| `-dir` | obligatorio; carpeta del catálogo de una tienda. |
+| `-store-id` | obligatorio; id de la tienda en PostgreSQL (no el de la base SQLite del scraper). |
+| `-source` | opcional; nombre de la fuente (por defecto, `source.name` del archivo). |
+| `-base-url` | opcional; URL base de la tienda (por defecto, `source.baseUrl` del archivo). |
+| `-batch` | ítems por lote, entre 1 y 100 (por defecto 100). |
+
+Es idempotente: un ítem que ya está catalogado se actualiza en vez de duplicarse, y los archivos que repiten la identidad de otro ítem del mismo lote se omiten. Al terminar reporta `creados`, `actualizados`, `omitidos` y `fallidos`, junto con la cantidad de archivos leídos.
 
 Documentación relacionada:
 
@@ -1392,7 +1402,7 @@ Se numeran 012 y 013 porque 009–011 son de TAL-67/68. Están registradas al fi
 | `category_attributes` | `key`, `label`, `data_type`, `unit`, `required`, `comparable`, `filterable`, `min_value`, `max_value`, `max_length`, `allowed_values`, `display_order` | FK a `categories` `ON DELETE CASCADE`; UNIQUE `(category_id, key)`; CHECK `key ^[a-z][a-z0-9_]{0,63}$`; `data_type` ∈ `string`, `integer`, `decimal`, `boolean`, `enum`; `allowed_values` solo y obligatorio en `enum`; `min`/`max` solo numéricos (enteros en `integer`, `min <= max`); `max_length` solo `string` (1–255); `unit` solo numéricos |
 | `category_artworks` | `artwork_key`, `svg_content`, `updated_at` | Clave primaria; contiene los SVG estáticos de las categorías |
 
-Las tablas antiguas (`product_category`, `service_category` y sus `*_specification`) se mantienen. La migración 019 vincula `refrigeradores` con la subcategoría `Refrigeradores` bajo `Electrodomésticos`, mueve allí los productos y sus valores de especificación, y deja inactiva la raíz antigua `Refrigeracion`.
+Las tablas antiguas (`service_category` y sus `*_specification`) se mantienen. `product_category` es ahora el **único árbol de productos**: 3 niveles por `parent_category_id` (1 raíz, 2 grupo, 3 hoja; solo las hojas reciben productos), con `slug` y `level` agregados en 036, que además absorbió las tablas `categories_nv1/2/3` y `product.category_nv3_id`. `categories.legacy_product_category_id` apunta a la hoja de nivel 3 (el `category_ref` del producto); los atributos siguen colgando de `categories` (`category_ref`), no del árbol. La migración 019 vincula `refrigeradores` con la subcategoría `Refrigeradores` bajo `Electrodomésticos`, mueve allí los productos y sus valores de especificación, y deja inactiva la raíz antigua `Refrigeracion`.
 
 Seeds: `refrigeradores`, `notebooks`, `televisores` (producto) e `internet-fibra-optica` (servicio), con atributos de los cinco `data_type`.
 
@@ -1651,7 +1661,7 @@ Desde TAL-70, Product API crea, consulta, edita y lista productos usando la cate
 `POST`, `PUT` y `DELETE` exigen `Authorization: Bearer <token>`:
 
 - **Sesión de Auth API** de un usuario con `role = 'admin'` (tabla `user_session`, se compara el SHA-256 del token).
-- **Token de servicio** `INTERNAL_API_TOKEN` (mínimo 32 caracteres; si es más corto se ignora). Ingestion API lo reenvía automáticamente (`features.remoteJSON`). En `docker/compose.yml` hay un valor de desarrollo que se reemplaza con la variable de entorno `INTERNAL_API_TOKEN`.
+- **Token de servicio** `INTERNAL_API_TOKEN` (mínimo 32 caracteres; si es más corto se ignora). Pricing e Ingestion lo reenvían a Notification API. Ingestion API no lo acepta: sus rutas usan `INGESTION_API_TOKEN` (TAL-199). En `docker/compose.yml` hay un valor de desarrollo que se reemplaza con la variable de entorno `INTERNAL_API_TOKEN`.
 
 | Caso | Status | `code` |
 | --- | --- | --- |
@@ -1683,12 +1693,12 @@ Nginx sigue bloqueando desde internet todo lo que no sea GET (`limit_except GET`
 
 | Campo | Regla |
 | --- | --- |
-| `categorySlug` / `categoryId` | **Exactamente uno**. `categorySlug` es el modelo nuevo (recomendado). `categoryId` (id de `product_category`) se mantiene para Ingestion API hasta TAL-77; si esa categoría tiene equivalente nueva, se aplican sus atributos. La categoría debe ser de tipo `product`, estar activa y tener equivalente en `product_category`. |
+| `categorySlug` / `categoryId` | **Exactamente uno**. `categorySlug` se resuelve contra `categories` (los alias de `slug.go` siguen vigentes) y se escribe en la hoja de nivel 3 enlazada por `legacy_product_category_id`; la escritura guarda `category_id` con esa hoja y `category_ref` con la fila de `categories`. `categoryId` es el id de `product_category`: se acepta cualquier nivel activo, se exige que sea una hoja de nivel 3 y `category_ref` queda `NULL` si no hay fila de `categories` enlazada. Si no existe o está inactivo: `not_found`; si no es una hoja de nivel 3 activa o es de servicios: `not_enabled`. |
 | `name` | obligatorio, máximo 255 caracteres |
 | `model` / `sku` / `description` | opcionales; máximo 150 / 100 / 5000 caracteres. `sku` es único. |
 | `brandId` | opcional, mayor que 0 y existente |
 | `imageUrl` | **obligatorio en POST**, URL http(s). En PUT no se acepta (las imágenes no se editan con PUT). |
-| `attributes` | se valida con `categories.ValidateAttributes` (sección 25.1): tipos sin conversión implícita, obligatorios, rangos, largos, enum y keys desconocidas. |
+| `attributes` | se valida con `categories.ValidateAttributes` (sección 25.1): tipos sin conversión implícita, obligatorios, rangos, largos, enum y keys desconocidas. Una hoja sin fila en `categories` no define atributos: el producto se acepta sin atributos y cualquier `attributes` responde `unknown_field`. |
 
 **PUT reemplaza el producto completo**: un campo opcional omitido queda vacío y los atributos se reemplazan por los enviados.
 
@@ -1696,7 +1706,7 @@ Orden de validación (TAL-78 §3): id de ruta (400) → decodificación (400/413
 
 ### Respuestas
 
-`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (`null` si la categoría antigua no tiene equivalente) y `attributes` con valores tipados. Respuesta real del `PUT` con el body de arriba:
+`POST /products` (201, con `Location: /products/{publicID}`) y `PUT` (200) devuelven el mismo cuerpo que `GET /products/{publicID}`. Al formato anterior se agregan `categorySlug` (el slug de la hoja de nivel 3; `null` si no tiene) y `attributes` con valores tipados. Respuesta real del `PUT` con el body de arriba:
 
 ```http
 PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
@@ -1725,7 +1735,8 @@ PUT /products/f670f409-4430-4758-b587-6b05153eb5e4  →  HTTP/1.1 200 OK
     "eficiencia_energetica": "A++",
     "no_frost": true,
     "peso_kg": 65.5
-  }
+  },
+  "updatedAt": "2026-11-22T15:43:49Z"
 }
 ```
 
@@ -1739,7 +1750,7 @@ Cada punto de `priceHistory` y `offerPriceHistory` conserva `date` y `price`, y 
 
 | Parámetro | Regla |
 | --- | --- |
-| `category` | id numérico de `product_category` (incluye subcategorías) **o** slug de `categories` |
+| `category` | id numérico de `product_category` **o** su slug (niveles 1–3). El alcance incluye las hojas de nivel 3 de su subárbol. Si no existe o está inactivo: 400 `not_found`. |
 | `limit` | 1–100, por defecto 100 (el catálogo actual tiene 38 productos) |
 | `offset` | ≥ 0, por defecto 0 |
 
@@ -1767,11 +1778,13 @@ El total sin paginar va en el header `X-Total-Count`. El listado usa 6 consultas
 | --- | --- | --- |
 | `publicID` no es UUID | 400 | `invalid_parameter` / `publicID` `format` |
 | `category`, `limit` u `offset` inválidos | 400 | `invalid_parameter` / `format`, `min`, `max`, `invalid_type` |
+| `category` inexistente, inactiva o con slug ambiguo | 400 | `category` `not_found` / `ambiguous` |
 | JSON malformado, campo desconocido, tipo incorrecto | 400 | `malformed_json`, `unknown_field`, `invalid_type` |
 | `Content-Type` distinto de JSON | 415 | `unsupported_media_type` |
 | Sin token / sin rol admin | 401 / 403 | `unauthorized` / `forbidden` |
 | Reglas de campos | 422 | `name` `required`/`max_length`, `categorySlug` `required`/`format`, `categoryId` `one_of`/`min`, `imageUrl` `required`/`format`, `brandId` `min` |
-| Categoría inexistente, de servicios o sin equivalente | 422 | `categorySlug`/`categoryId` `not_found` o `one_of` |
+| Categoría inexistente o inactiva | 422 | `categorySlug`/`categoryId` `not_found` |
+| Categoría sin hoja de nivel 3 activa o de servicios | 422 | `categorySlug`/`categoryId` `not_enabled` |
 | Atributos inválidos | 422 | `attributes.<key>` con `required`, `invalid_type`, `min`, `max`, `max_length`, `one_of`, `unknown_field` |
 | Marca inexistente | 422 | `brandId` `not_found` |
 | SKU duplicado | 409 | `conflict` |
@@ -2198,7 +2211,7 @@ adivinar. No hay LLM ni texto generado: `source` explica lo que pasó.
 | Parámetro | Regla |
 | --- | --- |
 | `q` | hasta 5 palabras y 200 caracteres; **cada palabra** debe aparecer en nombre, modelo, SKU o marca. Sin distinguir tildes ni mayúsculas (`translate`, sin extensiones). `%` y `_` son literales. |
-| `category` | slug de `categories` **o** id de `product_category` (incluye subcategorías) |
+| `category` | slug (niveles 1–3) o id numérico de `product_category`; el alcance incluye las hojas de nivel 3 del subárbol. Una hoja sin fila en `categories` se acepta como alcance (sin atributos definidos). |
 | `brand` | ids de marca separados por coma (hasta 20) |
 | `minPrice` / `maxPrice` | sobre el **mejor precio total** (precio + envío) de las ofertas disponibles en tiendas activas; hasta 2 decimales; `minPrice` ≤ `maxPrice` |
 | `available` | `true`: solo productos con al menos una oferta disponible |
@@ -2290,6 +2303,7 @@ GET /search/categories?q=OPTICA
 | `q`, `category`, `brand`, precios, `available`, `sort`, `limit`, `offset` inválidos | 400 | `invalid_parameter` / `max_length`, `max`, `format`, `min`, `one_of`, `invalid_type` |
 | `attr.*` sin `category` con slug | 400 | `category` `required` |
 | Categoría inexistente | 400 | `category` `not_found` |
+| Categoría con slug ambiguo entre niveles | 400 | `category` `ambiguous` |
 | Atributo desconocido / no filtrable | 400 | `attr.<key>` `unknown_field` / `not_filterable` |
 | Valor que no cumple el tipo o el enum | 400 | `attr.<key>` `invalid_type` / `one_of` |
 | Error de base de datos | 500 | `internal_error` |
@@ -2356,7 +2370,9 @@ Ya no llama a Product API ni a Pricing API: el mejor precio se calcula en SQL co
 
 ### La matriz
 
-- `products`: columnas en el orden pedido, con `bestPrice` (precio total), `bestStore` y `offerCount`.
+- `products`: columnas en el orden pedido, con `bestPrice` (precio total), `bestStore`, `offerCount` y
+  `lastUpdated` (TAL-223): fecha de la última verificación de esa mejor oferta, RFC 3339 UTC, o
+  `null` si el producto no tiene ofertas. Es lo que permite decir si el precio es de hoy.
 - `attributes`: atributos **`comparable`** de la categoría (TAL-71), en `displayOrder`, con valores tipados alineados con `products` (`null` si el producto no lo tiene).
 - `specifications`: especificaciones anteriores comparables (`product_category_specification`), como texto. Se incluyen porque los productos existentes todavía no tienen atributos (TAL-70 no los migró).
 - Solo aparecen filas con al menos un valor. `differs` indica si los valores difieren (un `null` cuenta como distinto), para mostrar "solo diferencias".
@@ -2373,10 +2389,12 @@ GET /comparisons/products/compare?ids=c5b9f86a-703b-4569-9902-0ccadfcdab60,bb0aa
     { "id": "c5b9f86a-703b-4569-9902-0ccadfcdab60", "name": "Refrigerador Midea Side by Side No Frost 555 L",
       "brand": "Midea", "model": "MDRS710FGE50IN",
       "imageUrl": "https://rimage.ripley.cl/home.ripley/Attachment/WOP/1/2000406824253/full_image-2000406824253",
-      "bestPrice": "332991.00", "bestStore": "Ripley", "offerCount": 3 },
+      "bestPrice": "332991.00", "bestStore": "Ripley", "offerCount": 3,
+      "lastUpdated": "2026-11-22T15:43:48Z" },
     { "id": "bb0aa9e9-1ca2-4aff-bd18-f8fc01666b7c", "name": "Refrigerador LG French Door 530 L",
       "brand": "LG", "model": "GM53", "imageUrl": "https://placehold.co/640x640?text=DEMO-LG-FRIDGE-530",
-      "bestPrice": "899990.00", "bestStore": "Paris", "offerCount": 2 }
+      "bestPrice": "899990.00", "bestStore": "Paris", "offerCount": 2,
+      "lastUpdated": "2026-11-22T15:43:48Z" }
   ],
   "attributes": [
     { "key": "capacidad_litros", "label": "Capacidad", "dataType": "integer", "unit": "L", "values": [555, 530], "differs": true },
@@ -2439,8 +2457,9 @@ Content-Type: application/json
 
 - El cliente manda **solo** `productIds` (2 a 5, misma categoría, sin repetidos) y
   `question` (1 a 300 caracteres, texto plano). El contexto (precio, tienda,
-  atributos y especificaciones) lo arma el servidor desde PostgreSQL con la matriz
-  de `/compare`; nunca llegan imágenes, URLs, descripciones ni datos de usuario.
+  fecha de verificación de la oferta, atributos y especificaciones) lo arma el
+  servidor desde PostgreSQL con la matriz de `/compare`; nunca llegan imágenes,
+  URLs, descripciones ni datos de usuario.
 - Errores: `400` al decodificar, `422 validation_failed` al incumplir reglas
   (incluida `incompatible_category`), `404 not_found` si un producto no existe,
   `429 rate_limited` con `Retry-After` al superar 10/min o 100/día por IP y `503

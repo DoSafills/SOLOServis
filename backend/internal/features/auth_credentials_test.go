@@ -25,14 +25,20 @@ import (
 // PostgreSQL sin imprimir secretos.
 type recordingDB struct {
 	*fakeDB
-	sql  string
-	args []any
+	sql   string
+	args  []any
+	execs []query
 }
 
 func (r *recordingDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	r.sql, r.args = sql, args
+	r.execs = append(r.execs, query{sql: sql, args: args})
 	return r.fakeDB.Exec(ctx, sql, args...)
 }
+
+// Begin devuelve la misma grabadora para que las consultas de una transacción
+// también queden en execs; el resto de pgx.Tx lo aporta el fake embebido.
+func (r *recordingDB) Begin(context.Context) (pgx.Tx, error) { return r, nil }
 
 func (r *recordingDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	r.sql, r.args = sql, args
@@ -59,6 +65,7 @@ func TestSessionTokensAreStoredHashed(t *testing.T) {
 	db := &recordingDB{fakeDB: &fakeDB{t: t, rules: []rule{
 		qRow("SELECT id,password_hash FROM user_account", int32(7), testPasswordHash),
 		userProfile,
+		pruneSessions,
 		qExec("INSERT INTO user_session", 1),
 	}}}
 	router := authRouter(t, db)
@@ -66,6 +73,7 @@ func TestSessionTokensAreStoredHashed(t *testing.T) {
 	body := fmt.Sprintf(`{"email":"ana@mail.cl","password":%q}`, testPassword)
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Refresh-In-Body", "1")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -86,7 +94,7 @@ func TestSessionTokensAreStoredHashed(t *testing.T) {
 	if !strings.Contains(db.sql, "INSERT INTO user_session") {
 		t.Fatalf("última consulta = %q", db.sql)
 	}
-	if len(db.args) != 3 {
+	if len(db.args) != 5 { // usuario, dos hashes y los dos vencimientos
 		t.Fatalf("args = %v", db.args)
 	}
 
@@ -110,6 +118,65 @@ func TestSessionTokensAreStoredHashed(t *testing.T) {
 	}
 	if bytes.Equal(hashes[0], hashes[1]) {
 		t.Fatal("access y refresh no pueden compartir hash")
+	}
+}
+
+// TestChangePasswordStoresHash comprueba que la contraseña nueva nunca llega
+// en claro a PostgreSQL: el UPDATE recibe el mismo formato PBKDF2 que register
+// y checkPassword acepta la nueva clave.
+func TestChangePasswordStoresHash(t *testing.T) {
+	const newPassword = "NuevaClave123"
+	db := &recordingDB{fakeDB: &fakeDB{t: t, rules: []rule{
+		qRow("SELECT password_hash FROM user_account", testPasswordHash),
+		qExec("UPDATE user_account SET password_hash", 1),
+		qExec("DELETE FROM user_session", 1),
+	}}}
+	router := authRouter(t, db)
+
+	body := fmt.Sprintf(`{"currentPassword":%q,"newPassword":%q}`, testPassword, newPassword)
+	req := httptest.NewRequest(http.MethodPost, "/auth/change-password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var update, revoke query
+	updateAt, revokeAt := -1, -1
+	for i, exec := range db.execs {
+		switch {
+		case strings.Contains(exec.sql, "UPDATE user_account SET password_hash"):
+			update, updateAt = exec, i
+		case strings.Contains(exec.sql, "DELETE FROM user_session"):
+			revoke, revokeAt = exec, i
+		}
+	}
+	if updateAt < 0 {
+		t.Fatalf("no se ejecutó el UPDATE de la contraseña: %v", db.execs)
+	}
+	if len(update.args) != 2 {
+		t.Fatalf("args del UPDATE = %v", update.args)
+	}
+	hash, ok := update.args[0].(string)
+	if !ok || !strings.HasPrefix(hash, "pbkdf2-sha256$") || strings.Contains(hash, newPassword) {
+		t.Fatalf("la contraseña nueva no se guardó hasheada: %v", update.args[0])
+	}
+	if !checkPassword(hash, newPassword) {
+		t.Fatal("el hash guardado no corresponde a la contraseña nueva")
+	}
+	if revokeAt < updateAt {
+		t.Fatalf("la revocación de sesiones no siguió al UPDATE: %v", db.execs)
+	}
+	if len(revoke.args) != 2 {
+		t.Fatalf("args del DELETE = %v", revoke.args)
+	}
+	if revoke.args[0] != int32(7) {
+		t.Fatalf("usuario del DELETE = %v; quiero el de la sesión (7)", revoke.args[0])
+	}
+	if got, ok := revoke.args[1].([]byte); !ok || !bytes.Equal(got, tokenHash(userToken)) {
+		t.Fatalf("el DELETE no excluye la sesión actual: %v", revoke.args[1])
 	}
 }
 

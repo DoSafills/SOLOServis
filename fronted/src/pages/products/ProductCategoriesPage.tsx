@@ -2,72 +2,305 @@ import { useEffect, useMemo, useState } from "react";
 import type { Page, Product } from "../../types";
 import { getAllProducts } from "../../services/api/api";
 import { getCategories, type ApiProductCategory } from "../../services/api/products";
-import { Breadcrumb } from "../../components/common/ui";
-import { Skeleton, SkeletonGrid } from "../../components/common/ui";
-import CategoryIcon from "../../components/common/CategoryIcon";
+import { Breadcrumb, Skeleton, SkeletonGrid } from "../../components/common/ui";
+import CategoryIcon, { type CategoryIconName } from "../../components/common/CategoryIcon";
 import CategoryArtwork from "../../components/common/CategoryArtwork";
-import {
-  CATEGORY_SECTION_ICONS,
-  getProductCategoryGroup,
-  getProductSubtype,
-  getSubtypeQueryForProducts,
-  productMatchesSearchQuery,
-} from "../../constants/productCatalog";
+import { PRODUCT_CATEGORY_TREE } from "../../constants/categoryTree";
 
 interface Props {
   navigate: (page: Page) => void;
 }
 
-const categorySections = [
-  {
-    id: "home",
-    title: "Hogar",
-    description: "Electrodomésticos, muebles y productos para tu casa",
-    icon: CATEGORY_SECTION_ICONS.home,
-  },
-  {
-    id: "technology",
-    title: "Tecnología",
-    description: "TV, videojuegos, audio, computación y telefonía",
-    icon: CATEGORY_SECTION_ICONS.technology,
-  },
-  {
-    id: "other",
-    title: "Otras categorías",
-    description: "Deportes, fitness y nuevos tipos de productos",
-    icon: CATEGORY_SECTION_ICONS.other,
-  },
-] as const;
+const FALLBACK_SECTION_ID = "otras";
 
-type CategorySectionId = (typeof categorySections)[number]["id"];
+/** Descripciones de las secciones NV1; nombre e ícono salen del árbol NV. */
+const SECTION_DESCRIPTIONS: Record<string, string> = {
+  hogar: "Electrodomésticos, muebles y productos para tu casa",
+  tecnologia: "TV, videojuegos, audio, computación y telefonía",
+};
+
+/** Sección que recibe los productos que no alcanzan ninguna NV3 del árbol. */
+const FALLBACK_SECTION: { title: string; description: string; icon: CategoryIconName } = {
+  title: "Otras categorías",
+  description: "Deportes, fitness y nuevos tipos de productos",
+  icon: "grid",
+};
 
 /**
- * Normaliza el nombre de una tarjeta para agrupar las que se llaman igual
- * (sin tildes, sin espacios en los extremos y en minúsculas).
- * @param name Nombre de la categoría o del tipo.
- * @returns La clave normalizada.
+ * Espejo del puente NV3 ↔ fila legacy de las migraciones 033–035: nombre
+ * normalizado de la categoría legacy → slug de la NV3 que la absorbe.
+ * Se usa para contar y filtrar mientras los productos no traigan
+ * `categorySlug` (base sin el backfill de 033).
  */
-const normalizeCategoryName = (name: string) =>
-  name
+const LEGACY_NAME_TO_NV3: Record<string, string> = {
+  refrigeradores: "refrigeradores",
+  lavadoras: "lavadoras",
+  cocina: "cocina",
+  climatizacion: "climatizacion",
+  "limpieza del hogar": "limpieza-del-hogar",
+  "cuidado personal": "cuidado-personal",
+  "hogar y mueble": "decoracion",
+  notebooks: "notebooks",
+  "computadores de escritorio": "computadores-de-escritorio",
+  "accesorios de computacion": "accesorios-de-computacion",
+  televisores: "televisores",
+  audio: "audio",
+  celulares: "celulares",
+  gaming: "gaming",
+};
+
+/** Palabras de la migración 033 (pasos 4–6) para dividir Computación en sus NV3. */
+const COMPUTATION_ACCESSORY_WORDS = new Set([
+  "mochila",
+  "mochilas",
+  "funda",
+  "fundas",
+  "maletin",
+  "maletines",
+  "soporte",
+  "soportes",
+  "base",
+  "bases",
+  "cargador",
+  "cargadores",
+  "adaptador",
+  "adaptadores",
+  "mouse",
+  "teclado",
+  "teclados",
+  "monitor",
+  "monitores",
+  "tablet",
+  "tablets",
+  "ipad",
+  "ipads",
+]);
+const COMPUTATION_NOTEBOOK_WORDS = new Set([
+  "notebook",
+  "notebooks",
+  "laptop",
+  "laptops",
+  "macbook",
+  "macbooks",
+]);
+const COMPUTATION_DESKTOP_WORDS = new Set([
+  "imac",
+  "imacs",
+  "desktop",
+  "desktops",
+  "escritorio",
+  "escritorios",
+]);
+
+/** Slugs NV3 declarados en el árbol; espejo de categories_nv3. */
+const NV3_SLUGS = new Set(
+  PRODUCT_CATEGORY_TREE.flatMap((section) =>
+    section.children.flatMap((group) => group.children.map((leaf) => leaf.slug)),
+  ),
+);
+
+/** Tarjeta NV3 (nivel 3): la categoría con la que se filtra la búsqueda. */
+interface Nv3Card {
+  slug: string;
+  name: string;
+  icon: CategoryIconName;
+  count: number;
+  /** Ids legacy de los productos de esta NV3, para el backend sin las NV tablas. */
+  legacyIds: number[];
+  /** true si algún producto ya trae este slug NV3 en `categorySlug`. */
+  usesSlug: boolean;
+}
+
+/** Grupo NV2: agrupa las tarjetas NV3 dentro de una sección NV1. */
+interface Nv2Group {
+  slug: string;
+  name: string;
+  cards: Nv3Card[];
+}
+
+/** Sección NV1 (Hogar o Tecnología) con sus grupos y totales. */
+interface CatalogSection {
+  id: string;
+  title: string;
+  description: string;
+  icon: CategoryIconName;
+  groups: Nv2Group[];
+  productCount: number;
+  categoryCount: number;
+}
+
+/** Tarjeta de respaldo: categoría legacy sin NV3 asignada. */
+interface LegacyCard {
+  id: number | null;
+  name: string;
+  count: number;
+}
+
+interface Catalog {
+  sections: CatalogSection[];
+  legacyCards: LegacyCard[];
+}
+
+/**
+ * Normaliza un nombre para compararlo sin tildes, espacios sobrantes ni mayúsculas.
+ * @param value Nombre original.
+ * @returns El nombre normalizado.
+ */
+const normalizeName = (value: string) =>
+  value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
-    .toLocaleLowerCase();
+    .toLocaleLowerCase("es");
 
 /**
- * Página "Explora por categoría": agrupa los productos en secciones (Hogar,
- * Tecnología, Otras) y muestra una tarjeta por categoría o por tipo inferido.
- * Cada tarjeta abre la búsqueda filtrada por sus categorías y, si hace falta
- * acotar un tipo dentro de una categoría mezclada, por un texto de búsqueda.
+ * Clasifica un producto de la categoría legacy "Computación" en su NV3 con
+ * las mismas palabras clave que la migración 033: accesorios primero, luego
+ * notebooks y al final escritorio.
+ * @param name Nombre del producto.
+ * @returns El slug NV3, o null si no se puede clasificar.
+ */
+const classifyComputation = (name: string): string | null => {
+  const normalized = normalizeName(name).replace(/[^a-z0-9]+/g, " ");
+  const words = normalized.split(" ").filter(Boolean);
+  if (words.some((word) => COMPUTATION_ACCESSORY_WORDS.has(word))) {
+    return "accesorios-de-computacion";
+  }
+  if (words.some((word) => COMPUTATION_NOTEBOOK_WORDS.has(word))) return "notebooks";
+  if (
+    words.some((word) => COMPUTATION_DESKTOP_WORDS.has(word)) ||
+    normalized.includes(" pc gamer ")
+  ) {
+    return "computadores-de-escritorio";
+  }
+  return null;
+};
+
+/**
+ * Resuelve la NV3 de un producto: primero el `categorySlug` que entrega el
+ * backend y, si la base todavía no tiene el backfill, el puente legacy de
+ * las migraciones 033–035 subiendo por los padres de su categoría.
+ * @param product Producto del catálogo.
+ * @param categoriesById Categorías legacy indexadas por id.
+ * @returns El slug NV3, o null si el producto no cae en ninguna.
+ */
+const resolveProductNv3 = (
+  product: Product,
+  categoriesById: Map<number, ApiProductCategory>,
+): string | null => {
+  if (product.categorySlug && NV3_SLUGS.has(product.categorySlug)) return product.categorySlug;
+  let current =
+    product.categoryId === undefined ? undefined : categoriesById.get(product.categoryId);
+  const visited = new Set<number>();
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    const name = normalizeName(current.name);
+    if (name === "computacion") return classifyComputation(product.name);
+    const nv3 = LEGACY_NAME_TO_NV3[name];
+    if (nv3) return nv3;
+    current = current.parentId === null ? undefined : categoriesById.get(current.parentId);
+  }
+  return null;
+};
+
+interface CatalogCardProps {
+  name: string;
+  icon: CategoryIconName;
+  count: number;
+  onOpen?: () => void;
+}
+
+/**
+ * Tarjeta del catálogo con la misma presentación para NV3 y para las
+ * categorías de respaldo. Solo es interactiva cuando recibe `onOpen`;
+ * sin productos se muestra atenuada y sin acción.
+ * @param props.name Nombre de la categoría.
+ * @param props.icon Ícono declarado en el árbol o inferido por nombre.
+ * @param props.count Cantidad de productos.
+ * @param props.onOpen Abre la búsqueda filtrada; ausente si no hay productos.
+ * @returns La tarjeta lista para el grid.
+ */
+function CatalogCard({ name, icon, count, onOpen }: CatalogCardProps) {
+  return (
+    <article
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      aria-label={onOpen ? `Ver categoría ${name}` : `${name}: sin productos todavía`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (!onOpen) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      className={`group relative flex min-h-40 min-w-0 overflow-hidden rounded-[1.5rem] border bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 ${
+        onOpen
+          ? "cursor-pointer border-bd hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+          : "border-dashed border-bd/70"
+      }`}
+    >
+      <div className="theme-media-panel absolute inset-y-0 left-0 w-[58%]">
+        <CategoryArtwork name={name} icon={icon} type="product" />
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
+        />
+      </div>
+      <div
+        aria-hidden="true"
+        className="absolute inset-y-0 right-0 w-[66%]"
+        style={{
+          background:
+            "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
+          clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
+        }}
+      />
+      <div className="relative z-10 ml-[38%] flex w-[62%] min-w-0 flex-col items-start justify-center gap-2 p-3 pl-8 sm:gap-2.5 sm:p-4 sm:pl-10">
+        <h3
+          className={`line-clamp-2 text-sm font-bold leading-snug text-text transition-colors sm:text-base ${
+            onOpen ? "group-hover:text-prime" : "opacity-80"
+          }`}
+        >
+          {name}
+        </h3>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-bd bg-surface-2 px-2 py-1 text-[10px] font-medium text-muted">
+          <span aria-hidden="true" className="h-1 w-1 rounded-full bg-prime" />
+          {count === 0 ? "Sin productos" : `${count} ${count === 1 ? "producto" : "productos"}`}
+        </span>
+        {onOpen && (
+          <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center self-end rounded-full bg-prime text-[#181714] shadow-lg shadow-black/20 transition-all group-hover:-translate-y-0.5 group-hover:bg-prime-dark group-hover:shadow-xl">
+            <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-5 w-5">
+              <path
+                d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+        )}
+      </div>
+    </article>
+  );
+}
+
+/**
+ * Página "Explora por categoría": muestra las categorías de nivel 3 del
+ * árbol NV del backend (migraciones 032–035), agrupadas por su nivel 2 y
+ * bajo Hogar y Tecnología. Los productos se cuentan por su `categorySlug`
+ * NV3 y, si la base aún no tiene el backfill, por el puente legacy. Cada
+ * tarjeta con productos filtra la búsqueda por el slug NV3 (o por los ids
+ * legacy mientras el backend no resuelva esos slugs); los productos que no
+ * alcanzan ninguna NV3 quedan en "Otras categorías".
  * @param props.navigate Cambia de página en la aplicación.
  * @returns La página de categorías de productos.
  */
 export default function ProductCategoriesPage({ navigate }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ApiProductCategory[]>([]);
-  const [expandedSections, setExpandedSections] = useState<Set<CategorySectionId>>(
-    () => new Set(["home"]),
-  );
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set(["hogar"]));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,9 +308,9 @@ export default function ProductCategoriesPage({ navigate }: Props) {
     let cancelled = false;
 
     Promise.all([getAllProducts(), getCategories()])
-      .then(([result, categoryList]) => {
+      .then(([productList, categoryList]) => {
         if (!cancelled) {
-          setProducts(result);
+          setProducts(productList);
           setCategories(categoryList);
         }
       })
@@ -95,223 +328,82 @@ export default function ProductCategoriesPage({ navigate }: Props) {
     };
   }, []);
 
-  const { categoriesBySection, rootProductCounts } = useMemo(() => {
+  const catalog = useMemo<Catalog>(() => {
     const categoriesById = new Map(categories.map((category) => [category.id, category]));
-    const childrenByParent = new Map<number, ApiProductCategory[]>();
-    for (const category of categories) {
-      if (category.parentId === null) continue;
-      const children = childrenByParent.get(category.parentId) ?? [];
-      children.push(category);
-      childrenByParent.set(category.parentId, children);
-    }
 
-    /**
-     * Reúne una categoría y todas sus subcategorías.
-     * @param categoryId Id de la categoría de partida.
-     * @returns Conjunto con el id y los de sus descendientes.
-     */
-    const getDescendantIds = (categoryId: number) => {
-      const descendants = new Set([categoryId]);
-      const pending = [categoryId];
-      while (pending.length) {
-        const parentId = pending.pop();
-        if (parentId === undefined) continue;
-        for (const child of childrenByParent.get(parentId) ?? []) {
-          if (!descendants.has(child.id)) {
-            descendants.add(child.id);
-            pending.push(child.id);
-          }
-        }
-      }
-      return descendants;
-    };
+    const statsByNv3 = new Map<
+      string,
+      { count: number; legacyIds: Set<number>; usesSlug: boolean }
+    >();
+    const legacyById = new Map<number, LegacyCard>();
+    let unclassified: LegacyCard | null = null;
 
-    /**
-     * Sube por el árbol hasta la categoría raíz.
-     * @param category Categoría de partida.
-     * @returns La raíz (la misma categoría si ya lo es).
-     */
-    const rootCategoryFor = (category: ApiProductCategory) => {
-      let current = category;
-      while (current.parentId !== null) {
-        const parent = categoriesById.get(current.parentId);
-        if (!parent) break;
-        current = parent;
-      }
-      return current;
-    };
-
-    const productsByCategory = new Map(
-      categories.map((category) => {
-        const descendants = getDescendantIds(category.id);
-        return [
-          category.id,
-          products.filter(
-            (product) => product.categoryId !== undefined && descendants.has(product.categoryId),
-          ),
-        ] as const;
-      }),
-    );
-    const rootCounts = new Map(
-      categories
-        .filter((category) => category.parentId === null)
-        .map(
-          (category) => [category.id, productsByCategory.get(category.id)?.length ?? 0] as const,
-        ),
-    );
-
-    /**
-     * Categorías con las que se abre una tarjeta. Si todos sus productos
-     * pertenecen a una misma categoría se navega con esa categoría, para que
-     * la búsqueda devuelva el mismo conjunto que cuenta la tarjeta. En
-     * tarjetas que unen varias categorías se mantiene el filtro recibido.
-     * @param items Productos que cuenta la tarjeta.
-     * @param fallback Categorías actuales de la tarjeta.
-     * @returns Las categorías para la búsqueda.
-     */
-    const categoryIdsForItems = (items: Product[], fallback: number[]) => {
-      const ids = new Set(
-        items
-          .map((product) => product.categoryId)
-          .filter((categoryId): categoryId is number => categoryId !== undefined),
-      );
-      return ids.size === 1 ? [...ids] : fallback;
-    };
-
-    /**
-     * Arma los datos de una tarjeta del catálogo.
-     * @param name Nombre visible de la tarjeta.
-     * @param items Productos que cuenta.
-     * @param root Categoría raíz, que decide la sección.
-     * @param categoryIds Categorías con las que filtra la búsqueda.
-     * @param query Texto de búsqueda adicional ("" si no hace falta).
-     * @param isSubtype true si la tarjeta representa un tipo inferido.
-     * @returns La tarjeta.
-     */
-    const makeCard = (
-      name: string,
-      items: Product[],
-      root: ApiProductCategory,
-      categoryIds: number[],
-      query = "",
-      isSubtype = true,
-    ) => {
-      return {
-        name,
-        rootName: root.name,
-        count: items.length,
-        categoryIds,
-        productIds: new Set(items.map((product) => product.id)),
-        query,
-        isSubtype,
-        sectionId: getProductCategoryGroup(root.name),
-      };
-    };
-
-    const categoryCards = categories
-      .filter((category) => category.parentId !== null)
-      .flatMap((category) => {
-        const matchingProducts = productsByCategory.get(category.id) ?? [];
-        const childHasProducts = (childrenByParent.get(category.id) ?? []).some(
-          (child) => (productsByCategory.get(child.id)?.length ?? 0) > 0,
-        );
-        if (matchingProducts.length === 0 || childHasProducts) return [];
-        const subtypes = new Set(matchingProducts.map(getProductSubtype));
-        const isSubtype = subtypes.size === 1;
-        const name = isSubtype ? ([...subtypes][0] ?? category.name) : category.name;
-        return [
-          makeCard(name, matchingProducts, rootCategoryFor(category), [category.id], "", isSubtype),
-        ];
-      });
-
-    const directProductsBySubtype = new Map<string, Product[]>();
     for (const product of products) {
-      const category = product.categoryId ? categoriesById.get(product.categoryId) : undefined;
-      if (!category) continue;
-      const hasProductChild = (childrenByParent.get(category.id) ?? []).some(
-        (child) => (productsByCategory.get(child.id)?.length ?? 0) > 0,
-      );
-      if (category.parentId !== null && !hasProductChild) continue;
-      const subtype = getProductSubtype(product);
-      const key = `${category.id}:${subtype}`;
-      const items = directProductsBySubtype.get(key) ?? [];
-      items.push(product);
-      directProductsBySubtype.set(key, items);
-    }
-
-    const inferredCards = [...directProductsBySubtype.entries()].flatMap(([key, items]) => {
-      const [rootId, ...subtypeParts] = key.split(":");
-      const root = categoriesById.get(Number(rootId));
-      if (!root) return [];
-      const subtype = subtypeParts.join(":");
-      const subtreeProducts = productsByCategory.get(root.id) ?? [];
-      const query = subtreeProducts.every((product) => getProductSubtype(product) === subtype)
-        ? ""
-        : getSubtypeQueryForProducts(subtype, items);
-      return [makeCard(subtype, items, root, categoryIdsForItems(items, [root.id]), query)];
-    });
-    const cardsByKey = new Map<string, (typeof categoryCards)[number]>();
-    for (const card of [...categoryCards, ...inferredCards]) {
-      const cardKey = `${card.sectionId}:${normalizeCategoryName(card.name)}`;
-      const existing = cardsByKey.get(cardKey);
-      if (!existing) {
-        cardsByKey.set(cardKey, card);
+      const nv3 = resolveProductNv3(product, categoriesById);
+      if (nv3) {
+        const stats = statsByNv3.get(nv3) ?? { count: 0, legacyIds: new Set(), usesSlug: false };
+        stats.count += 1;
+        if (product.categoryId !== undefined) stats.legacyIds.add(product.categoryId);
+        if (product.categorySlug === nv3) stats.usesSlug = true;
+        statsByNv3.set(nv3, stats);
         continue;
       }
 
-      const categoryIds = [...new Set([...existing.categoryIds, ...card.categoryIds])];
-      existing.categoryIds = categoryIds
-        .filter(
-          (categoryId) =>
-            !categoryIds.some(
-              (ancestorId) =>
-                ancestorId !== categoryId && getDescendantIds(ancestorId).has(categoryId),
-            ),
-        )
-        .sort((first, second) => first - second);
-      existing.productIds = new Set([...existing.productIds, ...card.productIds]);
-      existing.isSubtype = existing.isSubtype || card.isSubtype;
-      if (existing.isSubtype) {
-        const categoryProducts = existing.categoryIds.flatMap(
-          (categoryId) => productsByCategory.get(categoryId) ?? [],
-        );
-        existing.query =
-          categoryProducts.length > 0 &&
-          categoryProducts.every((product) => getProductSubtype(product) === existing.name)
-            ? ""
-            : getSubtypeQueryForProducts(
-                existing.name,
-                products.filter((product) => existing.productIds.has(product.id)),
-              );
+      const name =
+        categoriesById.get(product.categoryId ?? -1)?.name ||
+        product.subcategory.trim() ||
+        product.category.trim() ||
+        "Otros productos";
+      if (product.categoryId === undefined) {
+        unclassified = { id: null, name, count: (unclassified?.count ?? 0) + 1 };
+        continue;
       }
+      const existing = legacyById.get(product.categoryId);
+      legacyById.set(product.categoryId, {
+        id: product.categoryId,
+        name: existing?.name ?? name,
+        count: (existing?.count ?? 0) + 1,
+      });
     }
-    // El contador refleja lo que listará la búsqueda al abrir la tarjeta: los
-    // productos de sus categorías (con subcategorías) filtrados por su texto.
-    // Sin esto, una tarjeta fusionada contaba menos de lo que el buscador muestra.
-    for (const card of cardsByKey.values()) {
-      const categoryProducts = card.categoryIds.flatMap(
-        (categoryId) => productsByCategory.get(categoryId) ?? [],
-      );
-      const searchable = card.query
-        ? categoryProducts.filter((product) => productMatchesSearchQuery(product, card.query))
-        : categoryProducts;
-      card.count = new Set(searchable.map((product) => product.id)).size;
-    }
-    const displayCards = [...cardsByKey.values()].sort((first, second) =>
+
+    const sections = PRODUCT_CATEGORY_TREE.flatMap<CatalogSection>((section) => {
+      const description = SECTION_DESCRIPTIONS[section.slug];
+      if (!description) return [];
+      const groups = section.children.map<Nv2Group>((group) => ({
+        slug: group.slug,
+        name: group.name,
+        cards: group.children.map<Nv3Card>((leaf) => {
+          const stats = statsByNv3.get(leaf.slug);
+          return {
+            slug: leaf.slug,
+            name: leaf.name,
+            icon: leaf.icon,
+            count: stats?.count ?? 0,
+            legacyIds: [...(stats?.legacyIds ?? [])],
+            usesSlug: stats?.usesSlug ?? false,
+          };
+        }),
+      }));
+      const cards = groups.flatMap((group) => group.cards);
+      return [
+        {
+          id: section.slug,
+          title: section.name,
+          description,
+          icon: section.icon,
+          groups,
+          productCount: cards.reduce((total, card) => total + card.count, 0),
+          categoryCount: cards.length,
+        },
+      ];
+    });
+
+    const legacyCards = [...legacyById.values()].sort((first, second) =>
       first.name.localeCompare(second.name, "es"),
     );
+    if (unclassified) legacyCards.push(unclassified);
 
-    return {
-      categoriesBySection: categorySections.map((section) => ({
-        ...section,
-        categories: displayCards.filter((category) => category.sectionId === section.id),
-        rootCategories: categories.filter(
-          (category) =>
-            category.parentId === null && getProductCategoryGroup(category.name) === section.id,
-        ),
-      })),
-      rootProductCounts: rootCounts,
-    };
+    return { sections, legacyCards };
   }, [categories, products]);
 
   const totalProducts = products.length;
@@ -320,10 +412,62 @@ export default function ProductCategoriesPage({ navigate }: Props) {
   const showAllProducts = () => navigate({ id: "search-products", query: "" });
 
   /**
+   * Abre la búsqueda filtrada por una categoría NV3. Usa el slug NV3 cuando
+   * el backend ya lo resuelve para esos productos y, si no, los ids legacy
+   * equivalentes, que todas las versiones de la Search API aceptan.
+   * @param card Tarjeta NV3 seleccionada.
+   */
+  const openNv3Card = (card: Nv3Card) => {
+    if (card.count === 0) return;
+    navigate({
+      id: "search-products",
+      query: "",
+      ...(card.usesSlug || card.legacyIds.length === 0
+        ? { category: card.slug }
+        : { categoryIds: card.legacyIds }),
+      categoryContext: card.name,
+      resetFilters: true,
+    });
+  };
+
+  /**
+   * Abre la búsqueda con todas las NV3 de una sección.
+   * @param section Sección cuyo botón "Todo …" se pulsó.
+   */
+  const openSection = (section: CatalogSection) => {
+    if (section.productCount === 0) return;
+    const categoryIds = [
+      ...new Set(section.groups.flatMap((group) => group.cards.flatMap((card) => card.legacyIds))),
+    ];
+    navigate({
+      id: "search-products",
+      query: "",
+      ...(categoryIds.length > 0 ? { categoryIds } : { category: section.id }),
+      categoryContext: section.title,
+      resetFilters: true,
+    });
+  };
+
+  /**
+   * Abre la búsqueda por el id de una categoría legacy sin NV3.
+   * @param card Tarjeta de "Otras categorías".
+   */
+  const openLegacyCard = (card: LegacyCard) => {
+    if (card.id === null) return;
+    navigate({
+      id: "search-products",
+      query: "",
+      categoryId: card.id,
+      categoryContext: card.name,
+      resetFilters: true,
+    });
+  };
+
+  /**
    * Abre o cierra una sección de la página.
    * @param sectionId Sección a alternar.
    */
-  const toggleSection = (sectionId: CategorySectionId) => {
+  const toggleSection = (sectionId: string) => {
     setExpandedSections((previous) => {
       const next = new Set(previous);
       if (next.has(sectionId)) next.delete(sectionId);
@@ -374,7 +518,7 @@ export default function ProductCategoriesPage({ navigate }: Props) {
 
       {loading ? (
         <div role="status" aria-label="Cargando categorías" className="space-y-4">
-          {[0, 1, 2].map((section) => (
+          {[0, 1].map((section) => (
             <div key={section} className="rounded-xl border border-bd bg-surface p-4">
               <Skeleton className="mb-3 h-12 w-full" />
               <Skeleton className="mb-4 h-8 w-36" />
@@ -403,16 +547,9 @@ export default function ProductCategoriesPage({ navigate }: Props) {
         </div>
       ) : (
         <div className="space-y-4">
-          {categoriesBySection.map((section) => {
+          {catalog.sections.map((section) => {
             const isExpanded = expandedSections.has(section.id);
             const panelId = `category-section-${section.id}`;
-            const sectionRoots = section.rootCategories.filter(
-              (category) => (rootProductCounts.get(category.id) ?? 0) > 0,
-            );
-            const productCount = sectionRoots.reduce(
-              (total, category) => total + (rootProductCounts.get(category.id) ?? 0),
-              0,
-            );
 
             return (
               <section
@@ -443,9 +580,10 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                         </span>
                       </span>
                       <span className="hidden shrink-0 text-xs text-muted sm:block">
-                        {section.categories.length}{" "}
-                        {section.categories.length === 1 ? "categoría" : "categorías"} ·{" "}
-                        {productCount} {productCount === 1 ? "producto" : "productos"}
+                        {section.categoryCount}{" "}
+                        {section.categoryCount === 1 ? "categoría" : "categorías"} ·{" "}
+                        {section.productCount}{" "}
+                        {section.productCount === 1 ? "producto" : "productos"}
                       </span>
                       <svg
                         width="20"
@@ -464,115 +602,127 @@ export default function ProductCategoriesPage({ navigate }: Props) {
                         />
                       </svg>
                     </button>
-                    <div className="pb-4 pl-[4.25rem] pr-4 sm:pb-5 sm:pl-[4.5rem] sm:pr-5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigate({
-                            id: "search-products",
-                            query: "",
-                            productGroup: section.id,
-                          })
-                        }
-                        className="inline-flex items-center gap-1 rounded-lg border border-prime/40 bg-prime-muted px-3 py-2 text-xs font-semibold text-prime transition hover:border-prime hover:bg-prime/20 sm:px-3.5"
-                        aria-label={`Ver todo ${section.title}`}
-                      >
-                        Todo {section.title}
-                        <span aria-hidden="true">→</span>
-                      </button>
-                    </div>
+                    {section.productCount > 0 && (
+                      <div className="pb-4 pl-[4.25rem] pr-4 sm:pb-5 sm:pl-[4.5rem] sm:pr-5">
+                        <button
+                          type="button"
+                          onClick={() => openSection(section)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-prime/40 bg-prime-muted px-3 py-2 text-xs font-semibold text-prime transition hover:border-prime hover:bg-prime/20 sm:px-3.5"
+                          aria-label={`Ver todo ${section.title}`}
+                        >
+                          Todo {section.title}
+                          <span aria-hidden="true">→</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {isExpanded && (
-                    <div id={panelId} className="border-t border-bd p-3 sm:p-4">
-                      {section.categories.length === 0 ? (
-                        <p className="px-2 py-3 text-sm text-muted">
-                          Todavía no hay productos disponibles en esta sección.
-                        </p>
-                      ) : (
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                          {section.categories.map((category) => {
-                            /** Abre la búsqueda filtrada por las categorías y el texto de la tarjeta. */
-                            const openCategory = () =>
-                              navigate({
-                                id: "search-products",
-                                query: category.query,
-                                categoryContext: category.name,
-                                categoryIds: category.categoryIds,
-                                resetFilters: true,
-                              });
-
-                            return (
-                              <article
-                                key={`${category.categoryIds.join(",")}:${category.name}`}
-                                role="button"
-                                tabIndex={0}
-                                aria-label={`Ver categoría ${category.name}`}
-                                onClick={openCategory}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter" || event.key === " ") {
-                                    event.preventDefault();
-                                    openCategory();
-                                  }
-                                }}
-                                className="group relative flex min-h-40 min-w-0 cursor-pointer overflow-hidden rounded-[1.5rem] border border-bd bg-surface text-left shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-prime/50 hover:shadow-2xl hover:shadow-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
-                              >
-                                <div className="theme-media-panel absolute inset-y-0 left-0 w-[58%]">
-                                  <CategoryArtwork name={category.name} type="product" />
-                                  <span
-                                    aria-hidden="true"
-                                    className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-slate-950/25"
-                                  />
-                                </div>
-                                <div
-                                  aria-hidden="true"
-                                  className="absolute inset-y-0 right-0 w-[66%]"
-                                  style={{
-                                    background:
-                                      "linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface-2) 42%, var(--color-surface) 100%)",
-                                    clipPath: "polygon(18% 0, 100% 0, 100% 100%, 0 100%)",
-                                  }}
-                                />
-                                <div className="relative z-10 ml-[38%] flex w-[62%] min-w-0 flex-col items-start justify-center gap-2 p-3 pl-8 sm:gap-2.5 sm:p-4 sm:pl-10">
-                                  <h3 className="line-clamp-2 text-sm font-bold leading-snug text-text transition-colors group-hover:text-prime sm:text-base">
-                                    {category.name}
-                                  </h3>
-                                  <span className="inline-flex items-center gap-1.5 rounded-full border border-bd bg-surface-2 px-2 py-1 text-[10px] font-medium text-muted">
-                                    <span
-                                      aria-hidden="true"
-                                      className="h-1 w-1 rounded-full bg-prime"
-                                    />
-                                    {category.count}{" "}
-                                    {category.count === 1 ? "producto" : "productos"}
-                                  </span>
-                                  <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center self-end rounded-full bg-prime text-[#181714] shadow-lg shadow-black/20 transition-all group-hover:-translate-y-0.5 group-hover:bg-prime-dark group-hover:shadow-xl">
-                                    <svg
-                                      aria-hidden="true"
-                                      viewBox="0 0 20 20"
-                                      fill="none"
-                                      className="h-5 w-5"
-                                    >
-                                      <path
-                                        d="M4.5 10h11m-4.5-4.5L15.5 10 11 14.5"
-                                        stroke="currentColor"
-                                        strokeWidth="1.7"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                      />
-                                    </svg>
-                                  </span>
-                                </div>
-                              </article>
-                            );
-                          })}
+                    <div id={panelId} className="space-y-4 border-t border-bd p-3 sm:p-4">
+                      {section.groups.map((group) => (
+                        <div key={group.slug}>
+                          <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">
+                            {group.name}
+                          </h3>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                            {group.cards.map((card) => (
+                              <CatalogCard
+                                key={card.slug}
+                                name={card.name}
+                                icon={card.icon}
+                                count={card.count}
+                                onOpen={card.count > 0 ? () => openNv3Card(card) : undefined}
+                              />
+                            ))}
+                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
                   )}
                 </div>
               </section>
             );
           })}
+
+          <section
+            className={`category-outline relative isolate overflow-hidden rounded-xl bg-surface-3 p-px ${
+              expandedSections.has(FALLBACK_SECTION_ID) ? "category-outline-active" : ""
+            }`}
+          >
+            <div className="relative z-10 overflow-hidden rounded-[11px] bg-surface">
+              <button
+                type="button"
+                onClick={() => toggleSection(FALLBACK_SECTION_ID)}
+                aria-expanded={expandedSections.has(FALLBACK_SECTION_ID)}
+                aria-controls={`category-section-${FALLBACK_SECTION_ID}`}
+                aria-label={`${expandedSections.has(FALLBACK_SECTION_ID) ? "Ocultar" : "Ver"} subcategorías de ${FALLBACK_SECTION.title}`}
+                className="flex min-w-0 w-full items-center gap-3 px-4 pt-4 pb-2 text-left sm:gap-4 sm:px-5 sm:pt-5"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-prime">
+                  <CategoryIcon name={FALLBACK_SECTION.icon} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base font-semibold text-text sm:text-lg">
+                    {FALLBACK_SECTION.title}
+                  </span>
+                  <span className="mt-1 block text-xs text-muted sm:text-sm">
+                    {FALLBACK_SECTION.description}
+                  </span>
+                </span>
+                <span className="hidden shrink-0 text-xs text-muted sm:block">
+                  {catalog.legacyCards.length}{" "}
+                  {catalog.legacyCards.length === 1 ? "categoría" : "categorías"} ·{" "}
+                  {catalog.legacyCards.reduce((total, card) => total + card.count, 0)}{" "}
+                  {catalog.legacyCards.reduce((total, card) => total + card.count, 0) === 1
+                    ? "producto"
+                    : "productos"}
+                </span>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                  className={`shrink-0 text-muted transition-transform ${
+                    expandedSections.has(FALLBACK_SECTION_ID) ? "rotate-180" : ""
+                  }`}
+                >
+                  <path
+                    d="m6 9 6 6 6-6"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+
+              {expandedSections.has(FALLBACK_SECTION_ID) && (
+                <div
+                  id={`category-section-${FALLBACK_SECTION_ID}`}
+                  className="border-t border-bd p-3 sm:p-4"
+                >
+                  {catalog.legacyCards.length === 0 ? (
+                    <p className="px-2 py-3 text-sm text-muted">
+                      Todavía no hay productos disponibles en esta sección.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                      {catalog.legacyCards.map((card) => (
+                        <CatalogCard
+                          key={card.id ?? card.name}
+                          name={card.name}
+                          icon="grid"
+                          count={card.count}
+                          onOpen={card.id === null ? undefined : () => openLegacyCard(card)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       )}
     </div>

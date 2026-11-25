@@ -35,8 +35,7 @@ var categorySlugAliases = map[string]string{
 	"tv":                               "televisores",
 	"tvs":                              "televisores",
 	"telefonia":                        "celulares",
-	"computacion":                      "notebooks",
-	"computadores":                     "notebooks",
+	"computadores":                     "computacion",
 }
 
 // NormalizeSlug normaliza el slug recibido sin reparar separadores inválidos.

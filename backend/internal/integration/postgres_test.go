@@ -41,6 +41,7 @@ func newEnv(t *testing.T) *env {
 	}
 	t.Cleanup(pool.Close)
 	t.Setenv("INTERNAL_API_TOKEN", internalToken)
+	t.Setenv("INGESTION_API_TOKEN", ingestionToken)
 
 	// Servidores sin arrancar: sus URLs se conocen antes de armar los routers,
 	// porque pricing e ingestion leen NOTIFICATION_API_URL al construirse.
@@ -73,6 +74,15 @@ func newEnv(t *testing.T) *env {
 // do llama a un dominio por HTTP y devuelve el código y el cuerpo.
 func (e *env) do(domain, method, path, token string, body any) (int, []byte) {
 	e.t.Helper()
+	status, data, _ := e.request(domain, method, path, token, "", body)
+	return status, data
+}
+
+// request llama a un dominio por HTTP. Si refreshToken no está vacío viaja en
+// la cookie refresh_token, como lo manda el navegador (TAL-248). Devuelve el
+// código, el cuerpo y el refresh token que la respuesta dejó en esa cookie.
+func (e *env) request(domain, method, path, token, refreshToken string, body any) (int, []byte, string) {
+	e.t.Helper()
 	var reader io.Reader
 	if body != nil {
 		encoded, _ := json.Marshal(body)
@@ -88,13 +98,22 @@ func (e *env) do(domain, method, path, token string, body any) (int, []byte) {
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	if refreshToken != "" {
+		req.AddCookie(&http.Cookie{Name: "refresh_token", Value: refreshToken})
+	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		e.t.Fatalf("%s %s: %v", method, path, err)
 	}
 	defer res.Body.Close()
 	data, _ := io.ReadAll(res.Body)
-	return res.StatusCode, data
+	var cookie string
+	for _, c := range res.Cookies() {
+		if c.Name == "refresh_token" {
+			cookie = c.Value
+		}
+	}
+	return res.StatusCode, data, cookie
 }
 
 // expect falla si el código no es el esperado y devuelve el cuerpo.
@@ -117,10 +136,53 @@ func (e *env) count(query string, args ...any) int {
 	return n
 }
 
+// session es lo que devuelven register, login y refresh. El refresh token no
+// viene en el JSON sino en la cookie httpOnly refresh_token (TAL-248).
 type session struct {
 	UserID       int32  `json:"userId"`
 	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken"`
+	RefreshToken string `json:"-"`
+}
+
+// authenticate llama a una ruta de usuarios que abre una sesión (register,
+// login o refresh), exige el código want y arma la sesión: el access token
+// sale del JSON y el refresh token de la cookie. Falla si el JSON trae el
+// refresh token, que sin X-Refresh-In-Body solo viaja en la cookie.
+func (e *env) authenticate(want int, path, refreshToken string, body any) session {
+	e.t.Helper()
+	status, data, cookie := e.request("usuarios", "POST", path, "", refreshToken, body)
+	if status != want {
+		e.t.Fatalf("usuarios POST %s = %d %s, quiero %d", path, status, data, want)
+	}
+	var s session
+	if err := json.Unmarshal(data, &s); err != nil || s.UserID == 0 || s.AccessToken == "" || cookie == "" {
+		e.t.Fatalf("%s no abrió una sesión (cookie refresh_token %q): %s", path, cookie, data)
+	}
+	if strings.Contains(string(data), `"refreshToken"`) {
+		e.t.Fatalf("%s devolvió el refresh token en el JSON: %s", path, data)
+	}
+	s.RefreshToken = cookie
+	return s
+}
+
+// login inicia sesión con la contraseña de register.
+func (e *env) login(email string) session {
+	e.t.Helper()
+	return e.authenticate(http.StatusOK, "/auth/login", "", map[string]any{"email": email, "password": "Clave12345!"})
+}
+
+// refresh rota la sesión mandando el refresh token en la cookie.
+func (e *env) refresh(refreshToken string) session {
+	e.t.Helper()
+	return e.authenticate(http.StatusOK, "/auth/refresh", refreshToken, nil)
+}
+
+// refreshRejected comprueba que el refresh token ya no sirve (401).
+func (e *env) refreshRejected(refreshToken string) {
+	e.t.Helper()
+	if status, data, _ := e.request("usuarios", "POST", "/auth/refresh", "", refreshToken, nil); status != http.StatusUnauthorized {
+		e.t.Fatalf("usuarios POST /auth/refresh = %d %s, quiero 401", status, data)
+	}
 }
 
 // register crea un usuario por usuarios (POST /auth/register) y lo borra al
@@ -129,26 +191,38 @@ type session struct {
 func (e *env) register(name string) (session, string) {
 	e.t.Helper()
 	email := name + "-" + e.tag + "@integracion.test"
-	data := e.expect(http.StatusCreated, "usuarios", "POST", "/auth/register", "",
+	s := e.authenticate(http.StatusCreated, "/auth/register", "",
 		map[string]any{"name": "Test " + name, "email": email, "password": "Clave12345!"})
-	var s session
-	if err := json.Unmarshal(data, &s); err != nil || s.UserID == 0 || s.AccessToken == "" {
-		e.t.Fatalf("register: %s", data)
-	}
 	e.t.Cleanup(func() {
 		_, _ = e.pool.Exec(context.Background(), `DELETE FROM user_account WHERE id = $1`, s.UserID)
 	})
 	return s, email
 }
 
-// seedOffer devuelve un producto activo con una oferta disponible del seed.
-func (e *env) seedOffer() (productID string, offerID, storeID int32) {
+// newOffer crea un refrigerador activo con una oferta disponible en una tienda
+// propia del test (TAL-241: el seed ya no trae productos). Al terminar se
+// borran la tienda y el producto, y con ellos la oferta y su historial.
+func (e *env) newOffer() (productID string, offerID, storeID int32) {
 	e.t.Helper()
-	err := e.pool.QueryRow(context.Background(), `
-		SELECT p.public_id::text, o.id, o.store_id FROM product p JOIN product_offer o ON o.product_id = p.id
-		WHERE p.active AND o.available ORDER BY p.id, o.id LIMIT 1`).Scan(&productID, &offerID, &storeID)
-	if err != nil {
-		e.t.Fatalf("seed sin ofertas (¿faltan migraciones?): %v", err)
+	ctx := context.Background()
+	var id int32
+	e.t.Cleanup(func() {
+		_, _ = e.pool.Exec(context.Background(), `DELETE FROM product WHERE id = $1`, id)
+		_, _ = e.pool.Exec(context.Background(), `DELETE FROM store WHERE id = $1`, storeID)
+	})
+	if err := e.pool.QueryRow(ctx, `INSERT INTO store (name) VALUES ($1) RETURNING id`, "Tienda oferta "+e.tag).Scan(&storeID); err != nil {
+		e.t.Fatalf("crear tienda: %v", err)
+	}
+	if err := e.pool.QueryRow(ctx, `
+		INSERT INTO product (category_id, category_ref, name)
+		SELECT c.legacy_product_category_id, c.id, $1 FROM categories c WHERE c.slug = 'refrigeradores'
+		RETURNING id, public_id::text`, "Refrigerador "+e.tag).Scan(&id, &productID); err != nil {
+		e.t.Fatalf("crear producto: %v", err)
+	}
+	if err := e.pool.QueryRow(ctx, `
+		INSERT INTO product_offer (product_id, store_id, price, available, product_url)
+		VALUES ($1, $2, 549990, true, $3) RETURNING id`, id, storeID, "https://integracion.test/oferta-"+e.tag).Scan(&offerID); err != nil {
+		e.t.Fatalf("crear oferta: %v", err)
 	}
 	return productID, offerID, storeID
 }
@@ -192,12 +266,9 @@ func TestIntegracion_Usuarios(t *testing.T) {
 		t.Errorf("sesiones con el hash de los tokens = %d, quiero 1", n)
 	}
 
-	loginData := e.expect(http.StatusOK, "usuarios", "POST", "/auth/login", "",
-		map[string]any{"email": email, "password": "Clave12345!"})
-	var loggedIn session
-	if err := json.Unmarshal(loginData, &loggedIn); err != nil || loggedIn.UserID != s.UserID ||
-		loggedIn.AccessToken == "" || loggedIn.RefreshToken == "" || loggedIn.AccessToken == s.AccessToken {
-		t.Fatalf("login did not return a new session for the persisted account: %s (%v)", loginData, err)
+	loggedIn := e.login(email)
+	if loggedIn.UserID != s.UserID || loggedIn.AccessToken == s.AccessToken {
+		t.Fatalf("el login no abrió una sesión nueva para la cuenta: %+v", loggedIn)
 	}
 	e.expect(http.StatusOK, "usuarios", "GET", "/auth/validate", loggedIn.AccessToken, nil)
 	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1 AND access_token_hash = $2`,
@@ -216,9 +287,8 @@ func TestIntegracion_Usuarios(t *testing.T) {
 	e.expect(http.StatusUnauthorized, "usuarios", "GET", path, "", nil)
 
 	// refresh rota la sesión: el refresh token viejo deja de servir.
-	var renewed session
-	_ = json.Unmarshal(e.expect(http.StatusOK, "usuarios", "POST", "/auth/refresh", "", map[string]any{"refreshToken": s.RefreshToken}), &renewed)
-	e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/refresh", "", map[string]any{"refreshToken": s.RefreshToken})
+	renewed := e.refresh(s.RefreshToken)
+	e.refreshRejected(s.RefreshToken)
 
 	// logout borra la sesión.
 	e.expect(http.StatusNoContent, "usuarios", "POST", "/auth/logout", renewed.AccessToken, nil)
@@ -228,6 +298,143 @@ func TestIntegracion_Usuarios(t *testing.T) {
 	}
 }
 
+// TestIntegracion_CambioDePasswordRevocaOtrasSesiones comprueba que cambiar la
+// contraseña invalida las demás sesiones del usuario y conserva la actual, y
+// que una contraseña actual incorrecta no revoca nada.
+func TestIntegracion_CambioDePasswordRevocaOtrasSesiones(t *testing.T) {
+	e := newEnv(t)
+	first, email := e.register("cambio-clave")
+	second := e.login(email)
+
+	// Una contraseña actual incorrecta no toca las sesiones.
+	e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/change-password", first.AccessToken,
+		map[string]any{"currentPassword": "incorrecta", "newPassword": "NuevaClave123!"})
+	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 2 {
+		t.Fatalf("sesiones tras contraseña incorrecta = %d, quiero 2", n)
+	}
+
+	// El cambio correcto desde la primera sesión revoca la segunda.
+	e.expect(http.StatusNoContent, "usuarios", "POST", "/auth/change-password", first.AccessToken,
+		map[string]any{"currentPassword": "Clave12345!", "newPassword": "NuevaClave123!"})
+	e.expect(http.StatusUnauthorized, "usuarios", "GET", "/auth/validate", second.AccessToken, nil)
+	e.expect(http.StatusOK, "usuarios", "GET", "/auth/validate", first.AccessToken, nil)
+	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 1 {
+		t.Fatalf("sesiones tras el cambio = %d, quiero 1 (la actual)", n)
+	}
+	if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1 AND access_token_hash = $2`,
+		first.UserID, hash(first.AccessToken)); n != 1 {
+		t.Fatalf("sesión actual = %d, quiero 1", n)
+	}
+}
+
+// sessionExpiry devuelve cuánto les falta a los vencimientos del access y del
+// refresh de la sesión del access token dado, según el reloj de la base.
+func (e *env) sessionExpiry(accessToken string) (access, refresh time.Duration) {
+	e.t.Helper()
+	var accessSeconds, refreshSeconds float64
+	err := e.pool.QueryRow(context.Background(), `SELECT EXTRACT(EPOCH FROM access_expires_at-NOW())::float8,
+		EXTRACT(EPOCH FROM refresh_expires_at-NOW())::float8 FROM user_session WHERE access_token_hash = $1`,
+		hash(accessToken)).Scan(&accessSeconds, &refreshSeconds)
+	if err != nil {
+		e.t.Fatalf("sesión no encontrada: %v", err)
+	}
+	return time.Duration(accessSeconds * float64(time.Second)), time.Duration(refreshSeconds * float64(time.Second))
+}
+
+// near indica si got está a menos de 5 segundos de want.
+func near(got, want time.Duration) bool {
+	diff := got - want
+	return diff > -5*time.Second && diff < 5*time.Second
+}
+
+// TAL-200: vencimiento absoluto, poda y tope de sesiones, cierre de todas las
+// sesiones y cuentas desactivadas, contra PostgreSQL real.
+func TestIntegracion_Sesiones(t *testing.T) {
+	e := newEnv(t)
+
+	t.Run("el refresh hereda el vencimiento de la sesión", func(t *testing.T) {
+		s, _ := e.register("vence")
+		access, session := e.sessionExpiry(s.AccessToken)
+		if !near(access, 15*time.Minute) || !near(session, 30*24*time.Hour) {
+			t.Fatalf("sesión nueva: access en %v y refresh en %v, quiero 15m y 720h", access, session)
+		}
+		// Una sesión a la que le queda una hora: rotarla no la extiende.
+		if _, err := e.pool.Exec(context.Background(), `UPDATE user_session SET refresh_expires_at = NOW() + INTERVAL '1 hour'
+			WHERE access_token_hash = $1`, hash(s.AccessToken)); err != nil {
+			t.Fatal(err)
+		}
+		renewed := e.refresh(s.RefreshToken)
+		if _, session := e.sessionExpiry(renewed.AccessToken); !near(session, time.Hour) {
+			t.Fatalf("tras el refresh vence en %v, quiero 1h", session)
+		}
+		// Si quedan 2 minutos, el access token tampoco dura más.
+		if _, err := e.pool.Exec(context.Background(), `UPDATE user_session SET refresh_expires_at = NOW() + INTERVAL '2 minutes'
+			WHERE access_token_hash = $1`, hash(renewed.AccessToken)); err != nil {
+			t.Fatal(err)
+		}
+		last := e.refresh(renewed.RefreshToken)
+		if access, session := e.sessionExpiry(last.AccessToken); !near(access, 2*time.Minute) || !near(session, 2*time.Minute) {
+			t.Fatalf("access en %v y refresh en %v, quiero 2m los dos", access, session)
+		}
+		// Vencida, ya no se puede rotar.
+		if _, err := e.pool.Exec(context.Background(), `UPDATE user_session SET refresh_expires_at = NOW() - INTERVAL '1 second'
+			WHERE access_token_hash = $1`, hash(last.AccessToken)); err != nil {
+			t.Fatal(err)
+		}
+		e.refreshRejected(last.RefreshToken)
+	})
+
+	t.Run("cada login poda las vencidas y respeta el tope", func(t *testing.T) {
+		first, email := e.register("tope")
+		if _, err := e.pool.Exec(context.Background(), `INSERT INTO user_session
+			(user_id, access_token_hash, refresh_token_hash, access_expires_at, refresh_expires_at)
+			VALUES ($1, $2, $3, NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day')`,
+			first.UserID, hash(e.tag+"-vencido-a"), hash(e.tag+"-vencido-r")); err != nil {
+			t.Fatal(err)
+		}
+		var last session
+		for i := 0; i < 11; i++ {
+			last = e.login(email)
+		}
+		if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 10 {
+			t.Errorf("sesiones tras 12 inicios = %d, quiero 10", n)
+		}
+		if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1 AND refresh_expires_at <= NOW()`, first.UserID); n != 0 {
+			t.Errorf("sesiones vencidas sin borrar = %d", n)
+		}
+		// La más antigua (la del registro) es la que salió; la última sigue.
+		e.expect(http.StatusUnauthorized, "usuarios", "GET", "/auth/validate", first.AccessToken, nil)
+		e.expect(http.StatusOK, "usuarios", "GET", "/auth/validate", last.AccessToken, nil)
+
+		// logout-all cierra todas, incluida la que lo pide.
+		e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/logout-all", "", nil)
+		e.expect(http.StatusNoContent, "usuarios", "POST", "/auth/logout-all", last.AccessToken, nil)
+		if n := e.count(`SELECT count(*) FROM user_session WHERE user_id = $1`, first.UserID); n != 0 {
+			t.Errorf("sesiones tras logout-all = %d, quiero 0", n)
+		}
+		e.expect(http.StatusUnauthorized, "usuarios", "GET", "/auth/validate", last.AccessToken, nil)
+		e.expect(http.StatusUnauthorized, "usuarios", "POST", "/auth/logout-all", last.AccessToken, nil)
+	})
+
+	t.Run("una cuenta desactivada pierde sus sesiones", func(t *testing.T) {
+		s, email := e.register("inactiva")
+		if _, err := e.pool.Exec(context.Background(), `UPDATE user_account SET active = FALSE WHERE id = $1`, s.UserID); err != nil {
+			t.Fatal(err)
+		}
+		e.expect(http.StatusUnauthorized, "usuarios", "GET", "/auth/validate", s.AccessToken, nil)
+		e.refreshRejected(s.RefreshToken)
+		// Mismo 401 que un email inexistente.
+		_, inactive := e.do("usuarios", "POST", "/auth/login", "", map[string]any{"email": email, "password": "Clave12345!"})
+		_, missing := e.do("usuarios", "POST", "/auth/login", "", map[string]any{"email": "nadie-" + e.tag + "@integracion.test", "password": "Clave12345!"})
+		var a, b struct{ Code, Detail string }
+		_ = json.Unmarshal(inactive, &a)
+		_ = json.Unmarshal(missing, &b)
+		if a.Code != "unauthorized" || a != b {
+			t.Errorf("login de cuenta inactiva = %s, de email inexistente = %s", inactive, missing)
+		}
+	})
+}
+
 // Dominio comercial: cada API escribe y lee sus tablas, y las que llaman a
 // otra API (favorites, cart, review, watchlist) lo hacen por HTTP al mismo
 // proceso.
@@ -235,7 +442,7 @@ func TestIntegracion_Comercial(t *testing.T) {
 	e := newEnv(t)
 	s, _ := e.register("beto")
 	user := s.UserID
-	productID, offerID, storeID := e.seedOffer()
+	productID, offerID, storeID := e.newOffer()
 
 	t.Run("lecturas product, store, service, search y comparison", func(t *testing.T) {
 		e.expect(http.StatusOK, "comercial", "GET", "/products/"+productID, "", nil)
@@ -283,8 +490,15 @@ func TestIntegracion_Comercial(t *testing.T) {
 		data := e.expect(http.StatusCreated, "comercial", "POST", "/reviews/product/"+productID, s.AccessToken,
 			map[string]any{"rating": 4, "title": e.tag, "content": "integración"})
 		_ = json.Unmarshal(data, &review)
-		if data := e.expect(http.StatusOK, "comercial", "GET", "/reviews/product/"+productID, "", nil); !strings.Contains(string(data), e.tag) {
+		listed := e.expect(http.StatusOK, "comercial", "GET", "/reviews/product/"+productID, "", nil)
+		if !strings.Contains(string(listed), e.tag) {
 			t.Errorf("la reseña no aparece en el listado")
+		}
+		// TAL-200 (H12): el autor va por nombre y el userId interno no se publica.
+		for _, body := range [][]byte{data, listed} {
+			if strings.Contains(string(body), `"userId"`) || !strings.Contains(string(body), `"author":"Test beto"`) {
+				t.Errorf("la reseña debe mostrar author y no userId: %s", body)
+			}
 		}
 		if n := e.count(`SELECT count(*) FROM product_review WHERE user_id = $1 AND title = $2`, user, e.tag); n != 1 {
 			t.Errorf("product_review en la base = %d", n)
@@ -355,24 +569,33 @@ func TestIntegracion_IngestionNotificaAComercial(t *testing.T) {
 	source := "Scraper " + e.tag
 	t.Cleanup(func() { _, _ = e.pool.Exec(context.Background(), `DELETE FROM data_source WHERE name = $1`, source) })
 
-	// Producto del seed (LG GM53): ingestion lo encuentra por marca y modelo.
+	// Producto ya catalogado con marca y modelo, creado por el test (TAL-241: el
+	// seed ya no trae productos): ingestion lo encuentra por marca y modelo.
+	brand := "Marca " + e.tag
 	var productID string
-	if err := e.pool.QueryRow(context.Background(), `SELECT p.public_id::text FROM product p JOIN brand b ON b.id = p.brand_id
-		WHERE b.name = 'LG' AND p.model = 'GM53'`).Scan(&productID); err != nil {
-		t.Fatalf("producto del seed: %v", err)
+	t.Cleanup(func() {
+		_, _ = e.pool.Exec(context.Background(), `DELETE FROM product WHERE public_id::text = $1`, productID)
+		_, _ = e.pool.Exec(context.Background(), `DELETE FROM brand WHERE name = $1`, brand)
+	})
+	if err := e.pool.QueryRow(context.Background(), `
+		WITH b AS (INSERT INTO brand (name) VALUES ($1) RETURNING id)
+		INSERT INTO product (category_id, category_ref, brand_id, name, model)
+		SELECT c.legacy_product_category_id, c.id, b.id, $2, 'GM53' FROM categories c, b WHERE c.slug = 'refrigeradores'
+		RETURNING public_id::text`, brand, "Refrigerador "+e.tag).Scan(&productID); err != nil {
+		t.Fatalf("crear producto catalogado: %v", err)
 	}
 	e.expect(http.StatusCreated, "comercial", "POST", "/watchlist", s.AccessToken, map[string]any{"productId": productID, "targetPrice": 500000})
 
 	var run struct {
 		ID int32 `json:"id"`
 	}
-	data := e.expect(http.StatusCreated, "ingestion", "POST", "/ingestion/runs", internalToken,
+	data := e.expect(http.StatusCreated, "ingestion", "POST", "/ingestion/runs", ingestionToken,
 		map[string]any{"source": map[string]any{"name": source, "baseUrl": "https://integracion.test"}, "storeId": store})
 	_ = json.Unmarshal(data, &run)
 	item := func(price int) {
 		t.Helper()
-		e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/items", run.ID), internalToken, map[string]any{"items": []any{
-			map[string]any{"externalId": "lg-gm53", "product": map[string]any{"name": "Refrigerador LG", "brand": "LG", "model": "GM53"},
+		e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/items", run.ID), ingestionToken, map[string]any{"items": []any{
+			map[string]any{"externalId": "lg-gm53", "product": map[string]any{"name": "Refrigerador LG", "brand": brand, "model": "GM53"},
 				"offer": map[string]any{"price": price, "productUrl": "https://integracion.test/" + e.tag}},
 		}})
 	}
@@ -393,8 +616,13 @@ func TestIntegracion_IngestionNotificaAComercial(t *testing.T) {
 		WHERE o.store_id = $1`, store); n != 2 {
 		t.Errorf("historial de la oferta = %d, quiero 2", n)
 	}
-	e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/finish", run.ID), internalToken, map[string]any{"status": "success"})
+	e.expect(http.StatusOK, "ingestion", "POST", fmt.Sprintf("/ingestion/runs/%d/finish", run.ID), ingestionToken, map[string]any{"status": "success"})
 	e.expect(http.StatusUnauthorized, "ingestion", "GET", "/ingestion/runs", "", nil)
+	// Cada token sirve solo para lo suyo (TAL-199, H3): el interno no abre
+	// ingestion y el del scraper no es admin en comercial.
+	e.expect(http.StatusUnauthorized, "ingestion", "GET", "/ingestion/runs", internalToken, nil)
+	e.expect(http.StatusUnauthorized, "comercial", "POST", "/notifications", ingestionToken,
+		map[string]any{"userId": s.UserID, "type": "t", "title": "t", "message": "m"})
 }
 
 // Cada usuario solo lee y modifica lo suyo: el usuario sale del token, nunca
@@ -404,7 +632,7 @@ func TestIntegracion_AccesoCruzado(t *testing.T) {
 	e := newEnv(t)
 	ana, _ := e.register("ana-idor")
 	beto, _ := e.register("beto-idor")
-	productID, _, _ := e.seedOffer()
+	productID, _, _ := e.newOffer()
 	var serviceID string
 	if err := e.pool.QueryRow(context.Background(), `SELECT public_id::text FROM service WHERE active ORDER BY id LIMIT 1`).Scan(&serviceID); err != nil {
 		t.Fatalf("seed sin servicios: %v", err)
@@ -414,14 +642,18 @@ func TestIntegracion_AccesoCruzado(t *testing.T) {
 	t.Run("review", func(t *testing.T) {
 		var review struct {
 			ID     string `json:"id"`
-			UserID int32  `json:"userId"`
+			Author string `json:"author"`
 		}
-		// El userId del body se ignora: la reseña queda a nombre del token.
+		// El userId del body se ignora: la reseña queda a nombre del token. La
+		// respuesta ya no trae el userId (TAL-200, H12): se comprueba en la base.
 		data := e.expect(http.StatusCreated, "comercial", "POST", "/reviews/product/"+productID, ana.AccessToken,
 			map[string]any{"userId": beto.UserID, "rating": 5, "title": e.tag})
 		_ = json.Unmarshal(data, &review)
-		if review.UserID != ana.UserID {
-			t.Errorf("autor de la reseña = %d, quiero %d (el del token)", review.UserID, ana.UserID)
+		if review.Author != "Test ana-idor" {
+			t.Errorf("autor de la reseña = %q, quiero el del token (Test ana-idor)", review.Author)
+		}
+		if n := e.count(`SELECT count(*) FROM product_review WHERE user_id = $1 AND title = $2`, ana.UserID, e.tag); n != 1 {
+			t.Errorf("reseñas de ana con el título del test = %d, quiero 1", n)
 		}
 		e.expect(http.StatusNotFound, "comercial", "PUT", "/reviews/"+review.ID, beto.AccessToken,
 			map[string]any{"userId": ana.UserID, "rating": 1})

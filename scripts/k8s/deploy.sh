@@ -8,7 +8,11 @@
 #   dominios     (por defecto) 3 Deployments por contexto de negocio, misma imagen
 #                y API_DOMAIN distinto: comercial (11 APIs), usuarios e ingestion.
 #   consolidado  (respaldo) las 14 APIs en un solo Deployment "backend".
-# La Fase 10 corre el pod de test (k8s/tests): solo lecturas, no escribe nada.
+# La Fase 10 corre el pod de test (k8s/tests): smoke test y visor de llamadas
+# en un solo Job; solo lecturas, no escribe nada.
+# NetworkPolicy (k8s/components/red, TAL-197): si la plataforma permite crearlas,
+# la Fase 4 aplica una red que niega todo por defecto y abre solo lo que la app
+# usa. Si no (hoy UCT), se omiten. --sin-red las desactiva y borra las que haya.
 #
 # Ejemplos:
 #   ./scripts/k8s/deploy.sh --modo uct --kubeconfig ~/.kube/estudiantes-<usuario>.kubeconfig \
@@ -16,12 +20,13 @@
 #   ./scripts/k8s/deploy.sh --modo uct --to-phase 0          # solo inventario
 #   ./scripts/k8s/deploy.sh --modo uct --from-phase 6 --skip-cleanup
 #   ./scripts/k8s/deploy.sh --modo uct --from-phase 10       # solo el pod de test
+#   ./scripts/k8s/deploy.sh --modo uct --from-phase 3 --skip-cleanup --sin-red
 #
 # Nunca imprime Secrets, tokens ni el contenido del kubeconfig.
 set -uo pipefail
 
 usage() {
-  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
   cat <<'EOF'
 Opciones:
   --modo uct                  (opcional: el modo local se retiro en TAL-103)
@@ -30,12 +35,13 @@ Opciones:
   --registry docker.io/usuario   --tag TAG
   --storage-class X  --ingress-class X  --ingress-host X  --ingress-scheme http|https  --image-pull-secret X
   --from-phase N  --to-phase N  (0-10)   --skip-cleanup
+  --sin-red                   no aplicar las NetworkPolicy aunque haya permiso
 EOF
 }
 
 MODO=uct TOPOLOGIA=dominios KUBECONFIG_FILE="" CONTEXT="" NAMESPACE="" REGISTRY="" TAG=""
 STORAGE_CLASS="" INGRESS_CLASS="" INGRESS_HOST="" INGRESS_SCHEME="https" IMAGE_PULL_SECRET=""
-FROM_PHASE=0 TO_PHASE=10 SKIP_CLEANUP=0
+FROM_PHASE=0 TO_PHASE=10 SKIP_CLEANUP=0 SIN_RED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --modo) MODO="$2"; shift 2 ;;
@@ -53,6 +59,7 @@ while [ $# -gt 0 ]; do
     --from-phase) FROM_PHASE="$2"; shift 2 ;;
     --to-phase) TO_PHASE="$2"; shift 2 ;;
     --skip-cleanup) SKIP_CLEANUP=1; shift ;;
+    --sin-red) SIN_RED=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR: opcion desconocida: $1" >&2; usage; exit 1 ;;
   esac
@@ -207,6 +214,7 @@ write_overlay() {
     echo "  - ../../base"
     echo "components:"
     echo "  - ../../components/$TOPOLOGIA"
+    [ "$RED" = aplicar ] && echo "  - ../../components/red"
     echo "configMapGenerator:"
     echo "  - name: soloservis-migrations"
     echo "    files:"
@@ -276,7 +284,49 @@ build_rendered() {
     return 1
   fi
 }
+# apply_selector aplica del render los objetos con la etiqueta $1 y devuelve el
+# codigo de salida de kubectl.
 apply_selector() { k apply -f "$RENDERED" -l "$1" 2>&1 | show; return "${PIPESTATUS[0]}"; }
+
+# apply_selector_server_side hace lo mismo con server-side apply. El apply normal
+# guarda una copia del objeto en la anotacion last-applied-configuration, que no
+# puede pasar de 256 KB, y el ConfigMap de migraciones ya ronda ese tamano.
+# --force-conflicts toma los campos que antes dejo el apply normal.
+apply_selector_server_side() {
+  k apply --server-side --force-conflicts -f "$RENDERED" -l "$1" 2>&1 | show
+  return "${PIPESTATUS[0]}"
+}
+
+# NetworkPolicy (TAL-197). RED se calcula una vez antes de las fases (no dentro
+# de build_rendered, que corre en un subshell):
+#   aplicar      hay permiso: el overlay incluye components/red
+#   desactivada  hay permiso pero se paso --sin-red
+#   sin-permiso  la plataforma no deja crearlas (hoy UCT): se omiten
+red_state() {
+  if [ "$(k auth can-i create networkpolicies 2>/dev/null)" != yes ]; then echo sin-permiso
+  elif [ "$SIN_RED" = 1 ]; then echo desactivada
+  else echo aplicar; fi
+}
+red_text() {
+  case "$RED" in
+    aplicar) echo "SI (k8s/components/red se aplica en la Fase 4)" ;;
+    desactivada) echo "NO (--sin-red: se borran las de un despliegue anterior)" ;;
+    *) echo "OMITIDA (la plataforma no permite crear NetworkPolicy)" ;;
+  esac
+}
+apply_red() {
+  case "$RED" in
+    aplicar)
+      step "Aplicando NetworkPolicy (k8s/components/red)"
+      apply_selector app.kubernetes.io/component=red || stop_phase 4 "kubectl apply de las NetworkPolicy fallo"
+      cp_set NetworkPolicy "OK ($(k get networkpolicy -l app.kubernetes.io/part-of=soloservis -o name 2>/dev/null | grep -c /) aplicadas)" ;;
+    desactivada)
+      step "Borrando NetworkPolicy de un despliegue anterior (--sin-red)"
+      k delete networkpolicy -l app.kubernetes.io/part-of=soloservis --ignore-not-found 2>&1 | show
+      cp_set NetworkPolicy "$(red_text)" ;;
+    *) cp_set NetworkPolicy "$(red_text)" ;;
+  esac
+}
 
 # ---------------------------------------------------------------- FASE 0
 
@@ -296,6 +346,7 @@ phase0() {
   echo "${C_DIM}  ResourceQuota / LimitRange:${C_OFF}"; k get resourcequota,limitrange 2>&1 | show
   echo "${C_DIM}  StorageClasses:${C_OFF}"; k get storageclass 2>&1 | show
   cp_set "Recursos encontrados" "$(k get all,pvc,ingress,configmap,secret,job -l app.kubernetes.io/part-of=soloservis -o name 2>/dev/null | grep -c /) etiquetados soloservis"
+  cp_set NetworkPolicy "$(red_text)"
   if [ -n "$missing" ]; then cp_set Bloqueos "no instalado:$missing"; else cp_set Bloqueos ninguno; fi
   checkpoint 0
 }
@@ -431,6 +482,45 @@ phase3() {
 
 # ---------------------------------------------------------------- FASE 4
 
+# create_secret_from_values crea un Secret generico con los pares CLAVE=valor
+# que recibe despues del nombre. Cada valor va a un archivo temporal con
+# permisos 600 y kubectl lo lee con --from-file, asi nunca aparece en la linea
+# de comandos ni en la lista de procesos (TAL-199, H11). Los archivos se borran
+# en el mismo paso. Devuelve el codigo de salida de kubectl.
+create_secret_from_values() {
+  local name=$1 dir pair key rc
+  shift
+  dir="$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/soloservis-secret.XXXXXX")" || return 1
+  local args=()
+  for pair in "$@"; do
+    key="${pair%%=*}"
+    (umask 077 && printf '%s' "${pair#*=}" >"$dir/$key")
+    args+=("--from-file=$key=$dir/$key")
+  done
+  k create secret generic "$name" "${args[@]}" >/dev/null 2>&1
+  rc=$?
+  rm -rf "$dir"
+  return "$rc"
+}
+
+# random_hex imprime N caracteres hexadecimales aleatorios (de /dev/urandom).
+random_hex() { LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c "$1"; }
+
+# ensure_token_secret crea el Secret <nombre> con la clave <clave> y un token
+# aleatorio de 64 caracteres si no existe; si existe, lo reutiliza. Sin la
+# etiqueta part-of: sobrevive a la limpieza de la Fase 1. Imprime el estado
+# para el checkpoint.
+ensure_token_secret() {
+  local name=$1 key=$2
+  if k get secret "$name" -o name >/dev/null 2>&1; then
+    echo "OK (Secret $name existente)"
+  elif create_secret_from_values "$name" "$key=$(random_hex 64)"; then
+    echo "OK (Secret $name creado)"
+  else
+    echo "ERROR (no se pudo crear $name)"
+  fi
+}
+
 # Reutiliza postgres-secret si existe (la contrasena vive tambien dentro del
 # volumen, asi que no se cambia sola). Si no existe, lo crea con una contrasena
 # aleatoria, salvo que el PVC ya tenga datos: no coincidiria con la guardada.
@@ -446,10 +536,8 @@ ensure_postgres_secret() {
     return 2
   fi
   # 48 caracteres hex: seguros dentro de DATABASE_URL sin escapar.
-  local pw
-  pw="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 48)"
-  if k create secret generic postgres-secret --from-literal=POSTGRES_USER=postgres \
-      --from-literal=POSTGRES_DB=soloservis --from-literal=POSTGRES_PASSWORD="$pw" >/dev/null 2>&1; then
+  if create_secret_from_values postgres-secret POSTGRES_USER=postgres \
+      POSTGRES_DB=soloservis "POSTGRES_PASSWORD=$(random_hex 48)"; then
     k label secret postgres-secret app.kubernetes.io/name=postgres app.kubernetes.io/component=database >/dev/null 2>&1
     cp_set "Credenciales BD" "OK (Secret postgres-secret creado con contrasena aleatoria)"
     return 0
@@ -463,30 +551,21 @@ ensure_postgres_secret() {
 # existe; si no, se crea a partir de AI_API_KEY en el entorno del despliegue.
 # Sin clave no se detiene el despliegue: el asistente responde 503
 # ai_unavailable y el resto del sitio funciona igual.
-# La clave nunca se imprime ni se pasa por la linea de comandos: va por un
-# archivo temporal con permisos 600 que se borra en el mismo paso.
+# La clave nunca se imprime ni se pasa por la linea de comandos: va por
+# create_secret_from_values (archivo temporal con permisos 600).
 ensure_ai_secret() {
   if k get secret soloservis-ai -o name >/dev/null 2>&1; then
     echo "OK (Secret soloservis-ai existente)"
     return 0
   fi
-  local key tmp
-  key="${AI_API_KEY:-}"
-  if [ -z "$key" ]; then
+  if [ -z "${AI_API_KEY:-}" ]; then
     echo "AVISO (sin AI_API_KEY: el asistente respondera 503 hasta crear el Secret soloservis-ai)"
     return 0
   fi
-  tmp="$(umask 077 && mktemp "${TMPDIR:-/tmp}/soloservis-ai.XXXXXX")" || {
-    echo "AVISO (no se pudo crear el archivo temporal para la clave)"
-    return 0
-  }
-  printf '%s' "$key" >"$tmp"
-  if k create secret generic soloservis-ai --from-file=AI_API_KEY="$tmp" >/dev/null 2>&1; then
-    rm -f "$tmp"
+  if create_secret_from_values soloservis-ai "AI_API_KEY=$AI_API_KEY"; then
     echo "OK (Secret soloservis-ai creado con AI_API_KEY)"
     return 0
   fi
-  rm -f "$tmp"
   echo "AVISO (no se pudo crear soloservis-ai: el asistente respondera 503)"
   return 0
 }
@@ -495,17 +574,11 @@ phase4() {
   cp_reset
   local err
   err="$(build_rendered)" || stop_phase 4 "kustomize: $err"
-  # Token de servicio (scraper y llamadas internas). Fuera de git y sin la
-  # etiqueta part-of: sobrevive a la limpieza de la Fase 1.
-  if k get secret soloservis-internal -o name >/dev/null 2>&1; then
-    cp_set "Token interno" "OK (Secret soloservis-internal existente)"
-  else
-    local token
-    token="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 64)"
-    if k create secret generic soloservis-internal --from-literal=INTERNAL_API_TOKEN="$token" >/dev/null 2>&1; then
-      cp_set "Token interno" "OK (Secret soloservis-internal creado)"
-    else cp_set "Token interno" ERROR; fi
-  fi
+  # Tokens de servicio, fuera de git (TAL-199). El interno es admin en las
+  # APIs y lo usan las llamadas entre ellas; el del scraper solo abre su API
+  # de control y /ingestion/*. Ninguno se imprime.
+  cp_set "Token interno" "$(ensure_token_secret soloservis-internal INTERNAL_API_TOKEN)"
+  cp_set "Token del scraper" "$(ensure_token_secret soloservis-scraper SCRAPER_TOKEN)"
   # Credenciales de PostgreSQL, fuera de git (TAL-98). Va antes del StatefulSet,
   # que las lee. La contrasena nunca se imprime.
   ensure_postgres_secret
@@ -516,6 +589,8 @@ phase4() {
   esac
   # Clave del proveedor de IA (TAL-247). Nunca detiene el despliegue.
   cp_set "Clave IA" "$(ensure_ai_secret)"
+  # NetworkPolicy antes que los pods: cada pod nace ya con su red restringida.
+  apply_red
   step "Aplicando Services y StatefulSet de PostgreSQL"
   apply_selector app.kubernetes.io/component=database || stop_phase 4 "kubectl apply fallo"
   step "Esperando rollout de postgres (max 5 min)"
@@ -542,7 +617,7 @@ phase5() {
   step "Recreando Job soloservis-migrate (los Jobs son inmutables)"
   k delete job soloservis-migrate --ignore-not-found --wait=true --timeout=120s 2>&1 | show
   apply_selector app.kubernetes.io/component=config >/dev/null
-  apply_selector app.kubernetes.io/component=migrations || stop_phase 5 "kubectl apply fallo"
+  apply_selector_server_side app.kubernetes.io/component=migrations || stop_phase 5 "kubectl apply fallo"
   step "Esperando el Job (max 5 min)"
   for i in $(seq 1 60); do
     succeeded="$(k get job soloservis-migrate -o 'jsonpath={.status.succeeded}' 2>/dev/null)"
@@ -689,34 +764,66 @@ phase9() {
 
 # ---------------------------------------------------------------- FASE 10
 
-# Pod de test (k8s/tests): un Job con curl que verifica health, una lectura por
-# API, rutas protegidas, aislamiento entre dominios y el nginx. Solo lee.
+# visor_summary lee por stdin el log del contenedor origen y escribe solo el
+# bloque final de resumen del visor de llamadas: desde la ultima linea
+# "Resumen" hasta el final, sin las lineas @@@REGISTRO (el JSON para
+# scripts/testing/llamadas.py). Si no hay resumen (origen no termino), escribe
+# las ultimas 15 lineas para ver donde se corto.
+visor_summary() {
+  awk '/^@@@REGISTRO / { next }
+       { line[++n] = $0; if ($0 ~ /Resumen/) start = n }
+       END {
+         if (!start) { start = n - 14; if (start < 1) start = 1 }
+         for (i = start; i <= n; i++) print line[i]
+       }'
+}
+
+# Pod de test (k8s/tests): un Job con tres contenedores. smoke-test (curl)
+# verifica health, una lectura por API, rutas protegidas, aislamiento entre
+# dominios y el nginx; origen y el sidecar destino son el visor de llamadas
+# (TAL-165/166/167). El Job termina bien solo si smoke-test y origen pasan.
+# Solo lee.
 phase10() {
   cp_reset
-  local state=timeout i succeeded failed summary
+  local state=timeout i succeeded failed smoke visor summary
   step "Recreando el Job soloservis-smoke-test (los Jobs son inmutables)"
   k delete job soloservis-smoke-test --ignore-not-found --wait=true --timeout=120s 2>&1 | show
   k apply -k "$REPO_ROOT/k8s/tests" 2>&1 | show
   [ "${PIPESTATUS[0]}" = 0 ] || { cp_set "Pod de test" ERROR; stop_phase 10 "kubectl apply -k k8s/tests fallo"; }
-  step "Esperando el Job (max 3 min)"
-  for i in $(seq 1 60); do
+  step "Esperando el Job (max 10 min)"
+  for i in $(seq 1 200); do
     succeeded="$(k get job soloservis-smoke-test -o 'jsonpath={.status.succeeded}' 2>/dev/null)"
     failed="$(k get job soloservis-smoke-test -o 'jsonpath={.status.failed}' 2>/dev/null)"
     [ "${succeeded:-0}" -ge 1 ] && { state=complete; break; }
     [ "${failed:-0}" -ge 1 ] && { state=failed; break; }
     sleep 3
   done
-  echo "${C_DIM}  Resultado del pod de test:${C_OFF}"
-  k logs job/soloservis-smoke-test 2>&1 | show
-  summary="$(k logs job/soloservis-smoke-test 2>/dev/null | sed -n 's/^Resultado: //p')"
+  echo "${C_DIM}  Resultado del smoke test:${C_OFF}"
+  k logs job/soloservis-smoke-test -c smoke-test 2>&1 | show
+  smoke="$(k logs job/soloservis-smoke-test -c smoke-test 2>/dev/null | sed -n 's/^Resultado: //p' | head -1)"
+  echo "${C_DIM}  Resultado del visor de llamadas (contenedor origen):${C_OFF}"
+  k logs job/soloservis-smoke-test -c origen 2>&1 | visor_summary | show
+  visor="$(k logs job/soloservis-smoke-test -c origen 2>/dev/null | sed -n 's/^Resultado: //p' | head -1)"
+  summary="smoke: ${smoke:-sin resultado} | visor: ${visor:-sin resultado}"
+  if [ -z "$smoke" ] && [ -z "$visor" ]; then
+    # Sin logs: el pod no llego a correr (por ejemplo, el sidecar destino no
+    # paso su startupProbe) o Kubernetes ya lo borro al vencer el plazo.
+    echo "${C_YELLOW}  Sin logs: el pod no llego a correr o Kubernetes ya lo borro. Estado del pod:${C_OFF}"
+    k get pods -l job-name=soloservis-smoke-test -o wide 2>&1 | show
+    k get job soloservis-smoke-test -o 'jsonpath={.status.conditions[*].message}' 2>&1 | show
+    echo
+  fi
   if [ "$state" != complete ]; then
-    cp_set "Pod de test" "ERROR ($state $summary)"
+    cp_set "Pod de test" "ERROR ($state; $summary)"
     k get events --sort-by=.lastTimestamp 2>&1 | tail -10 | show
     stop_phase 10 "alguna verificacion del pod de test fallo (ver las lineas FALLA)"
   fi
   cp_set "Pod de test" "OK ($summary)"
   cp_set Bloqueos ninguno
   checkpoint 10
+  echo "${C_DIM}Visor de llamadas, una terminal por ventana (el Job se borra 1 h despues de terminar):${C_OFF}"
+  echo "${C_DIM}  kubectl logs job/soloservis-smoke-test -c origen${C_OFF}"
+  echo "${C_DIM}  kubectl logs job/soloservis-smoke-test -c destino${C_OFF}"
   echo "${C_GREEN}Para abrir la app:${C_OFF}"
   echo "${C_GREEN}  $(frontend_url)${C_OFF}"
 }
@@ -746,6 +853,10 @@ fi
 
 echo "${C_CYAN}SOLOServis -> Kubernetes | topologia=$TOPOLOGIA contexto=${CONTEXT:-(el del kubeconfig)} namespace=$NAMESPACE fases=$FROM_PHASE..$TO_PHASE${C_OFF}"
 echo "${C_CYAN}Kubeconfig: $(basename "$KUBECONFIG_FILE") | tag=$TAG registry=${REGISTRY:-(sin definir)}${C_OFF}"
+
+echo "${C_DIM}Comprobando si la plataforma permite NetworkPolicy (puede abrir el navegador para el login OIDC)${C_OFF}"
+RED="$(red_state)"
+echo "${C_CYAN}NetworkPolicy: $(red_text)${C_OFF}"
 
 for n in $(seq "$FROM_PHASE" "$TO_PHASE"); do
   echo; echo "---------------- FASE $n ----------------"

@@ -38,7 +38,9 @@ x-dominio-env: &dominio-env
   PORT: "8080"
   DATABASE_URL: "${NEON_DATABASE_URL:-${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/soloservis}}"
   FRONTEND_URL: http://localhost:8443
-  # Credencial de DESARROLLO, solo para Compose local.
+  # Credenciales de DESARROLLO, solo para Compose local. Los puertos se
+  # publican en 127.0.0.1 (TAL-199): desde otra máquina de la red no se llega
+  # ni a la base ni a las APIs, así que estos valores conocidos no abren nada.
   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-solo-para-compose-local}
   # Asistente de comparación (IA). auto = Gemini con AI_API_KEY; sin clave la
   # ruta responde 503 ai_unavailable. La clave va en docker/.env (ignorado por
@@ -67,7 +69,7 @@ services:
       MIGRATIONS_DIR: /migrations
       MIGRATION_ORDER_FILE: /migration_order.txt
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
       - ../backend/database/migrations:/migrations:ro
@@ -86,17 +88,17 @@ services:
       <<: *dominio-env
       API_DOMAIN: comercial
     ports:
-      - "8081:8080" # product
-      - "8082:8080" # store
-      - "8083:8080" # service
-      - "8085:8080" # pricing
-      - "8086:8080" # search
-      - "8087:8080" # comparison
-      - "8089:8080" # favorites
-      - "8090:8080" # cart
-      - "8091:8080" # review
-      - "8092:8080" # watchlist
-      - "8093:8080" # notification
+      - "127.0.0.1:8081:8080" # product
+      - "127.0.0.1:8082:8080" # store
+      - "127.0.0.1:8083:8080" # service
+      - "127.0.0.1:8085:8080" # pricing
+      - "127.0.0.1:8086:8080" # search
+      - "127.0.0.1:8087:8080" # comparison
+      - "127.0.0.1:8089:8080" # favorites
+      - "127.0.0.1:8090:8080" # cart
+      - "127.0.0.1:8091:8080" # review
+      - "127.0.0.1:8092:8080" # watchlist
+      - "127.0.0.1:8093:8080" # notification
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,8 +110,8 @@ services:
       <<: *dominio-env
       API_DOMAIN: usuarios
     ports:
-      - "8084:8080" # user
-      - "8088:8080" # auth
+      - "127.0.0.1:8084:8080" # user
+      - "127.0.0.1:8088:8080" # auth
     depends_on:
       postgres:
         condition: service_healthy
@@ -122,8 +124,10 @@ services:
       API_DOMAIN: ingestion
       # notification vive en otro dominio: sin esta URL el proceso no arranca.
       NOTIFICATION_API_URL: http://comercial:8080
+      # Token del scraper: el único que abre /ingestion/* (TAL-199).
+      INGESTION_API_TOKEN: ${SCRAPER_TOKEN:-dev-scraper-token-solo-para-compose-local}
     ports:
-      - "8094:8080" # ingestion
+      - "127.0.0.1:8094:8080" # ingestion
     depends_on:
       postgres:
         condition: service_healthy
@@ -178,12 +182,13 @@ services:
       SCRAPER_DATA_DIR: /data
       SCRAPER_STORES_DIR: /app/stores
       SCRAPER_API_PORT: "8095"
-      SCRAPER_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-solo-para-compose-local}
+      # Token propio del scraper (TAL-199): su API de control y /ingestion/*.
+      SCRAPER_API_TOKEN: ${SCRAPER_TOKEN:-dev-scraper-token-solo-para-compose-local}
       SCRAPER_RATE_LIMIT: 120/min
       INGESTION_API_URL: http://ingestion:8080
-      INGESTION_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-solo-para-compose-local}
+      INGESTION_API_TOKEN: ${SCRAPER_TOKEN:-dev-scraper-token-solo-para-compose-local}
     ports:
-      - "8095:8095"
+      - "127.0.0.1:8095:8095"
     volumes:
       - scraper_data:/data
     healthcheck:

@@ -18,6 +18,7 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/pricing"
 	"github.com/DoSafills/SOLOServis/backend/internal/products"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -39,15 +40,36 @@ func mustJSON(t *testing.T, value string) string {
 	return string(encoded)
 }
 
-// refrigeradores: categoría nueva enlazada a la anterior, con un requerido.
+// refrigeradores: fila en categories con su hoja de nivel 3 y un requerido.
 var refrigeradores = products.WriteCategory{
-	ID: int32p(1), Slug: strp("refrigeradores"), ItemType: categories.ItemTypeProduct, LegacyID: int32p(5),
+	ID: int32p(1), CategoryID: int32p(5), Slug: strp("refrigeradores"), ItemType: categories.ItemTypeProduct,
 	Attributes: []categories.Attribute{
 		{ID: 10, Key: "capacidad_litros", DataType: "integer", Required: true, Min: floatp(50), Max: floatp(1500)},
 	},
 }
 
 // ------------------------------------------------------------------ fakes
+
+// fakeTx cumple pgx.Tx para los dobles de prueba. Solo se ejercitan Commit y
+// Rollback; los demás métodos del pgx.Tx embebido no se llaman.
+type fakeTx struct {
+	pgx.Tx
+	commits   int
+	rollbacks int
+	commitErr error
+}
+
+// Commit simula el cierre de la transacción del ítem y cuenta la llamada.
+func (t *fakeTx) Commit(context.Context) error {
+	t.commits++
+	return t.commitErr
+}
+
+// Rollback simula la reversión de la transacción del ítem.
+func (t *fakeTx) Rollback(context.Context) error {
+	t.rollbacks++
+	return nil
+}
 
 type fakeRuns struct {
 	run                Run
@@ -59,6 +81,7 @@ type fakeRuns struct {
 	images             map[int32]string // imagen activa por id de producto
 	addImageErr        error
 	saveBatchErr       error // error del INSERT por lote de scraped_data
+	beginErr           error // error al abrir la transacción del ítem
 
 	imageCalls  []string // "id|url" de cada llamada a AddImageIfMissing
 	opened      []any
@@ -70,6 +93,7 @@ type fakeRuns struct {
 	finished    []any
 	baseline    []int32
 	baselineErr error
+	txs         []*fakeTx // transacciones abiertas por Processor
 }
 
 func (f *fakeRuns) OpenRun(_ context.Context, name string, baseURL *string, storeID int32, scraperType string) (int32, error) {
@@ -123,7 +147,21 @@ func (f *fakeRuns) SaveScrapedBatch(_ context.Context, _ int32, items []ScrapedI
 	}
 	return nil
 }
-func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string, storeID int32, productURL string) (ExistingProduct, bool, error) {
+
+// BeginTx simula la apertura de la transacción del ítem (TAL-191).
+func (f *fakeRuns) BeginTx(context.Context) (pgx.Tx, error) {
+	if f.beginErr != nil {
+		return nil, f.beginErr
+	}
+	tx := &fakeTx{}
+	f.txs = append(f.txs, tx)
+	return tx, nil
+}
+
+// FindProductTx simula la búsqueda de identidad dentro de la transacción:
+// sku, marca+modelo, tienda+URL y, por último, marca+nombre+categoría+tienda
+// (TAL-191).
+func (f *fakeRuns) FindProductTx(_ context.Context, _ pgx.Tx, sku, brand, model, name, categorySlug string, storeID int32, productURL string) (ExistingProduct, bool, error) {
 	if f.findErr != nil {
 		return ExistingProduct{}, false, f.findErr
 	}
@@ -134,14 +172,18 @@ func (f *fakeRuns) FindProduct(_ context.Context, sku, brand, model string, stor
 		return p, true, nil
 	}
 	path, _, _ := strings.Cut(productURL, "?")
-	p, ok := f.existing[fmt.Sprintf("%d|%s", storeID, path)]
-	return p, ok && productURL != "", nil
+	if p, ok := f.existing[fmt.Sprintf("%d|%s", storeID, path)]; ok && productURL != "" {
+		return p, true, nil
+	}
+	nameKey := fmt.Sprintf("%s|%s|%s|%d", strings.ToLower(brand), strings.ToLower(name), categorySlug, storeID)
+	p, ok := f.existing[nameKey]
+	return p, ok && brand != "" && name != "" && categorySlug != "", nil
 }
 
 // AddImageIfMissing simula al repositorio: registra la llamada, devuelve
 // addImageErr si está definido y guarda la imagen solo si el producto no
 // tiene una. Devuelve true si la guardó.
-func (f *fakeRuns) AddImageIfMissing(_ context.Context, productID int32, imageURL string) (bool, error) {
+func (f *fakeRuns) AddImageIfMissingTx(_ context.Context, _ pgx.Tx, productID int32, imageURL string) (bool, error) {
 	f.imageCalls = append(f.imageCalls, fmt.Sprintf("%d|%s", productID, imageURL))
 	if f.addImageErr != nil {
 		return false, f.addImageErr
@@ -155,11 +197,11 @@ func (f *fakeRuns) AddImageIfMissing(_ context.Context, productID int32, imageUR
 	f.images[productID] = imageURL
 	return true, nil
 }
-func (f *fakeRuns) EnsureBrand(_ context.Context, name string) (int32, error) {
+func (f *fakeRuns) EnsureBrandTx(_ context.Context, _ pgx.Tx, name string) (int32, error) {
 	f.brands = append(f.brands, name)
 	return 77, nil
 }
-func (f *fakeRuns) ProductID(context.Context, pgtype.UUID) (int32, error) { return 500, nil }
+func (f *fakeRuns) ProductIDTx(context.Context, pgx.Tx, pgtype.UUID) (int32, error) { return 500, nil }
 
 type fakeCatalog struct {
 	category      products.WriteCategory
@@ -177,7 +219,7 @@ func (c *fakeCatalog) ResolveCategory(_ context.Context, ref products.CategoryRe
 	}
 	return c.category, c.resolveErr
 }
-func (c *fakeCatalog) Create(_ context.Context, w products.ProductWrite) (pgtype.UUID, error) {
+func (c *fakeCatalog) CreateTx(_ context.Context, _ pgx.Tx, w products.ProductWrite) (pgtype.UUID, error) {
 	c.created = append(c.created, w)
 	var id pgtype.UUID
 	_ = id.Scan(newProductID)
@@ -193,7 +235,7 @@ type fakeOffers struct {
 	watcherCalls int // llamadas a PriceDropWatchers
 }
 
-func (o *fakeOffers) UpsertOffer(_ context.Context, w pricing.OfferWrite) (int32, bool, *string, error) {
+func (o *fakeOffers) UpsertOfferTx(_ context.Context, _ pgx.Tx, w pricing.OfferWrite) (int32, bool, *string, error) {
 	o.written = append(o.written, w)
 	return int32(40 + len(o.written)), o.previous == nil, o.previous, o.upsertErr
 }
@@ -424,7 +466,7 @@ func TestFinishRunAlertsWhenDegraded(t *testing.T) {
 }
 
 // TestFinishRunWithoutCountersDoesNotAlert deja claro que el contrato viejo
-// sigue funcionando: sin contadores no se evalúa nada.
+// sigue funcionando: sin contadores y con una corrida sana no hay alerta.
 func TestFinishRunWithoutCountersDoesNotAlert(t *testing.T) {
 	e := withStore(newEnv())
 	e.runs.baseline = []int32{30}
@@ -433,6 +475,91 @@ func TestFinishRunWithoutCountersDoesNotAlert(t *testing.T) {
 
 	if len(e.alerts.sent) != 0 {
 		t.Fatalf("avisos = %d; quiero 0", len(e.alerts.sent))
+	}
+}
+
+// ------------------------------------------------------------------ TAL-250
+
+// TestFinalStatus cubre la regla que corrige el estado pedido por el scraper:
+// solo un success sin ítems procesados y con alguno rechazado pasa a failed.
+func TestFinalStatus(t *testing.T) {
+	long := strings.Repeat("x", MaxErrorMessage)
+	tests := []struct {
+		name       string
+		requested  string
+		message    string
+		processed  int32
+		failed     int32
+		wantStatus string
+		wantMsg    string
+	}{
+		{"success con todo rechazado", StatusSuccess, "", 0, 26, StatusFailed, "Ingestion rechazó los 26 ítems de la corrida."},
+		{"conserva el mensaje del scraper", StatusSuccess, "2 páginas caídas", 0, 3, StatusFailed,
+			"Ingestion rechazó los 3 ítems de la corrida. 2 páginas caídas"},
+		{"recorta al largo máximo", StatusSuccess, long, 0, 1, StatusFailed,
+			string([]rune("Ingestion rechazó los 1 ítems de la corrida. " + long)[:MaxErrorMessage])},
+		{"success con algo procesado", StatusSuccess, "", 1, 25, StatusSuccess, ""},
+		{"success sin ítems", StatusSuccess, "", 0, 0, StatusSuccess, ""},
+		{"failed queda igual", StatusFailed, "timeout", 0, 26, StatusFailed, "timeout"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			run := Run{RecordsProcessed: tc.processed, RecordsFailed: tc.failed}
+			status, msg := finalStatus(tc.requested, tc.message, run)
+			if status != tc.wantStatus || msg != tc.wantMsg {
+				t.Fatalf("finalStatus = (%q, %q), quiero (%q, %q)", status, msg, tc.wantStatus, tc.wantMsg)
+			}
+			if n := len([]rune(msg)); n > MaxErrorMessage {
+				t.Fatalf("mensaje de %d caracteres supera %d", n, MaxErrorMessage)
+			}
+		})
+	}
+}
+
+// TestFinishRunAllItemsFailed recorre el cierre por HTTP: la corrida con todos
+// los ítems rechazados queda failed y avisa aunque el scraper no mande
+// contadores; una corrida sana no cambia, y un error al leer la corrida se
+// responde sin cerrarla.
+func TestFinishRunAllItemsFailed(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		processed  int32
+		failed     int32
+		getErr     error
+		wantHTTP   int
+		wantStatus any // estado con que se cerró; nil si no se cerró
+		wantAlerts int
+	}{
+		{"success con 26/26 fallidos queda failed y avisa", `{"status":"success"}`, 0, 26, nil, 200, StatusFailed, 1},
+		{"también con contadores del scraper", `{"status":"success","itemsFound":26,"itemsSent":26}`, 0, 26, nil, 200, StatusFailed, 1},
+		{"failed del scraper también avisa", `{"status":"failed","errorMessage":"x"}`, 0, 5, nil, 200, StatusFailed, 1},
+		{"corrida sana no cambia", `{"status":"success"}`, 20, 6, nil, 200, StatusSuccess, 0},
+		{"corrida inexistente", `{"status":"success"}`, 0, 0, ErrRunNotFound, 404, nil, 0},
+		{"error al leer la corrida", `{"status":"success"}`, 0, 0, errors.New("db caída"), 500, nil, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := withStore(newEnv())
+			e.runs.run.RecordsProcessed, e.runs.run.RecordsFailed = tc.processed, tc.failed
+			e.runs.getErr = tc.getErr
+
+			requireStatus(t, e.serve(t, http.MethodPost, "/ingestion/runs/3/finish", tc.body), tc.wantHTTP)
+
+			var closed any
+			if e.runs.finished != nil {
+				closed = e.runs.finished[1]
+			}
+			if closed != tc.wantStatus {
+				t.Fatalf("cerrada con %v, quiero %v", closed, tc.wantStatus)
+			}
+			if len(e.alerts.sent) != tc.wantAlerts {
+				t.Fatalf("avisos = %d, quiero %d (log: %s)", len(e.alerts.sent), tc.wantAlerts, e.logs.String())
+			}
+			if tc.wantAlerts > 0 && !strings.Contains(e.alerts.sent[0].Message, "rechazó los") {
+				t.Fatalf("message = %q", e.alerts.sent[0].Message)
+			}
+		})
 	}
 }
 
@@ -532,7 +659,7 @@ func TestAddItems_ProductoNuevo(t *testing.T) {
 		t.Fatalf("resultado = %+v", result)
 	}
 	created := e.catalog.created[0]
-	if created.LegacyCategoryID != 5 || *created.CategoryRef != 1 || *created.BrandID != 77 || created.SKU != "LG-1" ||
+	if created.CategoryID != 5 || *created.CategoryRef != 1 || *created.BrandID != 77 || created.SKU != "LG-1" ||
 		len(created.Attributes) != 1 || created.Attributes[0].Text != "350" {
 		t.Fatalf("producto creado = %+v", created)
 	}
@@ -543,6 +670,56 @@ func TestAddItems_ProductoNuevo(t *testing.T) {
 	if !reflect.DeepEqual(e.runs.counters, []int{1, 1, 0}) || !reflect.DeepEqual(e.runs.saved, []string{"rip-1"}) ||
 		!reflect.DeepEqual(e.runs.brands, []string{"LG"}) {
 		t.Fatalf("contadores = %v guardados = %v marcas = %v", e.runs.counters, e.runs.saved, e.runs.brands)
+	}
+}
+
+// TestAddItems_CategoriasVigentesYNueva comprueba que los cuatro slugs que ya
+// enviaba el scraper sigan ingresando y que un slug nuevo con fila en
+// categories (lavadoras) también cree el producto en su hoja.
+func TestAddItems_CategoriasVigentesYNueva(t *testing.T) {
+	casos := []struct {
+		slug       string
+		category   products.WriteCategory
+		attributes string
+	}{
+		{"refrigeradores", products.WriteCategory{ID: int32p(1), CategoryID: int32p(11), Slug: strp("refrigeradores"),
+			ItemType:   categories.ItemTypeProduct,
+			Attributes: refrigeradores.Attributes}, `{"capacidad_litros":350}`},
+		{"notebooks", products.WriteCategory{ID: int32p(2), CategoryID: int32p(12), Slug: strp("notebooks"),
+			ItemType:   categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{}}, `{}`},
+		{"televisores", products.WriteCategory{ID: int32p(3), CategoryID: int32p(13), Slug: strp("televisores"),
+			ItemType:   categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{}}, `{}`},
+		{"celulares", products.WriteCategory{ID: int32p(4), CategoryID: int32p(14), Slug: strp("celulares"),
+			ItemType:   categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{}}, `{}`},
+		{"lavadoras", products.WriteCategory{ID: int32p(9), CategoryID: int32p(20), Slug: strp("lavadoras"),
+			ItemType: categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{
+				{ID: 40, Key: "capacidad_kg", DataType: "integer", Required: true, Min: floatp(5), Max: floatp(30)},
+			}}, `{"capacidad_kg":12}`},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.slug, func(t *testing.T) {
+			e := newEnv()
+			e.catalog.category = caso.category
+
+			item := fmt.Sprintf(`{"product":{"name":"Producto","categorySlug":%q,"attributes":%s},"offer":{"price":1}}`,
+				caso.slug, caso.attributes)
+			result := batch(t, e, item)
+
+			if result.Results[0].Status != ItemCreated || len(e.catalog.created) != 1 {
+				t.Fatalf("resultado = %+v, quiero producto creado", result.Results[0])
+			}
+			created := e.catalog.created[0]
+			if created.CategoryID != *caso.category.CategoryID ||
+				created.CategoryRef == nil || *created.CategoryRef != *caso.category.ID {
+				t.Fatalf("producto creado = %+v, quiero hoja %d ref %d",
+					created, *caso.category.CategoryID, *caso.category.ID)
+			}
+		})
 	}
 }
 
@@ -724,7 +901,7 @@ func TestAddItems_ErroresDeCategoriaYBaseDeDatos(t *testing.T) {
 		{"categoría de servicios", func(e *env) {
 			e.catalog.category = products.WriteCategory{ID: int32p(4), ItemType: categories.ItemTypeService}
 		}, []string{"product.categorySlug/not_enabled"}},
-		{"categoría sin vínculo legado", func(e *env) {
+		{"categoría sin hoja de nivel 3", func(e *env) {
 			e.catalog.category = products.WriteCategory{ID: int32p(7), Slug: strp("celulares"),
 				ItemType: categories.ItemTypeProduct}
 		}, []string{"product.categorySlug/not_enabled"}},
@@ -765,7 +942,7 @@ func TestAddItems_CodigosDeCategoria(t *testing.T) {
 		{name: "desconocida", slug: "categoria-inexistente", setup: func(e *env) {
 			e.catalog.resolveErrors = map[string]error{"categoria-inexistente": products.ErrCategoryNotFound}
 		}, want: "product.categorySlug/not_found"},
-		{name: "sin vínculo legado", slug: "celulares", setup: func(e *env) {
+		{name: "sin hoja de nivel 3", slug: "celulares", setup: func(e *env) {
 			e.catalog.category = products.WriteCategory{ID: int32p(7), Slug: strp("celulares"),
 				ItemType: categories.ItemTypeProduct}
 		}, want: "product.categorySlug/not_enabled"},
@@ -803,8 +980,8 @@ func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
 			wantSlug: "refrigeradores",
 		},
 		{name: "telefonía se enruta a celulares", slug: "telefonía", wantSlug: "celulares"},
-		{name: "computación se enruta a notebooks", slug: "computación", wantSlug: "notebooks"},
-		{name: "computadores se enruta a notebooks", slug: "computadores", wantSlug: "notebooks"},
+		{name: "computación sin palabra clave va a computadores de escritorio", slug: "computación", wantSlug: "computadores-de-escritorio"},
+		{name: "computadores va a computadores de escritorio", slug: "computadores", wantSlug: "computadores-de-escritorio"},
 		{
 			name:       "desconocido",
 			slug:       "desconocida",
@@ -850,6 +1027,42 @@ func TestAddItems_NormalizaSlugAntesDeResolverCategoria(t *testing.T) {
 					t.Fatalf("se llamó a ResolveCategory con slug vacío: %+v", e.catalog.resolved)
 				}
 				return
+			}
+			if len(e.catalog.resolved) != 1 || e.catalog.resolved[0].Slug != tc.wantSlug {
+				t.Fatalf("slugs enviados a ResolveCategory = %+v, quiero %q", e.catalog.resolved, tc.wantSlug)
+			}
+		})
+	}
+}
+
+// TestAddItems_ClasificaComputacionPorNombre verifica que un ítem de la
+// categoría computacion termine en notebooks, en computadores de escritorio o
+// en accesorios-de-computacion según las palabras de su nombre, que es lo que
+// resuelve ResolveCategory.
+func TestAddItems_ClasificaComputacionPorNombre(t *testing.T) {
+	tests := []struct {
+		name     string
+		product  string
+		wantSlug string
+	}{
+		{name: "MacBook Air", product: "MacBook Air M2 13\"", wantSlug: "notebooks"},
+		{name: "notebook", product: "Notebook Lenovo IdeaPad 3", wantSlug: "notebooks"},
+		{name: "laptop gamer", product: "Laptop gamer ASUS TUF", wantSlug: "notebooks"},
+		{name: "PC gamer", product: "PC Gamer Ryzen 5 RTX 4060", wantSlug: "computadores-de-escritorio"},
+		{name: "iMac", product: "iMac 24\" M3", wantSlug: "computadores-de-escritorio"},
+		{name: "mochila para notebook", product: "Mochila para notebook 15.6\"", wantSlug: "accesorios-de-computacion"},
+		{name: "monitor portátil", product: "Monitor portátil 15.6\"", wantSlug: "accesorios-de-computacion"},
+		{name: "sin palabras clave", product: "Armado de equipo Ryzen 7", wantSlug: "computadores-de-escritorio"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			item := `{"product":{"name":` + mustJSON(t, tc.product) +
+				`,"categorySlug":"computacion","attributes":{"capacidad_litros":200}},"offer":{"price":1}}`
+			result := batch(t, e, item)
+			if result.Results[0].Status != ItemCreated {
+				t.Fatalf("resultado = %+v, quiero producto creado", result.Results[0])
 			}
 			if len(e.catalog.resolved) != 1 || e.catalog.resolved[0].Slug != tc.wantSlug {
 				t.Fatalf("slugs enviados a ResolveCategory = %+v, quiero %q", e.catalog.resolved, tc.wantSlug)

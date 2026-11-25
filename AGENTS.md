@@ -82,7 +82,6 @@ No hay rastro en el código de: **Redis**, **Scrapy**, **Playwright** (directo),
 | Documentación OpenAPI | Prevista; hoy los endpoints están en `backend/README.md` |
 | Pantallas de seguimiento de precios y notificaciones | Las APIs `watchlist` y `notification` existen; el frontend no las usa |
 | Tests del frontend | No hay ninguno; solo `pnpm check` |
-| Visor de llamadas en el pod de test | Pedido por el scrum master: un sistema de pruebas que recree el flujo de datos (scraper → ingestion → catálogo → gateway) y el uso de las APIs desde el pod de test, y que muestre cada llamada en **dos ventanas**: en una, lo que envía el origen; en la otra, lo que recibe el destino. Parte de `scripts/testing/salud.py` (TAL-164) y `scripts/testing/flujo_productos.py` (TAL-184), que ya comparan lo enviado con lo recibido. Diseño pendiente: proponlo antes de implementarlo |
 
 ---
 
@@ -199,7 +198,8 @@ Norma completa: `docs/estandares/TAL-78-estandar-api.md`. Lo esencial:
 - Los pods corren sin root, con `readOnlyRootFilesystem` y sin capabilities (Pod Security `restricted`).
 - Un Service inyecta variables `<NOMBRE>_PORT=tcp://…` en los pods: si chocan con una variable de la app, usa `enableServiceLinks: false`.
 - `k8s/overlays/` es generado y está ignorado por git.
-- Los Secrets `postgres-secret`, `soloservis-internal` y `soloservis-ai` los crea o reutiliza la fase 4 del script; no están en git. `soloservis-ai` no se puede generar al azar: la fase 4 la toma de `AI_API_KEY` en el entorno del despliegue, y sin ella avisa y sigue (el asistente responde 503).
+- Las NetworkPolicy están en `k8s/components/red`. UCT no deja crearlas (el rol solo las lee), así que el deploy las omite; se aplican solo si `kubectl auth can-i create networkpolicies` responde `yes`.
+- Los Secrets `postgres-secret`, `soloservis-internal`, `soloservis-scraper` y `soloservis-ai` los crea o reutiliza la fase 4 del script; no están en git. `INTERNAL_API_TOKEN` (admin) solo va a `comercial` e `ingestion`; el scraper usa su propio token (`SCRAPER_TOKEN`), que solo abre su API y `/ingestion/*` (TAL-199). `soloservis-ai` no se puede generar al azar: la fase 4 la toma de `AI_API_KEY` en el entorno del despliegue, y sin ella avisa y sigue (el asistente responde 503).
 
 ---
 
@@ -217,8 +217,9 @@ python scripts/testing/contratos.py          # con el Compose local arriba
 
 - Los tests de integración de Go necesitan `TEST_DATABASE_URL` apuntando a un PostgreSQL 18 con las migraciones aplicadas en el orden de `migration_order.txt`; sin la variable se omiten. Con la variable, corre `go test -p 1 ./...`: los paquetes comparten la base y en paralelo se pisan los datos.
 - `scripts/k8s/validate-manifests.sh` valida los manifiestos contra el esquema de Kubernetes (kubeconform, modo estricto) sin tocar el clúster; `kubectl kustomize` solo arma el YAML y no detecta un campo mal indentado.
-- El pod de test del clúster (`k8s/tests`, fase 10 del deploy) hace 35 verificaciones.
+- El pod de test del clúster (`k8s/tests`, fase 10 del deploy) corre en un solo Job el smoke test (36 verificaciones) y el **visor de llamadas** (TAL-165/166/167): el contenedor `origen` muestra lo que envía y el sidecar `destino` lo que recibe cada servicio, en dos ventanas (`kubectl logs -f job/soloservis-smoke-test -c origen` y `-c destino`). `python scripts/testing/llamadas.py --ventanas` lo relanza y deja el reporte lado a lado. Solo lee: no hay un flujo feliz con escrituras reales.
 - **Health check (TAL-164):** `python scripts/testing/salud.py` revisa el despliegue en cualquier momento (pods, `/health`, gateway, host público, migraciones y cuota), sin escribir nada. Es lo primero que se corre cuando alguien avisa que el sitio no funciona. Con `--detalle` lista cada pedido con lo esperado y lo obtenido; `python scripts/testing/reporte.py --salud` lo suma al reporte de testing.
+- **Carga y recursos (TAL-206/207):** `python scripts/testing/carga.py` simula usuarios por escalones y mide CPU y memoria de cada pod mientras corre; `recursos.py` mide sin carga. En UCT `kubectl top` no funciona: el consumo se lee del cgroup de cada pod. No corras carga contra UCT sin aprobación; para cargas fuertes usa `--local`.
 - **Reporte de testing (TAL-168):** `python scripts/testing/reporte.py` corre todas las suites y deja el resultado en `docs/reportes/testing/` (`--postgres-docker` suma los tests de integración). Córrelo antes de pedir un PR: `go build ./...` tiene que pasar siempre.
 
 ---

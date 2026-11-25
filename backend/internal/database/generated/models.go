@@ -87,6 +87,42 @@ type CartItem struct {
 	ServiceOfferID    pgtype.Int4      `json:"service_offer_id"`
 }
 
+type Category struct {
+	ID                      int32              `json:"id"`
+	Slug                    string             `json:"slug"`
+	Name                    string             `json:"name"`
+	ItemType                string             `json:"item_type"`
+	Description             pgtype.Text        `json:"description"`
+	Active                  bool               `json:"active"`
+	LegacyProductCategoryID pgtype.Int4        `json:"legacy_product_category_id"`
+	LegacyServiceCategoryID pgtype.Int4        `json:"legacy_service_category_id"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CategoryArtwork struct {
+	ArtworkKey string             `json:"artwork_key"`
+	SvgContent string             `json:"svg_content"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CategoryAttribute struct {
+	ID            int32          `json:"id"`
+	CategoryID    int32          `json:"category_id"`
+	Key           string         `json:"key"`
+	Label         string         `json:"label"`
+	DataType      string         `json:"data_type"`
+	Unit          pgtype.Text    `json:"unit"`
+	Required      bool           `json:"required"`
+	Comparable    bool           `json:"comparable"`
+	Filterable    bool           `json:"filterable"`
+	MinValue      pgtype.Numeric `json:"min_value"`
+	MaxValue      pgtype.Numeric `json:"max_value"`
+	MaxLength     pgtype.Int4    `json:"max_length"`
+	AllowedValues []string       `json:"allowed_values"`
+	DisplayOrder  int32          `json:"display_order"`
+}
+
 type DataSource struct {
 	ID         int32            `json:"id"`
 	Name       string           `json:"name"`
@@ -95,6 +131,7 @@ type DataSource struct {
 	Active     bool             `json:"active"`
 	CreatedAt  pgtype.Timestamp `json:"created_at"`
 	UpdatedAt  pgtype.Timestamp `json:"updated_at"`
+	StoreID    pgtype.Int4      `json:"store_id"`
 }
 
 type IngestionRun struct {
@@ -139,6 +176,15 @@ type Product struct {
 	Active      bool             `json:"active"`
 	CreatedAt   pgtype.Timestamp `json:"created_at"`
 	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	CategoryRef pgtype.Int4      `json:"category_ref"`
+}
+
+type ProductAttributeValue struct {
+	ProductID    int32          `json:"product_id"`
+	CategoryID   int32          `json:"category_id"`
+	AttributeID  int32          `json:"attribute_id"`
+	Value        string         `json:"value"`
+	ValueNumeric pgtype.Numeric `json:"value_numeric"`
 }
 
 type ProductCategory struct {
@@ -149,6 +195,8 @@ type ProductCategory struct {
 	Active           bool             `json:"active"`
 	CreatedAt        pgtype.Timestamp `json:"created_at"`
 	UpdatedAt        pgtype.Timestamp `json:"updated_at"`
+	Slug             pgtype.Text      `json:"slug"`
+	Level            pgtype.Int2      `json:"level"`
 }
 
 type ProductCategorySpecification struct {
@@ -237,15 +285,19 @@ type ProductSpecificationValue struct {
 	Value           string `json:"value"`
 }
 
+// Interés de un usuario en un producto. Una fila por (user_id, product_id), compartida por favorites y watchlist; ninguna borra filas.
 type ProductUserInterest struct {
-	ID              int32            `json:"id"`
-	UserID          int32            `json:"user_id"`
-	ProductID       int32            `json:"product_id"`
-	TargetPrice     pgtype.Numeric   `json:"target_price"`
-	NotifyPriceDrop bool             `json:"notify_price_drop"`
-	IsFavorite      bool             `json:"is_favorite"`
-	CreatedAt       pgtype.Timestamp `json:"created_at"`
-	UpdatedAt       pgtype.Timestamp `json:"updated_at"`
+	ID        int32 `json:"id"`
+	UserID    int32 `json:"user_id"`
+	ProductID int32 `json:"product_id"`
+	// Dueña: watchlist-api (comercial). Precio objetivo; pricing e ingestion lo leen para avisar price_drop.
+	TargetPrice pgtype.Numeric `json:"target_price"`
+	// Dueña: watchlist-api (comercial). TRUE = el producto está en la watchlist.
+	NotifyPriceDrop bool `json:"notify_price_drop"`
+	// Dueña: favorites-api (comercial). Escribe /favorites/{productId}.
+	IsFavorite bool             `json:"is_favorite"`
+	CreatedAt  pgtype.Timestamp `json:"created_at"`
+	UpdatedAt  pgtype.Timestamp `json:"updated_at"`
 }
 
 type Provider struct {
@@ -500,6 +552,43 @@ type StoreReview struct {
 	Content   pgtype.Text      `json:"content"`
 	CreatedAt pgtype.Timestamp `json:"created_at"`
 	UpdatedAt pgtype.Timestamp `json:"updated_at"`
+}
+
+type Tal036CategoryMap struct {
+	NodeID     int32 `json:"node_id"`
+	AncestorID int32 `json:"ancestor_id"`
+}
+
+type Tal231FinalCategoryPlan struct {
+	ID               int32       `json:"id"`
+	Name             string      `json:"name"`
+	ParentCategoryID pgtype.Int4 `json:"parent_category_id"`
+}
+
+type Tal231NbCategoryMatch struct {
+	Role       string `json:"role"`
+	CategoryID int32  `json:"category_id"`
+}
+
+type Tal231NbDef struct {
+	SourceSpecificationID int32 `json:"source_specification_id"`
+	TargetSpecificationID int32 `json:"target_specification_id"`
+}
+
+type Tal231NbMap struct {
+	SourceName string      `json:"source_name"`
+	TargetName string      `json:"target_name"`
+	DataType   string      `json:"data_type"`
+	SourceUnit pgtype.Text `json:"source_unit"`
+	TargetUnit pgtype.Text `json:"target_unit"`
+}
+
+type Tal231NbUnifiedMatch struct {
+	ID int32 `json:"id"`
+}
+
+type Tal231RetiredCategory struct {
+	ID int32 `json:"id"`
 }
 
 type TechnicalCategorySeed struct {

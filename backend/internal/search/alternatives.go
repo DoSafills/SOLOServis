@@ -18,6 +18,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/DoSafills/SOLOServis/backend/internal/categories"
 	"github.com/DoSafills/SOLOServis/backend/internal/httpx"
 )
 
@@ -204,6 +205,12 @@ func (h *Handler) Alternatives(w http.ResponseWriter, r *http.Request) {
 			presetQuery.Limit = q.Limit
 		}
 		presetQuery.Offset = q.Offset
+		if matched.Query.Category != "" {
+			slug := matched.Query.Category
+			if scope, err := h.searcher.ResolveScope(r.Context(), categories.Ref{Slug: &slug}); err == nil {
+				presetQuery.CategoryIDs = scope.CategoryIDs
+			}
+		}
 		q = presetQuery
 
 		public := publicPreset(matched)

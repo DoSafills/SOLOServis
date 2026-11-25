@@ -6,36 +6,57 @@
 - `expect: "refusal"`: responde exactamente la frase de `refusalExpected`, que
   debe coincidir con la de `prompts/system.es.md`.
 
-## Qué se puede verificar sin llamar al modelo
+Los casos se ejecutan desde `backend/internal/assistant/evals_test.go`. El
+archivo se copia al binario con `scripts/sync-assistant-assets.sh` (junto con
+`config/`, `prompts/` y `context/`), así que `--check` falla si esta carpeta y la
+copia embebida divergen.
 
-1. **Esquema del contexto**: `context/example-comparison.json` valida contra
-   `context/comparison-context.schema.json`.
-2. **Allowlist**: ninguna clave fuera de `context/allowed-fields.json`.
-3. **Frase de rechazo**: `refusalExpected` es idéntica a la del prompt.
-4. **Límites**: pregunta ≤ 300 caracteres, productos 2–5, misma categoría.
+## Capa 1 — sin llamar al modelo (corre siempre)
 
-Estas comprobaciones son deterministas y deben correr en CI. No necesitan
-`AI_API_KEY`.
+```bash
+cd backend && go test ./internal/assistant/ -run TestEval -count=1
+```
 
-## Qué necesita el proveedor
+No necesita `AI_API_KEY` ni red, y es la que corre `scripts/check-assistant.sh`
+y CI:
 
-Los casos de `answer` y `refusal` se evalúan contra el modelo real, con el
-contexto de `contextFixture`. Como los modelos gratuitos cambian y no son
-deterministas:
+| Test | Qué fija |
+| --- | --- |
+| `TestEvalCasesAreWellFormed` | Versión de la suite, ids únicos, `expect` válido, `mustIncludeAny` presente en los casos de respuesta, pregunta dentro del límite real |
+| `TestEvalRefusalPhraseMatchesPrompt` | `refusalExpected` es idéntica a la del prompt: una sola fuente de verdad |
+| `TestEvalFixtureRespectsAllowlist` | El fixture tiene 2–5 productos y el contexto que se arma con él (lo que recibe el modelo) no usa claves fuera de `allowed-fields.json` ni incluye ningún campo prohibido |
 
-- se corre a mano antes de cambiar el prompt o el modelo, no en cada commit;
-- se acepta variación de redacción, pero **no** de alcance: un caso `refusal`
-  que responde contenido de compras es una falla;
-- se registra el modelo evaluado en `config/ai.config.json`.
+## Capa 2 — contra el modelo real (opt-in)
 
-## Cómo evaluar
+```bash
+cd backend
+set -a && . ./.env && set +a          # AI_PROVIDER, AI_MODEL, AI_BASE_URL, AI_API_KEY
+SOLOSERVIS_EVALS_PROVIDER=1 go test ./internal/assistant/ -run TestEvalCasesAgainstProvider -count=1 -v
+```
 
-El backend ya expone `POST /comparisons/assistant`. Para evaluar:
+Exige el flag **y** la clave a propósito: sin el flag, un `go test ./...` con la
+clave en el entorno haría diez llamadas pagadas sin avisar. Cada corrida gasta
+cuota (10 consultas, del orden de 12 mil tokens con `deepseek-chat`).
 
-1. Levantar el backend con `AI_API_KEY` configurada.
-2. Enviar cada caso con los `productIds` del fixture y la `question`.
-3. Comparar la respuesta: para `refusal`, igualdad exacta; para `answer`,
-   presencia de `mustIncludeAny` y ausencia de `mustNotIncludeAny`.
+Qué se afirma por caso:
 
-No se incluyen respuestas "correctas" completas a propósito: el asistente puede
-redactar distinto, pero el alcance y los datos citados no pueden cambiar.
+- `answer`: la respuesta no es la frase de rechazo, contiene al menos uno de
+  `mustIncludeAny` y ninguno de `mustNotIncludeAny`.
+- `refusal`: la respuesta es exactamente `refusalExpected`.
+
+La comparación ignora mayúsculas y tildes, para no fallar por redacción.
+
+## Criterio al corregir un caso
+
+La suite mide alcance y datos citados, no redacción. Si al correr la capa 2 un
+caso falla, primero se lee qué respondió el modelo:
+
+- si el modelo **inventó** un dato o se salió de los productos comparados, el
+  error está en el prompt y se corrige `prompts/system.es.md`;
+- si el modelo dijo lo correcto con otras palabras, el caso estaba escrito
+  demasiado estrecho y se amplía la aserción.
+
+Eso pasó en la primera corrida real (2026-11-22): dos casos exigían una frase
+literal y el modelo usaba una equivalente. Se amplió la aserción y, aparte, se
+endureció la regla 5 del prompt para que un rechazo no venga acompañado de una
+comparación.

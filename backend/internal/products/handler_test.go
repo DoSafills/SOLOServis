@@ -31,8 +31,10 @@ func strp(v string) *string     { return &v }
 func floatp(v float64) *float64 { return &v }
 
 // refrigeradores replica la categoría sembrada (TAL-71) con dos atributos.
+// ID es la fila de categories (category_ref) y CategoryID la hoja del árbol
+// (product_category) a la que se guarda el producto.
 var refrigeradores = WriteCategory{
-	ID: int32p(1), Slug: strp("refrigeradores"), ItemType: categories.ItemTypeProduct, LegacyID: int32p(5),
+	CategoryID: int32p(5), ID: int32p(1), Slug: strp("refrigeradores"), ItemType: categories.ItemTypeProduct,
 	Attributes: []categories.Attribute{
 		{ID: 10, Key: "capacidad_litros", DataType: "integer", Required: true, Min: floatp(50), Max: floatp(1500), DisplayOrder: 1},
 		{ID: 11, Key: "no_frost", DataType: "boolean", DisplayOrder: 2},
@@ -46,8 +48,14 @@ type fakeStore struct {
 	category     WriteCategory
 	duplicates   []dto.DuplicateCandidate
 	duplicateErr error
+	scope        categories.Scope
+	scopeErr     error
+	counts       map[int32]int64
+	countsErr    error
 
 	listErr, detailErr, resolveErr, writeErr error
+
+	gotScopeRef *categories.Ref
 
 	gotList                            *ListParams
 	gotDuplicateCategoryID             int32
@@ -85,6 +93,11 @@ func (f *fakeStore) FindDuplicateCandidates(
 	return f.duplicates, f.duplicateErr
 }
 
+func (f *fakeStore) ResolveScope(_ context.Context, ref categories.Ref) (categories.Scope, error) {
+	f.gotScopeRef = &ref
+	return f.scope, f.scopeErr
+}
+
 func (f *fakeStore) ResolveCategory(_ context.Context, ref CategoryRef) (WriteCategory, error) {
 	f.gotRef = &ref
 	return f.category, f.resolveErr
@@ -112,7 +125,16 @@ func (f *fakeStore) Deactivate(_ context.Context, id pgtype.UUID) error {
 }
 
 func (f *fakeStore) ListCategories(context.Context) ([]generated.ListProductCategoriesRow, error) {
-	return []generated.ListProductCategoriesRow{{ID: 5, Name: "Refrigeracion"}}, f.listErr
+	return []generated.ListProductCategoriesRow{{
+		ID:    5,
+		Name:  "Refrigeracion",
+		Slug:  pgtype.Text{String: "refrigeradores", Valid: true},
+		Level: pgtype.Int2{Int16: 3, Valid: true},
+	}}, f.listErr
+}
+
+func (f *fakeStore) ListCategoryCounts(context.Context) (map[int32]int64, error) {
+	return f.counts, f.countsErr
 }
 
 func (f *fakeStore) ListReviewsByPublicID(context.Context, pgtype.UUID) ([]generated.ListProductReviewsRow, error) {
@@ -190,29 +212,82 @@ func TestList_CasoFeliz(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got) != 1 || got[0].ID != testProductID {
 		t.Fatalf("body debe seguir siendo un arreglo de productos: %s", rec.Body.String())
 	}
-	if *store.gotList != (ListParams{Limit: DefaultListLimit}) {
+	if !reflect.DeepEqual(*store.gotList, ListParams{Limit: DefaultListLimit}) {
 		t.Fatalf("params = %+v", *store.gotList)
 	}
 }
 
 func TestList_FiltrosYPaginacion(t *testing.T) {
+	t.Run("id de product_category", func(t *testing.T) {
+		store := &fakeStore{scope: categories.Scope{Level: categories.Level2, CategoryIDs: []int32{1, 2}}}
+		rec, _ := serve(t, store, http.MethodGet, "/products?category=5", "")
+		requireStatus(t, rec, http.StatusOK)
+		if store.gotScopeRef == nil || store.gotScopeRef.ID == nil || *store.gotScopeRef.ID != 5 ||
+			!reflect.DeepEqual(store.gotList.CategoryIDs, []int32{1, 2}) {
+			t.Fatalf("ref = %+v params = %+v", store.gotScopeRef, *store.gotList)
+		}
+	})
+	t.Run("slug de nivel 3", func(t *testing.T) {
+		store := &fakeStore{scope: categories.Scope{Level: categories.Level3, CategoryIDs: []int32{1}}}
+		rec, _ := serve(t, store, http.MethodGet, "/products?category=refrigeradores", "")
+		requireStatus(t, rec, http.StatusOK)
+		if store.gotScopeRef == nil || store.gotScopeRef.Slug == nil || *store.gotScopeRef.Slug != "refrigeradores" ||
+			!reflect.DeepEqual(store.gotList.CategoryIDs, []int32{1}) {
+			t.Fatalf("ref = %+v params = %+v", store.gotScopeRef, *store.gotList)
+		}
+	})
+	t.Run("slug de nivel 1 incluye descendientes", func(t *testing.T) {
+		store := &fakeStore{scope: categories.Scope{Level: categories.Level1, CategoryIDs: []int32{1, 2, 3}}}
+		rec, _ := serve(t, store, http.MethodGet, "/products?category=hogar", "")
+		requireStatus(t, rec, http.StatusOK)
+		if store.gotScopeRef == nil || store.gotScopeRef.Slug == nil || *store.gotScopeRef.Slug != "hogar" ||
+			!reflect.DeepEqual(store.gotList.CategoryIDs, []int32{1, 2, 3}) {
+			t.Fatalf("ref = %+v params = %+v", store.gotScopeRef, *store.gotList)
+		}
+	})
+	t.Run("nivel 2 sin hojas con alcance vacío", func(t *testing.T) {
+		store := &fakeStore{scope: categories.Scope{Level: categories.Level2, CategoryIDs: []int32{}}}
+		rec, _ := serve(t, store, http.MethodGet, "/products?category=pantallas", "")
+		requireStatus(t, rec, http.StatusOK)
+		if store.gotList.CategoryIDs == nil || len(store.gotList.CategoryIDs) != 0 {
+			t.Fatalf("el alcance vacío debe llegar como arreglo vacío: %+v", store.gotList.CategoryIDs)
+		}
+	})
+	t.Run("paginación sin categoría", func(t *testing.T) {
+		store := &fakeStore{}
+		rec, _ := serve(t, store, http.MethodGet, "/products?limit=10&offset=20", "")
+		requireStatus(t, rec, http.StatusOK)
+		if store.gotScopeRef != nil || store.gotList.CategoryIDs != nil || store.gotList.Limit != 10 || store.gotList.Offset != 20 {
+			t.Fatalf("params = %+v scope = %+v", *store.gotList, store.gotScopeRef)
+		}
+	})
+}
+
+func TestList_ErroresDeAlcance(t *testing.T) {
 	tests := []struct {
-		query string
-		check func(ListParams) bool
+		name       string
+		scopeErr   error
+		wantStatus int
+		wantCode   string
+		wantField  string
 	}{
-		{"category=5", func(p ListParams) bool {
-			return p.LegacyCategoryID != nil && *p.LegacyCategoryID == 5 && p.CategorySlug == nil
-		}},
-		{"category=refrigeradores", func(p ListParams) bool { return p.CategorySlug != nil && *p.CategorySlug == "refrigeradores" }},
-		{"limit=10&offset=20", func(p ListParams) bool { return p.Limit == 10 && p.Offset == 20 }},
+		{"categoría inexistente", categories.ErrNotFound, http.StatusBadRequest, httpx.CodeInvalidParameter, "category/not_found"},
+		{"error interno", errBoom, http.StatusInternalServerError, httpx.CodeInternalError, ""},
 	}
 	for _, tc := range tests {
-		t.Run(tc.query, func(t *testing.T) {
-			store := &fakeStore{}
-			rec, _ := serve(t, store, http.MethodGet, "/products?"+tc.query, "")
-			requireStatus(t, rec, http.StatusOK)
-			if !tc.check(*store.gotList) {
-				t.Fatalf("params = %+v", *store.gotList)
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{scopeErr: tc.scopeErr}
+			rec, _ := serve(t, store, http.MethodGet, "/products?category=refrigeradores", "")
+			requireStatus(t, rec, tc.wantStatus)
+			p := decodeProblem(t, rec)
+			if p.Code != tc.wantCode {
+				t.Fatalf("problem = %+v", p)
+			}
+			if tc.wantField != "" && !reflect.DeepEqual(fieldCodes(p), []string{tc.wantField}) {
+				t.Fatalf("errores = %v", fieldCodes(p))
+			}
+			if store.gotList != nil {
+				t.Fatal("no debe listar si el alcance falla")
 			}
 		})
 	}
@@ -266,7 +341,7 @@ func TestDuplicateCandidates_NormalizaCamposYDevuelveOfertas(t *testing.T) {
 	rec, _ := serve(t, store, http.MethodPost, "/products/duplicate-candidates",
 		`{"categorySlug":"refrigeradores","brandId":7,"model":"  X   100  "}`)
 	requireStatus(t, rec, http.StatusOK)
-	if store.gotDuplicateCategoryID != 1 || store.gotDuplicateBrandID == nil ||
+	if store.gotDuplicateCategoryID != 5 || store.gotDuplicateBrandID == nil ||
 		*store.gotDuplicateBrandID != 7 || store.gotDuplicateModel != "x 100" {
 		t.Fatalf("parámetros de duplicados = %+v", store)
 	}
@@ -381,7 +456,7 @@ func TestCreate_CasoFeliz(t *testing.T) {
 		t.Fatalf("categoría resuelta = %+v", *store.gotRef)
 	}
 	want := ProductWrite{
-		LegacyCategoryID: 5, CategoryRef: refrigeradores.ID, BrandID: int32p(3),
+		CategoryID: 5, CategoryRef: refrigeradores.ID, BrandID: int32p(3),
 		Name: "Refrigerador LG 350L", Model: "GT35", SKU: "LG-GT35", Description: "No frost",
 		ImageURL: "https://example.test/lg.png",
 		Attributes: []categories.Value{
@@ -394,16 +469,19 @@ func TestCreate_CasoFeliz(t *testing.T) {
 	}
 }
 
-func TestCreate_CategoriaAntiguaPorID(t *testing.T) {
-	// Ingestion API todavía envía categoryId (product_category) sin atributos.
-	lavado := WriteCategory{ItemType: categories.ItemTypeProduct, LegacyID: int32p(3), Attributes: []categories.Attribute{}}
+func TestCreate_CategoriaPorID(t *testing.T) {
+	// Ingestion API envía categoryId (product_category); la hoja no tiene fila
+	// en categories, así que el producto solo guarda el árbol y category_ref.
+	lavado := WriteCategory{CategoryID: int32p(3), ItemType: categories.ItemTypeProduct,
+		Attributes: []categories.Attribute{}}
 	store := &fakeStore{category: lavado, detail: dto.ProductDetail{ID: testProductID}}
 
 	rec, _ := serve(t, store, http.MethodPost, "/products",
 		`{"categoryId": 3, "name": "Lavadora", "imageUrl": "https://example.test/l.png"}`)
 
 	requireStatus(t, rec, http.StatusCreated)
-	if *store.gotRef != (CategoryRef{LegacyID: 3}) || store.gotWrite.LegacyCategoryID != 3 || store.gotWrite.CategoryRef != nil {
+	if *store.gotRef != (CategoryRef{ID: 3}) || store.gotWrite.CategoryID != 3 ||
+		store.gotWrite.CategoryRef != nil {
 		t.Fatalf("ref = %+v write = %+v", *store.gotRef, *store.gotWrite)
 	}
 }
@@ -477,7 +555,7 @@ func TestCreate_ReglasDeCampos(t *testing.T) {
 func TestCreate_CategoriaYAtributos(t *testing.T) {
 	servicio := WriteCategory{ID: int32p(4), Slug: strp("internet-fibra-optica"), ItemType: categories.ItemTypeService,
 		Attributes: []categories.Attribute{}}
-	sinLegado := WriteCategory{ID: int32p(9), Slug: strp("nueva"), ItemType: categories.ItemTypeProduct,
+	sinHoja := WriteCategory{ID: int32p(9), Slug: strp("nueva"), ItemType: categories.ItemTypeProduct,
 		Attributes: []categories.Attribute{}}
 
 	tests := []struct {
@@ -488,7 +566,7 @@ func TestCreate_CategoriaYAtributos(t *testing.T) {
 	}{
 		{"categoría inexistente", &fakeStore{resolveErr: ErrCategoryNotFound}, `{}`, []string{"categorySlug/not_found"}},
 		{"categoría de servicios", &fakeStore{category: servicio}, `{}`, []string{"categorySlug/one_of"}},
-		{"categoría sin equivalente antiguo", &fakeStore{category: sinLegado}, `{}`, []string{"categorySlug/not_found"}},
+		{"categoría del árbol sin hoja nivel 3", &fakeStore{category: sinHoja}, `{}`, []string{"categorySlug/not_enabled"}},
 		{"atributo requerido ausente", &fakeStore{category: refrigeradores}, `{"no_frost": true}`, []string{"attributes.capacidad_litros/required"}},
 		{"atributo con tipo incorrecto", &fakeStore{category: refrigeradores}, `{"capacidad_litros": "350"}`, []string{"attributes.capacidad_litros/invalid_type"}},
 		{"atributo fuera de rango y key desconocida", &fakeStore{category: refrigeradores}, `{"capacidad_litros": 10, "color": "rojo"}`,
@@ -508,6 +586,49 @@ func TestCreate_CategoriaYAtributos(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreate_HojaSinFilaEnCategories(t *testing.T) {
+	soloHoja := WriteCategory{Slug: strp("lavadoras"), ItemType: categories.ItemTypeProduct,
+		CategoryID: int32p(30), Attributes: []categories.Attribute{}}
+	body := `{"name":"Lavadora","categorySlug":"lavadoras","imageUrl":"https://e.test/l.png"`
+
+	t.Run("sin atributos se acepta", func(t *testing.T) {
+		store := &fakeStore{category: soloHoja, detail: dto.ProductDetail{ID: testProductID}}
+		rec, _ := serve(t, store, http.MethodPost, "/products", body+`}`)
+		requireStatus(t, rec, http.StatusCreated)
+		if store.gotWrite.CategoryID != 30 || store.gotWrite.CategoryRef != nil {
+			t.Fatalf("write = %+v", *store.gotWrite)
+		}
+	})
+	t.Run("con atributos responde unknown_field", func(t *testing.T) {
+		store := &fakeStore{category: soloHoja}
+		rec, _ := serve(t, store, http.MethodPost, "/products", body+`,"attributes":{"capacidad_kg":12}}`)
+		requireStatus(t, rec, http.StatusUnprocessableEntity)
+		if got := fieldCodes(decodeProblem(t, rec)); !reflect.DeepEqual(got, []string{"attributes.capacidad_kg/unknown_field"}) {
+			t.Fatalf("errores = %v", got)
+		}
+		if store.writes != 0 {
+			t.Fatal("no debe escribir con atributos que la categoría no define")
+		}
+	})
+}
+
+func TestCreate_CategoriaNoHabilitada(t *testing.T) {
+	t.Run("hoja inexistente en el árbol", func(t *testing.T) {
+		sinHoja := WriteCategory{ItemType: categories.ItemTypeProduct,
+			Attributes: []categories.Attribute{}}
+		store := &fakeStore{category: sinHoja}
+		rec, _ := serve(t, store, http.MethodPost, "/products",
+			`{"categoryId":3,"name":"Lavadora","imageUrl":"https://e.test/l.png"}`)
+		requireStatus(t, rec, http.StatusUnprocessableEntity)
+		if got := fieldCodes(decodeProblem(t, rec)); !reflect.DeepEqual(got, []string{"categoryId/not_enabled"}) {
+			t.Fatalf("errores = %v", got)
+		}
+		if store.writes != 0 {
+			t.Fatal("no debe escribir una categoría sin hoja de nivel 3")
+		}
+	})
 }
 
 func TestCreate_ErroresDeBaseDeDatos(t *testing.T) {
@@ -619,9 +740,26 @@ func TestDeactivate(t *testing.T) {
 func TestListCategoriesYReviews(t *testing.T) {
 	rec, _ := serve(t, &fakeStore{}, http.MethodGet, "/product-categories", "")
 	requireStatus(t, rec, http.StatusOK)
-	if !strings.Contains(rec.Body.String(), `"name":"Refrigeracion"`) {
+	if !strings.Contains(rec.Body.String(), `"name":"Refrigeracion"`) ||
+		!strings.Contains(rec.Body.String(), `"slug":"refrigeradores"`) ||
+		!strings.Contains(rec.Body.String(), `"level":3`) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
+	if strings.Contains(rec.Body.String(), "productCount") {
+		t.Fatalf("sin counts=true no debe venir productCount: %s", rec.Body.String())
+	}
+
+	rec, _ = serve(t, &fakeStore{counts: map[int32]int64{5: 4}}, http.MethodGet, "/product-categories?counts=true", "")
+	requireStatus(t, rec, http.StatusOK)
+	if !strings.Contains(rec.Body.String(), `"productCount":4`) {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+
+	rec, _ = serve(t, &fakeStore{}, http.MethodGet, "/product-categories?counts=quizas", "")
+	requireStatus(t, rec, http.StatusBadRequest)
+
+	rec, _ = serve(t, &fakeStore{countsErr: errBoom}, http.MethodGet, "/product-categories?counts=true", "")
+	requireStatus(t, rec, http.StatusInternalServerError)
 
 	rec, _ = serve(t, &fakeStore{listErr: errBoom}, http.MethodGet, "/product-categories", "")
 	requireStatus(t, rec, http.StatusInternalServerError)

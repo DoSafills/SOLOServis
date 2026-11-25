@@ -134,17 +134,34 @@ func TestIntegration_ProductAPIEscrituraConAtributos(t *testing.T) {
 		}
 	})
 
-	t.Run("token de servicio con categoryId antiguo (Ingestion)", func(t *testing.T) {
-		var lavadoID int32
-		if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Lavadoras' AND active`).Scan(&lavadoID); err != nil {
+	t.Run("token de servicio con categoryId del árbol (Ingestion)", func(t *testing.T) {
+		var notebookID int32
+		if err := pool.QueryRow(ctx,
+			`SELECT legacy_product_category_id FROM categories WHERE slug = 'notebooks'`).Scan(&notebookID); err != nil {
 			t.Fatal(err)
 		}
 		rec := do(http.MethodPost, "/products", serviceToken, fmt.Sprintf(
-			`{"categoryId": %d, "name": "Lavadora E2E", "sku": "e2e-ingestion-%s", "imageUrl": "https://example.test/l.png"}`,
-			lavadoID, suffix))
+			`{"categoryId": %d, "name": "Notebook E2E", "sku": "e2e-ingestion-%s", "imageUrl": "https://example.test/l.png",
+			"attributes": {"memoria_ram_gb": 16, "almacenamiento_gb": 512, "pantalla_pulgadas": 14}}`,
+			notebookID, suffix))
 		expect(t, rec, http.StatusCreated, "")
 		created = append(created, strings.TrimPrefix(rec.Header().Get("Location"), "/products/"))
-		if !strings.Contains(rec.Body.String(), `"categorySlug":null`) || !strings.Contains(rec.Body.String(), `"attributes":{}`) {
+		if !strings.Contains(rec.Body.String(), `"categorySlug":"notebooks"`) ||
+			!strings.Contains(rec.Body.String(), `"memoria_ram_gb":16`) {
+			t.Fatalf("body = %s", rec.Body.String())
+		}
+	})
+
+	t.Run("categoryId de categoría inactiva se rechaza", func(t *testing.T) {
+		var lavadoID int32
+		if err := pool.QueryRow(ctx, `SELECT id FROM product_category WHERE name = 'Lavado'`).Scan(&lavadoID); err != nil {
+			t.Fatal(err)
+		}
+		rec := do(http.MethodPost, "/products", serviceToken, fmt.Sprintf(
+			`{"categoryId": %d, "name": "Lavadora E2E", "sku": "e2e-lavado-%s", "imageUrl": "https://example.test/lav.png"}`,
+			lavadoID, suffix))
+		expect(t, rec, http.StatusUnprocessableEntity, httpx.CodeValidationFailed)
+		if !strings.Contains(rec.Body.String(), `"field":"categoryId","code":"not_found"`) {
 			t.Fatalf("body = %s", rec.Body.String())
 		}
 	})
@@ -195,21 +212,20 @@ func TestIntegration_ComparisonAPIPropiedad(t *testing.T) {
 	ana := createSession(t, pool, "client", "ana-"+suffix)
 	beto := createSession(t, pool, "client", "beto-"+suffix)
 
+	// Dos refrigeradores propios del test (TAL-241: el seed ya no trae productos).
 	var ids []string
-	rows, err := pool.Query(ctx, `
-		SELECT p.public_id::text FROM product p JOIN categories c ON c.id = p.category_ref
-		WHERE c.slug = 'refrigeradores' AND p.active ORDER BY p.id LIMIT 2`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product WHERE public_id::text = ANY($1)`, ids)
+	})
+	for _, name := range []string{"Refri E2E A ", "Refri E2E B "} {
 		var id string
-		_ = rows.Scan(&id)
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO product (category_id, category_ref, name)
+			SELECT c.legacy_product_category_id, c.id, $1 FROM categories c WHERE c.slug = 'refrigeradores'
+			RETURNING public_id::text`, name+suffix).Scan(&id); err != nil {
+			t.Fatalf("crear refrigerador: %v", err)
+		}
 		ids = append(ids, id)
-	}
-	rows.Close()
-	if len(ids) != 2 {
-		t.Fatalf("se necesitan 2 refrigeradores en la BD, hay %d", len(ids))
 	}
 
 	do := func(method, path, token, body string) *httptest.ResponseRecorder {

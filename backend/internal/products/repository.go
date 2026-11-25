@@ -23,8 +23,29 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 	}
 }
 
+// ResolveScope traduce un id o slug de categoría (incluido un id legacy) a
+// las hojas (nivel 3) que abarca, con las reglas de categories.ResolveScope.
+func (r *Repository) ResolveScope(ctx context.Context, ref categories.Ref) (categories.Scope, error) {
+	return r.categories.ResolveScope(ctx, ref)
+}
+
 func (r *Repository) ListCategories(ctx context.Context) ([]generated.ListProductCategoriesRow, error) {
 	return r.queries.ListProductCategories(ctx)
+}
+
+// ListCategoryCounts devuelve los productos activos de cada nodo (hoja y
+// descendientes) indexados por id de product_category.
+func (r *Repository) ListCategoryCounts(ctx context.Context) (map[int32]int64, error) {
+	rows, err := r.queries.ListProductCategoryCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	counts := make(map[int32]int64, len(rows))
+	for _, row := range rows {
+		counts[row.CategoryID] = row.ProductCount
+	}
+	return counts, nil
 }
 
 func (r *Repository) GetByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.Product, error) {

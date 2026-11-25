@@ -28,25 +28,18 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 // matchedSQL selecciona los productos activos que cumplen todos los filtros:
 //
 //	$1 palabras (text[]): cada una debe aparecer en nombre, modelo, SKU o marca
-//	$2 id de product_category (incluye subcategorías)  $3 slug de categories
-//	$4 ids de marca (int[], vacío = todas)
-//	$5 / $6 precio total mínimo / máximo               $7 solo con ofertas disponibles
-//	$8 / $9 / $10 filtros por atributo: ids, operadores y valores
-//	$11 ids de tiendas (int[], vacío = todas)
+//	$2 ids de product_category (hojas de nivel 3) del alcance (int[], NULL = sin filtro)
+//	$3 ids de marca (int[], vacío = todas)
+//	$4 / $5 precio total mínimo / máximo               $6 solo con ofertas disponibles
+//	$7 / $8 / $9 filtros por atributo: ids, operadores y valores
+//	$10 ids de tiendas (int[], vacío = todas)
 //
 // strpos (no ILIKE) evita que '%' o '_' del usuario actúen como comodines, y
 // translate (nativo, sin la extensión unaccent) ignora tildes y mayúsculas.
 // Nombre, modelo y SKU llegan ya normalizados en p.search_text (columna
 // generada, migración 028, TAL-189); solo la marca se normaliza aquí.
 const matchedSQL = `
-WITH RECURSIVE subtree AS (
-    SELECT c.id FROM product_category c WHERE c.id = $2::int AND c.active
-    UNION ALL
-    SELECT child.id FROM product_category child
-    JOIN subtree s ON child.parent_category_id = s.id
-    WHERE child.active
-),
-matched AS (
+WITH matched AS (
     SELECT p.id, best.price AS best_price, best.offers AS offer_count
     FROM product p
     LEFT JOIN brand b ON b.id = p.brand_id
@@ -56,7 +49,7 @@ matched AS (
         FROM product_offer o
         JOIN store s ON s.id = o.store_id AND s.active
         WHERE o.product_id = p.id AND o.available
-          AND (cardinality($11::int[]) = 0 OR o.store_id = ANY($11::int[]))
+          AND (cardinality($10::int[]) = 0 OR o.store_id = ANY($10::int[]))
     ) best ON TRUE
     WHERE p.active
       AND NOT EXISTS (
@@ -65,15 +58,14 @@ matched AS (
               p.search_text || ' ' ||
               translate(lower(COALESCE(b.name, '')), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc'),
               translate(lower(w.word), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc')) = 0)
-      AND ($2::int IS NULL OR p.category_id IN (SELECT id FROM subtree))
-      AND ($3::text IS NULL OR p.category_ref = (SELECT id FROM categories WHERE slug = $3::text AND active))
-      AND (cardinality($4::int[]) = 0 OR p.brand_id = ANY($4::int[]))
-      AND ($5::numeric IS NULL OR best.price >= $5::numeric)
-      AND ($6::numeric IS NULL OR best.price <= $6::numeric)
-      AND (NOT $7::bool OR best.offers > 0)
-      AND (cardinality($11::int[]) = 0 OR best.offers > 0)
+      AND ($2::int[] IS NULL OR p.category_id = ANY($2::int[]))
+      AND (cardinality($3::int[]) = 0 OR p.brand_id = ANY($3::int[]))
+      AND ($4::numeric IS NULL OR best.price >= $4::numeric)
+      AND ($5::numeric IS NULL OR best.price <= $5::numeric)
+      AND (NOT $6::bool OR best.offers > 0)
+      AND (cardinality($10::int[]) = 0 OR best.offers > 0)
       AND NOT EXISTS (
-          SELECT 1 FROM unnest($8::int[], $9::text[], $10::text[]) AS f(attribute_id, op, val)
+          SELECT 1 FROM unnest($7::int[], $8::text[], $9::text[]) AS f(attribute_id, op, val)
           WHERE NOT EXISTS (
               SELECT 1 FROM product_attribute_value v
               WHERE v.product_id = p.id AND v.attribute_id = f.attribute_id
@@ -119,17 +111,24 @@ func queryArgs(q Query) []any {
 	if stores == nil {
 		stores = []int32{}
 	}
-	return []any{words, q.LegacyCategoryID, q.CategorySlug, brands, q.MinPrice, q.MaxPrice,
+	return []any{words, q.CategoryIDs, brands, q.MinPrice, q.MaxPrice,
 		q.Available, ids, ops, values, stores}
 }
 
-// CategoryDefinitions devuelve las definiciones de atributos de una categoría
-// activa, o ErrCategoryNotFound.
+// ResolveScope traduce un id o slug de categoría (incluido un id legacy) a
+// las hojas (nivel 3) que abarca, con las reglas de categories.ResolveScope.
+func (r *Repository) ResolveScope(ctx context.Context, ref categories.Ref) (categories.Scope, error) {
+	return r.categories.ResolveScope(ctx, ref)
+}
+
+// CategoryDefinitions devuelve las definiciones de atributos de la categoría
+// nueva con ese slug. Una hoja sin fila en categories no tiene definiciones:
+// devuelve una lista vacía, no un error.
 func (r *Repository) CategoryDefinitions(ctx context.Context, slug string) ([]categories.Attribute, error) {
 	var id int32
 	err := r.db.QueryRow(ctx, `SELECT id FROM categories WHERE slug = $1 AND active`, slug).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrCategoryNotFound
+		return []categories.Attribute{}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -149,7 +148,7 @@ func (r *Repository) SearchProducts(ctx context.Context, q Query) ([]ProductResu
 
 	order, attributeSort := searchOrder(q)
 	pageArgs := append([]any(nil), args...)
-	limitPosition := 12
+	limitPosition := 11
 	if attributeSort {
 		pageArgs = append(pageArgs, q.SortAttributeKey)
 		limitPosition++
@@ -157,7 +156,7 @@ func (r *Repository) SearchProducts(ctx context.Context, q Query) ([]ProductResu
 	pageArgs = append(pageArgs, q.Limit, q.Offset)
 	rows, err := r.db.Query(ctx, matchedSQL+`
 		SELECT p.id, p.public_id::text, p.name, COALESCE(b.name, ''), COALESCE(p.model, ''), pc.name,
-		       cat.slug,
+		       pc.slug,
 		       (SELECT image_url FROM product_image i WHERE i.product_id = p.id AND i.active
 		         ORDER BY i.sort_order, i.id LIMIT 1),
 		       m.best_price::text, m.offer_count
@@ -165,7 +164,6 @@ func (r *Repository) SearchProducts(ctx context.Context, q Query) ([]ProductResu
 		JOIN product p ON p.id = m.id
 		LEFT JOIN brand b ON b.id = p.brand_id
 		JOIN product_category pc ON pc.id = p.category_id
-		LEFT JOIN categories cat ON cat.id = p.category_ref
 		ORDER BY `+order+`
 		LIMIT $`+strconv.Itoa(limitPosition)+` OFFSET $`+strconv.Itoa(limitPosition+1), pageArgs...)
 	if err != nil {
@@ -215,9 +213,6 @@ func (r *Repository) SearchProducts(ctx context.Context, q Query) ([]ProductResu
 	return results, total, attrRows.Err()
 }
 
-// popularProductsSQL puntúa cada producto activo por las búsquedas históricas
-// cuyos términos aparecen en su texto (p.search_text más la marca) y devuelve
-// los $1 primeros con su mejor precio, ofertas e imagen principal.
 const popularProductsSQL = `
 WITH popular_queries AS (
     SELECT translate(lower(regexp_replace(btrim(raw_query), '\s+', ' ', 'g')),
@@ -254,7 +249,7 @@ scores AS (
     GROUP BY id
 )
 SELECT p.public_id::text, p.name, COALESCE(b.name, ''), COALESCE(p.model, ''), pc.name,
-       cat.slug,
+       pc.slug,
        (SELECT image_url FROM product_image i WHERE i.product_id = p.id AND i.active
          ORDER BY i.sort_order, i.id LIMIT 1),
        best.price::text, best.offers, scores.relevance_score
@@ -262,7 +257,6 @@ FROM scores
 JOIN product p ON p.id = scores.id
 LEFT JOIN brand b ON b.id = p.brand_id
 JOIN product_category pc ON pc.id = p.category_id
-LEFT JOIN categories cat ON cat.id = p.category_ref
 LEFT JOIN LATERAL (
     SELECT MIN(o.price + CASE WHEN o.shipping_free THEN 0 ELSE COALESCE(o.shipping_cost, 0) END) AS price,
            count(*) AS offers
@@ -275,9 +269,6 @@ LIMIT $1`
 
 // PopularProducts ordena los productos activos según la frecuencia histórica
 // de términos de búsquedas de producto que coinciden con su nombre, modelo, SKU o marca.
-// Recibe cuántos productos devolver (limit) y devuelve los resultados con su
-// mejor precio y cantidad de ofertas. El texto de cada producto sale de
-// p.search_text (migración 028, TAL-189) más la marca normalizada.
 func (r *Repository) PopularProducts(ctx context.Context, limit int) ([]ProductResult, error) {
 	rows, err := r.db.Query(ctx, popularProductsSQL, limit)
 	if err != nil {
@@ -317,12 +308,12 @@ func searchOrder(q Query) (string, bool) {
 	return `(SELECT v.value_numeric
 		FROM product_attribute_value v
 		JOIN category_attributes a ON a.id = v.attribute_id
-		WHERE v.product_id = p.id AND a.filterable AND a.key = $12::text
+		WHERE v.product_id = p.id AND a.filterable AND a.key = $11::text
 		LIMIT 1) ` + direction + ` NULLS LAST,
 		(SELECT v.value
 		FROM product_attribute_value v
 		JOIN category_attributes a ON a.id = v.attribute_id
-		WHERE v.product_id = p.id AND a.filterable AND a.key = $12::text
+		WHERE v.product_id = p.id AND a.filterable AND a.key = $11::text
 		LIMIT 1) ` + direction + ` NULLS LAST, p.id ASC`, true
 }
 
@@ -403,7 +394,7 @@ func (r *Repository) SearchFacets(ctx context.Context, q Query, defs []categorie
 		FROM matched m
 		JOIN product_attribute_value v ON v.product_id = m.id
 		JOIN category_attributes ca ON ca.id = v.attribute_id
-		WHERE v.attribute_id = ANY($12::int[])
+		WHERE v.attribute_id = ANY($11::int[])
 		GROUP BY v.attribute_id, ca.data_type, v.value
 		ORDER BY v.attribute_id, count(*) DESC, v.value`, append(args, filterable)...)
 	if err != nil {

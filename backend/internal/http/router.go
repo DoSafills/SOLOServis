@@ -80,6 +80,15 @@ func adminOnly(db *pgxpool.Pool, logger *slog.Logger) func(http.Handler) http.Ha
 	return authz.New(authz.NewPostgresSessions(db), os.Getenv("INTERNAL_API_TOKEN"), logger).RequireAdmin
 }
 
+// ingestionOnly protege /ingestion/*: sesión con rol admin o INGESTION_API_TOKEN,
+// el token que usa el scraper (TAL-199, H3). INTERNAL_API_TOKEN no sirve aquí y
+// INGESTION_API_TOKEN no sirve en ninguna otra ruta: si alguien compromete el
+// pod del scraper, puede cargar ofertas pero no es admin del resto de las APIs.
+// Recibe el pool para validar sesiones y el logger; devuelve el middleware.
+func ingestionOnly(db *pgxpool.Pool, logger *slog.Logger) func(http.Handler) http.Handler {
+	return authz.New(authz.NewPostgresSessions(db), os.Getenv("INGESTION_API_TOKEN"), logger).RequireAdmin
+}
+
 // newRouter arma el router de una API: middlewares del estándar TAL-78, CORS,
 // GET /health y las rutas de cada registrar. Recibe el nombre que responde
 // /health, el pool de PostgreSQL, el origen permitido por CORS y los
@@ -217,9 +226,9 @@ func registerIngestionRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger
 		pricing.NewHTTPNotifier(), logger)
 	handler := ingestion.NewHandler(runs, processor, ingestion.NewHTTPNotifier(), logger)
 
-	// Solo el scraper (INTERNAL_API_TOKEN) o un admin.
+	// Solo el scraper (INGESTION_API_TOKEN) o un admin.
 	r.Group(func(r chi.Router) {
-		r.Use(adminOnly(db, logger))
+		r.Use(ingestionOnly(db, logger))
 		r.Post("/ingestion/runs", handler.OpenRun)
 		r.Get("/ingestion/runs", handler.ListRuns)
 		r.Get("/ingestion/runs/{id}", handler.GetRun)
@@ -235,6 +244,7 @@ func registerServiceRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) 
 }
 
 func registerUserRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
+	profile := newProfileHandler(db, logger)
 	r.Get("/users", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
@@ -245,6 +255,11 @@ func registerUserRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger) {
 	// El token debe ser del mismo usuario que se pide; otro id responde 404,
 	// como si no existiera (TAL-125, H4: la sesión la valida authz).
 	session := authz.New(authz.NewPostgresSessions(db), "", logger).RequireSession
+	// Perfil: el usuario sale de la sesión, nunca de la ruta ni del body.
+	r.With(session).Patch("/users/me", profile.PatchMe)
+	r.With(session).Post("/users/me/avatar", profile.UploadAvatar)
+	// La foto se sirve sin sesión: un <img> no puede enviar el bearer token.
+	r.Get("/users/{publicID}/avatar", profile.GetAvatar)
 	r.With(session).Get("/users/{id}", func(w http.ResponseWriter, req *http.Request) {
 		current, _ := authz.SessionFrom(req.Context())
 		if chi.URLParam(req, "id") != strconv.Itoa(int(current.UserID)) {

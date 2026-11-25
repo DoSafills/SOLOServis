@@ -10,7 +10,8 @@ SELECT
     description,
     active,
     created_at,
-    updated_at
+    updated_at,
+    category_ref
 FROM product
 WHERE id = $1;
 
@@ -62,7 +63,8 @@ SELECT
     description,
     active,
     created_at,
-    updated_at
+    updated_at,
+    category_ref
 FROM product
 WHERE public_id = $1;
 
@@ -245,10 +247,36 @@ SELECT
     c.id,
     c.parent_category_id,
     c.name,
-    c.description
+    c.description,
+    c.slug,
+    c.level
 FROM product_category c
 WHERE c.active = true
 ORDER BY c.parent_category_id NULLS FIRST, c.name;
+
+-- name: ListProductCategoryCounts :many
+-- Productos activos por nodo: cada rama suma los de todas sus hojas.
+WITH RECURSIVE subtree AS (
+    SELECT c.id AS root_id, c.id AS node_id
+    FROM product_category c
+    WHERE c.active = true
+    UNION ALL
+    SELECT s.root_id, child.id
+    FROM subtree s
+    JOIN product_category child ON child.parent_category_id = s.node_id
+    WHERE child.active = true
+),
+counts AS (
+    SELECT s.root_id, count(p.id)::bigint AS total
+    FROM subtree s
+    JOIN product p ON p.category_id = s.node_id AND p.active
+    GROUP BY s.root_id
+)
+SELECT pc.id AS category_id, COALESCE(counts.total, 0)::bigint AS product_count
+FROM product_category pc
+LEFT JOIN counts ON counts.root_id = pc.id
+WHERE pc.active = true
+ORDER BY pc.id;
 
 
 -- name: ListProductsByCategory :many
@@ -262,7 +290,7 @@ WITH RECURSIVE subtree AS (
     FROM product_category child
     JOIN subtree s ON child.parent_category_id = s.id
     WHERE child.active = true
-)
+) CYCLE id SET is_cycle USING path
 SELECT
     p.id,
     p.public_id,
@@ -286,7 +314,7 @@ JOIN product_category pc ON pc.id = p.category_id
 LEFT JOIN product_category parent ON parent.id = pc.parent_category_id
 LEFT JOIN product_rating_summary prs ON prs.product_id = p.id
 WHERE p.active = true
-  AND p.category_id IN (SELECT id FROM subtree)
+  AND p.category_id IN (SELECT id FROM subtree WHERE NOT is_cycle)
 ORDER BY p.id;
 
 
@@ -333,7 +361,8 @@ RETURNING
     description,
     active,
     created_at,
-    updated_at;
+    updated_at,
+    category_ref;
 
 
 -- name: UpdateProduct :one
@@ -358,7 +387,8 @@ RETURNING
     description,
     active,
     created_at,
-    updated_at;
+    updated_at,
+    category_ref;
 
 
 -- name: DeactivateProduct :one
@@ -378,7 +408,8 @@ RETURNING
     description,
     active,
     created_at,
-    updated_at;
+    updated_at,
+    category_ref;
 -- name: UpdateProductByPublicID :one
 UPDATE product
 SET
@@ -402,7 +433,8 @@ RETURNING
     description,
     active,
     created_at,
-    updated_at;
+    updated_at,
+    category_ref;
 
 
 -- name: DeactivateProductByPublicID :one
@@ -423,7 +455,8 @@ RETURNING
     description,
     active,
     created_at,
-    updated_at;
+    updated_at,
+    category_ref;
 
 -- name: ListProductSpecifications :many
 SELECT

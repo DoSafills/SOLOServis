@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -28,24 +29,32 @@ func ParseLevel(value string) slog.Level {
 }
 
 // AccessLog registra una línea por request: request_id, método, path (sin
-// query string), status, duración y bytes. Nunca registra bodies ni headers.
+// query string), status, duración, bytes y, si la respuesta fue un
+// problem+json, su `code` estable (TAL-250). Nunca registra bodies ni headers.
+// Recibe el logger donde escribir y devuelve el middleware.
 func AccessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			rec := wrapResponseWriter(w)
+			info := &accessInfo{}
+			r = r.WithContext(context.WithValue(r.Context(), accessInfoKey{}, info))
 
 			// defer: también registra requests abortados por panic.
 			defer func() {
 				status := rec.Status()
-				logger.LogAttrs(r.Context(), levelForStatus(status), "http_request",
+				attrs := []slog.Attr{
 					slog.String("request_id", RequestIDFrom(r.Context())),
 					slog.String("method", r.Method),
 					slog.String("path", r.URL.Path),
 					slog.Int("status", status),
 					slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000),
 					slog.Int64("bytes", rec.bytes),
-				)
+				}
+				if info.code != "" {
+					attrs = append(attrs, slog.String("code", info.code))
+				}
+				logger.LogAttrs(r.Context(), levelForStatus(status), "http_request", attrs...)
 			}()
 
 			next.ServeHTTP(rec, r)
@@ -53,6 +62,26 @@ func AccessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
+// accessInfo guarda lo que el handler sabe de la respuesta y el AccessLog no
+// puede deducir del status. Viaja por el contexto (y no en el ResponseWriter)
+// para que un middleware que envuelva el writer no lo esconda.
+type accessInfo struct {
+	code string
+}
+
+type accessInfoKey struct{}
+
+// recordProblemCode anota el `code` del problem+json para la línea de acceso.
+// Recibe el contexto del request y el code; no hace nada si el request no pasó
+// por AccessLog. Conserva el primero, igual que el status.
+func recordProblemCode(ctx context.Context, code string) {
+	if info, ok := ctx.Value(accessInfoKey{}).(*accessInfo); ok && info.code == "" {
+		info.code = code
+	}
+}
+
+// levelForStatus devuelve el nivel de log de la línea de acceso según el
+// status: ERROR para 5xx, WARN para 4xx e INFO para el resto.
 func levelForStatus(status int) slog.Level {
 	switch {
 	case status >= 500:
@@ -81,6 +110,7 @@ func wrapResponseWriter(w http.ResponseWriter) *responseRecorder {
 	return &responseRecorder{ResponseWriter: w}
 }
 
+// WriteHeader guarda el primer status escrito y lo pasa al writer original.
 func (r *responseRecorder) WriteHeader(status int) {
 	if !r.wroteHeader {
 		r.status = status
@@ -89,6 +119,8 @@ func (r *responseRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+// Write cuenta los bytes del body; si el handler no escribió status, fija 200
+// como hace net/http. Devuelve lo mismo que el writer original.
 func (r *responseRecorder) Write(b []byte) (int, error) {
 	if !r.wroteHeader {
 		r.WriteHeader(http.StatusOK)

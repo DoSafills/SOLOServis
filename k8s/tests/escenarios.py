@@ -159,13 +159,16 @@ def solicitudes(v: Visor, ctx: dict) -> None:
       forma="problem", codigo="unauthorized")
     c("gateway-auth", "Por el gateway: /auth llega a usuarios", "frontend", "/auth/validate", espera=401,
       forma="problem", codigo="unauthorized", igual_a="directo-auth")
+    # Desde el perfil de usuario (PR #171) el gateway enruta /users a usuarios.
+    c("gateway-users", "Por el gateway: /users llega a usuarios", "frontend", "/users", contiene="user-api-ready",
+      igual_a="usuarios")
 
     # 3. Lo que el gateway no deja pasar: escrituras públicas y APIs internas.
     for metodo, ruta in (("POST", "/products"), ("PUT", "/products/{pid}"), ("DELETE", "/stores/{sid}"),
                          ("PUT", "/auth/login")):
         c(f"gateway-bloquea-{metodo}", f"El gateway bloquea {metodo} {ruta}", "frontend", ruta, metodo=metodo,
           espera=403, forma="html", body={} if metodo != "DELETE" else None, salidas=False)
-    for ruta in ("/ingestion/runs", "/notifications", "/users", "/offers/product/{pid}"):
+    for ruta in ("/ingestion/runs", "/notifications", "/offers/product/{pid}"):
         c(f"gateway-no-expone-{ruta.split('/')[1]}", f"El gateway no expone {ruta}: responde la app",
           "frontend", ruta, forma="html", contiene='id="root"', salidas=False)
 
