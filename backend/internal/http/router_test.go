@@ -403,6 +403,7 @@ func TestIngestionRouter_RutasRegistradas(t *testing.T) {
 		"GET /ingestion/runs",
 		"GET /ingestion/runs/{id}",
 		"POST /ingestion/runs/{id}/items",
+		"POST /ingestion/runs/{id}/services",
 		"POST /ingestion/runs/{id}/finish",
 	}
 

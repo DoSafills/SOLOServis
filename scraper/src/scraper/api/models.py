@@ -45,6 +45,10 @@ class StoreResponse(BaseModel):
     baseUrl: str
     listingUrl: str
     digest: str
+    # ``product`` o ``service``. Los specs de servicio no tienen tienda; el
+    # visor de flujo los usa para no recorrerlos como si fueran tiendas.
+    targetType: str = "product"
+    provider: str | None = None
 
 
 class StoreListResponse(BaseModel):

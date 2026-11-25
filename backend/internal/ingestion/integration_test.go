@@ -448,7 +448,7 @@ func TestIngestionIntegration_ScrapedDataPorLote(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := NewRepository(pool)
-	runID, err := repo.OpenRun(ctx, "Scraper "+tag, nil, storeID, "perf", "", "")
+	runID, err := repo.OpenRun(ctx, "Scraper "+tag, nil, storeID, "perf", TargetProduct, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +545,7 @@ func TestIngestionIntegration_HuellaYEventoIdempotente(t *testing.T) {
 		PagesChecked:      10,
 	}
 
-	first, err := repo.OpenRun(ctx, source, nil, storeID, "http", "hash-abc", "1.1")
+	first, err := repo.OpenRun(ctx, source, nil, storeID, "http", TargetProduct, "hash-abc", "1.1")
 	must(err, "abrir primera corrida")
 	must(repo.SaveFingerprint(ctx, first, healthy), "guardar huella")
 	must(repo.FinishRun(ctx, first, StatusSuccess, nil), "cerrar primera corrida")
@@ -556,7 +556,7 @@ func TestIngestionIntegration_HuellaYEventoIdempotente(t *testing.T) {
 		t.Fatalf("spec_hash = %q", specHash)
 	}
 
-	second, err := repo.OpenRun(ctx, source, nil, storeID, "http", "hash-abc", "1.1")
+	second, err := repo.OpenRun(ctx, source, nil, storeID, "http", TargetProduct, "hash-abc", "1.1")
 	must(err, "abrir segunda corrida")
 	must(repo.SaveFingerprint(ctx, second, healthy), "guardar segunda huella")
 	baseline, err := repo.RecentFingerprints(ctx, storeID, second, 5)
@@ -871,7 +871,7 @@ func TestIngestionIntegration_EstadoRealDeLaCorrida(t *testing.T) {
 	var ids []int32
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			id, err := repo.OpenRun(ctx, "Scraper "+tag, nil, storeID, "http", "", "")
+			id, err := repo.OpenRun(ctx, "Scraper "+tag, nil, storeID, "http", TargetProduct, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -909,5 +909,166 @@ func TestIngestionIntegration_EstadoRealDeLaCorrida(t *testing.T) {
 	}
 	if fmt.Sprint(found) != "[26]" {
 		t.Fatalf("RecentFound = %v; solo la corrida exitosa (26 encontrados) cuenta para la mediana", found)
+	}
+}
+
+// TestIngestionIntegration_Servicios prueba el camino de servicios de punta a
+// punta con PostgreSQL real: corrida sin tienda, alta del proveedor y del
+// servicio, atributos unificados, identidad por externalId y historial de
+// precios al cambiar el monto (issue #191). Se omite sin TEST_DATABASE_URL.
+func TestIngestionIntegration_Servicios(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL no definida: se omite el test de integración")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	tag := "tal191-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	source := "Proveedor " + tag
+	providerSlug := "proveedor-" + tag
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	runs := NewRepository(pool)
+
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM data_source WHERE name = $1`, source)
+		_, _ = pool.Exec(ctx, `DELETE FROM provider WHERE slug = $1`, providerSlug)
+	})
+
+	processor := NewProcessor(runs, products.NewRepository(pool), pricing.NewRepository(pool), nil, logger)
+	h := NewHandler(runs, processor, nil, logger)
+	r := chi.NewRouter()
+	r.Use(httpx.RequestID)
+	r.Post("/ingestion/runs", h.OpenRun)
+	r.Post("/ingestion/runs/{id}/services", h.AddServices)
+
+	do := func(method, path string, body any) *httptest.ResponseRecorder {
+		encoded, _ := json.Marshal(body)
+		req := httptest.NewRequest(method, path, strings.NewReader(string(encoded)))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := do(http.MethodPost, "/ingestion/runs", map[string]any{
+		"source":     map[string]any{"name": source, "baseUrl": "https://proveedor.example.test"},
+		"targetType": TargetService,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("abrir corrida = %d %s", rec.Code, rec.Body.String())
+	}
+	var run Run
+	if err := json.Unmarshal(rec.Body.Bytes(), &run); err != nil {
+		t.Fatal(err)
+	}
+	if run.TargetType != TargetService || run.StoreID != nil {
+		t.Fatalf("corrida = %+v", run)
+	}
+
+	item := func(price int) map[string]any {
+		return map[string]any{
+			"externalId":  "plan-600",
+			"externalUrl": "https://proveedor.example.test/planes",
+			"provider":    map[string]any{"slug": providerSlug, "name": "Proveedor"},
+			"service": map[string]any{
+				"name":         "Fibra 600",
+				"categorySlug": "internet-fibra-optica",
+				"attributes": map[string]any{
+					"velocidad_bajada_mbps": 600,
+					"velocidad_subida_mbps": 600,
+				},
+			},
+			"offer": map[string]any{"price": price, "billingPeriod": "monthly"},
+		}
+	}
+	send := func(price int) BatchResult {
+		t.Helper()
+		rec := do(http.MethodPost, fmt.Sprintf("/ingestion/runs/%d/services", run.ID), map[string]any{"items": []any{item(price)}})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("lote = %d %s", rec.Code, rec.Body.String())
+		}
+		var result BatchResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Processed != 1 || result.Results[0].ServiceID == "" {
+			t.Fatalf("resultado = %+v", result)
+		}
+		return result
+	}
+
+	first := send(29990)
+	if first.Results[0].Status != ItemCreated {
+		t.Fatalf("primer ítem = %+v", first.Results[0])
+	}
+
+	var (
+		serviceID  int32
+		categoryID int32
+		offerID    int32
+	)
+	if err := pool.QueryRow(ctx, `
+		SELECT s.id, s.category_ref, o.id
+		FROM service s
+		JOIN service_offer o ON o.service_id = s.id
+		JOIN provider p ON p.id = o.provider_id
+		WHERE p.slug = $1 AND o.external_id = 'plan-600'`,
+		providerSlug).Scan(&serviceID, &categoryID, &offerID); err != nil {
+		t.Fatal(err)
+	}
+	if categoryID == 0 {
+		t.Fatal("el servicio quedó sin category_ref")
+	}
+	var attributeCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM service_attribute_value WHERE service_id = $1`, serviceID).
+		Scan(&attributeCount); err != nil {
+		t.Fatal(err)
+	}
+	if attributeCount != 2 {
+		t.Fatalf("atributos = %d, quiero 2", attributeCount)
+	}
+
+	second := send(27990)
+	if second.Results[0].Status != ItemUpdated || second.Results[0].ServiceID != first.Results[0].ServiceID {
+		t.Fatalf("segundo ítem = %+v", second.Results[0])
+	}
+	var history int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM service_price_history WHERE service_offer_id = $1`, offerID).
+		Scan(&history); err != nil {
+		t.Fatal(err)
+	}
+	if history != 2 {
+		t.Fatalf("historial = %d, quiero 2", history)
+	}
+	var stored int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM scraped_data WHERE scrape_run_id = $1 AND entity_type = 'service'`, run.ID).
+		Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != 2 {
+		t.Fatalf("filas de scraped_data = %d, quiero 2", stored)
+	}
+
+	// Una corrida de producto no acepta el endpoint de servicios.
+	productRec := do(http.MethodPost, "/ingestion/runs", map[string]any{
+		"source": map[string]any{"name": source + " producto", "baseUrl": "https://tienda.example.test"}, "storeId": 1,
+	})
+	if productRec.Code != http.StatusCreated {
+		t.Fatalf("abrir corrida de producto = %d %s", productRec.Code, productRec.Body.String())
+	}
+	var productRun Run
+	_ = json.Unmarshal(productRec.Body.Bytes(), &productRun)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM data_source WHERE name = $1`, source+" producto")
+	})
+	rejected := do(http.MethodPost, fmt.Sprintf("/ingestion/runs/%d/services", productRun.ID), map[string]any{"items": []any{item(27990)}})
+	if rejected.Code != http.StatusConflict {
+		t.Fatalf("servicio en corrida de producto = %d %s", rejected.Code, rejected.Body.String())
 	}
 }

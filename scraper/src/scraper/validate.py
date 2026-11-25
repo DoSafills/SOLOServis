@@ -20,9 +20,13 @@ from scraper.models import (
     MAX_EXTERNAL_ID,
     MAX_MODEL,
     MAX_NAME,
+    MAX_PROVIDER_NAME,
     MAX_SKU,
     MAX_SOURCE_NAME,
+    MAX_SUMMARY,
     MAX_URL,
+    SERVICE_BILLING_PERIODS,
+    TARGET_SERVICE,
     Item,
 )
 
@@ -92,11 +96,15 @@ def _money(errors: list[FieldError], field: str, value: Any, required: bool = Fa
 
 
 def validate_item(item: Item) -> list[FieldError]:
-    """Apply the ingestion rules locally, with the same field codes."""
+    """Apply the ingestion rules locally, with the same field codes.
+
+    Recibe un ítem de producto o de servicio y elige el conjunto de reglas
+    según ``entity_type``. Devuelve la lista de errores (vacía si es enviable).
+    """
     errors: list[FieldError] = []
 
     _required(errors, "externalUrl", item.external_url)
-    _http_url(errors, "externalUrl", item.external_url)
+    _http_url(errors, "externalUrl", item.external_url, MAX_URL)
     _max_length(errors, "externalId", item.external_id, MAX_EXTERNAL_ID)
 
     if item.source is not None:
@@ -104,6 +112,10 @@ def validate_item(item: Item) -> list[FieldError]:
         _max_length(errors, "source.name", item.source.name, MAX_SOURCE_NAME)
         _required(errors, "source.baseUrl", item.source.base_url)
         _http_url(errors, "source.baseUrl", item.source.base_url)
+
+    if item.entity_type == TARGET_SERVICE:
+        _validate_service(errors, item)
+        return errors
 
     product = item.product
     _required(errors, "product.name", product.name)
@@ -162,3 +174,83 @@ def validate_item(item: Item) -> list[FieldError]:
     _http_url(errors, "offer.productUrl", offer.product_url, MAX_URL)
 
     return errors
+
+
+def _validate_service(errors: list[FieldError], item: Item) -> None:
+    """Aplica las reglas del contrato de servicio (issue #191).
+
+    Recibe la lista de errores ya abierta y el ítem; agrega los errores de
+    ``provider.*``, ``service.*`` y ``offer.*``. No devuelve nada: el llamador
+    retorna la lista completa.
+    """
+    provider = item.provider
+    slug = provider.slug if provider is not None else ""
+    name = provider.name if provider is not None else ""
+    _required(errors, "provider.slug", slug)
+    if slug:
+        if not SLUG_RE.match(slug):
+            errors.append(
+                FieldError(
+                    "provider.slug",
+                    "format",
+                    "provider.slug debe tener entre 1 y 64 caracteres: "
+                    "minúsculas, dígitos o guiones",
+                )
+            )
+    _required(errors, "provider.name", name)
+    _max_length(errors, "provider.name", name, MAX_PROVIDER_NAME)
+
+    service = item.service
+    if service is None:
+        errors.append(FieldError("service", "required", "service es obligatorio"))
+        return
+    _required(errors, "service.name", service.name)
+    _max_length(errors, "service.name", service.name, MAX_NAME)
+    _required(errors, "service.categorySlug", service.category_slug)
+    if service.category_slug and not SLUG_RE.match(service.category_slug):
+        errors.append(
+            FieldError(
+                "service.categorySlug",
+                "format",
+                "service.categorySlug debe tener entre 1 y 64 caracteres: "
+                "minúsculas, dígitos o guiones",
+            )
+        )
+    _max_length(errors, "service.description", service.description, MAX_DESCRIPTION)
+    _http_url(errors, "service.imageUrl", service.image_url)
+
+    for key, value in service.attributes.items():
+        field_name = f"service.attributes.{key}"
+        if not ATTRIBUTE_KEY_RE.match(key):
+            errors.append(
+                FieldError(field_name, "format", f"{field_name} no es una clave válida")
+            )
+        if isinstance(value, str):
+            _max_length(errors, field_name, value, MAX_ATTRIBUTE_TEXT)
+
+    offer = item.service_offer
+    if offer is None:
+        errors.append(FieldError("offer", "required", "offer es obligatorio"))
+        return
+    _money(errors, "offer.price", offer.price, required=True)
+    _money(errors, "offer.installationCost", offer.installation_cost)
+
+    if not CURRENCY_RE.match(offer.currency or ""):
+        errors.append(
+            FieldError(
+                "offer.currency",
+                "format",
+                "offer.currency debe tener exactamente tres letras mayúsculas",
+            )
+        )
+    if offer.billing_period and offer.billing_period not in SERVICE_BILLING_PERIODS:
+        errors.append(
+            FieldError(
+                "offer.billingPeriod",
+                "one_of",
+                "offer.billingPeriod debe ser monthly, yearly o one_time",
+            )
+        )
+    _max_length(errors, "offer.contractPeriod", offer.contract_period, 50)
+    _max_length(errors, "offer.coverageSummary", offer.coverage_summary, MAX_SUMMARY)
+    _max_length(errors, "offer.additionalCosts", offer.additional_costs, MAX_SUMMARY)

@@ -31,6 +31,9 @@ func NewHandler(runs RunStore, processor *Processor, notifier Notifier, logger *
 }
 
 // OpenRun atiende POST /ingestion/runs: 201 + Location con la ejecución.
+//
+// `targetType` decide si la corrida es de productos (exige `storeId`) o de
+// servicios (la fuente es un proveedor y no lleva tienda).
 func (h *Handler) OpenRun(w http.ResponseWriter, r *http.Request) {
 	var request OpenRunRequest
 	if err := httpx.DecodeJSON(w, r, &request, httpx.DefaultMaxBodyBytes); err != nil {
@@ -43,6 +46,10 @@ func (h *Handler) OpenRun(w http.ResponseWriter, r *http.Request) {
 	if scraperType == "" {
 		scraperType = DefaultScraper
 	}
+	targetType := strings.TrimSpace(request.TargetType)
+	if targetType == "" {
+		targetType = TargetProduct
+	}
 	specHash := strings.TrimSpace(request.SpecHash)
 	specVersion := strings.TrimSpace(request.SpecVersion)
 
@@ -50,7 +57,11 @@ func (h *Handler) OpenRun(w http.ResponseWriter, r *http.Request) {
 	v.Required("source.name", name)
 	v.MaxLength("source.name", name, MaxSourceName)
 	v.Check(baseURL == "" || isHTTPURL(baseURL), "source.baseUrl", "format", "source.baseUrl debe ser una URL http(s) válida")
-	v.Check(request.StoreID > 0, "storeId", "min", "storeId debe ser mayor que 0")
+	v.Check(targetType == TargetProduct || targetType == TargetService, "targetType", "one_of",
+		"targetType debe ser product o service")
+	if targetType == TargetProduct {
+		v.Check(request.StoreID > 0, "storeId", "min", "storeId debe ser mayor que 0")
+	}
 	v.MaxLength("scraperType", scraperType, MaxScraperType)
 	v.MaxLength("specHash", specHash, MaxSpecHash)
 	v.MaxLength("specVersion", specVersion, MaxSpecVersion)
@@ -63,7 +74,7 @@ func (h *Handler) OpenRun(w http.ResponseWriter, r *http.Request) {
 	if baseURL != "" {
 		base = &baseURL
 	}
-	id, err := h.runs.OpenRun(r.Context(), name, base, request.StoreID, scraperType, specHash, specVersion)
+	id, err := h.runs.OpenRun(r.Context(), name, base, request.StoreID, scraperType, targetType, specHash, specVersion)
 	switch {
 	case errors.Is(err, ErrStoreNotFound):
 		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: "storeId", Code: "not_found", Message: "storeId no existe"}})
@@ -119,6 +130,35 @@ func (h *Handler) AddItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, h.processor.Process(r.Context(), id, storeID, run.Source, request.Items))
+}
+
+// AddServices atiende POST /ingestion/runs/{id}/services: procesa el lote de
+// servicios y responde un resultado por ítem (200 aunque algunos fallen).
+// Solo acepta corridas abiertas con targetType "service" (issue #191).
+func (h *Handler) AddServices(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseRunID(w, r)
+	if !ok {
+		return
+	}
+	var request ServicesRequest
+	if err := httpx.DecodeJSON(w, r, &request, httpx.DefaultMaxBodyBytes); err != nil {
+		httpx.WriteDecodeError(w, r, err)
+		return
+	}
+	var v httpx.Validator
+	v.Check(len(request.Items) >= 1, "items", "min", "items debe tener al menos 1 elemento")
+	v.Check(len(request.Items) <= MaxBatchItems, "items", "max", fmt.Sprintf("items admite hasta %d elementos por lote", MaxBatchItems))
+	if !v.Valid() {
+		httpx.WriteValidation(w, r, v.Errors())
+		return
+	}
+
+	run, err := h.runs.ServiceTarget(r.Context(), id)
+	if err != nil {
+		h.writeRunError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, h.processor.ProcessServices(r.Context(), run.ID, request.Items))
 }
 
 // FinishRun atiende POST /ingestion/runs/{id}/finish: valida el body, cierra
@@ -502,6 +542,9 @@ func (h *Handler) writeRunError(w http.ResponseWriter, r *http.Request, err erro
 	case errors.Is(err, ErrRunWithoutStore):
 		httpx.WriteProblem(w, r, http.StatusConflict, httpx.CodeConflict,
 			"La fuente de la ejecución no está asociada a una tienda.")
+	case errors.Is(err, ErrRunTargetMismatch):
+		httpx.WriteProblem(w, r, http.StatusConflict, httpx.CodeConflict,
+			"La ejecución no acepta este tipo de ítem.")
 	default:
 		httpx.WriteInternal(w, r, h.logger, err)
 	}

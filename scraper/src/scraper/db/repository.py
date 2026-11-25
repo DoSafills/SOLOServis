@@ -60,7 +60,9 @@ def ensure_source(
     *,
     name: str,
     base_url: str,
-    store_id: int,
+    store_id: int | None = None,
+    source_type: str = "web",
+    target_type: str = "product",
     rate_limit: str | None = None,
     spec_slug: str = "",
     spec_version: str = "",
@@ -71,6 +73,11 @@ def ensure_source(
     Returns ``(source_id, config_id, created)``. An existing source keeps its
     identity, but a different ``store_id`` is a configuration bug: the spec and
     the database would disagree about who owns the offers.
+
+    Un spec de servicio (issue #191) no tiene tienda: ``store_id`` es ``None``
+    y ``source_type`` es ``provider``. La configuración se busca por
+    ``target_type``, así que un mismo proveedor puede tener una corrida de
+    producto y otra de servicio sin pisarse.
     """
     parser_config = {
         "spec": spec_slug,
@@ -79,20 +86,26 @@ def ensure_source(
     }
     with closing(connect(db_path)) as conn, conn:
         row = conn.execute(
-            "SELECT id, store_id FROM DATA_SOURCE WHERE base_url = ?", (base_url,)
+            "SELECT id, store_id, source_type FROM DATA_SOURCE WHERE base_url = ?",
+            (base_url,),
         ).fetchone()
         if row is not None:
-            if row["store_id"] is not None and store_id != row["store_id"]:
+            if (
+                store_id is not None
+                and row["store_id"] is not None
+                and store_id != row["store_id"]
+            ):
                 raise StoreMismatchError(
                     f"DATA_SOURCE {base_url!r} has store_id={row['store_id']} but "
                     f"the spec declares storeId={store_id}"
                 )
             config = conn.execute(
-                "SELECT id FROM SCRAPER_CONFIG WHERE data_source_id = ?", (row["id"],)
+                "SELECT id FROM SCRAPER_CONFIG WHERE data_source_id = ? AND target_type = ?",
+                (row["id"], target_type),
             ).fetchone()
             if config is None:
                 config_id = _insert_config(
-                    conn, row["id"], rate_limit, parser_config
+                    conn, row["id"], target_type, rate_limit, parser_config
                 )
             else:
                 config_id = int(config["id"])
@@ -101,7 +114,7 @@ def ensure_source(
                     " WHERE id = ?",
                     (json.dumps(parser_config), config_id),
                 )
-            if row["store_id"] is None:
+            if row["store_id"] is None and store_id is not None:
                 conn.execute(
                     "UPDATE DATA_SOURCE SET store_id = ?, updated_at = CURRENT_TIMESTAMP"
                     " WHERE id = ?",
@@ -111,24 +124,26 @@ def ensure_source(
 
         cursor = conn.execute(
             "INSERT INTO DATA_SOURCE (name, base_url, source_type, store_id)"
-            " VALUES (?, ?, 'web', ?)",
-            (name, base_url, store_id),
+            " VALUES (?, ?, ?, ?)",
+            (name, base_url, source_type, store_id),
         )
         source_id = int(cursor.lastrowid)
-        config_id = _insert_config(conn, source_id, rate_limit, parser_config)
+        config_id = _insert_config(conn, source_id, target_type, rate_limit, parser_config)
         return source_id, config_id, True
 
 
 def _insert_config(
     conn: sqlite3.Connection,
     source_id: int,
+    target_type: str,
     rate_limit: str | None,
     parser_config: dict[str, Any],
 ) -> int:
+    """Inserta la configuración del scraper para la fuente y el objetivo."""
     cursor = conn.execute(
         "INSERT INTO SCRAPER_CONFIG (data_source_id, scraper_type, target_type,"
-        " rate_limit, parser_config) VALUES (?, 'http', 'product', ?, ?)",
-        (source_id, rate_limit, json.dumps(parser_config)),
+        " rate_limit, parser_config) VALUES (?, 'http', ?, ?, ?)",
+        (source_id, target_type, rate_limit, json.dumps(parser_config)),
     )
     return int(cursor.lastrowid)
 
@@ -419,14 +434,14 @@ def update_item(db_path: str | Path, run_id: int, item: Item) -> int:
         if item.external_url:
             cursor = conn.execute(
                 "UPDATE SCRAPED_DATA SET raw_data = ?"
-                " WHERE scrape_run_id = ? AND entity_type = 'product' AND external_url = ?",
-                (raw, run_id, item.external_url),
+                " WHERE scrape_run_id = ? AND entity_type = ? AND external_url = ?",
+                (raw, run_id, item.entity_type, item.external_url),
             )
         elif item.external_id:
             cursor = conn.execute(
                 "UPDATE SCRAPED_DATA SET raw_data = ?"
-                " WHERE scrape_run_id = ? AND entity_type = 'product' AND external_id = ?",
-                (raw, run_id, item.external_id),
+                " WHERE scrape_run_id = ? AND entity_type = ? AND external_id = ?",
+                (raw, run_id, item.entity_type, item.external_id),
             )
         else:
             return 0
@@ -514,19 +529,28 @@ def config_for_run(db_path: str | Path, run_id: int) -> tuple[DataSource, Scrape
 
 
 def config_by_base_url(
-    db_path: str | Path, base_url: str
+    db_path: str | Path, base_url: str, target_type: str | None = None
 ) -> tuple[DataSource, ScraperConfig] | None:
-    """Look up the source/config pair a spec owns, without creating it."""
+    """Look up the source/config pair a spec owns, without creating it.
+
+    Recibe la URL base y, opcionalmente, el objetivo (``product``/``service``)
+    para no confundir dos configuraciones de la misma fuente.
+    """
+    query = (
+        "SELECT s.id AS source_id, s.name, s.base_url, s.source_type, s.store_id,"
+        "       s.active AS source_active,"
+        "       c.id AS config_id, c.data_source_id, c.scraper_type,"
+        "       c.target_type, c.rate_limit, c.parser_config, c.active AS config_active"
+        " FROM DATA_SOURCE s JOIN SCRAPER_CONFIG c ON c.data_source_id = s.id"
+        " WHERE s.base_url = ?"
+    )
+    params: list[Any] = [base_url]
+    if target_type is not None:
+        query += " AND c.target_type = ?"
+        params.append(target_type)
+    query += " ORDER BY c.id DESC LIMIT 1"
     with closing(connect(db_path)) as conn, conn:
-        row = conn.execute(
-            "SELECT s.id AS source_id, s.name, s.base_url, s.source_type, s.store_id,"
-            "       s.active AS source_active,"
-            "       c.id AS config_id, c.data_source_id, c.scraper_type,"
-            "       c.target_type, c.rate_limit, c.parser_config, c.active AS config_active"
-            " FROM DATA_SOURCE s JOIN SCRAPER_CONFIG c ON c.data_source_id = s.id"
-            " WHERE s.base_url = ? ORDER BY c.id DESC LIMIT 1",
-            (base_url,),
-        ).fetchone()
+        row = conn.execute(query, params).fetchone()
     if row is None:
         return None
     try:

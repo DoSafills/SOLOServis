@@ -52,7 +52,22 @@ type CreateProductParams struct {
 	Description pgtype.Text `json:"description"`
 }
 
-func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (Product, error) {
+type CreateProductRow struct {
+	ID          int32            `json:"id"`
+	PublicID    pgtype.UUID      `json:"public_id"`
+	CategoryID  int32            `json:"category_id"`
+	BrandID     pgtype.Int4      `json:"brand_id"`
+	Name        string           `json:"name"`
+	Model       pgtype.Text      `json:"model"`
+	Sku         pgtype.Text      `json:"sku"`
+	Description pgtype.Text      `json:"description"`
+	Active      bool             `json:"active"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	CategoryRef pgtype.Int4      `json:"category_ref"`
+}
+
+func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (CreateProductRow, error) {
 	row := q.db.QueryRow(ctx, createProduct,
 		arg.CategoryID,
 		arg.BrandID,
@@ -61,7 +76,7 @@ func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (P
 		arg.Sku,
 		arg.Description,
 	)
-	var i Product
+	var i CreateProductRow
 	err := row.Scan(
 		&i.ID,
 		&i.PublicID,
@@ -100,9 +115,24 @@ RETURNING
     category_ref
 `
 
-func (q *Queries) DeactivateProduct(ctx context.Context, id int32) (Product, error) {
+type DeactivateProductRow struct {
+	ID          int32            `json:"id"`
+	PublicID    pgtype.UUID      `json:"public_id"`
+	CategoryID  int32            `json:"category_id"`
+	BrandID     pgtype.Int4      `json:"brand_id"`
+	Name        string           `json:"name"`
+	Model       pgtype.Text      `json:"model"`
+	Sku         pgtype.Text      `json:"sku"`
+	Description pgtype.Text      `json:"description"`
+	Active      bool             `json:"active"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	CategoryRef pgtype.Int4      `json:"category_ref"`
+}
+
+func (q *Queries) DeactivateProduct(ctx context.Context, id int32) (DeactivateProductRow, error) {
 	row := q.db.QueryRow(ctx, deactivateProduct, id)
-	var i Product
+	var i DeactivateProductRow
 	err := row.Scan(
 		&i.ID,
 		&i.PublicID,
@@ -142,9 +172,24 @@ RETURNING
     category_ref
 `
 
-func (q *Queries) DeactivateProductByPublicID(ctx context.Context, publicID pgtype.UUID) (Product, error) {
+type DeactivateProductByPublicIDRow struct {
+	ID          int32            `json:"id"`
+	PublicID    pgtype.UUID      `json:"public_id"`
+	CategoryID  int32            `json:"category_id"`
+	BrandID     pgtype.Int4      `json:"brand_id"`
+	Name        string           `json:"name"`
+	Model       pgtype.Text      `json:"model"`
+	Sku         pgtype.Text      `json:"sku"`
+	Description pgtype.Text      `json:"description"`
+	Active      bool             `json:"active"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	CategoryRef pgtype.Int4      `json:"category_ref"`
+}
+
+func (q *Queries) DeactivateProductByPublicID(ctx context.Context, publicID pgtype.UUID) (DeactivateProductByPublicIDRow, error) {
 	row := q.db.QueryRow(ctx, deactivateProductByPublicID, publicID)
-	var i Product
+	var i DeactivateProductByPublicIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.PublicID,
@@ -220,9 +265,24 @@ FROM product
 WHERE id = $1
 `
 
-func (q *Queries) GetProductByID(ctx context.Context, id int32) (Product, error) {
+type GetProductByIDRow struct {
+	ID          int32            `json:"id"`
+	PublicID    pgtype.UUID      `json:"public_id"`
+	CategoryID  int32            `json:"category_id"`
+	BrandID     pgtype.Int4      `json:"brand_id"`
+	Name        string           `json:"name"`
+	Model       pgtype.Text      `json:"model"`
+	Sku         pgtype.Text      `json:"sku"`
+	Description pgtype.Text      `json:"description"`
+	Active      bool             `json:"active"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	CategoryRef pgtype.Int4      `json:"category_ref"`
+}
+
+func (q *Queries) GetProductByID(ctx context.Context, id int32) (GetProductByIDRow, error) {
 	row := q.db.QueryRow(ctx, getProductByID, id)
-	var i Product
+	var i GetProductByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.PublicID,
@@ -258,9 +318,24 @@ FROM product
 WHERE public_id = $1
 `
 
-func (q *Queries) GetProductByPublicID(ctx context.Context, publicID pgtype.UUID) (Product, error) {
+type GetProductByPublicIDRow struct {
+	ID          int32            `json:"id"`
+	PublicID    pgtype.UUID      `json:"public_id"`
+	CategoryID  int32            `json:"category_id"`
+	BrandID     pgtype.Int4      `json:"brand_id"`
+	Name        string           `json:"name"`
+	Model       pgtype.Text      `json:"model"`
+	Sku         pgtype.Text      `json:"sku"`
+	Description pgtype.Text      `json:"description"`
+	Active      bool             `json:"active"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	CategoryRef pgtype.Int4      `json:"category_ref"`
+}
+
+func (q *Queries) GetProductByPublicID(ctx context.Context, publicID pgtype.UUID) (GetProductByPublicIDRow, error) {
 	row := q.db.QueryRow(ctx, getProductByPublicID, publicID)
-	var i Product
+	var i GetProductByPublicIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.PublicID,
@@ -1006,7 +1081,22 @@ type UpdateProductParams struct {
 	Description pgtype.Text `json:"description"`
 }
 
-func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (Product, error) {
+type UpdateProductRow struct {
+	ID          int32            `json:"id"`
+	PublicID    pgtype.UUID      `json:"public_id"`
+	CategoryID  int32            `json:"category_id"`
+	BrandID     pgtype.Int4      `json:"brand_id"`
+	Name        string           `json:"name"`
+	Model       pgtype.Text      `json:"model"`
+	Sku         pgtype.Text      `json:"sku"`
+	Description pgtype.Text      `json:"description"`
+	Active      bool             `json:"active"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	CategoryRef pgtype.Int4      `json:"category_ref"`
+}
+
+func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (UpdateProductRow, error) {
 	row := q.db.QueryRow(ctx, updateProduct,
 		arg.ID,
 		arg.CategoryID,
@@ -1016,7 +1106,7 @@ func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (P
 		arg.Sku,
 		arg.Description,
 	)
-	var i Product
+	var i UpdateProductRow
 	err := row.Scan(
 		&i.ID,
 		&i.PublicID,
@@ -1071,7 +1161,22 @@ type UpdateProductByPublicIDParams struct {
 	Description pgtype.Text `json:"description"`
 }
 
-func (q *Queries) UpdateProductByPublicID(ctx context.Context, arg UpdateProductByPublicIDParams) (Product, error) {
+type UpdateProductByPublicIDRow struct {
+	ID          int32            `json:"id"`
+	PublicID    pgtype.UUID      `json:"public_id"`
+	CategoryID  int32            `json:"category_id"`
+	BrandID     pgtype.Int4      `json:"brand_id"`
+	Name        string           `json:"name"`
+	Model       pgtype.Text      `json:"model"`
+	Sku         pgtype.Text      `json:"sku"`
+	Description pgtype.Text      `json:"description"`
+	Active      bool             `json:"active"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	CategoryRef pgtype.Int4      `json:"category_ref"`
+}
+
+func (q *Queries) UpdateProductByPublicID(ctx context.Context, arg UpdateProductByPublicIDParams) (UpdateProductByPublicIDRow, error) {
 	row := q.db.QueryRow(ctx, updateProductByPublicID,
 		arg.PublicID,
 		arg.CategoryID,
@@ -1081,7 +1186,7 @@ func (q *Queries) UpdateProductByPublicID(ctx context.Context, arg UpdateProduct
 		arg.Sku,
 		arg.Description,
 	)
-	var i Product
+	var i UpdateProductByPublicIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.PublicID,

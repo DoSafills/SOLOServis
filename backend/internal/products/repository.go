@@ -48,7 +48,7 @@ func (r *Repository) ListCategoryCounts(ctx context.Context) (map[int32]int64, e
 	return counts, nil
 }
 
-func (r *Repository) GetByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.Product, error) {
+func (r *Repository) GetByPublicID(ctx context.Context, publicID pgtype.UUID) (generated.GetProductByPublicIDRow, error) {
 	return r.queries.GetProductByPublicID(ctx, publicID)
 }
 

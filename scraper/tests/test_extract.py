@@ -7,9 +7,9 @@ import re
 import pytest
 from conftest import fixture_html
 
-from scraper.extract.engine import extract_page
+from scraper.extract.engine import apply_detail, extract_detail, extract_page
 from scraper.extract.transforms import apply_regex, coerce
-from scraper.models import Source
+from scraper.models import Item, Offer, Product, Source
 
 
 def _extract(spec, html):
@@ -348,3 +348,28 @@ def test_tal172_tarjeta_sin_clave_se_rechaza_con_razon(spec_by_slug):
     assert any(
         reason.startswith("externalId:") for reason in result.rejected[0].reasons
     )
+
+
+def test_ripley_detail_reads_the_product_description(spec_by_slug):
+    """La ficha de Ripley aporta la descripción larga que la tarjeta no trae."""
+    spec = spec_by_slug["ripley-cl"]
+    page_url = (
+        "https://simple.ripley.cl/"
+        "refrigerador-side-by-side-hisense-rs3p428neda-441l-no-frost-plata-2000410738713p"
+    )
+    result = extract_detail(spec, fixture_html("ripley-cl", "product.html"), page_url=page_url)
+
+    description = result.values.get("product.description")
+    assert description is not None
+    assert description.startswith("Descubre la nueva tecnología del refrigerador")
+    assert "441 litros" in description
+    assert len(description) > 400
+    assert result.warnings == []
+
+    item = Item(
+        product=Product(name="Refrigerador Side by Side 441 L", category_slug="refrigeradores"),
+        offer=Offer(price="549990.00"),
+        external_url=page_url,
+    )
+    assert apply_detail(item, result.values) == []
+    assert item.product.description == description

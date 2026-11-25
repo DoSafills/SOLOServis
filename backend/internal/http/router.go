@@ -233,6 +233,7 @@ func registerIngestionRoutes(r chi.Router, db *pgxpool.Pool, logger *slog.Logger
 		r.Get("/ingestion/runs", handler.ListRuns)
 		r.Get("/ingestion/runs/{id}", handler.GetRun)
 		r.Post("/ingestion/runs/{id}/items", handler.AddItems)
+		r.Post("/ingestion/runs/{id}/services", handler.AddServices)
 		r.Post("/ingestion/runs/{id}/finish", handler.FinishRun)
 	})
 }

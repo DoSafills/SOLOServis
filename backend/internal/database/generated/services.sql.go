@@ -198,13 +198,35 @@ func (q *Queries) ListServicePriceHistory(ctx context.Context, serviceID int32) 
 
 const listServiceSpecifications = `-- name: ListServiceSpecifications :many
 SELECT
-    scs.name,
-    ssv.value
-FROM service_specification_value ssv
-JOIN service_category_specification scs
-    ON scs.id = ssv.specification_id
-WHERE ssv.service_id = $1
-ORDER BY scs.display_order ASC, scs.id ASC
+    specs.name,
+    specs.value
+FROM (
+    SELECT
+        ca.label AS name,
+        sav.value AS value,
+        ca.display_order AS display_order,
+        ca.id AS order_id
+    FROM service_attribute_value sav
+    JOIN category_attributes ca
+        ON ca.id = sav.attribute_id
+    WHERE sav.service_id = $1
+
+    UNION ALL
+
+    SELECT
+        scs.name AS name,
+        ssv.value AS value,
+        scs.display_order AS display_order,
+        scs.id AS order_id
+    FROM service_specification_value ssv
+    JOIN service_category_specification scs
+        ON scs.id = ssv.specification_id
+    WHERE ssv.service_id = $1
+      AND NOT EXISTS (
+          SELECT 1 FROM service_attribute_value sav WHERE sav.service_id = $1
+      )
+) AS specs
+ORDER BY specs.display_order ASC, specs.order_id ASC
 `
 
 type ListServiceSpecificationsRow struct {
@@ -212,6 +234,10 @@ type ListServiceSpecificationsRow struct {
 	Value string `json:"value"`
 }
 
+// Los servicios nuevos guardan sus atributos en service_attribute_value
+// (unificada, issue #191). Los que ya estaban cargados siguen en
+// service_specification_value: se leen como respaldo solo cuando el servicio
+// no tiene valores en la tabla nueva, para no mezclar dos fuentes.
 func (q *Queries) ListServiceSpecifications(ctx context.Context, serviceID int32) ([]ListServiceSpecificationsRow, error) {
 	rows, err := q.db.Query(ctx, listServiceSpecifications, serviceID)
 	if err != nil {

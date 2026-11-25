@@ -50,7 +50,7 @@ def test_control_api_end_to_end(settings, monkeypatch):
             assert (await client.get("/health")).json() == {"status": "ok"}
             ready = await client.get("/ready")
             assert ready.status_code == 200
-            assert ready.json()["stores"] == 3
+            assert ready.json()["stores"] == 6
             assert ready.json()["ingestion"].startswith("disabled:")
 
             assert (await client.get("/stores")).status_code == 401
@@ -62,7 +62,16 @@ def test_control_api_end_to_end(settings, monkeypatch):
                 "falabella-cl",
                 "ripley-cl",
                 "mercadolibre-cl",
+                "entel-cl",
+                "movistar-cl",
+                "gtd-cl",
             }
+            entel = next(store for store in stores if store["slug"] == "entel-cl")
+            assert entel["targetType"] == "service"
+            assert entel["provider"] == "entel"
+            ripley = next(store for store in stores if store["slug"] == "ripley-cl")
+            assert ripley["targetType"] == "product"
+            assert ripley["provider"] is None
 
             keyed = {**headers, "Idempotency-Key": "schedule-2026-11-03"}
             first = await client.post("/runs", json={"store": "ripley-cl"}, headers=keyed)

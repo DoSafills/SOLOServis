@@ -40,6 +40,7 @@ from scraper.models import (
     RUN_STATUS_PENDING,
     RUN_STATUS_RUNNING,
     RUN_STATUS_SUCCESS,
+    TARGET_SERVICE,
     Counters,
     DataSource,
     RunRecord,
@@ -507,7 +508,9 @@ class RunManager:
             self.settings.db_path,
             name=spec.name,
             base_url=spec.base_url,
-            store_id=spec.store_id,
+            store_id=None if spec.target_type == TARGET_SERVICE else spec.store_id,
+            source_type="provider" if spec.target_type == TARGET_SERVICE else "web",
+            target_type=spec.target_type,
             rate_limit=self.settings.rate_limit,
             spec_slug=spec.slug,
             spec_version=spec.schema_version,
@@ -761,6 +764,8 @@ class RunManager:
                 "baseUrl": spec.base_url,
                 "listingUrl": spec.listing.url,
                 "digest": spec.digest,
+                "targetType": spec.target_type,
+                "provider": spec.provider_slug or None,
             }
             for spec in sorted(self.specs, key=lambda item: item.slug)
         ]

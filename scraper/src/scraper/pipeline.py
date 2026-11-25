@@ -40,6 +40,7 @@ from scraper.ingestion import IngestionClient
 from scraper.models import (
     RUN_STATUS_FAILED,
     RUN_STATUS_SUCCESS,
+    TARGET_SERVICE,
     Counters,
     CrawlRules,
     DataSource,
@@ -80,7 +81,13 @@ async def execute(
     """Run one crawl to completion (or to a controlled stop)."""
     stop = stop_event or asyncio.Event()
     fetcher = fetcher or Fetcher(settings)
-    store_source = Source(name=spec.name, base_url=spec.base_url, store_id=spec.store_id)
+    # Una corrida de servicio no pertenece a una tienda: la fuente es el
+    # proveedor y el backend no exige ni guarda store_id (issue #191).
+    store_source = Source(
+        name=spec.name,
+        base_url=spec.base_url,
+        store_id=None if spec.target_type == TARGET_SERVICE else spec.store_id,
+    )
     counters = Counters()
     items: dict[str, Item] = {}
     items_by_id: dict[str, Item] = {}
@@ -777,7 +784,11 @@ async def _ingest(
     """
     try:
         run = await client.open_run(
-            source.name, source.base_url, source.store_id or 0, config.scraper_type or "http"
+            source.name,
+            source.base_url,
+            source.store_id or 0,
+            config.scraper_type or "http",
+            config.target_type or "product",
         )
     except IngestionError as exc:
         return None, f"could not open ingestion run: {exc}", 0, len(items)
@@ -832,7 +843,11 @@ async def _report_run(
     """
     try:
         run = await client.open_run(
-            source.name, source.base_url, source.store_id or 0, config.scraper_type or "http"
+            source.name,
+            source.base_url,
+            source.store_id or 0,
+            config.scraper_type or "http",
+            config.target_type or "product",
         )
     except IngestionError as exc:
         return None, f"could not open ingestion run: {exc}"

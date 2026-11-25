@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "1.2",
+  "target": "service",
+  "store": {
+    "slug": "movistar-cl",
+    "name": "Movistar",
+    "baseUrl": "https://ww2.movistar.cl"
+  },
+  "provider": { "slug": "movistar", "name": "Movistar" },
+  "match": {
+    "hosts": ["ww2.movistar.cl"],
+    "pathPrefixes": ["/hogar/internet-fibra-optica"]
+  },
+  "listing": {
+    "url": "https://ww2.movistar.cl/hogar/internet-fibra-optica/",
+    "root": "div.parr-item",
+    "allowEmpty": false
+  },
+  "item": {
+    "externalId": {
+      "selector": "a.btn",
+      "attribute": "href",
+      "regex": "(\\d+)$"
+    },
+    "externalUrl": {
+      "selector": "a.btn",
+      "attribute": "href",
+      "transform": "absolute_url"
+    },
+    "fields": {
+      "service.name": {
+        "selector": "h3.parr-item-titulo + p + span",
+        "type": "string",
+        "transform": "collapse_ws",
+        "required": true
+      },
+      "service.categorySlug": { "value": "internet-fibra-optica", "type": "slug" },
+      "service.description": {
+        "selector": "h3.parr-item-titulo + p",
+        "regex": "^(Internet)$",
+        "type": "string"
+      },
+      "service.attributes.velocidad_bajada_mbps": {
+        "selector": "button[data-bajada]",
+        "attribute": "data-bajada",
+        "type": "integer"
+      },
+      "service.attributes.velocidad_subida_mbps": {
+        "selector": "button[data-subida]",
+        "attribute": "data-subida",
+        "type": "integer"
+      },
+      "offer.price": {
+        "selector": "p.parr-item-precio",
+        "regex": "\\$([\\d.]+)",
+        "type": "money",
+        "required": true,
+        "currency": "CLP"
+      },
+      "offer.currency": { "value": "CLP", "type": "string" },
+      "offer.billingPeriod": { "value": "monthly", "type": "string" },
+      "offer.available": { "value": true, "type": "boolean" }
+    }
+  },
+  "rules": {
+    "dedupeBy": "externalId",
+    "rejectIfMissing": [
+      "externalId",
+      "externalUrl",
+      "service.name",
+      "service.description",
+      "service.attributes.velocidad_bajada_mbps",
+      "service.attributes.velocidad_subida_mbps",
+      "offer.price"
+    ]
+  }
+}

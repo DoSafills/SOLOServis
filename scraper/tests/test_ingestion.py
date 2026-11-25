@@ -144,3 +144,56 @@ def test_finish_run_without_counters_keeps_the_old_payload():
     asyncio.run(client.finish_run(9, "failed", "timeout"))
 
     assert bodies == [{"status": "failed", "errorMessage": "timeout"}]
+
+
+def _service_item(external_id: str) -> Item:
+    from scraper.models import TARGET_SERVICE, Provider, Service, ServiceOffer
+
+    return Item(
+        product=Product(),
+        offer=Offer(),
+        entity_type=TARGET_SERVICE,
+        external_id=external_id,
+        external_url="https://entel.cl/hogar/internet",
+        provider=Provider(slug="entel", name="Entel"),
+        service=Service(name="Fibra 600", category_slug="internet-fibra-optica"),
+        service_offer=ServiceOffer(price="15990.00"),
+    )
+
+
+def test_service_run_opens_with_target_type_and_uses_the_services_endpoint():
+    calls: list[tuple[str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append((request.url.path, body))
+        if request.url.path.endswith("/services"):
+            return httpx.Response(
+                200,
+                json={
+                    "runId": 9,
+                    "received": len(body["items"]),
+                    "processed": len(body["items"]),
+                    "failed": 0,
+                    "results": [{"index": 0, "status": "created", "serviceId": "svc-1"}],
+                },
+            )
+        return httpx.Response(201, json={"id": 9, "source": "Entel", "storeId": None})
+
+    client = IngestionClient("http://ingest", "x" * 32, transport=httpx.MockTransport(handler))
+
+    async def scenario():
+        run = await client.open_run("Entel", "https://www.entel.cl", 0, "http", "service")
+        assert run.id == 9
+        batch = await client.send_items(9, [_service_item("plan-1")])
+        assert batch.processed == 1
+        assert batch.results[0].service_id == "svc-1"
+
+    asyncio.run(scenario())
+
+    paths = [path for path, _ in calls]
+    assert paths == ["/ingestion/runs", "/ingestion/runs/9/services"]
+    assert calls[0][1]["targetType"] == "service"
+    assert calls[0][1]["storeId"] == 0
+    assert "provider" in calls[1][1]["items"][0]
+    assert "product" not in calls[1][1]["items"][0]
