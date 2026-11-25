@@ -22,6 +22,15 @@ from scraper.pipeline import execute
 
 RIPLEY_PAGE_1 = "https://simple.ripley.cl/search/refrigerador"
 RIPLEY_PAGE_2 = "https://simple.ripley.cl/search/refrigerador?page=2"
+RIPLEY_DETAIL = (
+    '<html><body><div class="description-container">'
+    "<p>Descripción de prueba del producto.</p></div></body></html>"
+)
+RIPLEY_DETAIL_URLS = (
+    "https://simple.ripley.cl/product/refrigerador-lg-500l",
+    "https://simple.ripley.cl/product/refrigerador-samsung-300l",
+    "https://simple.ripley.cl/product/refrigerador-mabe-400l",
+)
 
 PAGE_2 = """
 <html><body>
@@ -119,7 +128,11 @@ def test_pipeline_sends_items_end_to_end(settings, spec_by_slug):
         transport=httpx.MockTransport(fake.handler),
     )
 
-    pages = {RIPLEY_PAGE_1: fixture_html("ripley-cl"), RIPLEY_PAGE_2: PAGE_2}
+    pages = {
+        RIPLEY_PAGE_1: fixture_html("ripley-cl"),
+        RIPLEY_PAGE_2: PAGE_2,
+        **{url: RIPLEY_DETAIL for url in RIPLEY_DETAIL_URLS},
+    }
     result = asyncio.run(
         execute(
             enabled,

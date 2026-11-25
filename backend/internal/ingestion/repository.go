@@ -443,6 +443,23 @@ func addImageIfMissing(ctx context.Context, q rowQuerier, productID int32, image
 	return tag.RowsAffected() == 1, nil
 }
 
+// AddDescriptionIfMissingTx completa la descripción de un producto ya
+// catalogado solo si está vacía o nula (issue #191). No reemplaza una
+// descripción curada por un admin y no reactiva productos dados de baja.
+// Recibe el id interno y el texto del ítem; devuelve true si lo guardó.
+func (r *Repository) AddDescriptionIfMissingTx(ctx context.Context, tx pgx.Tx, productID int32, description string) (bool, error) {
+	tag, err := tx.Exec(ctx, `
+		UPDATE product
+		SET description = $2, updated_at = NOW()
+		WHERE id = $1
+		  AND active
+		  AND (description IS NULL OR btrim(description) = '')`, productID, description)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // EnsureBrand devuelve la marca con la misma clave normalizada o la crea.
 func (r *Repository) EnsureBrand(ctx context.Context, name string) (int32, error) {
 	return ensureBrand(ctx, r.db, name)

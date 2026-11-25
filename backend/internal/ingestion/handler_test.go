@@ -89,20 +89,23 @@ type fakeRuns struct {
 	findErr            error
 	images             map[int32]string // imagen activa por id de producto
 	addImageErr        error
+	addDescriptionErr  error
 	saveBatchErr       error // error del INSERT por lote de scraped_data
 	beginErr           error // error al abrir la transacción del ítem
 
-	imageCalls  []string // "id|url" de cada llamada a AddImageIfMissing
-	opened      []any
-	counters    []int
-	saved       []string // external_id de cada fila guardada, en orden
-	batches     int      // llamadas a SaveScrapedBatch
-	singles     int      // llamadas a SaveScraped (respaldo)
-	brands      []string
-	finished    []any
-	baseline    []int32
-	baselineErr error
-	txs         []*fakeTx // transacciones abiertas por Processor
+	imageCalls       []string         // "id|url" de cada llamada a AddImageIfMissing
+	descriptionCalls []string         // "id|texto" de cada llamada a AddDescriptionIfMissing
+	descriptions     map[int32]string // descripción guardada por id de producto
+	opened           []any
+	counters         []int
+	saved            []string // external_id de cada fila guardada, en orden
+	batches          int      // llamadas a SaveScrapedBatch
+	singles          int      // llamadas a SaveScraped (respaldo)
+	brands           []string
+	finished         []any
+	baseline         []int32
+	baselineErr      error
+	txs              []*fakeTx // transacciones abiertas por Processor
 
 	// Servicios (issue #191).
 	serviceCategory    ServiceCategory
@@ -287,6 +290,25 @@ func (f *fakeRuns) AddImageIfMissingTx(_ context.Context, _ pgx.Tx, productID in
 	f.images[productID] = imageURL
 	return true, nil
 }
+
+// AddDescriptionIfMissingTx simula el relleno de la descripción: registra la
+// llamada y solo la guarda si el producto no tiene una. Devuelve true si la
+// guardó.
+func (f *fakeRuns) AddDescriptionIfMissingTx(_ context.Context, _ pgx.Tx, productID int32, description string) (bool, error) {
+	f.descriptionCalls = append(f.descriptionCalls, fmt.Sprintf("%d|%s", productID, description))
+	if f.addDescriptionErr != nil {
+		return false, f.addDescriptionErr
+	}
+	if f.descriptions == nil {
+		f.descriptions = map[int32]string{}
+	}
+	if f.descriptions[productID] != "" {
+		return false, nil
+	}
+	f.descriptions[productID] = description
+	return true, nil
+}
+
 func (f *fakeRuns) EnsureBrandTx(_ context.Context, _ pgx.Tx, name string) (int32, error) {
 	f.brands = append(f.brands, name)
 	return 77, nil
@@ -933,6 +955,73 @@ func TestAddItems_ImagenDeProductoExistente(t *testing.T) {
 					t.Fatal("el resultado expone el error interno")
 				}
 				if !strings.Contains(e.logs.String(), "relation") || !strings.Contains(e.logs.String(), `"stage":"add_image"`) {
+					t.Fatalf("el error interno debe quedar en el log con su etapa: %s", e.logs.String())
+				}
+			}
+		})
+	}
+}
+
+// Un producto existente sin descripción toma la del ítem; una descripción ya
+// curada no se reemplaza (issue #191).
+func TestAddItems_DescripcionDeProductoExistente(t *testing.T) {
+	const existente = int32(9)
+	const texto = "Descubre la nueva tecnología del refrigerador Side by Side."
+	for _, tc := range []struct {
+		name            string
+		description     string // product.description del ítem
+		stored          string // descripción guardada ("" = ninguna)
+		addErr          error
+		wantStatus      string
+		wantCodes       []string
+		wantCalls       []string
+		wantDescription string
+		wantOffers      int
+	}{
+		{name: "producto sin descripción + ítem con descripción: la guarda",
+			description: texto, wantStatus: ItemUpdated, wantCodes: []string{},
+			wantCalls: []string{"9|" + texto}, wantDescription: texto, wantOffers: 1},
+		{name: "producto con descripción curada: no la cambia",
+			description: texto, stored: "Descripción curada por el admin", wantStatus: ItemUpdated,
+			wantCodes: []string{}, wantCalls: []string{"9|" + texto},
+			wantDescription: "Descripción curada por el admin", wantOffers: 1},
+		{name: "ítem sin descripción: no cambia nada",
+			wantStatus: ItemUpdated, wantCodes: []string{}, wantCalls: nil, wantOffers: 1},
+		{name: "error al guardar la descripción: el ítem falla como error interno",
+			description: texto, addErr: errBoom, wantStatus: ItemFailed,
+			wantCodes: []string{"/internal_error"}, wantCalls: []string{"9|" + texto}, wantOffers: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			e.runs.existing["LG-1"] = ExistingProduct{ID: existente, PublicID: "existente-sku", Active: true}
+			e.runs.descriptions = map[int32]string{existente: tc.stored}
+			e.runs.addDescriptionErr = tc.addErr
+			description := ""
+			if tc.description != "" {
+				description = fmt.Sprintf(`,"description":%q`, tc.description)
+			}
+
+			result := batch(t, e, `{"product":{"sku":"LG-1","name":"Refri"`+description+`},"offer":{"price":90}}`)
+
+			r := result.Results[0]
+			if r.Status != tc.wantStatus || !reflect.DeepEqual(codes(r), tc.wantCodes) {
+				t.Fatalf("resultado = %+v", r)
+			}
+			if !reflect.DeepEqual(e.runs.descriptionCalls, tc.wantCalls) {
+				t.Fatalf("llamadas a AddDescriptionIfMissing = %v, quiero %v", e.runs.descriptionCalls, tc.wantCalls)
+			}
+			if got := e.runs.descriptions[existente]; got != tc.wantDescription {
+				t.Fatalf("descripción del producto = %q, quiero %q", got, tc.wantDescription)
+			}
+			if len(e.offers.written) != tc.wantOffers || len(e.catalog.created) != 0 {
+				t.Fatalf("ofertas = %d, productos creados = %d", len(e.offers.written), len(e.catalog.created))
+			}
+			if tc.addErr != nil {
+				body, _ := json.Marshal(result)
+				if strings.Contains(string(body), "relation") {
+					t.Fatal("el resultado expone el error interno")
+				}
+				if !strings.Contains(e.logs.String(), "relation") || !strings.Contains(e.logs.String(), `"stage":"add_description"`) {
 					t.Fatalf("el error interno debe quedar en el log con su etapa: %s", e.logs.String())
 				}
 			}

@@ -498,6 +498,11 @@ Merge policy:
 * Detail extraction failures never fail the run; only the listing phase (or a
   stop request) can do that.
 
+Ripley is the current example: its listing card has no description, so the
+`ripley-cl` spec declares `detail.fields.product.description` with
+`.description-container p`. Falabella's description is not in the static HTML;
+it comes from a third-party widget, so it is not extracted yet.
+
 ### 4.8 Page detection (`match.detect`)
 
 ```json

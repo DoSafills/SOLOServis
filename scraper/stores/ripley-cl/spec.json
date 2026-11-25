@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "store": {
     "slug": "ripley-cl",
     "name": "Ripley Chile",
@@ -71,5 +71,14 @@
       "offer.price",
       "product.attributes.capacidad_litros"
     ]
+  },
+  "detail": {
+    "fields": {
+      "product.description": {
+        "selector": ".description-container p",
+        "type": "string",
+        "transform": "collapse_ws"
+      }
+    }
   }
 }

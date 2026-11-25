@@ -17,6 +17,29 @@ from scraper.pipeline import execute
 RIPLEY_PAGE_1 = "https://simple.ripley.cl/search/refrigerador"
 RIPLEY_PAGE_2 = "https://simple.ripley.cl/search/refrigerador?page=2"
 
+# Las fichas de producto que el pipeline visita para enriquecer la descripción.
+# En los tests se sirve el mismo HTML para las tres: lo que importa es que el
+# bloque `detail` del spec se ejecute y no cuente como página fallida.
+RIPLEY_DETAIL = (
+    '<html><body><div class="description-container">'
+    "<p>Descripción de prueba del producto.</p></div></body></html>"
+)
+RIPLEY_DETAIL_URLS = (
+    "https://simple.ripley.cl/product/refrigerador-lg-500l",
+    "https://simple.ripley.cl/product/refrigerador-samsung-300l",
+    "https://simple.ripley.cl/product/refrigerador-mabe-400l",
+)
+
+
+def ripley_pages(first_page: str, second_page: str = "") -> dict[str, str]:
+    """Arma las páginas del listado y las fichas de detalle de Ripley."""
+    pages = {RIPLEY_PAGE_1: first_page}
+    if second_page:
+        pages[RIPLEY_PAGE_2] = second_page
+    pages.update({url: RIPLEY_DETAIL for url in RIPLEY_DETAIL_URLS})
+    return pages
+
+
 PAGE_2 = """
 <html><body>
   <a class="product-link" data-id="RIP-2001" href="/product/refrigerador-samsung-300l">
@@ -72,12 +95,12 @@ def _run(settings, spec, pages, *, stop=False, ingestion=None):
 
 def test_pipeline_paginates_dedupes_and_persists(settings, spec_by_slug):
     spec = spec_by_slug["ripley-cl"]
-    pages = {RIPLEY_PAGE_1: fixture_html("ripley-cl"), RIPLEY_PAGE_2: PAGE_2}
+    pages = ripley_pages(fixture_html("ripley-cl"), PAGE_2)
     result = _run(settings, spec, pages)
 
     assert result.status == RUN_STATUS_SUCCESS
-    assert result.counters.pages_found == 2
-    assert result.counters.pages_processed == 2
+    assert result.counters.pages_found == 5
+    assert result.counters.pages_processed == 5
     assert result.counters.items_found == 3  # RIP-2001 is deduped
     # TAL-172: el descarte queda contado, no desaparece del informe.
     assert result.counters.items_duplicated == 1
@@ -86,7 +109,7 @@ def test_pipeline_paginates_dedupes_and_persists(settings, spec_by_slug):
 
     items = repo.run_items(settings.db_path, result.run_id)
     assert {item["externalId"] for item in items} == {"RIP-2001", "RIP-2002", "RIP-2003"}
-    assert len(repo.run_pages(settings.db_path, result.run_id)) == 2
+    assert len(repo.run_pages(settings.db_path, result.run_id)) == 5
 
     record = repo.get_run(settings.db_path, result.run_id)
     assert record.status == RUN_STATUS_SUCCESS
@@ -106,7 +129,7 @@ def test_pipeline_paginates_dedupes_and_persists(settings, spec_by_slug):
 
 def test_second_identical_run_changes_nothing(settings, spec_by_slug):
     spec = spec_by_slug["ripley-cl"]
-    pages = {RIPLEY_PAGE_1: fixture_html("ripley-cl"), RIPLEY_PAGE_2: PAGE_2}
+    pages = ripley_pages(fixture_html("ripley-cl"), PAGE_2)
     first = _run(settings, spec, pages)
     second = _run(settings, spec, pages)
     assert second.status == RUN_STATUS_SUCCESS
@@ -118,13 +141,13 @@ def test_second_identical_run_changes_nothing(settings, spec_by_slug):
 
 def test_changed_price_updates_one_catalog_file(settings, spec_by_slug):
     spec = spec_by_slug["ripley-cl"]
-    pages = {RIPLEY_PAGE_1: fixture_html("ripley-cl"), RIPLEY_PAGE_2: PAGE_2}
+    pages = ripley_pages(fixture_html("ripley-cl"), PAGE_2)
     _run(settings, spec, pages)
     changed = PAGE_2.replace("$799.990", "$749.990")
     result = _run(
         settings,
         spec,
-        {RIPLEY_PAGE_1: fixture_html("ripley-cl"), RIPLEY_PAGE_2: changed},
+        ripley_pages(fixture_html("ripley-cl"), changed),
     )
     assert result.catalog.updated == 1
     assert result.catalog.unchanged == 2
@@ -223,7 +246,7 @@ def test_tal172_failed_run_is_reported_to_ingestion(settings, spec_by_slug):
 
 def test_zero_processed_items_are_reported_as_an_error(settings, spec_by_slug):
     spec = spec_by_slug["ripley-cl"]
-    pages = {RIPLEY_PAGE_1: fixture_html("ripley-cl"), RIPLEY_PAGE_2: PAGE_2}
+    pages = ripley_pages(fixture_html("ripley-cl"), PAGE_2)
     result = _run(settings, spec, pages, ingestion=_ZeroIngestion())
     assert result.status == RUN_STATUS_SUCCESS
     assert result.counters.items_sent == 0

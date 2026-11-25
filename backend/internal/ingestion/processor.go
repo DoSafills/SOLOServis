@@ -38,6 +38,7 @@ type RunStore interface {
 	BeginTx(ctx context.Context) (pgx.Tx, error)
 	FindProductTx(ctx context.Context, tx pgx.Tx, sku, brand, model, name, categorySlug string, storeID int32, productURL string) (ExistingProduct, bool, error)
 	AddImageIfMissingTx(ctx context.Context, tx pgx.Tx, productID int32, imageURL string) (bool, error)
+	AddDescriptionIfMissingTx(ctx context.Context, tx pgx.Tx, productID int32, description string) (bool, error)
 	EnsureBrandTx(ctx context.Context, tx pgx.Tx, name string) (int32, error)
 	ProductIDTx(ctx context.Context, tx pgx.Tx, publicID pgtype.UUID) (int32, error)
 	ResolveServiceCategory(ctx context.Context, slug string) (ServiceCategory, error)
@@ -170,6 +171,13 @@ func (p *Processor) processItem(ctx context.Context, runID, storeID int32, store
 		if product.ImageURL != "" {
 			if _, err := p.runs.AddImageIfMissingTx(ctx, tx, productID, product.ImageURL); err != nil {
 				return internal("add_image", err)
+			}
+		}
+		// Igual que la imagen (TAL-243), la descripción se completa solo si el
+		// producto no tiene una: nunca reemplaza el texto curado por un admin.
+		if product.Description != "" {
+			if _, err := p.runs.AddDescriptionIfMissingTx(ctx, tx, productID, product.Description); err != nil {
+				return internal("add_description", err)
 			}
 		}
 	default:
