@@ -21,7 +21,7 @@ const (
 // gatewayPrivados son los prefijos que el backend sirve y el gateway NO
 // publica a propósito: solo se usan por la red interna o desde otra API.
 // Si uno deja de ser privado, se saca de esta lista en el mismo cambio.
-var gatewayPrivados = []string{"ingestion", "notifications", "offers", "users"}
+var gatewayPrivados = []string{"ingestion", "notifications", "offers"}
 
 // alternationRE captura los prefijos de una location con alternancia, como
 // `location ~ ^/(products|product-categories|categories)(/.*)?$`.
