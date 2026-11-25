@@ -305,18 +305,25 @@ var dummyPasswordHash = sync.OnceValue(func() string {
 
 // issueTokens crea una sesión para userID que vence en remaining
 // (sessionLifetime en login y registro; lo que le quedaba a la sesión
-// anterior en un refresh) y responde con status el access token, el perfil y,
-// solo si la request trae X-Refresh-In-Body: 1, también el refresh token. El
-// access token dura accessTokenLifetime, o menos si la sesión vence antes.
-// Siempre deja el refresh token en la cookie httpOnly, donde reemplaza al
-// anterior. Antes de guardar la sesión borra las vencidas del usuario y las
-// menos usadas que excedan maxSessionsPerUser (TAL-200, H6). Guarda solo el
-// SHA-256 de cada token. Responde 401 si el usuario ya no está activo y 500 si
-// falla la base o el generador aleatorio.
+// anterior en un refresh) y responde con status el access token, el perfil
+// (con la URL pública de la foto, si tiene) y, solo si la request trae
+// X-Refresh-In-Body: 1, también el refresh token. El access token dura
+// accessTokenLifetime, o menos si la sesión vence antes. Siempre deja el
+// refresh token en la cookie httpOnly, donde reemplaza al anterior. Antes de
+// guardar la sesión borra las vencidas del usuario y las menos usadas que
+// excedan maxSessionsPerUser (TAL-200, H6). Guarda solo el SHA-256 de cada
+// token. Responde 401 si el usuario ya no está activo y 500 si falla la base
+// o el generador aleatorio.
 func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int32, status int, remaining time.Duration) {
-	var name, email string
-	if err := h.db.QueryRow(r.Context(), `SELECT name,email FROM user_account WHERE id=$1 AND active`,
-		userID).Scan(&name, &email); err != nil {
+	var (
+		name      string
+		email     string
+		publicID  string
+		hasAvatar bool
+	)
+	if err := h.db.QueryRow(r.Context(), `SELECT name,email,public_id::text,avatar_mime IS NOT NULL
+		FROM user_account WHERE id=$1 AND active`,
+		userID).Scan(&name, &email, &publicID, &hasAvatar); err != nil {
 		h.dbError(w, r, err, http.StatusUnauthorized, sessionGoneDetail)
 		return
 	}
@@ -354,8 +361,9 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 		return
 	}
 	setRefreshCookie(w, refresh)
+	avatarPath := avatarURL(publicID, hasAvatar)
 	payload := map[string]any{"userId": userID, "accessToken": access,
-		"name": name, "email": email,
+		"name": name, "email": email, "avatarUrl": avatarPath,
 		"tokenType": "Bearer", "expiresIn": int(accessLifetime.Seconds()),
 		"refreshExpiresAt": refreshExpiry}
 	if wantsRefreshInBody(r) {
@@ -369,8 +377,8 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, userID int
 // la cookie. Toma el token del body o, si no viene, de la cookie. La sesión
 // nueva hereda el vencimiento de la anterior, así una sesión vence a
 // sessionLifetime del login aunque se rote (TAL-200, H5). Responde 200 con la
-// sesión nueva, 422 si no hay token y 401 si no es válido, venció o la cuenta
-// ya no está activa.
+// sesión nueva, 401 si no hay token (sin sesión), no es válido, venció o la
+// cuenta ya no está activa.
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var input authInput
 	if r.Body != nil && r.ContentLength != 0 {
@@ -382,9 +390,8 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	if token == "" {
 		token = refreshCookieToken(r)
 	}
-	var v httpx.Validator
-	v.Required("refreshToken", token)
-	if !valid(w, r, &v) {
+	if token == "" {
+		writeError(w, r, http.StatusUnauthorized, "No hay una sesión activa.")
 		return
 	}
 	var userID int32
@@ -427,8 +434,8 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 // LogoutAll atiende POST /auth/logout-all: cierra todas las sesiones del
 // usuario dueño del bearer token, incluida la actual, por ejemplo si le
 // robaron un refresh token (TAL-200, H6). Va detrás de requireSession, que
-// responde 401 sin un access token vigente. Responde 204, o 500 si falla la
-// base.
+// responde 401 sin un access token vigente. Vence la cookie del refresh token
+// y responde 204, o 500 si falla la base.
 func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.db.Exec(r.Context(), `DELETE FROM user_session WHERE user_id=$1`, sessionUserID(r)); err != nil {
 		httpx.WriteInternal(w, r, h.logger, err)
@@ -446,6 +453,16 @@ func decodeAuth(w http.ResponseWriter, r *http.Request, input *authInput) bool {
 		return false
 	}
 	return true
+}
+
+// avatarURL devuelve la ruta pública de la foto del usuario, o nil si no
+// subió una.
+func avatarURL(publicID string, hasAvatar bool) *string {
+	if !hasAvatar {
+		return nil
+	}
+	url := "/users/" + publicID + "/avatar"
+	return &url
 }
 
 // refreshCookieToken devuelve el refresh token de la cookie refresh_token, o

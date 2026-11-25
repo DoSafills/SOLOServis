@@ -50,6 +50,8 @@ func (h *Handler) OpenRun(w http.ResponseWriter, r *http.Request) {
 	if targetType == "" {
 		targetType = TargetProduct
 	}
+	specHash := strings.TrimSpace(request.SpecHash)
+	specVersion := strings.TrimSpace(request.SpecVersion)
 
 	var v httpx.Validator
 	v.Required("source.name", name)
@@ -61,6 +63,8 @@ func (h *Handler) OpenRun(w http.ResponseWriter, r *http.Request) {
 		v.Check(request.StoreID > 0, "storeId", "min", "storeId debe ser mayor que 0")
 	}
 	v.MaxLength("scraperType", scraperType, MaxScraperType)
+	v.MaxLength("specHash", specHash, MaxSpecHash)
+	v.MaxLength("specVersion", specVersion, MaxSpecVersion)
 	if !v.Valid() {
 		httpx.WriteValidation(w, r, v.Errors())
 		return
@@ -70,7 +74,7 @@ func (h *Handler) OpenRun(w http.ResponseWriter, r *http.Request) {
 	if baseURL != "" {
 		base = &baseURL
 	}
-	id, err := h.runs.OpenRun(r.Context(), name, base, request.StoreID, scraperType, targetType)
+	id, err := h.runs.OpenRun(r.Context(), name, base, request.StoreID, scraperType, targetType, specHash, specVersion)
 	switch {
 	case errors.Is(err, ErrStoreNotFound):
 		httpx.WriteValidation(w, r, []httpx.FieldError{{Field: "storeId", Code: "not_found", Message: "storeId no existe"}})
@@ -176,6 +180,7 @@ func (h *Handler) FinishRun(w http.ResponseWriter, r *http.Request) {
 	v.Check(request.Status == StatusSuccess || request.Status == StatusFailed, "status", "one_of", "status debe ser success o failed")
 	v.MaxLength("errorMessage", message, MaxErrorMessage)
 	counters := finishCounters(&v, request)
+	fingerprint, hasFingerprint := finishFingerprint(&v, request.Fingerprint)
 	if !v.Valid() {
 		httpx.WriteValidation(w, r, v.Errors())
 		return
@@ -199,6 +204,12 @@ func (h *Handler) FinishRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.checkDegradation(r.Context(), id, counters)
+	if hasFingerprint {
+		h.checkFingerprint(r.Context(), id, fingerprint)
+	}
+	if h.processor != nil {
+		h.processor.ForgetPriceStats(id)
+	}
 	h.writeRun(w, r, id)
 }
 
@@ -237,6 +248,11 @@ func (h *Handler) checkDegradation(ctx context.Context, id int32, counters Count
 		return
 	}
 	thresholds := ThresholdsFromEnv()
+	// Los precios inválidos se cuentan en los lotes ya procesados: el cierre
+	// solo trae los contadores del scraper, que no los incluyen.
+	if h.processor != nil {
+		counters.ZeroPrices, counters.PricesTotal = h.processor.PriceStats(id)
+	}
 	run, err := h.runs.GetRun(ctx, id)
 	if err != nil || run.StoreID == nil {
 		if err != nil {
@@ -282,6 +298,96 @@ func (h *Handler) checkDegradation(ctx context.Context, id int32, counters Count
 	}
 }
 
+// checkFingerprint guarda la huella de la corrida, la compara con el historial
+// de la tienda y, si detecta un cambio de estructura, respuesta o endpoint,
+// registra un evento por tipo y avisa a los administradores (TAL-209).
+//
+// Solo registra y alerta: nunca bloquea la importación ni cambia la respuesta
+// del cierre. Un fallo al guardar o al avisar queda en el log.
+func (h *Handler) checkFingerprint(ctx context.Context, id int32, fingerprint Fingerprint) {
+	if err := h.runs.SaveFingerprint(ctx, id, fingerprint); err != nil {
+		h.logger.Warn("ingestion_fingerprint_save_failed", "runId", id, "error", err)
+	}
+	run, err := h.runs.GetRun(ctx, id)
+	if err != nil || run.StoreID == nil {
+		if err != nil {
+			h.logger.Warn("ingestion_fingerprint_without_run", "runId", id, "error", err)
+		}
+		return
+	}
+	thresholds := ThresholdsFromEnv()
+	baseline, err := h.runs.RecentFingerprints(ctx, *run.StoreID, id, thresholds.BaselineRuns)
+	if err != nil {
+		h.logger.Warn("ingestion_fingerprint_without_baseline", "runId", id, "error", err)
+		baseline = nil
+	}
+	events := EvaluateFingerprint(fingerprint, baseline, thresholds)
+	if len(events) == 0 {
+		return
+	}
+
+	current, _ := json.Marshal(fingerprint)
+	var previous json.RawMessage
+	if len(baseline) > 0 {
+		previous, _ = json.Marshal(baseline[0])
+	}
+	type eventData struct {
+		Tipo    string   `json:"tipo"`
+		Reasons []string `json:"reasons"`
+	}
+	payload := make([]eventData, 0, len(events))
+	var messages []string
+	for _, event := range events {
+		payload = append(payload, eventData{Tipo: event.Tipo, Reasons: event.Reasons})
+		messages = append(messages, fmt.Sprintf("%s: %s", event.Tipo, strings.Join(event.Reasons, "; ")))
+		if err := h.runs.SaveSourceChangeEvent(ctx, SourceChangeEvent{
+			StoreID:             *run.StoreID,
+			RunID:               id,
+			Tipo:                event.Tipo,
+			Detalle:             truncate(strings.Join(event.Reasons, "; "), MaxErrorMessage),
+			Fingerprint:         current,
+			PreviousFingerprint: previous,
+			Verdict:             "degraded",
+			Reasons:             event.Reasons,
+		}); err != nil {
+			h.logger.Warn("ingestion_source_change_save_failed", "runId", id, "tipo", event.Tipo, "error", err)
+		}
+	}
+
+	if h.notifier == nil {
+		return
+	}
+	notification := AdminNotification{
+		Type:  NotificationTypeSourceChanged,
+		Title: fmt.Sprintf("Cambió la estructura de la fuente %s", run.Source),
+		Message: fmt.Sprintf(
+			"La corrida %d de %s detectó un cambio en la fuente: %s.",
+			id, run.Source, strings.Join(messages, "; "),
+		),
+		Data: map[string]any{
+			"runId":       id,
+			"storeId":     *run.StoreID,
+			"source":      run.Source,
+			"events":      payload,
+			"fingerprint": json.RawMessage(current),
+			"status":      run.Status,
+			"startedAt":   run.StartedAt,
+		},
+	}
+	if err := h.notifier.NotifyAdmins(ctx, notification); err != nil {
+		h.logger.Warn("ingestion_source_change_notification_failed", "runId", id, "error", err)
+	}
+}
+
+// truncate recorta text al máximo de runas indicado, sin partir un carácter.
+func truncate(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit])
+}
+
 // finishCounters valida los contadores opcionales del cierre de corrida.
 //
 // Devuelve los contadores. Un valor negativo o mayor que MaxCounterValue es
@@ -314,6 +420,49 @@ func finishCounters(v *httpx.Validator, request FinishRequest) Counters {
 		}
 	}
 	return counters
+}
+
+// finishFingerprint valida la huella opcional del cierre. Devuelve la huella y
+// si el cliente la envió. Los conteos negativos o absurdos son errores por
+// campo; los textos se acotan para que no crezcan sin control en la base.
+func finishFingerprint(v *httpx.Validator, request *Fingerprint) (Fingerprint, bool) {
+	if request == nil {
+		return Fingerprint{}, false
+	}
+	counters := []struct {
+		field  string
+		amount *int
+	}{
+		{"fingerprint.rootMatches", &request.RootMatches},
+		{"fingerprint.pagesChecked", &request.PagesChecked},
+		{"fingerprint.pagesHttpFailed", &request.PagesHTTPFailed},
+		{"fingerprint.pagesNonHtml", &request.PagesNonHTML},
+	}
+	for _, counter := range counters {
+		switch {
+		case *counter.amount < 0:
+			v.Add(counter.field, "min", counter.field+" no puede ser negativo")
+		case *counter.amount > MaxCounterValue:
+			v.Add(counter.field, "max", fmt.Sprintf("%s no puede superar %d", counter.field, MaxCounterValue))
+		}
+	}
+	if len(request.SelectorHits) > MaxFingerprintValues {
+		v.Add("fingerprint.selectorHits", "max", fmt.Sprintf("fingerprint.selectorHits admite hasta %d selectores", MaxFingerprintValues))
+	}
+	for selector, hits := range request.SelectorHits {
+		if len(selector) > MaxFingerprintText {
+			v.Add("fingerprint.selectorHits", "max_length", "un selector de fingerprint.selectorHits supera el largo permitido")
+			break
+		}
+		if hits < 0 {
+			v.Add("fingerprint.selectorHits", "min", "los hits de fingerprint.selectorHits no pueden ser negativos")
+			break
+		}
+	}
+	if len(request.RequiredSelectors) > MaxFingerprintValues {
+		v.Add("fingerprint.requiredSelectors", "max", fmt.Sprintf("fingerprint.requiredSelectors admite hasta %d selectores", MaxFingerprintValues))
+	}
+	return *request, true
 }
 
 // GetRun atiende GET /ingestion/runs/{id}.

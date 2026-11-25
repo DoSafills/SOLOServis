@@ -60,12 +60,15 @@ spec:
           ports:
             - name: visor
               containerPort: 9000
+          # Mientras no pasa, smoke-test y origen no arrancan. En un nodo
+          # cargado Python con 100m de CPU tarda en levantar: 3 minutos de
+          # margen (90 x 2 s) antes de que Kubernetes lo reinicie.
           startupProbe:
             httpGet:
               path: /__listo
               port: visor
-            periodSeconds: 1
-            failureThreshold: 30
+            periodSeconds: 2
+            failureThreshold: 90
           securityContext:
             runAsUser: 65534
             runAsGroup: 65534

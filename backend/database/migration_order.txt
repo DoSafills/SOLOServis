@@ -110,9 +110,20 @@
 # que el scraper dejó en una oferta demo) y repara las tildes cp850 del seed.
 044_delete_demo_seed.sql
 045_fix_seed_encoding_cp850.sql
+
 # TAL-194: función manual cleanup_obsolete_data(meses, dry_run); no se ejecuta sola.
 045_cleanup_obsolete_data.sql
+
 # TAL-192: índices de búsqueda, ofertas, reseñas, favoritos y FK; quita índice duplicado de sesiones.
 046_index_review.sql
+
+# TAL-209: huella estructural por corrida y tabla source_change_event; aditiva e idempotente.
+047_source_change_event.sql
+
+# 048: producto de demostración completo (SKU SEED-WHIRLPOOL-WRS571CIHZ) con
+# ofertas en Falabella, Ripley y Lider, historial de 12+ meses y atributos;
+# idempotente, sin usuarios ni reseñas.
+048_seed_producto_demo.sql
+
 # issue #191: slug de proveedor, categoría unificada del servicio y atributos dinámicos.
-047_service_ingestion.sql
+049_service_ingestion.sql

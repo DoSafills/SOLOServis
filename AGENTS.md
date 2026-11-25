@@ -100,7 +100,7 @@ fronted/            frontend React (la carpeta se llama "fronted", sin la n)
 scraper/            scraper v2: specs por tienda en stores/<slug>/spec.json
 crawler/            crawler v1
 assistant/          asistente de comparación: config, prompt y allowlist (fuente de assets)
-docker/             Dockerfiles, compose.yml (3 dominios) y compose.microservicios.yml
+docker/             Dockerfiles, compose.yml (3 dominios + gateway) y compose.microservicios.yml
 k8s/                base/, components/{dominios,consolidado,espera-postgres}, tests/
 scripts/k8s/        deploy.ps1, deploy.sh
 scripts/linear/     linear.py: CLI de Linear (necesita LINEAR_API_KEY)
@@ -191,7 +191,7 @@ Norma completa: `docs/estandares/TAL-78-estandar-api.md`. Lo esencial:
 
 ## 11. Docker y Kubernetes
 
-- **Local:** `docker compose -f docker/compose.yml up -d --build` (PostgreSQL, 3 dominios y scraper). Publica los puertos históricos 8081–8094 de cada API. El modo de 14 contenedores está en `docker/compose.microservicios.yml`; no levantes los dos a la vez.
+- **Local:** `docker compose -f docker/compose.yml up -d --build` (PostgreSQL, 3 dominios, gateway y scraper). Publica los puertos históricos 8081–8094 de cada API y el gateway en **8443** (el mismo de `pnpm dev`: no correr los dos a la vez). El modo de 14 contenedores está en `docker/compose.microservicios.yml`; no levantes los dos a la vez.
 - **Clúster UCT:** `scripts/k8s/deploy.ps1 -Modo uct -Registry docker.io/<usuario>`; redeploy sin borrar datos con `-FromPhase 3 -SkipCleanup`. Guía: `k8s/README.md`.
 - `deploy.ps1` debe quedar en **ASCII** (PowerShell 5.1) y `deploy.sh` compatible con **bash 3.2**. Si cambias uno, cambia el otro.
 - **Cuota del namespace:** 12 pods, 10 Services, 3 PVC, 1 CPU / 1G de requests. El LimitRange exige **mínimo 25m y 64Mi por contenedor**, también en Jobs y CronJobs.
@@ -212,6 +212,7 @@ cd scraper && python -m pytest -q && ruff check src tests
 kubectl kustomize k8s/overlays/uct
 bash scripts/k8s/validate-manifests.sh
 docker compose -f docker/compose.yml config --quiet
+python scripts/testing/contratos.py          # con el Compose local arriba
 ```
 
 - Los tests de integración de Go necesitan `TEST_DATABASE_URL` apuntando a un PostgreSQL 18 con las migraciones aplicadas en el orden de `migration_order.txt`; sin la variable se omiten. Con la variable, corre `go test -p 1 ./...`: los paquetes comparten la base y en paralelo se pisan los datos.
@@ -237,8 +238,8 @@ Esta sección envejece rápido: confirma con `git log`, `gh pr list` y Linear an
 
 **Pendiente:**
 - Sprint 3, centrado en testing. El reporte de `scripts/testing/reporte.py` todavía muestra 2 tests del crawler que fallan en Windows (conexión SQLite sin cerrar).
-- CI en `.github/workflows/ci.yml` (TAL-235) corre backend, scraper, frontend, skills, compose y manifiestos de Kubernetes, pero **no** los tests de integración de Go (no levanta PostgreSQL): un PR con migraciones puede quedar verde en CI y romper `TEST_DATABASE_URL`. Antes de mergear migraciones, córrelos a mano (§12). El frontend sigue sin tests.
-- `pnpm format:check` ya pasa (no quedan archivos con CRLF), pero el CI todavía lo excluye: falta activarlo en `ci.yml`.
+- CI en `.github/workflows/ci.yml` (TAL-235) corre backend (`go test -race`), scraper, frontend (formato, lint y build), skills, compose, manifiestos de Kubernetes y la construcción de las 3 imágenes. **No** corre los tests de integración de Go (no levanta PostgreSQL): un PR con migraciones puede quedar verde en CI y romper `TEST_DATABASE_URL`. Antes de mergear migraciones, córrelos a mano (§12). El frontend sigue sin tests.
+- `docker compose up` no aplica migraciones nuevas a un volumen existente: la base local queda con el esquema viejo y las APIs fallan con 500 (pasó con la 028 y `GET /search/products`). Ver `docs/reportes/errores-pendientes.md` (D1).
 - El frontend no tiene pantallas para seguimiento de precios ni notificaciones.
 - Mercado Libre bloqueado por anti-bots; evaluar su API oficial.
 - Que ingestion resuelva la tienda por nombre en vez de por ID.

@@ -363,6 +363,8 @@ type ScrapeRun struct {
 	RecordsFailed    pgtype.Int4      `json:"records_failed"`
 	Status           string           `json:"status"`
 	ErrorMessage     pgtype.Text      `json:"error_message"`
+	SpecHash         pgtype.Text      `json:"spec_hash"`
+	Fingerprint      []byte           `json:"fingerprint"`
 }
 
 type ScrapedDatum struct {
@@ -477,6 +479,7 @@ type ServiceOffer struct {
 	AdditionalCostsSummary pgtype.Text      `json:"additional_costs_summary"`
 	ServiceUrl             pgtype.Text      `json:"service_url"`
 	LastUpdated            pgtype.Timestamp `json:"last_updated"`
+	ExternalID             pgtype.Text      `json:"external_id"`
 }
 
 type ServicePriceHistory struct {
@@ -547,6 +550,19 @@ type ServiceUserInterest struct {
 	IsFavorite      bool             `json:"is_favorite"`
 	CreatedAt       pgtype.Timestamp `json:"created_at"`
 	UpdatedAt       pgtype.Timestamp `json:"updated_at"`
+}
+
+type SourceChangeEvent struct {
+	ID                  int32            `json:"id"`
+	StoreID             int32            `json:"store_id"`
+	RunID               int32            `json:"run_id"`
+	Tipo                string           `json:"tipo"`
+	Detalle             pgtype.Text      `json:"detalle"`
+	Fingerprint         []byte           `json:"fingerprint"`
+	PreviousFingerprint []byte           `json:"previous_fingerprint"`
+	Verdict             string           `json:"verdict"`
+	Reasons             []byte           `json:"reasons"`
+	CreatedAt           pgtype.Timestamp `json:"created_at"`
 }
 
 type Store struct {

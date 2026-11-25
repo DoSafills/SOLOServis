@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/DoSafills/SOLOServis/backend/internal/categories"
@@ -25,7 +26,7 @@ import (
 // Las consultas del ítem van por la transacción del ítem (TAL-191): producto,
 // imagen y oferta se aplican juntos o no se aplica nada.
 type RunStore interface {
-	OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType, targetType string) (int32, error)
+	OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType, targetType, specHash, specVersion string) (int32, error)
 	GetRun(ctx context.Context, id int32) (Run, error)
 	ListRuns(ctx context.Context, limit, offset int) ([]Run, int64, error)
 	FinishRun(ctx context.Context, id int32, status string, message *string) error
@@ -33,6 +34,9 @@ type RunStore interface {
 	ServiceTarget(ctx context.Context, id int32) (Run, error)
 	AddCounters(ctx context.Context, id int32, found, processed, failed int) error
 	RecentFound(ctx context.Context, storeID, excludeRunID int32, limit int) ([]int32, error)
+	SaveFingerprint(ctx context.Context, runID int32, fingerprint Fingerprint) error
+	RecentFingerprints(ctx context.Context, storeID, excludeRunID int32, limit int) ([]Fingerprint, error)
+	SaveSourceChangeEvent(ctx context.Context, event SourceChangeEvent) error
 	SaveScraped(ctx context.Context, runID int32, externalID, externalURL *string, entityType string, raw json.RawMessage) error
 	SaveScrapedBatch(ctx context.Context, runID int32, items []ScrapedItem) error
 	BeginTx(ctx context.Context) (pgx.Tx, error)
@@ -71,12 +75,30 @@ type Processor struct {
 	offers   Offers
 	notifier pricing.Notifier
 	logger   *slog.Logger
+
+	// prices acumula, por corrida, cuántos ítems llegaron con precio nulo o en
+	// 0 sobre el total recibido. Es la base del umbral de degradación.
+	pricesMu sync.Mutex
+	prices   map[int32]*priceTally
+}
+
+// priceTally es el conteo de precios inválidos de una corrida.
+type priceTally struct {
+	zero  int
+	total int
 }
 
 // NewProcessor arma el procesador de ítems con sus dependencias: ejecuciones,
 // catálogo de productos, ofertas, notificaciones y logger.
 func NewProcessor(runs RunStore, catalog Catalog, offers Offers, notifier pricing.Notifier, logger *slog.Logger) *Processor {
-	return &Processor{runs: runs, catalog: catalog, offers: offers, notifier: notifier, logger: logger}
+	return &Processor{
+		runs:     runs,
+		catalog:  catalog,
+		offers:   offers,
+		notifier: notifier,
+		logger:   logger,
+		prices:   map[int32]*priceTally{},
+	}
 }
 
 // Process aplica cada ítem por separado: un ítem inválido o con error no
@@ -85,6 +107,7 @@ func NewProcessor(runs RunStore, catalog Catalog, offers Offers, notifier pricin
 // del lote; devuelve el resultado de cada ítem y los totales.
 func (p *Processor) Process(ctx context.Context, runID, storeID int32, storeName string, items []Item) BatchResult {
 	result := BatchResult{RunID: runID, Received: len(items), Results: make([]ItemResult, 0, len(items))}
+	p.trackPrices(runID, items)
 	for i, item := range items {
 		r := p.processItem(ctx, runID, storeID, storeName, i, item)
 		if r.Status == ItemFailed {
@@ -99,6 +122,56 @@ func (p *Processor) Process(ctx context.Context, runID, storeID int32, storeName
 		p.logger.ErrorContext(ctx, "ingestion_counters_failed", slog.Int("run_id", int(runID)), slog.String("error", err.Error()))
 	}
 	return result
+}
+
+// trackPrices suma al conteo de la corrida cuántos ítems del lote llegaron con
+// precio nulo o en 0. Recibe la corrida y los ítems recibidos; no devuelve nada.
+func (p *Processor) trackPrices(runID int32, items []Item) {
+	p.pricesMu.Lock()
+	defer p.pricesMu.Unlock()
+	tally := p.prices[runID]
+	if tally == nil {
+		tally = &priceTally{}
+		p.prices[runID] = tally
+	}
+	for _, item := range items {
+		tally.total++
+		if isZeroPrice(item.Offer.Price) {
+			tally.zero++
+		}
+	}
+}
+
+// PriceStats devuelve el conteo de precios inválidos de una corrida: cuántos
+// ítems llegaron con precio nulo o en 0 y cuántos se recibieron en total.
+func (p *Processor) PriceStats(runID int32) (zero, total int) {
+	p.pricesMu.Lock()
+	defer p.pricesMu.Unlock()
+	if tally := p.prices[runID]; tally != nil {
+		return tally.zero, tally.total
+	}
+	return 0, 0
+}
+
+// ForgetPriceStats borra el conteo de una corrida ya evaluada, para que el mapa
+// no crezca con el historial completo. No devuelve nada.
+func (p *Processor) ForgetPriceStats(runID int32) {
+	p.pricesMu.Lock()
+	defer p.pricesMu.Unlock()
+	delete(p.prices, runID)
+}
+
+// isZeroPrice indica si un precio es nulo, vacío o menor o igual a 0. Un valor
+// que no se puede leer como número decimal también cuenta como inválido.
+func isZeroPrice(value *json.Number) bool {
+	if value == nil {
+		return true
+	}
+	number, ok := new(big.Rat).SetString(strings.TrimSpace(value.String()))
+	if !ok {
+		return true
+	}
+	return number.Sign() <= 0
 }
 
 // processItem procesa el ítem número index del lote runID para la tienda

@@ -206,6 +206,48 @@ func assertOfferHistory(t *testing.T, pool *pgxpool.Pool, offerID int32, wantPri
 	}
 }
 
+func TestUpsertOfferKeepsPreviousPriceWhenIncomingIsZero(t *testing.T) {
+	ctx := context.Background()
+	pool := repositoryTestPool(t)
+	productID, storeIDs := repositoryTestProductAndStores(t, pool)
+	repository := NewRepository(pool)
+
+	for _, tc := range []struct {
+		name  string
+		price string
+		want  string
+	}{
+		{"precio en cero conserva el existente", "0", "10.25"},
+		{"precio válido reemplaza el existente", "20.50", "20.50"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			url := fmt.Sprintf("https://example.test/tal209-%d/", time.Now().UnixNano())
+			first, err := repository.UpsertOffer(ctx, repositoryTestUpsertParams(t, productID, storeIDs[0], "10.25", "USD", url, true))
+			if err != nil {
+				t.Fatalf("insert offer: %v", err)
+			}
+			t.Cleanup(func() {
+				if _, err := pool.Exec(ctx, `DELETE FROM product_offer WHERE id = $1`, first.ID); err != nil {
+					t.Errorf("delete test offer %d: %v", first.ID, err)
+				}
+			})
+
+			updated, err := repository.UpsertOffer(ctx, repositoryTestUpsertParams(t, productID, storeIDs[0], tc.price, "USD", url, true))
+			if err != nil {
+				t.Fatalf("upsert offer with price %s: %v", tc.price, err)
+			}
+
+			var price string
+			if err := pool.QueryRow(ctx, `SELECT price::text FROM product_offer WHERE id = $1`, updated.ID).Scan(&price); err != nil {
+				t.Fatalf("read offer price: %v", err)
+			}
+			if price != tc.want {
+				t.Fatalf("stored price = %s, want %s", price, tc.want)
+			}
+		})
+	}
+}
+
 func TestUpsertOfferAllowsProductInMultipleStoresAndRejectsDuplicateInsert(t *testing.T) {
 	ctx := context.Background()
 	pool := repositoryTestPool(t)

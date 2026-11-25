@@ -28,7 +28,7 @@ func NewRouter(name string, db *pgxpool.Pool, frontendURL string) *chi.Mux {
 	r := chi.NewRouter()
 	chiroute.UseProblemFallbacks(r)
 	r.Use(httpx.RequestID, httpx.AccessLog(logger), httpx.Recover(logger))
-	r.Use(cors(frontendURL))
+	r.Use(httpx.NewCORS(frontendURL))
 	r.Get("/health", h.Health)
 	registerRoutes(r, name, h, admin)
 	return r
@@ -149,17 +149,3 @@ func registerServiceComparisonRoutes(r chi.Router, h *Handler) {
 	})
 }
 
-func cors(frontendURL string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", frontendURL)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Refresh-In-Body")
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}

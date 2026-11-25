@@ -31,13 +31,16 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 
 // OpenRun crea (o reutiliza) la fuente y su configuración y abre una
 // ejecución en estado running. Recibe el nombre de la fuente, su URL base, la
-// tienda (0 en corridas de servicio), el tipo de scraper y el objetivo
-// ("product" o "service").
+// tienda (0 en corridas de servicio), el tipo de scraper, el objetivo
+// ("product" o "service") y la identidad opcional del spec.
 //
 // Una corrida de producto exige una tienda activa y enlaza la fuente a ella.
 // Una corrida de servicio deja `store_id` NULL y marca la fuente como
 // `provider`: el proveedor viaja en cada ítem, no en la fuente (issue #191).
-func (r *Repository) OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType, targetType string) (int32, error) {
+//
+// El specHash y la versión del spec son opcionales: se guardan para poder
+// correlacionar un cambio de la fuente con el spec que lo produjo (TAL-209).
+func (r *Repository) OpenRun(ctx context.Context, name string, baseURL *string, storeID int32, scraperType, targetType, specHash, specVersion string) (int32, error) {
 	if targetType == "" {
 		targetType = TargetProduct
 	}
@@ -104,9 +107,22 @@ func (r *Repository) OpenRun(ctx context.Context, name string, baseURL *string, 
 		return 0, err
 	}
 
+	if specHash != "" || specVersion != "" {
+		// parser_config queda con la identidad del spec; no pisa otras claves.
+		if _, err := tx.Exec(ctx, `
+			UPDATE scraper_config
+			SET parser_config = COALESCE(parser_config, '{}'::jsonb)
+			    || jsonb_strip_nulls(jsonb_build_object('specHash', NULLIF($2, ''), 'specVersion', NULLIF($3, ''))),
+			    updated_at = NOW()
+			WHERE id = $1`, configID, specHash, specVersion); err != nil {
+			return 0, err
+		}
+	}
+
 	var runID int32
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO scrape_run (scraper_config_id, status) VALUES ($1, 'running') RETURNING id`, configID).Scan(&runID); err != nil {
+		INSERT INTO scrape_run (scraper_config_id, status, spec_hash)
+		VALUES ($1, 'running', NULLIF($2, '')) RETURNING id`, configID, specHash).Scan(&runID); err != nil {
 		return 0, err
 	}
 	return runID, tx.Commit(ctx)
@@ -168,6 +184,92 @@ func (r *Repository) FinishRun(ctx context.Context, id int32, status string, mes
 		return err
 	}
 	return ErrRunClosed
+}
+
+// SourceChangeEvent es un cambio detectado en una fuente (TAL-209). Se guarda
+// en source_change_event para que la detección no viva solo en el log.
+type SourceChangeEvent struct {
+	StoreID             int32
+	RunID               int32
+	Tipo                string
+	Detalle             string
+	Fingerprint         json.RawMessage
+	PreviousFingerprint json.RawMessage
+	Verdict             string
+	Reasons             []string
+}
+
+// SaveFingerprint guarda la huella estructural de la corrida. Recibe la
+// ejecución y la huella; devuelve el error de la base, si lo hay.
+func (r *Repository) SaveFingerprint(ctx context.Context, runID int32, fingerprint Fingerprint) error {
+	raw, err := json.Marshal(fingerprint)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `
+		UPDATE scrape_run SET fingerprint = $2::jsonb WHERE id = $1`, runID, string(raw))
+	return err
+}
+
+// RecentFingerprints devuelve las huellas de las últimas corridas exitosas de
+// una tienda, sin contar la actual y sin las corridas sin huella. Es la
+// referencia contra la que se mide la corrida de hoy; una lista corta o vacía
+// significa «sin historial suficiente» para el evaluador.
+func (r *Repository) RecentFingerprints(ctx context.Context, storeID, excludeRunID int32, limit int) ([]Fingerprint, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT r.fingerprint
+		FROM scrape_run r
+		JOIN scraper_config sc ON sc.id = r.scraper_config_id
+		JOIN data_source ds ON ds.id = sc.data_source_id
+		WHERE ds.store_id = $1 AND r.id <> $2 AND r.status = 'success'
+		  AND r.fingerprint IS NOT NULL
+		ORDER BY r.started_at DESC, r.id DESC
+		LIMIT $3`, storeID, excludeRunID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	fingerprints := make([]Fingerprint, 0, limit)
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var fingerprint Fingerprint
+		if err := json.Unmarshal(raw, &fingerprint); err != nil {
+			continue // una huella ilegible no invalida el historial
+		}
+		fingerprints = append(fingerprints, fingerprint)
+	}
+	return fingerprints, rows.Err()
+}
+
+// SaveSourceChangeEvent registra un cambio detectado. El UNIQUE (run_id, tipo)
+// y el ON CONFLICT DO NOTHING hacen que un reintento de finish no duplique el
+// evento; recibe el evento y devuelve el error de la base, si lo hay.
+func (r *Repository) SaveSourceChangeEvent(ctx context.Context, event SourceChangeEvent) error {
+	reasons, err := json.Marshal(event.Reasons)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `
+		INSERT INTO source_change_event
+		    (store_id, run_id, tipo, detalle, fingerprint, previous_fingerprint, verdict, reasons)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb)
+		ON CONFLICT (run_id, tipo) DO NOTHING`,
+		event.StoreID, event.RunID, event.Tipo, event.Detalle,
+		nullableJSON(event.Fingerprint), nullableJSON(event.PreviousFingerprint),
+		event.Verdict, string(reasons))
+	return err
+}
+
+// nullableJSON convierte una huella ausente en NULL, para que la columna no
+// guarde un jsonb vacío cuando no hay corrida anterior que comparar.
+func nullableJSON(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	return string(raw)
 }
 
 // ItemsTarget valida que la ejecución acepte productos y devuelve la tienda de

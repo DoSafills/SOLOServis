@@ -148,6 +148,10 @@ def tramo_catalogo(v: Visor, ctx: dict, store_id, desde: dt.datetime | None, slu
                       "/stores/{tsid}/offers?available=true&limit=100", forma="lista"), local)
     ofertas = r.json() if r is not None and isinstance(r.json(), list) else []
     if desde is not None:
+        # La API entrega lastUpdated en segundos (RFC 3339 sin fracción) y el
+        # inicio de la corrida trae microsegundos: una oferta actualizada en el
+        # mismo segundo en que empezó la corrida parecería anterior.
+        desde = desde.replace(microsecond=0)
         frescas = [o for o in ofertas if (fecha(o.get("lastUpdated")) or dt.datetime.min.replace(
             tzinfo=dt.UTC)) >= desde]
         v.verificar("167", f"ofertas-frescas-{slug}", f"{slug}: hay ofertas actualizadas por la corrida",
