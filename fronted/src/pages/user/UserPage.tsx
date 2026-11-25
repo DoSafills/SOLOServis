@@ -30,7 +30,75 @@ interface Props {
 }
 
 type Tab = "profile" | "favorites" | "history";
+type PasswordVisibilityField = "current" | "new" | "confirm";
 
+interface PasswordFieldProps {
+  id: string;
+  label: string;
+  value: string;
+  autoComplete: "current-password" | "new-password";
+  placeholder: string;
+  visible: boolean;
+  minLength?: number;
+  maxLength?: number;
+  onChange: (value: string) => void;
+  onToggleVisibility: () => void;
+}
+
+/**
+ * Dibuja un campo de contraseña con su etiqueta y el control para mostrar u ocultar el valor.
+ * Recibe el identificador, los textos, el estado y los callbacks del formulario; devuelve
+ * el JSX accesible del campo para reutilizarlo sin duplicar la lógica de visibilidad.
+ */
+function PasswordField({
+  id,
+  label,
+  value,
+  autoComplete,
+  placeholder,
+  visible,
+  minLength,
+  maxLength,
+  onChange,
+  onToggleVisibility,
+}: PasswordFieldProps) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-sm font-semibold text-text">
+        {label}
+      </label>
+      <div className="relative mt-1.5">
+        <input
+          id={id}
+          required
+          type={visible ? "text" : "password"}
+          autoComplete={autoComplete}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          minLength={minLength}
+          maxLength={maxLength}
+          className="w-full rounded-xl border border-bd bg-surface px-4 py-3 pr-20 text-text outline-none transition placeholder:text-muted focus:border-prime"
+          placeholder={placeholder}
+        />
+        <button
+          type="button"
+          onClick={onToggleVisibility}
+          aria-label={`${visible ? "Ocultar" : "Mostrar"} ${label.toLowerCase()}`}
+          aria-pressed={visible}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-xs font-bold text-muted transition hover:bg-surface-2 hover:text-text"
+        >
+          {visible ? "Ocultar" : "Mostrar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Muestra la cuenta activa, sus pestañas y los formularios para iniciar sesión o editar
+ * el perfil. Recibe los datos y callbacks de la cuenta desde App y devuelve la pantalla
+ * completa de Mi cuenta, manteniendo la navegación y los estados de carga existentes.
+ */
 export default function UserPage({
   navigate,
   section,
@@ -69,10 +137,14 @@ export default function UserPage({
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const avatarPreviewRef = useRef<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordVisibility, setPasswordVisibility] = useState<
+    Record<PasswordVisibilityField, boolean>
+  >({ current: false, new: false, confirm: false });
   const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(
@@ -82,6 +154,11 @@ export default function UserPage({
     [],
   );
 
+  /**
+   * Valida y envía el formulario de acceso o registro. Recibe el evento del formulario,
+   * ejecuta el callback correspondiente y no devuelve un valor; centraliza los errores
+   * para mostrarlos sin cambiar el flujo de autenticación existente.
+   */
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
@@ -115,11 +192,19 @@ export default function UserPage({
     }
   };
 
+  /**
+   * Muestra un error de edición del perfil y limpia el mensaje de éxito anterior.
+   * Recibe el error desconocido y un texto de respaldo; no devuelve un valor.
+   */
   const showProfileError = (error: unknown, fallback: string) => {
     setProfileMessage(null);
     setProfileError(error instanceof Error ? error.message : fallback);
   };
 
+  /**
+   * Valida y guarda el nombre editado del perfil. Recibe el evento del formulario,
+   * actualiza el estado local con la respuesta de la API y no devuelve un valor.
+   */
   const saveName = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = profileName.trim();
@@ -143,6 +228,10 @@ export default function UserPage({
     }
   };
 
+  /**
+   * Valida la imagen elegida y crea su vista previa local. Recibe el evento del input
+   * de archivo, actualiza la selección sin subirla todavía y no devuelve un valor.
+   */
   const selectAvatar = (event: ChangeEvent<HTMLInputElement>) => {
     setProfileError(null);
     setProfileMessage(null);
@@ -165,6 +254,11 @@ export default function UserPage({
     setAvatarFile(file);
   };
 
+  /**
+   * Sube la foto seleccionada y reemplaza el preview por la URL devuelta por la API.
+   * No recibe parámetros ni devuelve un valor; mantiene el archivo disponible si la
+   * subida falla para que la persona pueda reintentarla.
+   */
   const saveAvatar = async () => {
     if (!avatarFile) return;
     setUploadingAvatar(true);
@@ -176,6 +270,7 @@ export default function UserPage({
       avatarPreviewRef.current = null;
       setAvatarPreview(`${avatarUrl}?v=${Date.now()}`);
       setAvatarFile(null);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
       setProfile((current) => (current ? { ...current, avatarUrl } : current));
       setProfileMessage("Foto actualizada.");
     } catch (error) {
@@ -185,6 +280,32 @@ export default function UserPage({
     }
   };
 
+  /**
+   * Cancela la foto pendiente y libera su vista previa. No recibe parámetros ni devuelve
+   * un valor; deja el input limpio para permitir elegir el mismo archivo otra vez.
+   */
+  const cancelAvatar = () => {
+    if (avatarPreviewRef.current) URL.revokeObjectURL(avatarPreviewRef.current);
+    avatarPreviewRef.current = null;
+    setAvatarPreview(null);
+    setAvatarFile(null);
+    if (avatarInputRef.current) avatarInputRef.current.value = "";
+    setProfileError(null);
+    setProfileMessage(null);
+  };
+
+  /**
+   * Alterna la visibilidad de uno de los campos de contraseña. Recibe la clave del campo
+   * y actualiza su estado sin modificar el valor escrito; no devuelve un valor.
+   */
+  const togglePasswordVisibility = (field: PasswordVisibilityField) => {
+    setPasswordVisibility((current) => ({ ...current, [field]: !current[field] }));
+  };
+
+  /**
+   * Valida y envía el cambio de contraseña de la sesión activa. Recibe el evento del
+   * formulario, limpia los campos tras guardar y no devuelve un valor.
+   */
   const savePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setProfileError(null);
@@ -222,6 +343,8 @@ export default function UserPage({
   const displayName = profile?.name ?? user?.name ?? "";
   const displayEmail = profile?.email ?? user?.email ?? "";
   const avatarSrc = avatarPreview ?? profile?.avatarUrl ?? null;
+  const hasNameChanges = profileName !== displayName;
+  const hasPasswordChanges = Boolean(currentPassword || newPassword || confirmPassword);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "profile", label: "Perfil" },
@@ -433,151 +556,218 @@ export default function UserPage({
             <section className="min-h-64 flex-1 rounded-2xl border border-bd bg-surface p-6">
               {activeTab === "profile" && (
                 <>
-                  <h1 className="text-xl font-black text-text">Mi perfil</h1>
-                  <p className="mt-2 text-sm text-muted">
-                    Esta es la cuenta activa para tus favoritos y tu historial.
-                  </p>
-                  <div className="mt-6 space-y-4">
-                    <section className="rounded-xl border border-bd bg-surface-2 p-4">
+                  <div className="border-b border-bd pb-6">
+                    <h1 className="text-xl font-black text-text">Mi perfil</h1>
+                    <p className="mt-2 text-sm text-muted">
+                      Esta es la cuenta activa para tus favoritos y tu historial.
+                    </p>
+                  </div>
+
+                  {(profileError || profileMessage) && (
+                    <div className="mt-5 space-y-2" aria-live="polite">
+                      {profileError && (
+                        <p
+                          role="alert"
+                          className="rounded-xl border border-rose-300/25 bg-rose-950/40 p-3 text-sm text-rose-200"
+                        >
+                          {profileError}
+                        </p>
+                      )}
+                      {profileMessage && (
+                        <p
+                          role="status"
+                          className="rounded-xl border border-prime/30 bg-prime-muted p-3 text-sm text-prime"
+                        >
+                          {profileMessage}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="mt-6 space-y-5">
+                    <section className="rounded-2xl border border-bd bg-surface-2 p-5 sm:p-6">
                       <h2 className="text-sm font-bold text-text">Foto de perfil</h2>
-                      <div className="mt-3 flex flex-wrap items-center gap-4">
+                      <div className="mt-5 flex flex-col items-center gap-5 rounded-2xl border border-bd bg-surface p-5 sm:flex-row sm:items-center">
                         {avatarSrc ? (
                           <img
                             src={avatarSrc}
-                            alt="Foto de perfil"
-                            className="h-16 w-16 rounded-full border-2 border-prime/50 object-cover"
+                            alt="Vista previa de la foto de perfil"
+                            className="h-28 w-28 shrink-0 rounded-full border-2 border-prime/50 object-cover sm:h-32 sm:w-32"
                           />
                         ) : (
-                          <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-prime/50 bg-prime-muted text-xl font-black text-prime">
+                          <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-full border-2 border-prime/50 bg-prime-muted text-3xl font-black text-prime sm:h-32 sm:w-32">
                             {displayName.trim().slice(0, 2).toUpperCase()}
                           </div>
                         )}
-                        <div className="min-w-48 flex-1">
+                        <div className="w-full min-w-0 flex-1 text-center sm:text-left">
                           <input
+                            ref={avatarInputRef}
+                            id="profile-avatar"
                             type="file"
                             accept="image/jpeg,image/png,image/webp"
                             onChange={selectAvatar}
-                            className="block w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-prime-muted file:px-3 file:py-2 file:text-sm file:font-bold file:text-prime"
+                            aria-describedby="avatar-help"
+                            className="sr-only"
                           />
-                          <p className="mt-1 text-xs text-muted">JPG, PNG o WebP de hasta 2 MB.</p>
-                          <button
-                            type="button"
-                            onClick={() => void saveAvatar()}
-                            disabled={!avatarFile || uploadingAvatar}
-                            className="mt-2 rounded-xl bg-prime px-4 py-2 text-sm font-extrabold text-[#181714] transition hover:bg-prime-dark disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {uploadingAvatar ? "Subiendo..." : "Subir foto"}
-                          </button>
+                          <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                            <button
+                              type="button"
+                              onClick={() => avatarInputRef.current?.click()}
+                              disabled={uploadingAvatar}
+                              className="rounded-xl border border-bd bg-surface-2 px-4 py-2 text-sm font-bold text-text transition hover:border-prime/50 hover:text-prime disabled:cursor-wait disabled:opacity-60"
+                            >
+                              Cambiar imagen
+                            </button>
+                            {avatarFile && (
+                              <button
+                                type="button"
+                                onClick={() => void saveAvatar()}
+                                disabled={uploadingAvatar}
+                                className="rounded-xl bg-prime px-4 py-2 text-sm font-extrabold text-[#181714] transition hover:bg-prime-dark disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {uploadingAvatar ? "Subiendo..." : "Subir foto"}
+                              </button>
+                            )}
+                          </div>
+                          {avatarFile && (
+                            <div className="mt-2 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                              <p className="min-w-0 flex-1 truncate text-xs text-muted">
+                                {avatarFile.name}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={cancelAvatar}
+                                disabled={uploadingAvatar}
+                                className="text-xs font-bold text-muted transition hover:text-text disabled:cursor-wait disabled:opacity-60"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          )}
+                          <p id="avatar-help" className="mt-2 text-xs text-muted">
+                            JPG, PNG o WebP de hasta 2 MB.
+                          </p>
                         </div>
                       </div>
                     </section>
 
-                    <form
-                      onSubmit={saveName}
-                      noValidate
-                      className="rounded-xl border border-bd bg-surface-2 p-4"
-                    >
-                      <label className="block text-sm font-semibold text-text">
-                        Nombre
+                    <details className="group overflow-hidden rounded-2xl border border-bd bg-surface-2">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 sm:p-6 [&::-webkit-details-marker]:hidden">
+                        <span className="text-sm font-bold text-text">Nombre</span>
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          className="h-5 w-5 shrink-0 text-muted transition-transform group-open:rotate-180"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+                        </svg>
+                      </summary>
+                      <form
+                        onSubmit={saveName}
+                        noValidate
+                        className="border-t border-bd p-5 sm:p-6"
+                      >
+                        <label htmlFor="profile-name" className="sr-only">
+                          Nombre
+                        </label>
                         <input
+                          id="profile-name"
                           required
                           value={profileName}
                           onChange={(event) => setProfileName(event.target.value)}
                           maxLength={150}
-                          className="mt-1.5 w-full rounded-xl border border-bd bg-surface px-4 py-3 text-text outline-none transition placeholder:text-muted focus:border-prime"
+                          className="w-full rounded-xl border border-bd bg-surface px-4 py-3 text-text outline-none transition placeholder:text-muted focus:border-prime"
                           placeholder="Tu nombre"
                         />
-                      </label>
-                      <button
-                        type="submit"
-                        disabled={savingName}
-                        className="mt-3 rounded-xl bg-prime px-4 py-2 text-sm font-extrabold text-[#181714] transition hover:bg-prime-dark disabled:cursor-wait disabled:opacity-60"
-                      >
-                        {savingName ? "Guardando..." : "Guardar nombre"}
-                      </button>
-                    </form>
+                        <div className="mt-5 flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={savingName || !hasNameChanges}
+                            className="rounded-xl bg-prime px-4 py-2 text-sm font-extrabold text-[#181714] transition hover:bg-prime-dark disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {savingName ? "Guardando..." : "Guardar nombre"}
+                          </button>
+                        </div>
+                      </form>
+                    </details>
 
-                    <div className="rounded-xl border border-bd bg-surface-2 p-4">
-                      <div className="text-xs font-bold uppercase tracking-wide text-muted">
-                        Correo electrónico
-                      </div>
-                      <div className="mt-1 break-all text-sm font-semibold text-text">
+                    <details className="group overflow-hidden rounded-2xl border border-bd bg-surface-2">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 sm:p-6 [&::-webkit-details-marker]:hidden">
+                        <span className="text-sm font-bold text-text">Cambiar contraseña</span>
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          className="h-5 w-5 shrink-0 text-muted transition-transform group-open:rotate-180"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+                        </svg>
+                      </summary>
+                      <form
+                        onSubmit={savePassword}
+                        noValidate
+                        className="border-t border-bd p-5 sm:p-6"
+                      >
+                        <div className="space-y-4">
+                          <PasswordField
+                            id="current-password"
+                            label="Contraseña actual"
+                            value={currentPassword}
+                            autoComplete="current-password"
+                            placeholder="Tu contraseña actual"
+                            visible={passwordVisibility.current}
+                            maxLength={1024}
+                            onChange={setCurrentPassword}
+                            onToggleVisibility={() => togglePasswordVisibility("current")}
+                          />
+                          <PasswordField
+                            id="new-password"
+                            label="Contraseña nueva"
+                            value={newPassword}
+                            autoComplete="new-password"
+                            placeholder="Al menos 10 caracteres"
+                            visible={passwordVisibility.new}
+                            minLength={10}
+                            maxLength={1024}
+                            onChange={setNewPassword}
+                            onToggleVisibility={() => togglePasswordVisibility("new")}
+                          />
+                          <PasswordField
+                            id="confirm-password"
+                            label="Confirmar contraseña nueva"
+                            value={confirmPassword}
+                            autoComplete="new-password"
+                            placeholder="Repite la contraseña nueva"
+                            visible={passwordVisibility.confirm}
+                            minLength={10}
+                            maxLength={1024}
+                            onChange={setConfirmPassword}
+                            onToggleVisibility={() => togglePasswordVisibility("confirm")}
+                          />
+                        </div>
+                        <div className="mt-6 flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={changingPassword || !hasPasswordChanges}
+                            className="rounded-xl bg-prime px-4 py-2 text-sm font-extrabold text-[#181714] transition hover:bg-prime-dark disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {changingPassword ? "Cambiando..." : "Cambiar contraseña"}
+                          </button>
+                        </div>
+                      </form>
+                    </details>
+
+                    <section className="rounded-2xl border border-bd bg-surface-2 p-5 sm:p-6">
+                      <h2 className="text-sm font-bold text-text">Correo electrónico</h2>
+                      <p className="mt-3 break-all text-sm font-semibold text-text">
                         {displayEmail}
-                      </div>
-                    </div>
-
-                    <form
-                      onSubmit={savePassword}
-                      noValidate
-                      className="rounded-xl border border-bd bg-surface-2 p-4"
-                    >
-                      <h2 className="text-sm font-bold text-text">Cambiar contraseña</h2>
-                      <label className="mt-3 block text-sm font-semibold text-text">
-                        Contraseña actual
-                        <input
-                          required
-                          type="password"
-                          autoComplete="current-password"
-                          value={currentPassword}
-                          onChange={(event) => setCurrentPassword(event.target.value)}
-                          maxLength={1024}
-                          className="mt-1.5 w-full rounded-xl border border-bd bg-surface px-4 py-3 text-text outline-none transition placeholder:text-muted focus:border-prime"
-                          placeholder="Tu contraseña actual"
-                        />
-                      </label>
-                      <label className="mt-3 block text-sm font-semibold text-text">
-                        Contraseña nueva
-                        <input
-                          required
-                          type="password"
-                          autoComplete="new-password"
-                          value={newPassword}
-                          onChange={(event) => setNewPassword(event.target.value)}
-                          minLength={10}
-                          maxLength={1024}
-                          className="mt-1.5 w-full rounded-xl border border-bd bg-surface px-4 py-3 text-text outline-none transition placeholder:text-muted focus:border-prime"
-                          placeholder="Al menos 10 caracteres"
-                        />
-                      </label>
-                      <label className="mt-3 block text-sm font-semibold text-text">
-                        Confirmar contraseña nueva
-                        <input
-                          required
-                          type="password"
-                          autoComplete="new-password"
-                          value={confirmPassword}
-                          onChange={(event) => setConfirmPassword(event.target.value)}
-                          minLength={10}
-                          maxLength={1024}
-                          className="mt-1.5 w-full rounded-xl border border-bd bg-surface px-4 py-3 text-text outline-none transition placeholder:text-muted focus:border-prime"
-                          placeholder="Repite la contraseña nueva"
-                        />
-                      </label>
-                      <button
-                        type="submit"
-                        disabled={changingPassword}
-                        className="mt-3 rounded-xl bg-prime px-4 py-2 text-sm font-extrabold text-[#181714] transition hover:bg-prime-dark disabled:cursor-wait disabled:opacity-60"
-                      >
-                        {changingPassword ? "Cambiando..." : "Cambiar contraseña"}
-                      </button>
-                    </form>
-
-                    {profileError && (
-                      <p
-                        role="alert"
-                        className="rounded-xl border border-rose-300/25 bg-rose-950/40 p-3 text-sm text-rose-200"
-                      >
-                        {profileError}
                       </p>
-                    )}
-                    {profileMessage && (
-                      <p
-                        role="status"
-                        className="rounded-xl border border-prime/30 bg-prime-muted p-3 text-sm text-prime"
-                      >
-                        {profileMessage}
-                      </p>
-                    )}
+                    </section>
                   </div>
                 </>
               )}
