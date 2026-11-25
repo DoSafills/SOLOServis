@@ -277,7 +277,7 @@ func TestEvaluateFingerprint(t *testing.T) {
 			base:    baseline,
 		},
 		{
-			name:    "caída de tarjetas contra la mediana es cambio de registros",
+			name: "caída de tarjetas contra la mediana es cambio de registros",
 			current: withHits(func(fp *Fingerprint) {
 				fp.RootMatches = 10
 				fp.SelectorHits = map[string]int{"product.name": 10, "offer.price": 10}
@@ -287,7 +287,7 @@ func TestEvaluateFingerprint(t *testing.T) {
 			reason: "vio 10 tarjetas contra una mediana de 30",
 		},
 		{
-			name:    "caída leve no alerta",
+			name: "caída leve no alerta",
 			current: withHits(func(fp *Fingerprint) {
 				fp.RootMatches = 25
 				fp.SelectorHits = map[string]int{"product.name": 25, "offer.price": 25}
@@ -300,7 +300,7 @@ func TestEvaluateFingerprint(t *testing.T) {
 			base:    []Fingerprint{healthyFingerprint()},
 		},
 		{
-			name:    "una tienda por debajo del mínimo no alerta por registros",
+			name: "una tienda por debajo del mínimo no alerta por registros",
 			current: withHits(func(fp *Fingerprint) {
 				fp.RootMatches = 3
 				fp.SelectorHits = map[string]int{"product.name": 3, "offer.price": 3}
