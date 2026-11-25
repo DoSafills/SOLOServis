@@ -5,9 +5,20 @@ import {
   formatPrice,
   formatPriceUpdate,
   detectPriceAnomalies,
+  isStalePrice,
   validateOfferComparison,
   type OfferComparisonValidation,
 } from "../../services/utils/productUtils";
+import {
+  getOfferAdvantages,
+  getOfferComparisonHighlights,
+  getOfferTotal as getTotal,
+  getOfferWarrantyLabel,
+  getOfferWarrantyState,
+  type OfferAdvantageTone,
+  type OfferComparisonHighlights,
+  type OfferWarrantyState,
+} from "./offerComparisonUtils";
 import { Breadcrumb } from "../../components/common/ui";
 
 interface Props {
@@ -22,21 +33,32 @@ interface Props {
   initialSelectedStoreIds?: string[];
 }
 
-const getTotal = (offer: StoreOffer, validation: OfferComparisonValidation): number | null => {
-  if (
-    !validation.validPriceOffers.includes(offer) ||
-    !validation.currencyCompatible ||
-    offer.price === null
-  ) {
-    return null;
-  }
-
-  const shipping = offer.shippingFree ? 0 : offer.shipping;
-  if (shipping === null || !Number.isFinite(shipping) || shipping < 0) return null;
-  const total = offer.price + shipping;
-  return Number.isFinite(total) && total > 0 ? total : null;
+const offerAdvantageToneClasses: Record<OfferAdvantageTone, string> = {
+  prime: "border-prime/50 bg-prime-muted text-prime",
+  success: "border-success/50 bg-success/10 text-success",
+  neutral: "border-bd bg-surface-2 text-muted",
+  warn: "border-warn/50 bg-warn/10 text-warn",
+  danger: "border-danger/50 bg-danger/10 text-danger",
 };
 
+const warrantyCellClasses: Record<OfferWarrantyState, string> = {
+  yes: "border-success/50 bg-success/10",
+  no: "border-warn/50 bg-warn/10",
+  unknown: "border-bd bg-surface",
+};
+
+const warrantyTextClasses: Record<OfferWarrantyState, string> = {
+  yes: "text-success",
+  no: "text-warn",
+  unknown: "text-muted",
+};
+
+/**
+ * Valida que el enlace de una tienda use HTTP o HTTPS antes de mostrarlo.
+ *
+ * @param url Dirección de compra entregada por la tienda.
+ * @returns La URL original cuando es segura para un enlace, o `null` si no lo es.
+ */
 const getSafeOfferUrl = (url: string | undefined): string | null => {
   if (!url) return null;
 
@@ -48,6 +70,13 @@ const getSafeOfferUrl = (url: string | undefined): string | null => {
   }
 };
 
+/**
+ * Formatea el costo de envío y distingue un envío gratis, desconocido o no comparable.
+ *
+ * @param offer Oferta cuyo envío se muestra.
+ * @param currencyCompatible Indica si todas las ofertas usan una moneda comparable.
+ * @returns El texto visible para el costo de envío.
+ */
 const shippingLabel = (offer: StoreOffer, currencyCompatible: boolean): string => {
   if (offer.shippingFree) return "Gratis";
   if (offer.shipping === null) return "No informado";
@@ -57,6 +86,13 @@ const shippingLabel = (offer: StoreOffer, currencyCompatible: boolean): string =
   return formatPrice(offer.shipping);
 };
 
+/**
+ * Explica por qué un conjunto de ofertas no permite determinar el menor total.
+ *
+ * @param validation Resultado de validar las ofertas comparadas.
+ * @param hasUnknownShipping Indica si alguna oferta disponible no tiene costo de envío.
+ * @returns Un aviso para la interfaz, o `null` cuando la comparación es determinable.
+ */
 const getComparisonNotice = (
   validation: OfferComparisonValidation,
   hasUnknownShipping: boolean,
@@ -74,6 +110,12 @@ const getComparisonNotice = (
   return null;
 };
 
+/**
+ * Traduce la condición técnica de una oferta a una etiqueta legible en español.
+ *
+ * @param condition Valor de condición entregado por la tienda.
+ * @returns La etiqueta conocida o el texto original cuando no está mapeado.
+ */
 const conditionLabel = (condition: string | undefined): string => {
   if (!condition) return "No informado";
 
@@ -89,17 +131,29 @@ const conditionLabel = (condition: string | undefined): string => {
 interface SelectedOffersTableProps {
   product: Product;
   offers: StoreOffer[];
-  bestOffers: StoreOffer[];
+  highlights: OfferComparisonHighlights;
   validation: OfferComparisonValidation;
   anomalousOfferIds: ReadonlySet<number>;
   onAddToCart: (product: Product, offer: StoreOffer) => void;
   onRemoveOffer: (storeId: string) => void;
 }
 
+/**
+ * Renderiza la matriz de ofertas seleccionadas con beneficios y advertencias por tienda.
+ *
+ * @param product Producto cuyas ofertas se comparan.
+ * @param offers Ofertas seleccionadas, en el orden de las columnas.
+ * @param highlights Totales y ofertas con menor precio o menor total.
+ * @param validation Validación de precios, monedas y disponibilidad.
+ * @param anomalousOfferIds Ofertas marcadas por un precio inusual.
+ * @param onAddToCart Callback para agregar una oferta al carrito.
+ * @param onRemoveOffer Callback para quitar una tienda de la comparación.
+ * @returns La tabla accesible y adaptable al tema claro u oscuro.
+ */
 function SelectedOffersTable({
   product,
   offers,
-  bestOffers,
+  highlights,
   validation,
   anomalousOfferIds,
   onAddToCart,
@@ -107,21 +161,23 @@ function SelectedOffersTable({
 }: SelectedOffersTableProps) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] border-separate border-spacing-1.5 text-left">
+      <table className="w-full min-w-[860px] border-separate border-spacing-1.5 text-left">
         <thead>
           <tr>
-            <th className="w-44 rounded-xl border border-slate-700 bg-slate-800/90 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
+            <th className="w-44 rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
               Tienda
             </th>
             {offers.map((offer) => {
-              const isBest = bestOffers.some((best) => best.storeId === offer.storeId);
+              const isBestTotal = highlights.bestTotalOfferIds.has(offer.offerId);
               return (
                 <th
-                  key={offer.storeId}
-                  className="min-w-40 rounded-xl border border-slate-700 bg-gradient-to-br from-slate-800/95 to-slate-900/95 px-4 py-5 text-center"
+                  key={offer.offerId}
+                  className={`min-w-44 rounded-xl border px-4 py-5 text-center ${
+                    isBestTotal ? "border-prime/70 bg-prime-muted" : "border-bd bg-surface-2"
+                  }`}
                 >
-                  <span className="block text-sm font-bold text-slate-100">{offer.storeName}</span>
-                  {isBest && (
+                  <span className="block text-sm font-bold text-text">{offer.storeName}</span>
+                  {isBestTotal && (
                     <span className="mt-2 inline-flex rounded-full border border-prime/50 bg-prime px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[#181714]">
                       Menor total
                     </span>
@@ -135,65 +191,89 @@ function SelectedOffersTable({
           <tr>
             <th
               scope="row"
-              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
+            >
+              Ventajas y avisos
+            </th>
+            {offers.map((offer) => {
+              const advantages = getOfferAdvantages(offer, highlights, anomalousOfferIds);
+              return (
+                <td key={offer.offerId} className="rounded-xl border border-bd bg-surface p-3">
+                  {advantages.length > 0 ? (
+                    <div className="flex flex-wrap justify-center gap-1.5">
+                      {advantages.map((advantage) => (
+                        <span
+                          key={advantage.id}
+                          title={advantage.title}
+                          className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-semibold ${offerAdvantageToneClasses[advantage.tone]}`}
+                        >
+                          {advantage.label}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted">Sin datos adicionales</span>
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
             >
               Precio
             </th>
             {offers.map((offer) => {
+              const hasValidPrice = validation.validPriceOffers.includes(offer);
               const discounted =
-                validation.validPriceOffers.includes(offer) &&
+                hasValidPrice &&
                 offer.listPrice !== null &&
                 offer.listPrice !== undefined &&
                 offer.price !== null &&
                 offer.listPrice > offer.price;
-              const isBest = bestOffers.some((best) => best.storeId === offer.storeId);
+              const isBestPrice = highlights.bestPriceOfferIds.has(offer.offerId);
+              const priceAnomaly = anomalousOfferIds.has(offer.offerId) ? (
+                <span
+                  className="mt-1 inline-flex rounded-full border border-warn/50 bg-warn/10 px-2 py-0.5 text-[10px] font-semibold text-warn"
+                  title="Menos de la mitad de la mediana de otras ofertas"
+                >
+                  Precio inusual
+                </span>
+              ) : null;
+
               return (
                 <td
-                  key={offer.storeId}
+                  key={offer.offerId}
                   className={`rounded-xl border p-3 text-center ${
-                    isBest
-                      ? "border-prime/70 bg-prime-muted shadow-[0_0_22px_rgba(209,168,90,0.16)]"
-                      : "border-bd bg-surface"
+                    isBestPrice ? "border-success/50 bg-success/10" : "border-bd bg-surface"
                   }`}
                 >
-                  {!validation.validPriceOffers.includes(offer) ? (
-                    <span className="text-sm text-slate-400">Precio no disponible</span>
+                  {!hasValidPrice ? (
+                    <span className="text-sm text-muted">Precio no disponible</span>
                   ) : !validation.currencyCompatible ? (
-                    <span className="text-sm text-slate-400">No comparable</span>
+                    <span className="text-sm text-muted">No comparable</span>
                   ) : discounted ? (
                     <>
                       <span className="block text-[11px] font-medium text-prime">
                         Precio oferta
                       </span>
-                      <span className="text-sm font-bold text-slate-100">
+                      <span className="text-sm font-bold text-text">
                         {formatPrice(offer.price)}
                       </span>
-                      {anomalousOfferIds.has(offer.offerId) && (
-                        <span
-                          className="mt-1 inline-flex rounded-full border border-amber-400 bg-amber-900 px-2 py-0.5 text-[10px] font-semibold text-amber-50"
-                          title="Menos de la mitad de la mediana de otras ofertas"
-                        >
-                          Precio inusual
-                        </span>
-                      )}
-                      <span className="block text-xs text-slate-400">
+                      {priceAnomaly}
+                      <span className="block text-xs text-muted">
                         Normal <span className="line-through">{formatPrice(offer.listPrice!)}</span>
                       </span>
                     </>
                   ) : (
                     <>
-                      <span className="block text-[11px] text-slate-400">Precio normal</span>
-                      <span className="text-sm font-bold text-slate-100">
+                      <span className="block text-[11px] text-muted">Precio normal</span>
+                      <span className="text-sm font-bold text-text">
                         {formatPrice(offer.price)}
                       </span>
-                      {anomalousOfferIds.has(offer.offerId) && (
-                        <span
-                          className="mt-1 inline-flex rounded-full border border-amber-400 bg-amber-900 px-2 py-0.5 text-[10px] font-semibold text-amber-50"
-                          title="Menos de la mitad de la mediana de otras ofertas"
-                        >
-                          Precio inusual
-                        </span>
-                      )}
+                      {priceAnomaly}
                     </>
                   )}
                 </td>
@@ -203,39 +283,48 @@ function SelectedOffersTable({
           <tr>
             <th
               scope="row"
-              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
             >
               Envío
             </th>
-            {offers.map((offer) => (
-              <td
-                key={offer.storeId}
-                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-200"
-              >
-                {shippingLabel(offer, validation.currencyCompatible)}
-              </td>
-            ))}
+            {offers.map((offer) => {
+              const isFreeShipping = offer.available && offer.shippingFree;
+              return (
+                <td
+                  key={offer.offerId}
+                  className={`rounded-xl border p-3 text-center text-sm ${
+                    isFreeShipping
+                      ? "border-success/50 bg-success/10 text-success"
+                      : "border-bd bg-surface text-text"
+                  }`}
+                >
+                  {shippingLabel(offer, validation.currencyCompatible)}
+                </td>
+              );
+            })}
           </tr>
           <tr>
             <th
               scope="row"
-              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
             >
               Total
             </th>
             {offers.map((offer) => {
-              const total = getTotal(offer, validation);
-              const isBest = bestOffers.some((best) => best.storeId === offer.storeId);
+              const hasValidPrice = validation.validPriceOffers.includes(offer);
+              const total = highlights.totalsByOfferId.get(offer.offerId) ?? null;
+              const isBestTotal = highlights.bestTotalOfferIds.has(offer.offerId);
+              const isUnknown = !hasValidPrice || !validation.currencyCompatible || total === null;
               return (
                 <td
-                  key={offer.storeId}
-                  className={`rounded-xl border p-3 text-center text-base font-extrabold ${
-                    isBest
+                  key={offer.offerId}
+                  className={`rounded-xl border p-3 text-center ${
+                    isBestTotal
                       ? "border-prime/70 bg-prime-muted text-prime shadow-[0_0_22px_rgba(209,168,90,0.16)]"
                       : "border-bd bg-surface text-text"
-                  }`}
+                  } ${isUnknown ? "text-xs font-semibold text-muted" : "text-base font-extrabold"}`}
                 >
-                  {!validation.validPriceOffers.includes(offer)
+                  {!hasValidPrice
                     ? "Precio no disponible"
                     : !validation.currencyCompatible
                       ? "No comparable"
@@ -249,14 +338,14 @@ function SelectedOffersTable({
           <tr>
             <th
               scope="row"
-              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
             >
               Entrega
             </th>
             {offers.map((offer) => (
               <td
-                key={offer.storeId}
-                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-200"
+                key={offer.offerId}
+                className="rounded-xl border border-bd bg-surface p-3 text-center text-sm text-text"
               >
                 {offer.deliveryTime || "No informado"}
               </td>
@@ -265,32 +354,56 @@ function SelectedOffersTable({
           <tr>
             <th
               scope="row"
-              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
             >
               Garantía
             </th>
-            {offers.map((offer) => (
-              <td
-                key={offer.storeId}
-                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-200"
-              >
-                {offer.warranty || "No informado"}
-              </td>
-            ))}
+            {offers.map((offer) => {
+              const warrantyState = getOfferWarrantyState(offer.warranty);
+              const warrantyLabel = getOfferWarrantyLabel(offer.warranty);
+              const warrantyDetail =
+                offer.warranty?.trim() &&
+                offer.warranty.trim().toLocaleLowerCase("es") !==
+                  warrantyLabel.toLocaleLowerCase("es")
+                  ? offer.warranty.trim()
+                  : null;
+
+              return (
+                <td
+                  key={offer.offerId}
+                  className="rounded-xl border border-bd bg-surface p-3 text-center"
+                >
+                  <span
+                    className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${warrantyCellClasses[warrantyState]} ${warrantyTextClasses[warrantyState]}`}
+                  >
+                    {warrantyLabel}
+                  </span>
+                  {warrantyDetail && (
+                    <span className="mt-1 block text-xs text-muted">{warrantyDetail}</span>
+                  )}
+                </td>
+              );
+            })}
           </tr>
           <tr>
             <th
               scope="row"
-              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
             >
               Disponibilidad
             </th>
             {offers.map((offer) => (
               <td
-                key={offer.storeId}
-                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm"
+                key={offer.offerId}
+                className="rounded-xl border border-bd bg-surface p-3 text-center"
               >
-                <span className={offer.available ? "text-emerald-300" : "text-slate-400"}>
+                <span
+                  className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${
+                    offer.available
+                      ? "border-success/50 bg-success/10 text-success"
+                      : "border-danger/50 bg-danger/10 text-danger"
+                  }`}
+                >
                   {offer.available ? "Disponible" : "No disponible"}
                 </span>
               </td>
@@ -299,26 +412,79 @@ function SelectedOffersTable({
           <tr>
             <th
               scope="row"
-              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
             >
-              Última verificación
+              Condición
+            </th>
+            {offers.map((offer) => {
+              const isNew = offer.condition?.trim().toLowerCase() === "new";
+              return (
+                <td
+                  key={offer.offerId}
+                  className="rounded-xl border border-bd bg-surface p-3 text-center"
+                >
+                  <span
+                    className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${
+                      isNew
+                        ? "border-success/50 bg-success/10 text-success"
+                        : "border-bd bg-surface-2 text-muted"
+                    }`}
+                  >
+                    {conditionLabel(offer.condition)}
+                  </span>
+                </td>
+              );
+            })}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
+            >
+              Stock
             </th>
             {offers.map((offer) => (
               <td
-                key={offer.storeId}
-                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center text-sm text-slate-400"
-                title={
-                  formatExactUpdateDate(offer.lastUpdated) ?? "Fecha de actualización no disponible"
-                }
+                key={offer.offerId}
+                className="rounded-xl border border-bd bg-surface p-3 text-center text-sm text-text"
               >
-                {formatPriceUpdate(offer.lastUpdated)}
+                {offer.stock !== null && offer.stock !== undefined
+                  ? `${offer.stock} unidades`
+                  : "No informado"}
               </td>
             ))}
           </tr>
           <tr>
             <th
               scope="row"
-              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
+            >
+              Última verificación
+            </th>
+            {offers.map((offer) => {
+              const isStale = isStalePrice(offer.lastUpdated);
+              return (
+                <td
+                  key={offer.offerId}
+                  className={`rounded-xl border p-3 text-center text-sm ${
+                    isStale
+                      ? "border-warn/50 bg-warn/10 text-warn"
+                      : "border-bd bg-surface text-muted"
+                  }`}
+                  title={
+                    formatExactUpdateDate(offer.lastUpdated) ??
+                    "Fecha de actualización no disponible"
+                  }
+                >
+                  {formatPriceUpdate(offer.lastUpdated)}
+                </td>
+              );
+            })}
+          </tr>
+          <tr>
+            <th
+              scope="row"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
             >
               Comprar
             </th>
@@ -326,8 +492,8 @@ function SelectedOffersTable({
               const safeUrl = getSafeOfferUrl(offer.url);
               return (
                 <td
-                  key={offer.storeId}
-                  className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center"
+                  key={offer.offerId}
+                  className="rounded-xl border border-bd bg-surface p-3 text-center"
                 >
                   {safeUrl ? (
                     <a
@@ -339,7 +505,7 @@ function SelectedOffersTable({
                       Comprar oferta
                     </a>
                   ) : (
-                    <span className="text-sm text-slate-400">Enlace no disponible</span>
+                    <span className="text-sm text-muted">Enlace no disponible</span>
                   )}
                 </td>
               );
@@ -348,14 +514,14 @@ function SelectedOffersTable({
           <tr>
             <th
               scope="row"
-              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
             >
               Carrito
             </th>
             {offers.map((offer) => (
               <td
-                key={offer.storeId}
-                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center"
+                key={offer.offerId}
+                className="rounded-xl border border-bd bg-surface p-3 text-center"
               >
                 <button
                   type="button"
@@ -375,22 +541,22 @@ function SelectedOffersTable({
           <tr>
             <th
               scope="row"
-              className="rounded-xl border border-slate-700 bg-slate-800/70 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+              className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
             >
               Acciones
             </th>
             {offers.map((offer) => (
               <td
-                key={offer.storeId}
-                className="rounded-xl border border-slate-800 bg-slate-950/65 p-3 text-center"
+                key={offer.offerId}
+                className="rounded-xl border border-bd bg-surface p-3 text-center"
               >
                 <button
                   type="button"
                   onClick={() => onRemoveOffer(offer.storeId)}
-                  aria-label={`Quitar producto de ${offer.storeName}`}
-                  className="rounded-lg border border-rose-300/40 bg-rose-950/40 px-3 py-1.5 text-xs font-semibold text-rose-200 transition hover:border-rose-200 hover:bg-rose-900/60 hover:text-white"
+                  aria-label={`Quitar oferta de ${offer.storeName}`}
+                  className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-1.5 text-xs font-semibold text-danger transition hover:border-danger hover:bg-danger/20"
                 >
-                  Quitar producto
+                  Quitar oferta
                 </button>
               </td>
             ))}
@@ -400,6 +566,21 @@ function SelectedOffersTable({
     </div>
   );
 }
+
+/**
+ * Muestra las ofertas de un producto y permite comparar las tiendas seleccionadas.
+ *
+ * @param product Producto con sus ofertas actuales.
+ * @param cartProductIds Productos que ya están en el carrito.
+ * @param onAddToCart Callback asíncrono para agregar una oferta al carrito.
+ * @param navigate Callback para cambiar de página.
+ * @param isComparing Indica si el producto ya está en el comparador.
+ * @param onToggleCompare Callback para agregar o quitar el producto del comparador.
+ * @param readOnly Deshabilita las acciones de compra en vistas de ejemplo.
+ * @param comparisonOnly Muestra únicamente la matriz de ofertas seleccionadas.
+ * @param initialSelectedStoreIds Tiendas seleccionadas al abrir la vista.
+ * @returns La vista completa de ofertas o el comparador de ofertas seleccionadas.
+ */
 export default function PriceOfferComparison({
   product,
   cartProductIds,
@@ -415,6 +596,12 @@ export default function PriceOfferComparison({
   const [addingProductIds, setAddingProductIds] = useState<Set<string>>(() => new Set());
   const addingProductIdsRef = useRef(new Set<string>());
 
+  /**
+   * Agrega una oferta válida y disponible al carrito, evitando solicitudes duplicadas.
+   *
+   * @param offer Oferta que el usuario quiere comprar.
+   * @returns Una promesa que termina cuando el callback de carrito finaliza.
+   */
   const addOfferToCart = async (offer: StoreOffer) => {
     const validation = validateOfferComparison([offer]);
     if (
@@ -448,24 +635,7 @@ export default function PriceOfferComparison({
   const hasUnknownShipping = offerComparison.availableOffers.some(
     (offer) => getTotal(offer, offerComparison) === null,
   );
-  const selectedAvailableOffers = selectedComparison.availableOffers;
-  const selectedHasUnknownShipping = selectedAvailableOffers.some(
-    (offer) => getTotal(offer, selectedComparison) === null,
-  );
-
-  const selectedAvailableTotals = selectedAvailableOffers
-    .map((offer) => ({ offer, total: getTotal(offer, selectedComparison) }))
-    .filter((entry): entry is { offer: StoreOffer; total: number } => entry.total !== null);
-  const selectedLowestTotal = selectedAvailableTotals.reduce<number | null>(
-    (lowest, entry) => (lowest === null || entry.total < lowest ? entry.total : lowest),
-    null,
-  );
-  const selectedBestOffers =
-    !selectedComparison.canCompare || selectedHasUnknownShipping
-      ? []
-      : selectedAvailableTotals
-          .filter((entry) => entry.total === selectedLowestTotal)
-          .map((entry) => entry.offer);
+  const selectedHighlights = getOfferComparisonHighlights(selectedOffers, selectedComparison);
   const availableTotals = offerComparison.availableOffers
     .map((offer) => ({ offer, total: getTotal(offer, offerComparison) }))
     .filter((entry): entry is { offer: StoreOffer; total: number } => entry.total !== null);
@@ -480,9 +650,15 @@ export default function PriceOfferComparison({
   const comparisonNotice = getComparisonNotice(offerComparison, hasUnknownShipping);
   const selectedComparisonNotice = getComparisonNotice(
     selectedComparison,
-    selectedHasUnknownShipping,
+    selectedHighlights.hasUnknownShipping,
   );
 
+  /**
+   * Agrega o quita una tienda de la selección sin perder el orden de las demás.
+   *
+   * @param offer Oferta cuya tienda se quiere alternar.
+   * @returns Nada; actualiza el estado local de tiendas seleccionadas.
+   */
   const toggleOffer = (offer: StoreOffer) => {
     setSelectedStoreIds((current) =>
       current.includes(offer.storeId)
@@ -507,14 +683,14 @@ export default function PriceOfferComparison({
         />
 
         <h1 className="mb-2 mt-6 text-2xl font-bold text-text">Comparación de ofertas</h1>
-        <p className="mb-8 text-sm text-slate-300">
+        <p className="mb-8 text-sm text-muted">
           Comparando {selectedOffers.length} ofertas de {product.name}
         </p>
 
-        <section className="rounded-[28px] border border-bd bg-surface p-3 shadow-[0_24px_70px_rgba(0,0,0,0.4)] backdrop-blur-sm sm:p-5">
-          <p className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-[11px] text-text">
+        <section className="rounded-[28px] border border-bd bg-surface p-3 shadow-[0_24px_70px_rgba(0,0,0,0.16)] backdrop-blur-sm sm:p-5">
+          <p className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-[11px] text-muted">
             <span className="inline-flex items-center gap-1 rounded-full border border-prime/50 bg-prime px-2 py-1 font-extrabold text-[#181714]">
-              ✦ Menor total
+              Menor total
             </span>
             {selectedComparisonNotice ??
               "La mejor oferta considera el precio del producto y su costo de envío."}
@@ -523,7 +699,7 @@ export default function PriceOfferComparison({
             <SelectedOffersTable
               product={product}
               offers={selectedOffers}
-              bestOffers={selectedBestOffers}
+              highlights={selectedHighlights}
               validation={selectedComparison}
               anomalousOfferIds={anomalousOfferIds}
               onAddToCart={onAddToCart}
@@ -533,7 +709,7 @@ export default function PriceOfferComparison({
             />
           ) : (
             <div className="py-8 text-center">
-              <p className="mb-4 text-sm text-slate-300">
+              <p className="mb-4 text-sm text-muted">
                 Ya no hay ofertas seleccionadas para comparar.
               </p>
               <button
