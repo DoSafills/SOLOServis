@@ -79,6 +79,25 @@ const emptyFilters: ProductFilterState = {
   availableOnly: false,
 };
 
+/**
+ * Valida el rango de precios antes de consultar la API. Recibe el mínimo y el
+ * máximo como texto y devuelve un mensaje en español cuando son inválidos.
+ */
+function getPriceRangeError(min: string, max: string): string | null {
+  const minimum = min.trim() === "" ? null : Number(min);
+  const maximum = max.trim() === "" ? null : Number(max);
+  if (
+    (minimum !== null && (!Number.isFinite(minimum) || minimum < 0)) ||
+    (maximum !== null && (!Number.isFinite(maximum) || maximum < 0))
+  ) {
+    return "Los precios deben ser números iguales o mayores que cero.";
+  }
+  if (minimum !== null && maximum !== null && minimum > maximum) {
+    return "El precio mínimo no puede ser mayor que el precio máximo.";
+  }
+  return null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -104,7 +123,8 @@ const productFiltersSessionCodec: SessionStorageCodec<Record<string, ProductFilt
         !selectedStores.every((id) => typeof id === "number" && Number.isInteger(id)) ||
         typeof availableOnly !== "boolean" ||
         !isStringRecord(selectedAttributes) ||
-        !isRecord(attributeRanges)
+        !isRecord(attributeRanges) ||
+        getPriceRangeError(priceMin, priceMax) !== null
       ) {
         continue;
       }
@@ -205,6 +225,8 @@ export default function SearchResultsPage({
   const [loading, setLoading] = useState(true);
   const [loadedSearchKey, setLoadedSearchKey] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [errorOpen, setErrorOpen] = useState(false);
+  const [errorSource, setErrorSource] = useState<"price" | "search" | null>(null);
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [categories, setCategories] = useState<ApiProductCategory[]>([]);
   const [categoriesLoaded, setCategoriesLoaded] = useState(false);
@@ -247,8 +269,17 @@ export default function SearchResultsPage({
     attributeRanges,
     availableOnly,
   } = activeFilters;
+  const [priceMinDraft, setPriceMinDraft] = useState(priceMin);
+  const [priceMaxDraft, setPriceMaxDraft] = useState(priceMax);
 
+  /**
+   * Mezcla filtros del grupo activo, cierra errores previos y vuelve a la
+   * primera página. Recibe el parche a aplicar y no devuelve nada.
+   */
   const updateActiveFilters = (update: Partial<ProductFilterState>) => {
+    setError(null);
+    setErrorOpen(false);
+    setErrorSource(null);
     setFiltersByGroup((previous) => ({
       ...previous,
       [activeFilterKey]: { ...(previous[activeFilterKey] ?? emptyFilters), ...update },
@@ -256,12 +287,37 @@ export default function SearchResultsPage({
     setPage(1);
   };
 
+  /**
+   * Actualiza filtros mediante una función para preservar cambios simultáneos,
+   * cierra errores previos y vuelve a la primera página.
+   */
   const updateActiveFiltersWith = (update: (current: ProductFilterState) => ProductFilterState) => {
+    setError(null);
+    setErrorOpen(false);
+    setErrorSource(null);
     setFiltersByGroup((previous) => ({
       ...previous,
       [activeFilterKey]: update(previous[activeFilterKey] ?? emptyFilters),
     }));
     setPage(1);
+  };
+
+  /**
+   * Aplica los borradores de precio solo cuando la persona pulsa el botón.
+   * Recibe ningún argumento, valida el rango en el navegador y no consulta la
+   * API si el mínimo supera al máximo.
+   */
+  const applyPriceFilters = () => {
+    const nextMin = priceMinDraft.trim();
+    const nextMax = priceMaxDraft.trim();
+    const validationError = getPriceRangeError(nextMin, nextMax);
+    if (validationError) {
+      setError(validationError);
+      setErrorOpen(true);
+      setErrorSource("price");
+      return;
+    }
+    updateActiveFilters({ priceMin: nextMin, priceMax: nextMax });
   };
 
   useEffect(() => {
@@ -403,10 +459,16 @@ export default function SearchResultsPage({
           setResultTotal(result.total);
           setFacets(nextFacets);
           setError(null);
+          setErrorOpen(false);
+          setErrorSource(null);
         }
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Error al cargar productos.");
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Error al cargar productos.");
+          setErrorOpen(true);
+          setErrorSource("search");
+        }
       })
       .finally(() => {
         if (!cancelled) {
@@ -510,7 +572,13 @@ export default function SearchResultsPage({
     });
   };
 
+  /**
+   * Limpia los filtros aplicados y los borradores de precio para devolver la
+   * búsqueda a su estado inicial. No recibe argumentos ni devuelve nada.
+   */
   const clearFilters = () => {
+    setPriceMinDraft("");
+    setPriceMaxDraft("");
     updateActiveFilters({ ...emptyFilters });
     if (showCategoryFilter) {
       selectCategory(null);
@@ -561,6 +629,7 @@ export default function SearchResultsPage({
     Number(Boolean(priceMin || priceMax)) +
     Number(availableOnly) +
     Number(showCategoryFilter && (selectedCategory !== null || selectedCategorySlug !== null));
+  const priceFiltersChanged = priceMinDraft !== priceMin || priceMaxDraft !== priceMax;
 
   const renderFilters = () => (
     <div className="space-y-1">
@@ -619,9 +688,13 @@ export default function SearchResultsPage({
             <input
               type="number"
               min="0"
-              value={priceMin}
-              onChange={(event) => {
-                updateActiveFilters({ priceMin: event.target.value });
+              value={priceMinDraft}
+              onChange={(event) => setPriceMinDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  applyPriceFilters();
+                }
               }}
               placeholder="$0"
               className="mt-1 w-full rounded-lg border border-bd bg-surface-2 px-2.5 py-2 text-sm text-text placeholder:text-muted focus:border-prime focus:outline-none"
@@ -632,15 +705,27 @@ export default function SearchResultsPage({
             <input
               type="number"
               min="0"
-              value={priceMax}
-              onChange={(event) => {
-                updateActiveFilters({ priceMax: event.target.value });
+              value={priceMaxDraft}
+              onChange={(event) => setPriceMaxDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  applyPriceFilters();
+                }
               }}
               placeholder="Sin límite"
               className="mt-1 w-full rounded-lg border border-bd bg-surface-2 px-2.5 py-2 text-sm text-text placeholder:text-muted focus:border-prime focus:outline-none"
             />
           </label>
         </div>
+        <button
+          type="button"
+          onClick={applyPriceFilters}
+          disabled={!priceFiltersChanged}
+          className="mb-2 w-full rounded-lg bg-gradient-to-r from-prime to-prime-dark px-3 py-2 text-sm font-semibold text-[#181714] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Aplicar precio
+        </button>
       </details>
 
       <details className="group border-b border-bd pb-3">
@@ -896,7 +981,7 @@ export default function SearchResultsPage({
     breadcrumbItems.push({ label: `"${query}"` });
   }
 
-  if (searching) {
+  if (searching && !loadedSearchKey) {
     return (
       <div
         className="mx-auto max-w-7xl px-4 py-8 sm:py-10"
@@ -920,24 +1005,74 @@ export default function SearchResultsPage({
     );
   }
 
-  if (error) {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <p className="mb-4 text-sm text-amber-200" role="alert">
-          {error}
-        </p>
-        <button
-          onClick={() => setSearchAttempt((attempt) => attempt + 1)}
-          className="rounded-lg bg-gradient-to-r from-cyan-600 to-violet-600 px-5 py-2 text-sm font-semibold text-white transition hover:brightness-110"
-        >
-          Reintentar
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:py-10">
+      {error && errorOpen && !searching && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Cerrar error"
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setErrorOpen(false)}
+          />
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="search-error-title"
+            className="relative w-full max-w-md rounded-2xl border border-bd bg-surface p-6 shadow-2xl"
+          >
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <h2 id="search-error-title" className="text-lg font-semibold text-text">
+                No se pudo completar la búsqueda
+              </h2>
+              <button
+                type="button"
+                aria-label="Cerrar"
+                onClick={() => setErrorOpen(false)}
+                className="rounded-full border border-bd p-2 text-muted transition-colors hover:text-text"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-sm text-muted" role="alert">
+              {error.replace(/^Search API:\s*/, "")}
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setErrorOpen(false)}
+                className="rounded-lg border border-bd px-4 py-2 text-sm font-medium text-muted-2 transition-colors hover:text-text"
+              >
+                Cerrar
+              </button>
+              {errorSource !== "price" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setErrorOpen(false);
+                    setErrorSource(null);
+                    setSearchAttempt((attempt) => attempt + 1);
+                  }}
+                  className="rounded-lg bg-gradient-to-r from-prime to-prime-dark px-4 py-2 text-sm font-semibold text-[#181714] transition hover:brightness-110"
+                >
+                  Reintentar
+                </button>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
       <Breadcrumb items={breadcrumbItems} />
 
       <div className="mb-6 mt-5 flex flex-wrap items-end justify-between gap-4 border-b border-white/10 pb-5">
@@ -1124,7 +1259,9 @@ export default function SearchResultsPage({
 
         {/* Results */}
         <div className="flex-1 min-w-0">
-          {paginated.length === 0 ? (
+          {searching ? (
+            <ProductSkeletonGrid count={6} />
+          ) : paginated.length === 0 ? (
             <>
               <EmptyState
                 title={

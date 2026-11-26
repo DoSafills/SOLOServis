@@ -27,6 +27,10 @@ export default function Header({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
+  /**
+   * Valida el término del buscador superior y navega a productos con el texto
+   * en mayúsculas. Recibe el evento del formulario y no devuelve nada.
+   */
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const normalized = query.trim();
@@ -40,7 +44,7 @@ export default function Header({
       return;
     }
     setSearchError(null);
-    navigate({ id: "search-products", query: normalized });
+    navigate({ id: "search-products", query: normalized.toLocaleUpperCase("es") });
     setQuery("");
     setMobileOpen(false);
   };
