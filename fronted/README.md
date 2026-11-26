@@ -129,6 +129,9 @@ proxy de Vite:
   ordenamiento y paginación.
 - Página de detalle con información del proveedor, precio y periodo de cobro,
   especificaciones, beneficios, cobertura e historial de precios.
+- Botón «Ver en la tienda» sobre «Agregar al carrito» cuando `Service.url` es
+  una URL HTTP o HTTPS válida. Abre el sitio externo en una pestaña nueva con
+  `rel="noopener noreferrer"`; si no hay URL válida, el botón se omite.
 - Favoritos, selección para comparar y agregado al carrito.
 - Comparación de hasta tres servicios de categorías iguales o compatibles.
 

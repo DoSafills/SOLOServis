@@ -249,7 +249,7 @@ Contiene las funcionalidades relacionadas con el catálogo, precios y operacione
 |---|---|---|
 | Product API | Productos, detalles, características y categorías. | `/products` |
 | Store API | Tiendas y sus ofertas. | `/stores` |
-| Service API | Servicios y proveedores. | `/services` |
+| Service API | Servicios, proveedores y URL externa. | `/services` |
 | Pricing API | Precios, ofertas e historial de precios. | `/offers` |
 | Search API | Búsqueda, filtros y facetas. | `/search` |
 | Comparison API | Comparación de productos y servicios. | `/comparisons` |
@@ -906,6 +906,16 @@ para verificar el estado del servicio y su conexión con PostgreSQL.
 No todas las rutas tienen exposición pública. Algunas operaciones están reservadas para comunicación interna o requieren autenticación.
 
 El contrato detallado de Categorías, Productos, Store, Pricing, Search y Comparison se encuentra en la sección 25.
+
+### 15.1 Service API: URL externa del servicio
+
+`GET /services` y `GET /services/{publicID}` incluyen el campo `url` en cada servicio. La URL corresponde a la primera oferta disponible, ordenada por precio e identificador, y se obtiene con este orden de respaldo:
+
+1. `service_offer.service_url`.
+2. `provider.website_url` si la URL de la oferta está vacía.
+3. Cadena vacía si ninguna de las dos está informada.
+
+La consulta se define en `database/queries/services.sql`; el DTO público expone el valor como `url` para que el frontend decida si muestra el enlace externo.
 
 ---
 
