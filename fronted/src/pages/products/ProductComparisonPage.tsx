@@ -8,6 +8,7 @@ import {
   formatPrice,
   formatPriceUpdate,
   getMinOffer,
+  keepLatestOfferPerStore,
   validateOfferComparison,
 } from "../../services/utils/productUtils";
 import { Breadcrumb, Skeleton } from "../../components/common/ui";
@@ -434,10 +435,12 @@ export default function ProductComparisonPage({
 
           return {
             ...product,
-            offers: product.offers.map((offer) => {
-              const lastUpdated = updatesByOfferId.get(offer.offerId);
-              return lastUpdated === undefined ? offer : { ...offer, lastUpdated };
-            }),
+            offers: keepLatestOfferPerStore(
+              product.offers.map((offer) => {
+                const lastUpdated = updatesByOfferId.get(offer.offerId);
+                return lastUpdated === undefined ? offer : { ...offer, lastUpdated };
+              }),
+            ),
           };
         });
         setSelected(validWithOfferUpdates);

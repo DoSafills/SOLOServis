@@ -6,6 +6,7 @@ import {
   formatPriceUpdate,
   detectPriceAnomalies,
   isStalePrice,
+  keepLatestOfferPerStore,
   validateOfferComparison,
   type OfferComparisonValidation,
 } from "../../services/utils/productUtils";
@@ -627,7 +628,7 @@ export default function PriceOfferComparison({
       });
     }
   };
-  const offers = product.offers;
+  const offers = keepLatestOfferPerStore(product.offers);
   const anomalousOfferIds = detectPriceAnomalies(offers, []).anomalousOfferIds;
   const selectedOffers = offers.filter((offer) => selectedStoreIds.includes(offer.storeId));
   const offerComparison = validateOfferComparison(offers);

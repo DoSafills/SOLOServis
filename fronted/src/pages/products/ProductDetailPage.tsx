@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Page, Product, StoreOffer } from "../../types";
-import { formatExactUpdateDate, formatPriceUpdate } from "../../services/utils/productUtils";
+import {
+  formatExactUpdateDate,
+  formatPriceUpdate,
+  keepLatestOfferPerStore,
+} from "../../services/utils/productUtils";
 import {
   getProductById,
   getProductReviews,
@@ -41,6 +45,12 @@ const primarySpecificationPatterns = [
   /(velocidad|programa|rendimiento)/i,
 ];
 
+/**
+ * Selecciona las cuatro especificaciones más útiles para el resumen del producto.
+ *
+ * @param specs Especificaciones disponibles del producto.
+ * @returns Las características prioritarias y, si faltan, las primeras adicionales.
+ */
 const getPrimarySpecifications = (specs: Record<string, string>): ProductSpecification[] => {
   const entries = Object.entries(specs) as ProductSpecification[];
   const primary: ProductSpecification[] = [];
@@ -61,6 +71,12 @@ const getPrimarySpecifications = (specs: Record<string, string>): ProductSpecifi
   return primary;
 };
 
+/**
+ * Agrupa las especificaciones del producto en secciones de la ficha.
+ *
+ * @param specs Especificaciones que se quieren organizar.
+ * @returns Los grupos con título y características asignadas.
+ */
 const groupProductSpecifications = (specs: Record<string, string>) => {
   const groups = [
     { title: "Capacidad y carga", test: /(capacidad|volumen|carga|soporte)/i },
@@ -136,6 +152,19 @@ const buildSpecifications = (
   return specifications;
 };
 
+/**
+ * Muestra la ficha de un producto, sus características, historial y ofertas por tienda.
+ *
+ * @param productId Identificador del producto que se quiere mostrar.
+ * @param navigate Callback para cambiar de página.
+ * @param isFavorite Indica si el producto está en favoritos.
+ * @param isComparing Indica si el producto está en el comparador.
+ * @param onToggleFavorite Callback para alternar el favorito.
+ * @param onToggleCompare Callback para alternar la comparación.
+ * @param cartProductIds Productos que ya están en el carrito.
+ * @param onAddToCart Callback para agregar una oferta al carrito.
+ * @returns La ficha completa del producto con una oferta reciente por tienda.
+ */
 export default function ProductDetailPage({
   productId,
   navigate,
@@ -180,10 +209,12 @@ export default function ProductDetailPage({
   const product = storedProduct
     ? {
         ...storedProduct,
-        offers: storedProduct.offers.map((offer) => {
-          const update = offerUpdates.find((item) => item.offerId === offer.offerId);
-          return update ? { ...offer, lastUpdated: update.lastUpdated } : offer;
-        }),
+        offers: keepLatestOfferPerStore(
+          storedProduct.offers.map((offer) => {
+            const update = offerUpdates.find((item) => item.offerId === offer.offerId);
+            return update ? { ...offer, lastUpdated: update.lastUpdated } : offer;
+          }),
+        ),
       }
     : null;
   const latestOfferUpdate = product?.offers.reduce<string | undefined>((latest, offer) => {
