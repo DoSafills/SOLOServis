@@ -18,9 +18,34 @@ interface Props {
 
 type ServiceSpecification = [name: string, value: string];
 
+/**
+ * Selecciona las primeras cuatro características para el resumen del servicio.
+ * Recibe el mapa de especificaciones y devuelve pares nombre-valor ordenados.
+ */
 const getPrimarySpecifications = (specs: Record<string, string>): ServiceSpecification[] =>
   Object.entries(specs).slice(0, 4);
 
+/**
+ * Valida el enlace externo del servicio antes de crear un anchor.
+ * Recibe la URL opcional entregada por la API y devuelve `null` si está vacía,
+ * está mal formada o no usa HTTP o HTTPS.
+ */
+const getSafeServiceUrl = (url: string | undefined): string | null => {
+  if (!url) return null;
+
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Agrupa las especificaciones por tema para la sección inferior del detalle.
+ * Recibe el mapa de especificaciones y devuelve solo los grupos con elementos,
+ * asignando cada característica a la primera categoría que coincide.
+ */
 const groupServiceSpecifications = (specs: Record<string, string>) => {
   const groups = [
     { title: "Conectividad y velocidad", test: /(velocidad|internet|conexi[oó]n|red|banda)/i },
@@ -49,6 +74,11 @@ const groupServiceSpecifications = (specs: Record<string, string>) => {
     .filter((group) => group.items.length > 0);
 };
 
+/**
+ * Muestra la ficha completa de un servicio y sus acciones de compra.
+ * Recibe el identificador, la navegación, los estados de favorito, comparación
+ * y cesta, y los callbacks para modificarlos; devuelve la interfaz del detalle.
+ */
 export default function ServiceDetailPage({
   serviceId,
   navigate,
@@ -88,6 +118,10 @@ export default function ServiceDetailPage({
   const service = result?.serviceId === serviceId ? result.service : null;
   const isInCart = Boolean(service && cartServiceIds.has(service.id));
 
+  /**
+   * Agrega el servicio actual a la cesta e impide clics duplicados.
+   * No recibe argumentos y devuelve una promesa que termina con el callback.
+   */
   const addServiceToCart = async () => {
     if (!service || addingRef.current || isInCart) return;
     addingRef.current = true;
@@ -129,6 +163,7 @@ export default function ServiceDetailPage({
 
   const primarySpecifications = getPrimarySpecifications(service.specs);
   const specificationGroups = groupServiceSpecifications(service.specs);
+  const serviceUrl = getSafeServiceUrl(service.url);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -266,6 +301,26 @@ export default function ServiceDetailPage({
               </div>
             </dl>
           </div>
+
+          {serviceUrl && (
+            <a
+              href={serviceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 rounded-xl border border-prime/50 bg-prime-muted px-5 py-3 text-sm font-semibold text-prime transition hover:bg-prime/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-prime"
+            >
+              Ver en la tienda
+              <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+                <path
+                  d="M11 4h5v5m0-5-7 7M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </a>
+          )}
 
           <button
             type="button"

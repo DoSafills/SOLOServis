@@ -129,6 +129,7 @@ export interface Service {
   benefits: string[];
   coverage: string;
   image: string;
+  url?: string;
   priceHistory: PricePoint[];
 }
 
