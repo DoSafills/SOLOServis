@@ -592,10 +592,14 @@ export async function compareProducts(ids: string[]): Promise<ApiProductComparis
   );
 }
 
-export async function createProductComparison(userId: number, productId: string): Promise<number> {
+/**
+ * Crea una comparación de productos para la sesión actual. Recibe el ID del
+ * primer producto y devuelve el ID de la comparación creada por el backend.
+ */
+export async function createProductComparison(productId: string): Promise<number> {
   const result = await request<{ id: number }>(API_URLS.comparison, "/comparisons/products", {
     method: "POST",
-    body: JSON.stringify({ userId, productIds: [productId] }),
+    body: JSON.stringify({ productIds: [productId] }),
   });
   return result.id;
 }
@@ -641,10 +645,14 @@ export async function getServiceComparison(id: number): Promise<ApiServiceCompar
   return request<ApiServiceComparison>(API_URLS.comparison, `/comparisons/services/${id}`);
 }
 
-export async function createServiceComparison(userId: number, serviceId: string): Promise<number> {
+/**
+ * Crea una comparación de servicios para la sesión actual. Recibe el ID del
+ * primer servicio y devuelve el ID de la comparación creada por el backend.
+ */
+export async function createServiceComparison(serviceId: string): Promise<number> {
   const result = await request<{ id: number }>(API_URLS.comparison, "/comparisons/services", {
     method: "POST",
-    body: JSON.stringify({ userId, serviceIds: [serviceId] }),
+    body: JSON.stringify({ serviceIds: [serviceId] }),
   });
   return result.id;
 }
