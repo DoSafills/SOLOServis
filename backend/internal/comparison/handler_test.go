@@ -264,13 +264,14 @@ func TestGuardadas_RequierenSesion(t *testing.T) {
 func TestCreate(t *testing.T) {
 	store := newFakeStore()
 	store.header.CreatedAt = time.Date(2026, 10, 26, 10, 0, 0, 0, time.UTC)
-	rec := serve(t, store, http.MethodPost, "/comparisons/products", tokenAna, `{"productIds":["`+uuidA+`","`+uuidB+`"]}`)
+	store.header.ProductIDs = []int32{1}
+	rec := serve(t, store, http.MethodPost, "/comparisons/products", tokenAna, `{"productIds":["`+uuidA+`"]}`)
 
 	requireStatus(t, rec, http.StatusCreated)
 	if rec.Header().Get("Location") != "/comparisons/products/4" || !strings.Contains(rec.Body.String(), `"name":"Mis refris"`) {
 		t.Fatalf("Location = %q body = %s", rec.Header().Get("Location"), rec.Body.String())
 	}
-	if store.gotUser != userAna || store.gotName != DefaultName || len(store.gotProducts) != 2 {
+	if store.gotUser != userAna || store.gotName != DefaultName || len(store.gotProducts) != 1 {
 		t.Fatalf("user = %d name = %q products = %+v", store.gotUser, store.gotName, store.gotProducts)
 	}
 

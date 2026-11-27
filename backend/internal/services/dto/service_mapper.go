@@ -7,6 +7,9 @@ import (
 	"github.com/DoSafills/SOLOServis/backend/internal/database/generated"
 )
 
+// FromService convierte una fila de servicio y sus datos relacionados en el DTO
+// público. Recibe el servicio, sus ofertas, especificaciones e historial; usa la
+// primera oferta disponible y devuelve el detalle que consume el frontend.
 func FromService(
 	service generated.GetServiceByPublicIDRow,
 	offers []generated.ListServiceOffersRow,
@@ -50,6 +53,10 @@ func FromService(
 
 		result.OfferID = offer.ID
 		result.Provider = offer.ProviderName
+
+		if offer.ServiceUrl != "" {
+			result.URL = offer.ServiceUrl
+		}
 
 		if offer.BillingPeriod.Valid {
 			result.BillingPeriod = offer.BillingPeriod.String

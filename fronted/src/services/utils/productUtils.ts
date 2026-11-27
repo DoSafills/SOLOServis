@@ -6,6 +6,12 @@ const clpFormatter = new Intl.NumberFormat("es-CL", {
   maximumFractionDigits: 0,
 });
 
+/**
+ * Formatea un precio en pesos chilenos sin decimales.
+ *
+ * @param price Precio numérico que se quiere mostrar.
+ * @returns El precio formateado o un mensaje cuando no está disponible.
+ */
 export const formatPrice = (price: number | null | undefined): string =>
   price === null || price === undefined || !Number.isFinite(price)
     ? "Precio no disponible"
@@ -13,12 +19,24 @@ export const formatPrice = (price: number | null | undefined): string =>
 
 export const STALE_PRICE_DAYS = 7;
 
+/**
+ * Convierte una fecha válida y pasada en una marca de tiempo.
+ *
+ * @param value Fecha de actualización en texto.
+ * @returns La marca de tiempo o `undefined` si falta o no es una fecha pasada válida.
+ */
 const getPastTimestamp = (value: string | null | undefined): number | undefined => {
   if (!value) return undefined;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) && timestamp <= Date.now() ? timestamp : undefined;
 };
 
+/**
+ * Expresa una antigüedad en unidades relativas legibles en español.
+ *
+ * @param timestamp Marca de tiempo de la actualización.
+ * @returns Un texto como «ayer» o «hace 3 horas».
+ */
 const relativeTime = (timestamp: number): string => {
   const elapsedSeconds = Math.round((Date.now() - timestamp) / 1000);
   if (elapsedSeconds < 60) return "hace menos de un minuto";
@@ -35,26 +53,83 @@ const relativeTime = (timestamp: number): string => {
   return new Intl.RelativeTimeFormat("es", { numeric: "auto" }).format(-count, unit);
 };
 
+/**
+ * Devuelve una descripción relativa de la última actualización.
+ *
+ * @param value Fecha de actualización en texto.
+ * @returns La antigüedad formateada o un aviso cuando la fecha no está disponible.
+ */
 export const relativeUpdate = (value: string | null | undefined): string => {
   const timestamp = getPastTimestamp(value);
-  if (timestamp === undefined) return "Fecha de actualización no disponible";
-  return `Actualizado ${relativeTime(timestamp)}`;
+  return timestamp === undefined
+    ? "Fecha de actualización no disponible"
+    : `Actualizado ${relativeTime(timestamp)}`;
 };
 
+/**
+ * Comprueba si una oferta lleva más de siete días sin actualizarse.
+ *
+ * @param value Fecha de actualización en texto.
+ * @returns `true` cuando la fecha pasada supera el umbral de desactualización.
+ */
 export const isStalePrice = (value: string | null | undefined): boolean => {
   const timestamp = getPastTimestamp(value);
   return timestamp !== undefined && Date.now() - timestamp > STALE_PRICE_DAYS * 24 * 60 * 60 * 1000;
 };
 
+/**
+ * Formatea la antigüedad de una oferta y marca las precios desactualizados.
+ *
+ * @param value Fecha de actualización en texto.
+ * @returns La antigüedad, «Desactualizado» o un aviso de fecha no disponible.
+ */
 export const formatPriceUpdate = (value: string | null | undefined): string => {
   const timestamp = getPastTimestamp(value);
-  if (timestamp === undefined) return "Fecha de actualización no disponible";
-  return isStalePrice(value) ? "Desactualizado" : relativeTime(timestamp);
+  return timestamp === undefined
+    ? "Fecha de actualización no disponible"
+    : isStalePrice(value)
+      ? "Desactualizado"
+      : relativeTime(timestamp);
 };
 
+/**
+ * Formatea una fecha pasada válida con fecha y hora locales.
+ *
+ * @param value Fecha de actualización en texto.
+ * @returns La fecha legible o `undefined` cuando no se puede interpretar.
+ */
 export const formatExactUpdateDate = (value: string | null | undefined): string | undefined => {
   const timestamp = getPastTimestamp(value);
   return timestamp === undefined ? undefined : new Date(timestamp).toLocaleString("es-CL");
+};
+
+/**
+ * Conserva una sola oferta por tienda: la que tiene la actualización más reciente.
+ *
+ * @param offers Ofertas del producto, incluidas posibles duplicados de una tienda.
+ * @returns Las ofertas seleccionadas, conservando el orden de aparición de cada tienda.
+ */
+export const keepLatestOfferPerStore = (offers: readonly StoreOffer[]): StoreOffer[] => {
+  const latestByStore = new Map<string, StoreOffer>();
+
+  for (const offer of offers) {
+    const current = latestByStore.get(offer.storeId);
+    if (!current) {
+      latestByStore.set(offer.storeId, offer);
+      continue;
+    }
+
+    const currentTimestamp = getPastTimestamp(current.lastUpdated);
+    const offerTimestamp = getPastTimestamp(offer.lastUpdated);
+    if (
+      offerTimestamp !== undefined &&
+      (currentTimestamp === undefined || offerTimestamp > currentTimestamp)
+    ) {
+      latestByStore.set(offer.storeId, offer);
+    }
+  }
+
+  return [...latestByStore.values()];
 };
 
 export interface OfferComparisonValidation {
@@ -65,6 +140,12 @@ export interface OfferComparisonValidation {
   canCompare: boolean;
 }
 
+/**
+ * Valida precios, disponibilidad y monedas antes de comparar ofertas.
+ *
+ * @param offers Ofertas que se quieren validar.
+ * @returns Los subconjuntos válidos y los indicadores de compatibilidad.
+ */
 export const validateOfferComparison = (
   offers: readonly StoreOffer[],
 ): OfferComparisonValidation => {
@@ -89,6 +170,12 @@ export const validateOfferComparison = (
   };
 };
 
+/**
+ * Normaliza el historial de precios y descarta puntos inválidos o futuros.
+ *
+ * @param points Historial original de precios.
+ * @returns Los puntos válidos ordenados cronológicamente.
+ */
 export const normalizePriceHistory = (points: readonly PricePoint[]): PricePoint[] => {
   const now = Date.now();
 
@@ -116,6 +203,13 @@ export const ANOMALY_LOW_RATIO = 0.5;
 export const ANOMALY_MIN_HISTORY_POINTS = 3;
 export const ANOMALY_HISTORY_DROP_RATIO = 0.5;
 
+/**
+ * Detecta precios inusuales respecto de otras ofertas y caídas bruscas del historial.
+ *
+ * @param offers Ofertas actuales del producto.
+ * @param history Historial de precios del producto.
+ * @returns Los identificadores de ofertas anómalas y si hubo una caída brusca.
+ */
 export const detectPriceAnomalies = (
   offers: readonly StoreOffer[],
   history: readonly PricePoint[],
@@ -150,6 +244,12 @@ export const detectPriceAnomalies = (
     historyByOffer.set(point.offerId, offerHistory);
   }
 
+  /**
+   * Comprueba si los últimos puntos de un historial muestran una caída abrupta.
+   *
+   * @param points Puntos válidos de una oferta o del producto.
+   * @returns `true` cuando el último precio cayó al menos a la mitad del anterior.
+   */
   const hasAbruptDrop = (points: readonly PricePoint[]): boolean =>
     points.length >= ANOMALY_MIN_HISTORY_POINTS &&
     points[points.length - 1].price <= points[points.length - 2].price * ANOMALY_HISTORY_DROP_RATIO;
@@ -161,18 +261,36 @@ export const detectPriceAnomalies = (
   return { anomalousOfferIds, hasAbruptHistoryDrop };
 };
 
+/**
+ * Devuelve el sufijo visible para un periodo de facturación.
+ *
+ * @param period Periodo técnico del servicio.
+ * @returns El sufijo en español o el valor mensual por defecto.
+ */
 export const getBillingPeriodText = (period: string | null | undefined): string => {
   if (period === "yearly") return "/año";
   if (period === "one_time") return "pago único";
   return "/mes";
 };
 
+/**
+ * Devuelve el nombre legible de un periodo de facturación.
+ *
+ * @param period Periodo técnico del servicio.
+ * @returns «anual», «mensual» o «pago único».
+ */
 export const getBillingPeriodName = (period: string | null | undefined): string => {
   if (period === "yearly") return "anual";
   if (period === "one_time") return "pago único";
   return "mensual";
 };
 
+/**
+ * Calcula el menor precio entre ofertas disponibles y comparables.
+ *
+ * @param product Producto cuyas ofertas se quieren evaluar.
+ * @returns El menor precio o `null` si no hay ofertas comparables.
+ */
 export const getMinPrice = (product: Product): number | null => {
   const validation = validateOfferComparison(product.offers);
 
@@ -186,11 +304,23 @@ export const getMinPrice = (product: Product): number | null => {
   return Math.min(...prices);
 };
 
+/**
+ * Selecciona la oferta más barata entre las más recientes de cada tienda.
+ *
+ * @param product Producto cuyas ofertas se quieren evaluar.
+ * @returns La mejor oferta comparable o `undefined` si no existe.
+ */
 export const getMinOffer = (product: Product) => {
-  const validation = validateOfferComparison(product.offers);
+  const validation = validateOfferComparison(keepLatestOfferPerStore(product.offers));
   if (!validation.currencyCompatible) return undefined;
   return [...validation.availableOffers].sort((a, b) => a.price! - b.price!)[0];
 };
 
+/**
+ * Cuenta cuántas ofertas del producto están disponibles.
+ *
+ * @param product Producto cuyas ofertas se quieren contar.
+ * @returns La cantidad de ofertas disponibles.
+ */
 export const getAvailableStoreCount = (product: Product): number =>
   product.offers.filter((offer) => offer.available).length;

@@ -8,10 +8,16 @@ import {
   formatPrice,
   formatPriceUpdate,
   getMinOffer,
+  keepLatestOfferPerStore,
   validateOfferComparison,
 } from "../../services/utils/productUtils";
 import { Breadcrumb, Skeleton } from "../../components/common/ui";
-import { areProductCategoriesCompatible } from "./productComparisonUtils";
+import {
+  areProductCategoriesCompatible,
+  compareBeneficialFeature,
+  getBeneficialFeatureLabel,
+  getBestSpecLabel,
+} from "./productComparisonUtils";
 import ComparisonAssistantCard from "./ComparisonAssistantCard";
 
 interface Props {
@@ -26,13 +32,21 @@ interface ComparedOffer {
   offer: StoreOffer;
 }
 
-type SpecCellState = "best" | "equal" | "default";
+type SpecCellState = "best" | "benefit" | "equal" | "default";
 
 interface SpecCellComparison {
   states: SpecCellState[];
   unitsNotComparable: boolean;
 }
 
+/**
+ * Selecciona la mejor oferta disponible de un producto para la matriz de comparación.
+ *
+ * @param product Producto cuyas ofertas se quieren ordenar.
+ * @param validOffers Ofertas con precio válido según la comparación global.
+ * @param currencyCompatible Indica si las monedas permiten ordenar por precio.
+ * @returns Una oferta representativa del producto o una lista vacía si no hay disponibles.
+ */
 const getAvailableOffers = (
   product: Product,
   validOffers: ReadonlySet<StoreOffer>,
@@ -81,6 +95,12 @@ const specificationGroups = [
   { title: "Otros", pattern: /.*/ },
 ];
 
+/**
+ * Agrupa las especificaciones comunes de los productos en secciones legibles.
+ *
+ * @param products Productos que se están comparando.
+ * @returns Los grupos con nombre y especificaciones asignadas, conservando el orden visual.
+ */
 const getSpecificationGroups = (products: Product[]) => {
   const names = [...new Set(products.flatMap((product) => Object.keys(product.specs)))].sort(
     (a, b) => a.localeCompare(b, "es"),
@@ -100,6 +120,12 @@ const getSpecificationGroups = (products: Product[]) => {
     .filter((group) => group.names.length > 0);
 };
 
+/**
+ * Normaliza un valor para comparar textos sin distinguir tildes o mayúsculas.
+ *
+ * @param value Texto que se quiere normalizar.
+ * @returns El texto en minúsculas, sin tildes ni espacios sobrantes.
+ */
 const normalizeComparableText = (value: string | undefined): string =>
   (value ?? "")
     .normalize("NFD")
@@ -107,6 +133,12 @@ const normalizeComparableText = (value: string | undefined): string =>
     .toLowerCase()
     .trim();
 
+/**
+ * Extrae el primer número de un valor para comparar magnitudes.
+ *
+ * @param value Texto que puede contener una cantidad y su unidad.
+ * @returns El número encontrado o `null` cuando no hay uno válido.
+ */
 const parseComparableNumber = (value: string | undefined): number | null => {
   const numericToken = normalizeComparableText(value).match(/[+-]?\d+(?:[.,]\d+)?/);
   if (!numericToken) return null;
@@ -115,6 +147,12 @@ const parseComparableNumber = (value: string | undefined): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+/**
+ * Obtiene una firma de unidad reemplazando las cantidades por un marcador común.
+ *
+ * @param value Texto que contiene cantidad y unidad.
+ * @returns La unidad normalizada para detectar comparaciones incompatibles.
+ */
 const getComparableUnit = (value: string): string =>
   normalizeComparableText(value)
     .replace(/[+-]?\d+(?:[.,]\d+)?/g, "#")
@@ -123,6 +161,12 @@ const getComparableUnit = (value: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
+/**
+ * Convierte una clase energética A–G y sus signos «+» en una puntuación ordenable.
+ *
+ * @param value Texto de la eficiencia energética.
+ * @returns Una puntuación donde un valor mayor es mejor, o `null` si no se reconoce.
+ */
 const getEnergyEfficiencyRank = (value: string | undefined): number | null => {
   const normalized = normalizeComparableText(value);
   const grade = normalized.match(/(?:^|[^a-z])(?:clase\s+)?([a-g])(\+{1,3})?(?=$|[^a-z])/);
@@ -132,11 +176,23 @@ const getEnergyEfficiencyRank = (value: string | undefined): number | null => {
   return baseRank + (grade[2]?.length ?? 0);
 };
 
+/**
+ * Comprueba si una especificación representa eficiencia energética.
+ *
+ * @param specName Nombre de la característica.
+ * @returns `true` cuando el valor debe interpretarse como clase energética.
+ */
 const isEnergyEfficiencySpec = (specName: string): boolean =>
   /(eficiencia|energy.*(?:efficiency|class|rating)|(?:clase|class|etiqueta).*energetic)/i.test(
     normalizeComparableText(specName),
   );
 
+/**
+ * Comprueba si una especificación mide consumo eléctrico.
+ *
+ * @param specName Nombre de la característica.
+ * @returns `true` cuando un valor menor representa un mejor consumo.
+ */
 const isEnergyConsumptionSpec = (specName: string): boolean => {
   const name = normalizeComparableText(specName);
   return /(consumo.*(energia|energetic|electric|kwh|kilowatt)|(?:energy|electricity|electrical).*(consumption|usage|use)|kwh)/i.test(
@@ -144,6 +200,12 @@ const isEnergyConsumptionSpec = (specName: string): boolean => {
   );
 };
 
+/**
+ * Decide si un valor numérico menor representa una mejor característica.
+ *
+ * @param specName Nombre de la característica.
+ * @returns `true` para consumo, dimensiones o ruido; `false` para capacidad y rendimiento.
+ */
 const isLowerBetterSpec = (specName: string): boolean => {
   const name = normalizeComparableText(specName);
   const higherIsBetter =
@@ -155,6 +217,13 @@ const isLowerBetterSpec = (specName: string): boolean => {
   );
 };
 
+/**
+ * Determina qué valores destacan al comparar una característica entre productos.
+ *
+ * @param specName Nombre de la característica.
+ * @param values Valor de cada producto; los datos faltantes se representan como `undefined`.
+ * @returns El estado visual por producto y si las unidades impiden comparar.
+ */
 const getSpecCellStates = (
   specName: string,
   values: Array<string | undefined>,
@@ -170,6 +239,14 @@ const getSpecCellStates = (
 
   if (populated.length === 0) {
     return { states: values.map(() => "default"), unitsNotComparable: false };
+  }
+
+  const beneficialFeature = compareBeneficialFeature(specName, values);
+  if (beneficialFeature) {
+    return {
+      states: values.map((_, index) => (beneficialFeature[index] ? "benefit" : "default")),
+      unitsNotComparable: false,
+    };
   }
 
   if (isEnergyEfficiencySpec(specName)) {
@@ -229,10 +306,18 @@ const getSpecCellStates = (
   };
 };
 
+/**
+ * Devuelve las clases visuales para un valor comparado.
+ *
+ * @param state Resultado de comparar la característica.
+ * @returns Clases de borde, fondo y texto compatibles con ambos temas.
+ */
 const getCellTone = (state: SpecCellState) => {
   switch (state) {
     case "best":
       return "border-prime/70 bg-prime-muted text-text shadow-[0_0_24px_rgba(209,168,90,0.16)] ring-1 ring-prime/30";
+    case "benefit":
+      return "border-success/50 bg-success/10 text-text ring-1 ring-success/20";
     case "equal":
       return "border-bd bg-surface-2 text-text";
     default:
@@ -240,6 +325,16 @@ const getCellTone = (state: SpecCellState) => {
   }
 };
 
+/**
+ * Carga y compara dos o más productos, destacando precios y características beneficiosas.
+ *
+ * @param productIds Identificadores de los productos seleccionados.
+ * @param navigate Callback para cambiar de página.
+ * @param cartProductIds Productos que ya están en el carrito.
+ * @param onAddToCart Callback para agregar una oferta al carrito.
+ * @param onRemoveProduct Callback para quitar un producto de la comparación.
+ * @returns La matriz de comparación con beneficios y advertencias por característica.
+ */
 export default function ProductComparisonPage({
   productIds,
   navigate,
@@ -257,6 +352,13 @@ export default function ProductComparisonPage({
   const [addingProductIds, setAddingProductIds] = useState<Set<string>>(() => new Set());
   const addingProductIdsRef = useRef(new Set<string>());
 
+  /**
+   * Agrega un producto al carrito evitando solicitudes duplicadas.
+   *
+   * @param product Producto que se quiere agregar.
+   * @param offer Oferta disponible seleccionada para ese producto.
+   * @returns Una promesa que termina al finalizar el callback de carrito.
+   */
   const addProductToCart = async (product: Product, offer: StoreOffer) => {
     if (cartProductIds.has(product.id) || addingProductIdsRef.current.has(product.id)) return;
     addingProductIdsRef.current.add(product.id);
@@ -276,6 +378,11 @@ export default function ProductComparisonPage({
   useEffect(() => {
     let cancelled = false;
 
+    /**
+     * Carga los productos, su matriz de atributos y las fechas de verificación de ofertas.
+     *
+     * @returns Una promesa que actualiza el estado local cuando termina la carga.
+     */
     async function loadProducts() {
       if (productIds.length < 2) {
         setSelected([]);
@@ -328,10 +435,12 @@ export default function ProductComparisonPage({
 
           return {
             ...product,
-            offers: product.offers.map((offer) => {
-              const lastUpdated = updatesByOfferId.get(offer.offerId);
-              return lastUpdated === undefined ? offer : { ...offer, lastUpdated };
-            }),
+            offers: keepLatestOfferPerStore(
+              product.offers.map((offer) => {
+                const lastUpdated = updatesByOfferId.get(offer.offerId);
+                return lastUpdated === undefined ? offer : { ...offer, lastUpdated };
+              }),
+            ),
           };
         });
         setSelected(validWithOfferUpdates);
@@ -375,7 +484,7 @@ export default function ProductComparisonPage({
   if (error) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <p className="mb-4 text-rose-300">{error}</p>
+        <p className="mb-4 text-danger">{error}</p>
         <button
           onClick={() => setLoadAttempt((attempt) => attempt + 1)}
           style={{ background: "linear-gradient(135deg, #ff9878 0%, #fb7185 100%)", color: "#fff" }}
@@ -390,7 +499,7 @@ export default function ProductComparisonPage({
   if (selected.length < 2) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <p className="mb-4 text-slate-300" role={hasMissingProducts ? "alert" : undefined}>
+        <p className="mb-4 text-muted" role={hasMissingProducts ? "alert" : undefined}>
           {hasMissingProducts
             ? "Uno o más productos seleccionados no existen o ya no están disponibles. Busca y selecciona otros productos."
             : "Selecciona al menos 2 productos para comparar."}
@@ -420,7 +529,7 @@ export default function ProductComparisonPage({
   if (incompatibleProduct) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-20 text-center">
-        <p role="alert" className="mb-4 text-amber-300">
+        <p role="alert" className="mb-4 text-warn">
           No se pueden comparar productos de categorías diferentes: {baseCategory} y{" "}
           {incompatibleProduct.category}.
         </p>
@@ -464,15 +573,19 @@ export default function ProductComparisonPage({
 
       <h1 className="mb-2 text-2xl font-bold text-text">Comparación de productos</h1>
       <p className="mb-8 text-sm text-muted">Comparando {selected.length} productos</p>
-      <div className="rounded-[28px] border border-bd bg-surface p-3 shadow-[0_24px_70px_rgba(0,0,0,0.4)] backdrop-blur-sm sm:p-5">
-        <p className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-950/45 px-3 py-2 text-[11px] text-slate-200">
+      <div className="rounded-[28px] border border-bd bg-surface p-3 shadow-[0_24px_70px_rgba(0,0,0,0.16)] backdrop-blur-sm sm:p-5">
+        <p className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-[11px] text-muted">
           <span className="inline-flex items-center gap-1 rounded-full border border-prime/50 bg-prime px-2 py-1 font-extrabold text-[#181714]">
             ✦ Mejor
           </span>
-          El resaltado dorado identifica el mejor valor comparable en cada característica.
+          <span className="inline-flex rounded-full border border-success/50 bg-success/10 px-2 py-1 font-semibold text-success">
+            Beneficio
+          </span>
+          El dorado identifica el mejor valor comparable; el verde resalta funciones beneficiosas
+          incluidas.
         </p>
         {!offerComparison.canCompare && (
-          <p role="status" className="mb-4 text-sm text-amber-200">
+          <p role="status" className="mb-4 text-sm text-warn">
             {offerComparison.hasMixedCurrencies
               ? "Monedas distintas: los precios no son comparables."
               : !offerComparison.currencyCompatible && offerComparison.validPriceOffers.length > 0
@@ -513,7 +626,7 @@ export default function ProductComparisonPage({
                           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-prime">
                             {product.brand}
                           </div>
-                          <div className="mt-1 max-w-[180px] text-sm font-semibold leading-tight text-slate-100">
+                          <div className="mt-1 max-w-[180px] text-sm font-semibold leading-tight text-text">
                             {product.name}
                           </div>
                         </div>
@@ -533,9 +646,9 @@ export default function ProductComparisonPage({
                           aria-disabled={offerInCart || offerIsAdding}
                           className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold shadow-md transition ${
                             offerInCart
-                              ? "bg-emerald-700 text-emerald-100 shadow-emerald-950/30"
+                              ? "border border-success/50 bg-success/15 text-success shadow-success/10"
                               : offerIsAdding
-                                ? "bg-emerald-800 text-emerald-100 shadow-emerald-950/30"
+                                ? "border border-success/50 bg-success/15 text-success shadow-success/10"
                                 : "bg-prime text-[#181714] shadow-black/15 hover:bg-prime-dark"
                           } disabled:cursor-not-allowed disabled:opacity-40`}
                         >
@@ -555,7 +668,7 @@ export default function ProductComparisonPage({
                             );
                             onRemoveProduct(product.id, product.category);
                           }}
-                          className="rounded-lg border border-rose-300/40 bg-rose-950/40 px-3 py-1.5 text-[11px] font-semibold text-rose-200 transition hover:border-rose-200 hover:bg-rose-900/60 hover:text-white"
+                          className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-1.5 text-[11px] font-semibold text-danger transition hover:border-danger hover:bg-danger/20"
                         >
                           Quitar producto
                         </button>
@@ -640,7 +753,7 @@ export default function ProductComparisonPage({
                       >
                         ★ {product.rating.toFixed(1)}
                       </span>
-                      <div className="text-xs text-slate-300">
+                      <div className="text-xs text-muted">
                         ({product.reviewCount.toLocaleString("es-CL")})
                       </div>
                       {isBestRating && (
@@ -678,7 +791,7 @@ export default function ProductComparisonPage({
                         >
                           {name}
                           {comparison.unitsNotComparable && (
-                            <span className="mt-1 block normal-case tracking-normal text-amber-300">
+                            <span className="mt-1 block normal-case tracking-normal text-warn">
                               Unidades no comparables
                             </span>
                           )}
@@ -703,7 +816,12 @@ export default function ProductComparisonPage({
                                 </span>
                                 {state === "best" && (
                                   <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-prime/70 bg-prime px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-[#181714]">
-                                    ✦ Mejor
+                                    ✦ {getBestSpecLabel(name)}
+                                  </span>
+                                )}
+                                {state === "benefit" && (
+                                  <span className="mt-1.5 inline-flex rounded-full border border-success/50 bg-success/10 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-success">
+                                    {getBeneficialFeatureLabel(name)}
                                   </span>
                                 )}
                               </div>
@@ -726,36 +844,63 @@ export default function ProductComparisonPage({
                       Atributos comparables de {selected[0].category}
                     </th>
                   </tr>
-                  {attributeRows.map((attribute) => (
-                    <tr key={attribute.key}>
-                      <th
-                        scope="row"
-                        className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-text"
-                      >
-                        {attribute.label}
-                        {attribute.unit ? ` (${attribute.unit})` : ""}
-                      </th>
-                      {selected.map((product, index) => {
-                        const value = attribute.values[index];
-                        const displayValue =
-                          value === null || value === undefined
-                            ? "No informado"
-                            : typeof value === "boolean"
-                              ? value
-                                ? "Sí"
-                                : "No"
-                              : String(value);
-                        return (
-                          <td
-                            key={`${product.id}-${attribute.key}`}
-                            className={`rounded-xl border p-3 text-center ${getCellTone(attribute.differs ? "default" : "equal")}`}
-                          >
-                            {displayValue}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                  {attributeRows.map((attribute) => {
+                    const values = attribute.values.map((value) =>
+                      value === null || value === undefined ? undefined : String(value),
+                    );
+                    const comparison = getSpecCellStates(attribute.label, values);
+
+                    return (
+                      <tr key={attribute.key}>
+                        <th
+                          scope="row"
+                          className="rounded-xl border border-bd bg-surface-2 p-4 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-text"
+                        >
+                          {attribute.label}
+                          {attribute.unit ? ` (${attribute.unit})` : ""}
+                          {comparison.unitsNotComparable && (
+                            <span className="mt-1 block normal-case tracking-normal text-warn">
+                              Unidades no comparables
+                            </span>
+                          )}
+                        </th>
+                        {selected.map((product, index) => {
+                          const value = attribute.values[index];
+                          const displayValue =
+                            value === null || value === undefined
+                              ? "No informado"
+                              : typeof value === "boolean"
+                                ? value
+                                  ? "Sí"
+                                  : "No"
+                                : String(value);
+                          const state =
+                            comparison.states[index] ?? (attribute.differs ? "default" : "equal");
+
+                          return (
+                            <td
+                              key={`${product.id}-${attribute.key}`}
+                              className={`rounded-xl border p-3 text-center ${getCellTone(state)}`}
+                            >
+                              <span className="block text-sm font-bold leading-snug">
+                                {displayValue}
+                              </span>
+                              {state === "best" && (
+                                <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-prime/70 bg-prime px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-[#181714]">
+                                  ✦ {getBestSpecLabel(attribute.label)}
+                                </span>
+                              )}
+                              {state === "benefit" && (
+                                <span className="mt-1.5 inline-flex rounded-full border border-success/50 bg-success/10 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-success">
+                                  {getBeneficialFeatureLabel(attribute.label)}
+                                </span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </>
               )}
             </tbody>

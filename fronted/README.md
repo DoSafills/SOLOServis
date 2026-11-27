@@ -1,9 +1,9 @@
 # SOLOServis Frontend
 
-Aplicación web de SOLOServis para explorar, comparar y administrar productos,
-servicios y tiendas. Está construida con React 19, TypeScript 5.9, Vite 8,
-Tailwind CSS 4 y Recharts. Consume las APIs REST del proyecto y no accede
-directamente a PostgreSQL.
+Aplicación web de SOLOServis para explorar y comparar productos, servicios y
+tiendas, además de gestionar la cuenta, favoritos, historial y carrito. Está
+construida con React 19, TypeScript 5.9, Vite 8, Tailwind CSS 4 y Recharts.
+Consume las APIs REST del proyecto y no accede directamente a PostgreSQL.
 
 ## Requisitos
 
@@ -31,6 +31,10 @@ pnpm build
 pnpm preview
 ```
 
+`pnpm preview` solo sirve el build y no incluye el proxy de APIs de `pnpm dev`.
+Para probar producción con datos, usa el gateway del proyecto o configura las
+URLs `VITE_*` y el CORS correspondiente.
+
 ## Arquitectura
 
 La aplicación usa una composición central en `src/App.tsx`, navegación basada en
@@ -48,6 +52,8 @@ compartidos en `src/types.ts` y clientes HTTP en `src/services/api/`.
 - `src/services/pageRouting.ts` serializa y restaura vistas en la URL o mediante
   `history.state`.
 - `src/hooks/` contiene persistencia auxiliar con `sessionStorage`.
+- `vite.config.ts` también conserva la integración de Figma Make; la
+  configuración pública del sitio está en `.figma/make/site.json`.
 
 El alias `@` apunta a `src/`, definido en `vite.config.ts`.
 
@@ -61,6 +67,7 @@ proxy de Vite:
 | `/products`, `/product-categories`, `/categories` |         8081 |
 | `/stores`                                         |         8082 |
 | `/services`                                       |         8083 |
+| `/users`                                          |         8084 |
 | `/search`                                         |         8086 |
 | `/comparisons`                                    |         8087 |
 | `/auth`                                           |         8088 |
@@ -95,8 +102,10 @@ proxy de Vite:
 - Acciones para marcar favoritos, agregar al carrito o seleccionar para
   comparar.
 - Comparación de hasta tres productos de categorías iguales o compatibles.
-  Presenta las especificaciones en paralelo y permite abrir la comparación de
-  ofertas de un producto.
+  Presenta las especificaciones en paralelo, resalta las características más
+  beneficiosas y permite abrir la comparación de ofertas de un producto.
+- Si una tienda tiene varias ofertas del mismo producto, solo se muestra la más
+  reciente según `lastUpdated`.
 
 ### Comparación de ofertas
 
@@ -109,6 +118,9 @@ proxy de Vite:
   oferta por total.
 - No convierte monedas ni unidades de presentación. Las unidades no
   comparables se indican en la comparación de productos.
+- Muestra garantía, disponibilidad y ventajas relevantes de cada oferta.
+- La vista se restaura desde `sessionStorage`; por ahora no es portable a otra
+  pestaña y dos comparaciones del mismo producto se sobrescriben.
 
 ### Servicios
 
@@ -117,6 +129,9 @@ proxy de Vite:
   ordenamiento y paginación.
 - Página de detalle con información del proveedor, precio y periodo de cobro,
   especificaciones, beneficios, cobertura e historial de precios.
+- Botón «Ver en la tienda» sobre «Agregar al carrito» cuando `Service.url` es
+  una URL HTTP o HTTPS válida. Abre el sitio externo en una pestaña nueva con
+  `rel="noopener noreferrer"`; si no hay URL válida, el botón se omite.
 - Favoritos, selección para comparar y agregado al carrito.
 - Comparación de hasta tres servicios de categorías iguales o compatibles.
 
@@ -135,8 +150,12 @@ proxy de Vite:
 - Perfil, favoritos e historial de búsquedas de productos y servicios.
 - Los favoritos y el historial requieren una sesión autenticada y se cargan
   desde el backend.
-- Si una sesión expira, la aplicación la restaura o actualiza cuando es posible;
-  los errores de conexión o persistencia se informan en la interfaz.
+- El access token se mantiene en memoria y el refresh token en una cookie
+  `httpOnly`; ninguno se guarda en `localStorage`.
+- Al cargar la página se intenta restaurar la sesión con `POST /auth/refresh`.
+  Si una API responde 401, se refresca la sesión y se repite la petición una vez.
+- Los errores de conexión o persistencia se informan en la interfaz. Para
+  probar la persistencia desde una IP de LAN se requiere HTTPS local.
 
 ### Carrito
 
@@ -155,7 +174,7 @@ proxy de Vite:
 - La navegación usa `history.pushState` y `popstate`; los parámetros de página
   permiten compartir o restaurar vistas compatibles.
 - Se utiliza `localStorage` para preferencias (tema y tamaño de página),
-  selecciones de comparación, sesión y carrito de invitado.
+  selecciones de comparación y carrito de invitado. La sesión no se guarda ahí.
 - Los filtros de búsqueda se guardan en `sessionStorage` por contexto de
   búsqueda y se validan al restaurarse.
 - Los datos recibidos se convierten a los tipos usados por la interfaz. Los
@@ -175,6 +194,7 @@ por el proxy de desarrollo o por el enrutamiento del entorno desplegado.
 | `VITE_PRODUCTS_API_URL`   | `VITE_PRODUCT_API_URL` | Productos y categorías |
 | `VITE_STORES_API_URL`     | `VITE_STORE_API_URL`   | Tiendas                |
 | `VITE_SERVICES_API_URL`   | `VITE_SERVICE_API_URL` | Servicios              |
+| `VITE_USERS_API_URL`      | —                      | Perfil y avatar        |
 | `VITE_SEARCH_API_URL`     | —                      | Búsqueda e historial   |
 | `VITE_AUTH_API_URL`       | —                      | Autenticación          |
 | `VITE_FAVORITES_API_URL`  | —                      | Favoritos              |
@@ -183,7 +203,9 @@ por el proxy de desarrollo o por el enrutamiento del entorno desplegado.
 
 El módulo `src/services/api/` concentra las solicitudes HTTP y la adaptación de
 respuestas al modelo del frontend. En producción, configura el proxy del
-servidor web para dirigir cada prefijo a la API correspondiente.
+servidor web para dirigir cada prefijo a la API correspondiente. Los valores
+`VITE_*` quedan incluidos en el bundle del navegador: solo deben contener URLs
+públicas, nunca tokens ni contraseñas.
 
 ## Estructura del código
 
@@ -217,16 +239,34 @@ No hay una suite de pruebas automatizadas del frontend configurada actualmente.
 
 Estado de la revisión realizada:
 
-- `pnpm lint`: pasa.
-- `pnpm format:check`: pasa.
-- `pnpm build`: pasa.
+- `pnpm check`: pasa, incluyendo formato, lint, build y auditoría sin
+  vulnerabilidades.
+- `pnpm exec tsc -b`: falla con dos errores preexistentes en
+  `ProductCategoriesPage.tsx:358` (`count` sobre un tipo `never`) y
+  `SearchResultsPage.tsx:595` (`value` puede ser `null`).
 - El build muestra una advertencia por el uso de `__dirname` y una importación
   JSON sin atributos en `vite.config.ts`; no impide compilar con la
   configuración actual.
 - El bundle principal supera el umbral visual de advertencia de 500 kB de Vite.
   Es una advertencia de tamaño, no un error de compilación.
 
+## Pendientes detectados en la revisión
+
+- La paginación de `src/components/common/ui.tsx` solo genera las páginas 1–7.
+- La fusión del carrito invitado con la cuenta puede perder cantidades.
+- `getServices()` devuelve el JSON crudo sin aplicar el adaptador disponible.
+- `resetFilters` puede conservar filtros previos al abrir una búsqueda desde el
+  catálogo.
+- Si logout falla por red, la sesión puede restaurarse al recargar.
+- Algunas escrituras a `localStorage` no están protegidas contra cuota llena o
+  almacenamiento bloqueado.
+- Las tarjetas y los diálogos móviles tienen pendientes de accesibilidad por
+  teclado y gestión de foco.
+- El pie muestra la marca «compareya» y varios botones no tienen acción.
+
 ## Alcance no implementado
 
 Aunque existen APIs relacionadas, este frontend todavía no incluye pantallas
-para seguimiento de precios (watchlist) ni notificaciones.
+para seguimiento de precios (watchlist) ni notificaciones. Existen
+`src/services/api/product-write.ts` y `DynamicProductForm`, pero no hay una ruta
+de administración conectada.

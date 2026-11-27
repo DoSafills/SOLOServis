@@ -18,6 +18,7 @@ type ServiceDetail struct {
 	Benefits         []string          `json:"benefits"`
 	Coverage         string            `json:"coverage"`
 	Image            string            `json:"image"`
+	URL              string            `json:"url"`
 	PriceHistory     []PricePoint      `json:"priceHistory"`
 }
 

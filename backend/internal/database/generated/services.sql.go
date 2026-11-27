@@ -88,7 +88,7 @@ SELECT
     so.available,
     so.coverage_summary,
     so.additional_costs_summary,
-    so.service_url,
+    CAST(COALESCE(NULLIF(so.service_url, ''), NULLIF(p.website_url, ''), '') AS TEXT) AS service_url,
     so.last_updated
 FROM service_offer so
 JOIN provider p
@@ -112,7 +112,7 @@ type ListServiceOffersRow struct {
 	Available              bool             `json:"available"`
 	CoverageSummary        pgtype.Text      `json:"coverage_summary"`
 	AdditionalCostsSummary pgtype.Text      `json:"additional_costs_summary"`
-	ServiceUrl             pgtype.Text      `json:"service_url"`
+	ServiceUrl             string           `json:"service_url"`
 	LastUpdated            pgtype.Timestamp `json:"last_updated"`
 }
 

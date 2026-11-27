@@ -72,7 +72,7 @@ SELECT
     so.available,
     so.coverage_summary,
     so.additional_costs_summary,
-    so.service_url,
+    CAST(COALESCE(NULLIF(so.service_url, ''), NULLIF(p.website_url, ''), '') AS TEXT) AS service_url,
     so.last_updated
 FROM service_offer so
 JOIN provider p

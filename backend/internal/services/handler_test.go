@@ -133,10 +133,17 @@ func TestList_VacioDevuelveArreglo(t *testing.T) {
 	}
 }
 
+// TestGetByPublicID_Feliz comprueba que el detalle entregue la URL de la oferta
+// seleccionada junto con los datos básicos del servicio.
 func TestGetByPublicID_Feliz(t *testing.T) {
 	store := &fakeStore{
 		service: generated.GetServiceByPublicIDRow{ID: 7, PublicID: uuidOf(t, testServiceID), Name: "Fibra 600", CategoryName: "Internet"},
-		offers:  []generated.ListServiceOffersRow{{ID: 3, ServiceID: 7, ProviderName: "Movistar"}},
+		offers: []generated.ListServiceOffersRow{{
+			ID:           3,
+			ServiceID:    7,
+			ProviderName: "Movistar",
+			ServiceUrl:   "https://example.com/fibra-600",
+		}},
 	}
 	rec, _ := serve(t, store, "/services/"+testServiceID)
 	requireStatus(t, rec, http.StatusOK)
@@ -149,6 +156,9 @@ func TestGetByPublicID_Feliz(t *testing.T) {
 	}
 	if body.ID != testServiceID || body.Name != "Fibra 600" || body.OfferID != 3 {
 		t.Fatalf("body = %+v", body)
+	}
+	if body.URL != "https://example.com/fibra-600" {
+		t.Fatalf("url = %q", body.URL)
 	}
 }
 
